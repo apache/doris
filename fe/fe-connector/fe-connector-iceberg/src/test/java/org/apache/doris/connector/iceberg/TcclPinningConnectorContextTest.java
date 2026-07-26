@@ -137,10 +137,12 @@ public class TcclPinningConnectorContextTest {
 
         // This was the actual gap: the decorator had no getFileSystem pass-through, so the call fell to
         // the SPI default and the connector got null instead of the engine's per-catalog filesystem. It
-        // compiles either way and nothing today calls it, which is precisely why it went unnoticed - and
-        // why the first connector to reach for the engine filesystem would have debugged an NPE, or (if it
-        // copied hive's null check) a message blaming the catalog's storage properties, which are fine.
-        Assertions.assertSame(delegate.engineFileSystem, ctx.getFileSystem(null),
+        // compiles either way, which is precisely why it went unnoticed - and why the first connector to
+        // reach for the engine filesystem would have debugged an NPE, or (if it copied hive's null check) a
+        // message blaming the catalog's storage properties, which are fine. Storage now reaches the
+        // connector through the single getStorageContext() forward, so this asserts that ONE forward: lose
+        // it and every storage service degrades at once, exactly as getFileSystem alone used to.
+        Assertions.assertSame(delegate.engineFileSystem, ctx.getStorageContext().getFileSystem(null),
                 "getFileSystem must reach the wrapped engine context, not the SPI default (null)");
     }
 

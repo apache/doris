@@ -68,6 +68,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -948,7 +949,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // calls are cheap.)
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
                     (location, values) -> sumCachedFileSizes(
-                            hiveHandle, location, values, context.getFileSystem(session)));
+                            hiveHandle, location, values, storage().getFileSystem(session)));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -980,7 +981,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            FileSystem fs = context.getFileSystem(session);
+            FileSystem fs = storage().getFileSystem(session);
             List<Long> sizes = new ArrayList<>();
             for (PartitionRef ref : resolvePartitionRefs(hiveHandle)) {
                 for (HiveFileStatus file : fileListingCache.listDataFiles(
@@ -2520,5 +2521,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
         }
         return true;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

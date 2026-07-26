@@ -166,6 +166,38 @@ public class ForwardingConnectorContextTest {
     }
 
     @Test
+    public void storageContextComesFromTheWrappedContext() {
+        // Storage services reach the connector through a single forward, so a decorator can no longer lose one
+        // of them however many are added. What it CAN still lose is this one getter -- and losing it is the
+        // silent-downgrade failure the base class exists to prevent: the connector would get NOOP (no
+        // filesystem, no credentials, no normalization) and read that as "this catalog has no storage".
+        // MUTATION: deleting the getStorageContext() forward from the base class -> red here and in
+        // everyContextMethodReachesTheWrappedContext, which names the missing method.
+        ConnectorStorageContext engineStorage = new ConnectorStorageContext() {
+        };
+        ConnectorContext wrapped = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "engine_catalog";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 42L;
+            }
+
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                return engineStorage;
+            }
+        };
+        ConnectorContext forwarding = new ForwardingConnectorContext(wrapped) {
+        };
+        Assertions.assertSame(engineStorage, forwarding.getStorageContext(),
+                "a decorator must hand the connector the ENGINE's storage context, not the NOOP default");
+    }
+
+    @Test
     public void nullDelegateRejected() {
         Assertions.assertThrows(NullPointerException.class, () -> new ForwardingConnectorContext(null) {
         });

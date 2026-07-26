@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
 /**
- * Tests the engine-side empty-directory pruning that backs {@link ConnectorContext#cleanupEmptyManagedLocation}
+ * Tests the engine-side empty-directory pruning that backs {@link ConnectorStorageContext#cleanupEmptyManagedLocation}
  * (ported into {@link DefaultConnectorContext} from legacy {@code IcebergMetadataOps}). Uses the reusable
  * {@link MemoryFileSystem} fake — no live storage. Verifies the conservative contract: a directory is removed
  * only when it (transitively) contains no files; the table path descends the engine-format child dirs first.

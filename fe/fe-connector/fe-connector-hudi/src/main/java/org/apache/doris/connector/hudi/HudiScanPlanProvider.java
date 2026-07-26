@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
@@ -342,7 +343,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         //      403s (the raw catalog aliases s3.access_key/... are useless to it). Sourced from the context's
         //      single normalization hook. Empty for no context (offline tests) or a credential-less warehouse.
         if (context != null) {
-            context.getBackendStorageProperties()
+            storage().getBackendStorageProperties()
                     .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         //  (1b) Hadoop-canonical object-store config (fs.s3a.* / fs.oss.* / resolved hadoop.*/dfs.*) TRANSLATED
@@ -428,7 +429,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Normalizes a raw HMS/Hudi-SDK storage URI into BE's canonical scheme for the NATIVE reader's range path
      * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
-     * {@link ConnectorContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@link ConnectorStorageContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
      * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
      * {@code s3a://} range path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon
      * {@code normalizeUri}. Applied ONLY to the native range {@code .path()}; the JNI reader's
@@ -436,7 +437,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * wants the {@code s3a} scheme). A null context (offline unit tests) preserves the raw URI.
      */
     private String normalizeNativeUri(String rawUri) {
-        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+        return context != null ? storage().normalizeStorageUri(rawUri) : rawUri;
     }
 
     /**
@@ -995,9 +996,14 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     static Map<String, String> storageHadoopConfig(ConnectorContext context) {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
-            context.getStorageProperties().forEach(sp ->
+            context.getStorageContext().getStorageProperties().forEach(sp ->
                     sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap())));
         }
         return merged;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

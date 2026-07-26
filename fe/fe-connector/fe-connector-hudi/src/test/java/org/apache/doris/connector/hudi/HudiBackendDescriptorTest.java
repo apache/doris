@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
@@ -133,6 +134,12 @@ public class HudiBackendDescriptorTest {
     }
 
     private static ConnectorContext contextWithBackendProps(Map<String, String> backendProps) {
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
+            @Override
+            public Map<String, String> getBackendStorageProperties() {
+                return backendProps;
+            }
+        };
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -145,8 +152,8 @@ public class HudiBackendDescriptorTest {
             }
 
             @Override
-            public Map<String, String> getBackendStorageProperties() {
-                return backendProps;
+            public ConnectorStorageContext getStorageContext() {
+                return storage;
             }
         };
     }
@@ -184,6 +191,12 @@ public class HudiBackendDescriptorTest {
                 return Optional.of(() -> hadoopConf);
             }
         };
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return Collections.singletonList(sp);
+            }
+        };
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -196,8 +209,8 @@ public class HudiBackendDescriptorTest {
             }
 
             @Override
-            public List<StorageProperties> getStorageProperties() {
-                return Collections.singletonList(sp);
+            public ConnectorStorageContext getStorageContext() {
+                return storage;
             }
         };
     }

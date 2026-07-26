@@ -35,6 +35,7 @@ import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
@@ -440,14 +441,14 @@ public class IcebergConnector implements Connector {
      * or the catalog has no static storage credentials to send — e.g. a REST catalog with vended ones).
      */
     ConnectorTestResult probeStorageFromBackend(String location) {
-        Map<String, String> backendProps = new HashMap<>(context.getBackendStorageProperties());
+        Map<String, String> backendProps = new HashMap<>(storage().getBackendStorageProperties());
         if (backendProps.isEmpty()) {
             return null;
         }
         // BE reads the bucket out of this key and dereferences it unconditionally — never omit it.
         backendProps.put(BE_TEST_LOCATION, location);
         try {
-            context.testBackendStorageConnectivity(TStorageBackendType.S3.getValue(), backendProps);
+            storage().testBackendStorageConnectivity(TStorageBackendType.S3.getValue(), backendProps);
             return null;
         } catch (Exception e) {
             LOG.warn("Iceberg storage connectivity test failed on the compute node for catalog '{}'",
@@ -896,7 +897,7 @@ public class IcebergConnector implements Connector {
         }
 
         Optional<S3CompatibleFileSystemProperties> chosenS3 =
-                IcebergCatalogFactory.chooseS3Compatible(context.getStorageProperties());
+                IcebergCatalogFactory.chooseS3Compatible(storage().getStorageProperties());
         String catalogName = IcebergCatalogFactory.resolveCatalogName(properties, flavor, context.getCatalogName());
 
         // s3tables is bespoke: it is NOT built via CatalogUtil.buildIcebergCatalog. Legacy
@@ -1202,7 +1203,7 @@ public class IcebergConnector implements Connector {
      */
     private Map<String, String> buildStorageHadoopConfig() {
         Map<String, String> merged = new HashMap<>();
-        for (StorageProperties sp : context.getStorageProperties()) {
+        for (StorageProperties sp : storage().getStorageProperties()) {
             sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
         }
         return merged;
@@ -1509,5 +1510,10 @@ public class IcebergConnector implements Connector {
             restSessionCatalog = null;
             sessionCatalogAdapter = null;
         }
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

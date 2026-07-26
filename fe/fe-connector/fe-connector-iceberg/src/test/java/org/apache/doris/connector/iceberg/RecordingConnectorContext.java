@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
@@ -43,7 +44,15 @@ import java.util.function.UnaryOperator;
  * {@link #executeAuthenticated} throws WITHOUT invoking the task, which proves the seam call sits INSIDE
  * the authenticator.
  */
-final class RecordingConnectorContext implements ConnectorContext {
+final class RecordingConnectorContext implements ConnectorContext, ConnectorStorageContext {
+
+    // Storage services moved onto ConnectorStorageContext; this double implements both halves and hands
+    // itself back, so its overrides below are the ones the connector reaches. Forgetting this getter would
+    // silently give the connector NOOP and make those overrides dead code.
+    @Override
+    public ConnectorStorageContext getStorageContext() {
+        return this;
+    }
 
     int authCount;
     boolean failAuth;

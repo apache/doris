@@ -46,6 +46,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -939,7 +940,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Cleanup runs OUTSIDE the iceberg auth scope: it is engine-side (its own storage creds) and
         // best-effort (failures are swallowed by the engine), so it must never fail the completed drop.
         namespaceLocation.ifPresent(location ->
-                context.cleanupEmptyManagedLocation(location, Collections.emptyList()));
+                storage().cleanupEmptyManagedLocation(location, Collections.emptyList()));
     }
 
     /**
@@ -1088,7 +1089,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
         }
         tableLocation.ifPresent(location ->
-                context.cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
+                storage().cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
     }
 
     /**
@@ -2212,5 +2213,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
         }
         return formatVersion;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

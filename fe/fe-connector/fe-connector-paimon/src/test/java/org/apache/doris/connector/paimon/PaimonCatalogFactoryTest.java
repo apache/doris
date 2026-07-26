@@ -49,7 +49,7 @@ import java.util.Optional;
  * <p>P1-T03: the canonical object-store translation ({@code s3.*}/{@code oss.*}/... -&gt; {@code fs.s3a.*})
  * moved OUT of this factory to fe-filesystem; the builders now receive it pre-computed as a
  * {@code storageHadoopConfig} map (what {@code PaimonConnector} assembles from
- * {@code ConnectorContext.getStorageProperties().toHadoopConfigurationMap()}). These tests therefore
+ * {@code ConnectorStorageContext.getStorageProperties().toHadoopConfigurationMap()}). These tests therefore
  * pin the connector-LOCAL contract — storage-map overlay, {@code paimon.*} re-key, raw
  * {@code fs./dfs./hadoop.} passthrough, last-write-wins, kerberos-after-storage — NOT the canonical
  * translation, which is owned and tested by fe-filesystem's {@code *FileSystemPropertiesTest}. The
@@ -210,7 +210,7 @@ public class PaimonCatalogFactoryTest {
     // ---------------------------------------------------------------------
     // buildHadoopConfiguration — storage-config overlay + paimon.* re-key + raw passthrough
     // (P1-T03: the canonical object-store translation now arrives pre-computed in storageHadoopConfig
-    //  from ConnectorContext.getStorageProperties(); the connector-local overlay/last-write-wins stays)
+    //  from ConnectorStorageContext.getStorageProperties(); the connector-local overlay/last-write-wins stays)
     // ---------------------------------------------------------------------
 
     @Test
@@ -254,7 +254,7 @@ public class PaimonCatalogFactoryTest {
                         "fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem"));
 
         // WHY (P1-T03): the canonical object-store config (fs.s3a.* etc.) now arrives PRE-COMPUTED in
-        // storageHadoopConfig — assembled by PaimonConnector from ConnectorContext.getStorageProperties()
+        // storageHadoopConfig — assembled by PaimonConnector from ConnectorStorageContext.getStorageProperties()
         // via fe-filesystem's toHadoopConfigurationMap() — and the connector overlays it verbatim. Before
         // P1-T03 the connector recomputed it from props via the legacy buildObjectStorageHadoopConfig.
         // MUTATION: not applying storageHadoopConfig (fs.s3a.access.key null) -> red.
@@ -295,7 +295,7 @@ public class PaimonCatalogFactoryTest {
     public void buildStorageHadoopConfigFoldsInHdfsHadoopMap() {
         // C2 end-to-end seam: a storage property exposing a Hadoop-config key that is NOT a raw catalog
         // prop (so it cannot ride the connector's fs./dfs./hadoop. passthrough) must reach the FE catalog
-        // Configuration via ctx.getStorageProperties().toHadoopProperties() -> buildStorageHadoopConfig ->
+        // Configuration via getStorageProperties().toHadoopProperties() -> buildStorageHadoopConfig ->
         // buildHadoopConfiguration. This is exactly the leg the HDFS C2 fix relies on: after the fix
         // HdfsFileSystemProperties.toHadoopProperties() is non-empty and carries its hadoop.config.resources
         // XML keys. MUTATION: dropping the toHadoopProperties() merge in buildStorageHadoopConfig -> red.

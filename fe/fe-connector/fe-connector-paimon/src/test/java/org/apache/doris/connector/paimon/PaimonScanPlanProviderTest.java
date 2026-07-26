@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -329,7 +330,7 @@ public class PaimonScanPlanProviderTest {
         // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
         // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
         // path silently drops the deletion vector so DELETEd rows reappear (merge-on-read corruption).
-        // BOTH must route through ConnectorContext.normalizeStorageUri (legacy PaimonScanNode normalizes
+        // BOTH must route through ConnectorStorageContext.normalizeStorageUri (legacy PaimonScanNode normalizes
         // both via the 2-arg LocationPath.of). MUTATION: dropping normalizeUri on either site -> that
         // path stays oss:// -> red.
         Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet",
@@ -1569,6 +1570,19 @@ public class PaimonScanPlanProviderTest {
      * DefaultConnectorContextVendTest; here we pin the connector wiring (static creds sourced from
      * toBackendProperties().toMap(), overlay order, and that the raw catalog aliases are NOT shipped). */
     private static ConnectorContext scanContext(Map<String, String> backendStatic, Map<String, String> vended) {
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return backendStatic.isEmpty()
+                        ? Collections.emptyList()
+                        : Collections.singletonList(fakeBackendStorage(backendStatic));
+            }
+
+            @Override
+            public Map<String, String> vendStorageCredentials(Map<String, String> raw) {
+                return vended;
+            }
+        };
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -1581,15 +1595,8 @@ public class PaimonScanPlanProviderTest {
             }
 
             @Override
-            public List<StorageProperties> getStorageProperties() {
-                return backendStatic.isEmpty()
-                        ? Collections.emptyList()
-                        : Collections.singletonList(fakeBackendStorage(backendStatic));
-            }
-
-            @Override
-            public Map<String, String> vendStorageCredentials(Map<String, String> raw) {
-                return vended;
+            public ConnectorStorageContext getStorageContext() {
+                return storage;
             }
         };
     }
@@ -1781,6 +1788,12 @@ public class PaimonScanPlanProviderTest {
 
     /** A ConnectorContext whose getStorageProperties() returns the given typed list verbatim (no vended). */
     private static ConnectorContext scanContextWithStorage(List<StorageProperties> storage) {
+        ConnectorStorageContext storageContext = new ConnectorStorageContext() {
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return storage;
+            }
+        };
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -1793,8 +1806,8 @@ public class PaimonScanPlanProviderTest {
             }
 
             @Override
-            public List<StorageProperties> getStorageProperties() {
-                return storage;
+            public ConnectorStorageContext getStorageContext() {
+                return storageContext;
             }
         };
     }

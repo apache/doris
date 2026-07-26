@@ -156,7 +156,7 @@ public interface Connector extends Closeable {
      * catalog map does not already supply. Storage-property derivation is owned by the connector —
      * fe-core does not parse metastore properties. fe-core folds the returned map into the catalog's storage
      * properties as DEFAULTS (an explicit user key always wins via {@code putIfAbsent}), and does so BEFORE
-     * both the fe-filesystem bind ({@code ConnectorContext.getStorageProperties()}) and the BE storage map
+     * both the fe-filesystem bind ({@code ConnectorStorageContext.getStorageProperties()}) and the BE storage map
      * ({@code getBackendStorageProperties()}), so the FE bind and the BE scan see the same derived storage.
      *
      * <p>The default is empty (no derivation), so every connector that does not need it is unaffected. The

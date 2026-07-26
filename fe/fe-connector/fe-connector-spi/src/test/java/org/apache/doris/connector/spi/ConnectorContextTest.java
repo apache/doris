@@ -18,13 +18,11 @@
 package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
-import java.util.List;
 
 public class ConnectorContextTest {
 
@@ -44,29 +42,13 @@ public class ConnectorContextTest {
     }
 
     @Test
-    public void getStorageProperties_defaultsToEmptyList() {
-        // The new storage seam (D-003): fe-core overrides this to hand the connector the catalog's
-        // typed fe-filesystem StorageProperties. Every OTHER connector keeps the default empty list,
-        // so introducing the seam must not change their behavior -- and it must never return null.
-        List<StorageProperties> storage = minimalContext().getStorageProperties();
-        Assertions.assertNotNull(storage, "getStorageProperties() must never return null");
-        Assertions.assertTrue(storage.isEmpty(),
-                "default getStorageProperties() must be empty so non-paimon connectors are unaffected");
-    }
-
-    @Test
-    public void getBackendFileType_defaultDerivesFromScheme() {
-        // The write-side file-type seam (T06): fe-core overrides it (LocationPath, broker-aware); the
-        // default has no storage machinery and derives the BE file type from the URI scheme alone,
-        // returning the TFileType enum NAME so the SPI stays Thrift-free (like normalizeStorageUri).
-        ConnectorContext ctx = minimalContext();
-        Assertions.assertEquals("FILE_S3", ctx.getBackendFileType("s3://bucket/data", null));
-        Assertions.assertEquals("FILE_S3", ctx.getBackendFileType("oss://bucket/data", null));
-        Assertions.assertEquals("FILE_HDFS", ctx.getBackendFileType("hdfs://ns/data", null));
-        Assertions.assertEquals("FILE_HDFS", ctx.getBackendFileType("viewfs://ns/data", null));
-        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("file:///tmp/data", null));
-        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("/no/scheme", null));
-        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType(null, null));
+    public void getStorageContext_defaultsToNoop() {
+        // Storage lives on its own context now; a connector never has to null-check the getter. A catalog
+        // whose engine manages no storage (and every test double that does not override this) answers NOOP,
+        // whose methods keep the same benign defaults these assertions used to make on ConnectorContext.
+        ConnectorStorageContext storage = minimalContext().getStorageContext();
+        Assertions.assertSame(ConnectorStorageContext.NOOP, storage,
+                "default getStorageContext() must be NOOP, never null");
     }
 
     @Test

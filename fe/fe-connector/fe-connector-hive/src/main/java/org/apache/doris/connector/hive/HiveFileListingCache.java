@@ -102,7 +102,8 @@ public class HiveFileListingCache {
      * The raw directory lister: the engine-injected Doris {@link FileSystem} in production
      * ({@link #listFromFileSystem}), a fake in unit tests. Injected so the cache's hit/miss/invalidation behaviour
      * is testable without a live filesystem (mirrors {@code HiveConnectorMetadata.estimateDataSize} injecting its
-     * {@code ToLongFunction} size source). The {@code fs} is borrowed from {@code ConnectorContext.getFileSystem}
+     * {@code ToLongFunction} size source). The {@code fs} is borrowed from the engine's
+     * {@code ConnectorStorageContext.getFileSystem}
      * (engine-owned, per-catalog, must NOT be closed by the connector).
      */
     @FunctionalInterface

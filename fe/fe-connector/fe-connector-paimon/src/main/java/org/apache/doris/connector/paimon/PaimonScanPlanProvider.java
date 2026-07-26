@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -702,14 +703,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * file factory only recognizes {@code s3://}, so an un-normalized OSS/COS/OBS path fails the
      * native read (data file) or silently drops the deletion vector (merge-on-read wrong rows). The
      * connector cannot import fe-core's {@code LocationPath}, so it delegates to the
-     * {@link ConnectorContext#normalizeStorageUri(String, Map)} seam, passing the per-table
+     * {@link ConnectorStorageContext#normalizeStorageUri(String, Map)} seam, passing the per-table
      * {@code vendedToken} (empty for non-REST) so a REST object-store path normalizes via the vended
      * credentials — the catalog's static storage map is empty for REST, so the static-only path would
      * throw (FIX-REST-VENDED-URI-NORMALIZE). With no context (offline unit tests) the raw path is
      * preserved — same null-guard as the {@code vendStorageCredentials} overlay below.
      */
     private String normalizeUri(String rawUri, Map<String, String> vendedToken) {
-        return context != null ? context.normalizeStorageUri(rawUri, vendedToken) : rawUri;
+        return context != null ? storage().normalizeStorageUri(rawUri, vendedToken) : rawUri;
     }
 
     @Override
@@ -782,7 +783,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // canonical keys, so the raw catalog aliases (s3.access_key, oss.access_key, …) must be translated
         // before they leave FE — copying them verbatim gives the native reader no usable creds (403 on a
         // private bucket). Sourced from the typed fe-filesystem StorageProperties bound by fe-core and
-        // handed over via ctx.getStorageProperties() (P1-T04): each backend's toBackendProperties().toMap()
+        // handed over via storage().getStorageProperties() (P1-T04): each backend's toBackendProperties().toMap()
         // yields the canonical map (e.g. S3FileSystemProperties IS-A BackendStorageProperties → AWS_*).
         // This replaces the legacy getBackendStorageProperties() seam so the connector derives BOTH its
         // Hadoop config (P1-T03) and its BE creds from the SAME typed source (design D-003). Empty when no
@@ -797,7 +798,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // tracked as a follow-up; only affects OSS/COS/OBS catalogs with no static ak/sk.
         if (context != null) {
             Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : context.getStorageProperties()) {
+            for (StorageProperties sp : storage().getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
             for (Map.Entry<String, String> e : backendStorageProps.entrySet()) {
@@ -811,7 +812,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // import fe-core's StorageProperties). Vended overlays static (legacy precedence). Skipped
         // when no context (offline unit tests) or the table is non-REST (empty token -> no-op).
         if (context != null) {
-            Map<String, String> vendedBeProps = context.vendStorageCredentials(extractVendedToken(table));
+            Map<String, String> vendedBeProps = storage().vendStorageCredentials(extractVendedToken(table));
             for (Map.Entry<String, String> e : vendedBeProps.entrySet()) {
                 props.put(ScanNodePropertyKeys.LOCATION_PREFIX + e.getKey(), e.getValue());
             }
@@ -1755,5 +1756,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static String escapeJson(String s) {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

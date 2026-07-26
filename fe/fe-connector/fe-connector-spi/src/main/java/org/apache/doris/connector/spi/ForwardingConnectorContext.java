@@ -19,15 +19,10 @@ package org.apache.doris.connector.spi;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.properties.StorageProperties;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import java.util.function.UnaryOperator;
 
 /**
  * Base class for a {@link ConnectorContext} decorator: forwards every method to the wrapped context.
@@ -50,6 +45,12 @@ import java.util.function.UnaryOperator;
  * {@code ForwardingConnectorContextTest} enforces this. And if the new method can run plugin code,
  * every pinning subclass must additionally override it and apply its pin — this class only promises
  * that no call is lost, not that every call is pinned.
+ *
+ * <p>Storage services need no forward of their own: {@link ConnectorContext#getStorageContext()} hands the
+ * connector the engine's own {@link ConnectorStorageContext}, so however many are added, none can be lost
+ * here. That is sound only while no storage method runs plugin code (none does today — see
+ * {@link ConnectorStorageContext}); one that did would need a pinning subclass to override
+ * {@code getStorageContext()} and return a pinning wrapper of its own.
  */
 public abstract class ForwardingConnectorContext implements ConnectorContext {
 
@@ -103,58 +104,7 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     }
 
     @Override
-    public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        return delegate.vendStorageCredentials(rawVendedCredentials);
-    }
-
-    @Override
-    public String normalizeStorageUri(String rawUri) {
-        return delegate.normalizeStorageUri(rawUri);
-    }
-
-    @Override
-    public String normalizeStorageUri(String rawUri, Map<String, String> rawVendedCredentials) {
-        return delegate.normalizeStorageUri(rawUri, rawVendedCredentials);
-    }
-
-    @Override
-    public UnaryOperator<String> newStorageUriNormalizer(Map<String, String> rawVendedCredentials) {
-        return delegate.newStorageUriNormalizer(rawVendedCredentials);
-    }
-
-    @Override
-    public String getBackendFileType(String rawUri, Map<String, String> rawVendedCredentials) {
-        return delegate.getBackendFileType(rawUri, rawVendedCredentials);
-    }
-
-    @Override
-    public List<ConnectorBrokerAddress> getBrokerAddresses() {
-        return delegate.getBrokerAddresses();
-    }
-
-    @Override
-    public Map<String, String> getBackendStorageProperties() {
-        return delegate.getBackendStorageProperties();
-    }
-
-    @Override
-    public void testBackendStorageConnectivity(int storageBackendTypeValue,
-            Map<String, String> backendProperties) throws Exception {
-        delegate.testBackendStorageConnectivity(storageBackendTypeValue, backendProperties);
-    }
-
-    @Override
-    public List<StorageProperties> getStorageProperties() {
-        return delegate.getStorageProperties();
-    }
-
-    @Override
-    public FileSystem getFileSystem(ConnectorSession session) {
-        return delegate.getFileSystem(session);
-    }
-
-    @Override
-    public void cleanupEmptyManagedLocation(String location, List<String> tableChildDirs) {
-        delegate.cleanupEmptyManagedLocation(location, tableChildDirs);
+    public ConnectorStorageContext getStorageContext() {
+        return delegate.getStorageContext();
     }
 }

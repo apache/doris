@@ -235,7 +235,7 @@ public class CatalogProperty {
 
     /**
      * The effective raw storage property map for a plugin catalog to bind directly through fe-filesystem
-     * (design S2), letting {@code ConnectorContext.getStorageProperties()} hand the connector typed
+     * (design S2), letting {@code ConnectorStorageContext.getStorageProperties()} hand the connector typed
      * fe-filesystem storage without the redundant fe-core {@link StorageProperties#createAll} round-trip.
      * Returns the same map {@link #initStorageProperties} would parse — user props plus derived defaults
      * (warehouse -> fs.defaultFS). Design S4: no vended discrimination — fe-core hands the connector the raw

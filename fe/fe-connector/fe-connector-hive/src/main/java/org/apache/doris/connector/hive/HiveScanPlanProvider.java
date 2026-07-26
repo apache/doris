@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
@@ -90,7 +91,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private final HmsClient hmsClient;
     private final Map<String, String> catalogProperties;
     // Engine-owned, per-catalog filesystem accessor. The non-ACID listing path borrows the Doris FileSystem via
-    // context.getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
+    // storage().getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
     // directories, replacing bare Hadoop FileSystem.get (FIX-HIVEFS: the hive plugin bundles no HDFS impl).
     private final ConnectorContext context;
     private final HiveReadTransactionManager readTxnManager;
@@ -147,11 +148,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             // Transactional (ACID) table: descend into base/delta directories under the query's write-id
             // snapshot and emit ACID-annotated ranges. Borrows the engine's per-catalog Doris FileSystem to
             // list (same source as the non-ACID branch below; the engine owns its lifecycle — never closed here).
-            planAcidScan(session, hiveHandle, partitions, context.getFileSystem(session), fileFormat,
+            planAcidScan(session, hiveHandle, partitions, storage().getFileSystem(session), fileFormat,
                     splittable, targetSplitSize, ranges);
         } else {
             // Borrow the engine's per-catalog Doris FileSystem to list partition directories (see field javadoc).
-            FileSystem fs = context.getFileSystem(session);
+            FileSystem fs = storage().getFileSystem(session);
             for (PartitionScanInfo partition : partitions) {
                 HiveFileFormat partFormat = partition.fileFormat != null
                         ? partition.fileFormat : fileFormat;
@@ -252,7 +253,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         boolean splittable = fileFormat.isSplittable() && !isLzo;
         // Only the non-ACID path is reachable here (supportsBatchScan excludes transactional tables), so this
         // borrows the engine's per-catalog Doris FileSystem to list — no Hadoop Configuration is needed.
-        FileSystem fs = context.getFileSystem(session);
+        FileSystem fs = storage().getFileSystem(session);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PartitionScanInfo partition : partitions) {
@@ -399,7 +400,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         //      (hmsTable.getBackendStorageProperties()); the new path had dropped it. Empty for a null context
         //      (offline tests) or a credential-less warehouse.
         if (context != null) {
-            context.getBackendStorageProperties()
+            storage().getBackendStorageProperties()
                     .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         //  (2) Raw catalog aliases + inline fs./hadoop./dfs. keys. Emitted AFTER the canonical set so a user-inline
@@ -606,7 +607,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Normalizes a raw HMS storage URI into BE's canonical scheme for a BE-facing native reader path
      * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
-     * {@link ConnectorContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@link ConnectorStorageContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
      * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
      * {@code s3a://} scan path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon/hudi and hive's
      * OWN write path ({@code HiveWritePlanProvider}); legacy {@code HiveScanNode} normalized via the 2-arg
@@ -614,7 +615,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * unchanged. A null context (offline unit tests) preserves the raw URI.
      */
     private String normalizeNativeUri(String rawUri) {
-        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+        return context != null ? storage().normalizeStorageUri(rawUri) : rawUri;
     }
 
     /**
@@ -713,5 +714,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.partitionValues = partitionValues;
             this.fileFormat = fileFormat;
         }
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

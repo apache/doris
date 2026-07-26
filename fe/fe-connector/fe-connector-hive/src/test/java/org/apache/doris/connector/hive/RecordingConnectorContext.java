@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -34,7 +35,15 @@ import java.util.concurrent.Callable;
  * path / broker addresses / static storage creds that {@link HiveWritePlanProvider} consults, and passes
  * {@link #executeAuthenticated} through so the table load runs inside the (fake) auth context.
  */
-final class RecordingConnectorContext implements ConnectorContext {
+final class RecordingConnectorContext implements ConnectorContext, ConnectorStorageContext {
+
+    // Storage services moved onto ConnectorStorageContext; this double implements both halves and hands
+    // itself back, so its overrides below are the ones the connector reaches. Forgetting this getter would
+    // silently give the connector NOOP and make those overrides dead code.
+    @Override
+    public ConnectorStorageContext getStorageContext() {
+        return this;
+    }
 
     int authCount;
 

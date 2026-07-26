@@ -108,7 +108,7 @@ public final class FileSystemFactory {
     /**
      * Binds the given raw properties into the catalog's typed fe-filesystem
      * {@link org.apache.doris.filesystem.properties.StorageProperties} list (one entry per configured
-     * backend), for connectors to consume via {@code ConnectorContext.getStorageProperties()}.
+     * backend), for connectors to consume via {@code ConnectorStorageContext.getStorageProperties()}.
      *
      * <p>Mirrors {@link #getFileSystem(Map)}'s dual path: when {@link #initPluginManager} has run
      * (production), delegates to the live {@link FileSystemPluginManager#bindAll} so the runtime

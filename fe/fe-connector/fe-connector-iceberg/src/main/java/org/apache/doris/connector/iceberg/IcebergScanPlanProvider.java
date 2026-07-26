@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -1465,7 +1466,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * normalizer that preserves the raw path (paimon parity).
      */
     UnaryOperator<String> newUriNormalizer(Map<String, String> vendedToken) {
-        return context != null ? context.newStorageUriNormalizer(vendedToken) : UnaryOperator.identity();
+        return context != null ? storage().newStorageUriNormalizer(vendedToken) : UnaryOperator.identity();
     }
 
     /**
@@ -1586,7 +1587,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // overlay, just the vended one below.
         if (context != null) {
             Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : context.getStorageProperties()) {
+            for (StorageProperties sp : storage().getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
             backendStorageProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
@@ -1599,7 +1600,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // table yields no vended token (flag off / non-REST -> empty -> no-op).
         if (context != null) {
             Map<String, String> vendedBeProps =
-                    context.vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
+                    storage().vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
             vendedBeProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the
@@ -2436,5 +2437,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return MetadataTableUtils.createMetadataTableInstance(
                 catalogOpsResolver.apply(session).loadTable(handle.getDbName(), handle.getTableName()),
                 MetadataTableType.from(handle.getSysTableName()));
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

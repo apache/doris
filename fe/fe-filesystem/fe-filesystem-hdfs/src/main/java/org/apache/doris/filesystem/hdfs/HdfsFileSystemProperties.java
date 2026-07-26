@@ -42,7 +42,7 @@ import java.util.Set;
  * Provider-owned typed properties for HDFS / HDFS-compatible filesystems (hdfs, viewfs, ofs, jfs, oss-hdfs).
  *
  * <p>This is the typed <b>backend</b> model for HDFS: it implements {@link BackendStorageProperties} so the
- * typed pipeline ({@code ConnectorContext.getStorageProperties().toBackendProperties().toMap()}) can
+ * typed pipeline ({@code ConnectorStorageContext.getStorageProperties().toBackendProperties().toMap()}) can
  * re-produce the HDFS backend key set ({@code fs.defaultFS}, {@code dfs.*} HA, {@code hadoop.security.*}
  * + Kerberos principal/keytab, {@code hadoop.username}, ...) that the BE turns into {@code THdfsParams}.
  * Without it the typed path returns nothing for HDFS-warehouse catalogs (see DV-004 / R-007).
