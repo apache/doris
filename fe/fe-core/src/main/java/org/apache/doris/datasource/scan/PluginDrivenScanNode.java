@@ -125,12 +125,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     // Scan node property keys are declared in the public module, in ScanNodePropertyKeys: both the keys
     // this node READS from the connector's property map (file format, path partition keys, location.* and
-    // the text-family attributes) and the SYNTHETIC_* keys this node INJECTS into the copy of that map it
-    // passes to appendExplainInfo. The synthetic ones carry the native/total split counts accumulated from
-    // ConnectorScanRange.isNativeReadRange() plus a VERBOSE marker; they are NOT real connector properties
-    // (never reach BE) and are consumed only by a connector that opts in (paimon, for its
-    // "paimonNativeReadSplits=<raw>/<total>" line and its VERBOSE-only "PaimonSplitStats:" block). Sharing
-    // the constants is what keeps the inject/consume sides in lockstep — it used to be a comment.
+    // the text-family attributes) and the SYNTHETIC_* keys this node INJECTS into the copies of that map it
+    // passes to appendExplainInfo and populateScanLevelParams. The synthetic ones carry facts only the engine
+    // knows — the native/total split counts accumulated from ConnectorScanRange.isNativeReadRange(), a VERBOSE
+    // marker, the pushed-down limit, and whether the connector took ALL the filtering — and are consumed only
+    // by connectors that opt in (paimon prints split stats; es decides whether to ask its source to stop
+    // early). They are not real connector properties and are never forwarded to BE. Sharing the constants is
+    // what keeps the inject/consume sides in lockstep — it used to be a comment.
 
     private final Connector connector;
     private final ConnectorSession connectorSession;
@@ -525,6 +526,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 Map<String, String> explainProps = new HashMap<>(props);
                 explainProps.put(ScanNodePropertyKeys.SYNTHETIC_NATIVE_READ_SPLITS, String.valueOf(nativeReadSplitNum));
                 explainProps.put(ScanNodePropertyKeys.SYNTHETIC_TOTAL_READ_SPLITS, String.valueOf(totalReadSplitNum));
+                injectPushdownFacts(explainProps, limit, conjuncts.isEmpty());
                 if (detailLevel == TExplainLevel.VERBOSE) {
                     explainProps.put(ScanNodePropertyKeys.SYNTHETIC_EXPLAIN_VERBOSE, "true");
                 }
@@ -543,12 +545,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 output.append(" (").append(tableLevelRowCount).append(")");
             }
             output.append("\n");
-            // Show ES terminate_after optimization when limit is pushed to ES
-            if (limit > 0 && conjuncts.isEmpty()
-                    && "es_http".equals(props.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE))) {
-                output.append(prefix).append("ES terminate_after: ")
-                        .append(limit).append("\n");
-            }
         }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
@@ -1775,24 +1771,37 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
-        // Delegate scan-level Thrift params to the connector SPI
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        // Prune BEFORE delegating: "the connector took ALL the filtering" is only true of the pruned set, and
+        // the connector is told that below so it can decide whether limiting rows at the source is safe.
+        // ATTN this reordering is inert, but NOT for the reason it looks like: the property cache is already
+        // warm here, because super.createScanRangeLocations() asks for the file format type first, which loads
+        // it. So pruning cannot pull the connector call, the MVCC-snapshot/rewrite-scope/topn pins, or a
+        // wrapped load failure any earlier than they already happened. Keep this call below
+        // resolveScanProvider() above: the provider memo is keyed on handle identity, and the pins can replace
+        // the handle.
+        pruneConjunctsFromNodeProperties();
         if (scanProvider != null) {
-            Map<String, String> props = getOrLoadScanNodeProperties();
+            // A copy, like the EXPLAIN path: the synthetic facts must not pollute the cached property map.
+            Map<String, String> scanProps = new HashMap<>(getOrLoadScanNodeProperties());
+            injectPushdownFacts(scanProps, limit, conjuncts.isEmpty());
             onPluginClassLoader(scanProvider, () -> {
-                scanProvider.populateScanLevelParams(params, props);
+                scanProvider.populateScanLevelParams(params, scanProps);
                 return null;
             });
         }
-        pruneConjunctsFromNodeProperties();
+    }
 
-        // Push down limit to ES via terminate_after optimization.
-        // When all predicates are pushed to ES (conjuncts empty) and limit fits in one batch,
-        // ES can use terminate_after to stop scanning early instead of scrolling all results.
-        if (limit > 0 && limit <= sessionVariable.batchSize && conjuncts.isEmpty()
-                && params.isSetEsProperties()) {
-            params.getEsProperties().put("limit", String.valueOf(limit));
-        }
+    /**
+     * Writes the two engine-only facts a connector needs to decide whether it may ask its source to stop
+     * early: the pushed-down limit, and whether the engine has any filtering left to do after the scan.
+     * Both paths (EXPLAIN and thrift) inject them, so a connector reports the same thing it does.
+     *
+     * <p>Package-visible and static so the mapping is unit-testable without a planner.</p>
+     */
+    static void injectPushdownFacts(Map<String, String> props, long pushdownLimit, boolean allConjunctsPushed) {
+        props.put(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT, String.valueOf(pushdownLimit));
+        props.put(ScanNodePropertyKeys.SYNTHETIC_ALL_CONJUNCTS_PUSHED, String.valueOf(allConjunctsPushed));
     }
 
 

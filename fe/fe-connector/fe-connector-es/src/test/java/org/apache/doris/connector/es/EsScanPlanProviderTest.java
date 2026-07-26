@@ -21,7 +21,9 @@ import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.NamedColumnHandle;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -348,6 +350,86 @@ class EsScanPlanProviderTest {
         provider.appendExplainInfo(output, "", props);
 
         Assertions.assertTrue(output.toString().contains("ES index: my_test_index"));
+    }
+
+    // ─────────── early-stop (terminate_after), relocated out of the generic scan node ───────────
+    //
+    // WHY these matter: asking ES to stop after N hits is only correct when the engine has NO filtering left
+    // to do after the scan — otherwise ES stops early on rows a leftover engine-side filter would have thrown
+    // away, and the query silently returns too few rows. Both facts come from the engine through synthetic
+    // property keys. Before the relocation, this decision lived in the generic scan node and was reached by
+    // matching this connector's format string; it had NO unit coverage at all, only an ES-cluster suite.
+
+    private static Map<String, String> pushdownProps(String limit, String batchSize, String allPushed) {
+        Map<String, String> props = new HashMap<>();
+        if (limit != null) {
+            props.put(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT, limit);
+        }
+        if (batchSize != null) {
+            props.put("es.batch_size", batchSize);
+        }
+        if (allPushed != null) {
+            props.put(ScanNodePropertyKeys.SYNTHETIC_ALL_CONJUNCTS_PUSHED, allPushed);
+        }
+        return props;
+    }
+
+    private static TFileScanRangeParams populateWith(Map<String, String> props) {
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps()).populateScanLevelParams(params, props);
+        return params;
+    }
+
+    @Test
+    void terminateAfterIsRequestedWhenTheLimitFitsOneBatchAndNothingIsLeftToFilter() {
+        // "limit" is the BE-side key ES turns into an early stop; the literal is a wire contract.
+        Assertions.assertEquals("5",
+                populateWith(pushdownProps("5", "1024", "true")).getEsProperties().get("limit"));
+    }
+
+    @Test
+    void terminateAfterIsNotRequestedWhenFilteringRemains() {
+        // The correctness case: the engine still has conjuncts to apply, so stopping ES early would lose rows.
+        Assertions.assertFalse(
+                populateWith(pushdownProps("5", "1024", "false")).getEsProperties().containsKey("limit"),
+                "with filtering left to do, an early stop can drop rows that survive the remaining filter");
+    }
+
+    @Test
+    void terminateAfterIsNotRequestedWhenTheLimitExceedsOneBatch() {
+        Assertions.assertFalse(
+                populateWith(pushdownProps("5000", "1024", "true")).getEsProperties().containsKey("limit"));
+    }
+
+    @Test
+    void terminateAfterIsNotRequestedWhenTheEngineSuppliedNothing() {
+        // A property map with none of the synthetic keys (an older engine, or a direct unit-test call) must be
+        // treated as "no limit", not as an unbounded one.
+        Assertions.assertFalse(
+                populateWith(pushdownProps(null, null, null)).getEsProperties().containsKey("limit"));
+    }
+
+    @Test
+    void explainReportsTheEarlyStopVerbatim() {
+        StringBuilder output = new StringBuilder();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .appendExplainInfo(output, "", pushdownProps("5", "1024", "true"));
+        // The exact text is the acceptance baseline: an ES-cluster suite asserts this string, and this
+        // relocation must not change it by a character.
+        Assertions.assertTrue(output.toString().contains("ES terminate_after: 5\n"), output.toString());
+    }
+
+    @Test
+    void explainReportsNoEarlyStopWhenFilteringRemainsOrNothingWasPushed() {
+        StringBuilder withFilter = new StringBuilder();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .appendExplainInfo(withFilter, "", pushdownProps("5", "1024", "false"));
+        Assertions.assertFalse(withFilter.toString().contains("ES terminate_after"), withFilter.toString());
+
+        StringBuilder noKeys = new StringBuilder();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .appendExplainInfo(noKeys, "", Collections.emptyMap());
+        Assertions.assertFalse(noKeys.toString().contains("ES terminate_after"), noKeys.toString());
     }
 
     @Test

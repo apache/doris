@@ -27,7 +27,10 @@ package org.apache.doris.connector.api.scan;
  *   <li><b>connector -&gt; engine</b>: the keys below that the engine reads while building the scan node's
  *       thrift. A connector emits only the ones it needs; every key is optional.</li>
  *   <li><b>engine -&gt; connector</b>: the {@code SYNTHETIC_*} keys the generic scan node injects into the
- *       copy of the map it hands to {@code appendExplainInfo}. They never reach BE.</li>
+ *       copies of the map it hands to {@code appendExplainInfo} and {@code populateScanLevelParams}. They are
+ *       facts only the engine knows (split counts, the pushed-down limit, whether the filtering was fully
+ *       taken); they are never forwarded to BE as properties, though a connector may of course DECIDE
+ *       something from them and write that decision into the thrift it builds.</li>
  * </ul>
  *
  * <p>Keys NOT listed here are connector-private: the engine never reads them, so a connector may use its
@@ -130,7 +133,7 @@ public final class ScanNodePropertyKeys {
     public static final String TEXT_OPENX_IGNORE_MALFORMED = TEXT_PROPERTY_PREFIX + "openx_ignore_malformed";
 
     // ------------------------------------------------------------------------
-    // engine -> connector (EXPLAIN only, never sent to BE)
+    // engine -> connector (never forwarded to BE as a property)
     // ------------------------------------------------------------------------
 
     /**
@@ -150,6 +153,27 @@ public final class ScanNodePropertyKeys {
      * signature change. Absent otherwise.
      */
     public static final String SYNTHETIC_EXPLAIN_VERBOSE = "__explain_verbose";
+
+    /**
+     * The row limit the engine pushed down to this scan, as a decimal string; {@code "-1"} (or any
+     * non-positive value) means there is none. Injected on BOTH the {@code appendExplainInfo} and the
+     * {@code populateScanLevelParams} paths, because a connector that can ask its source to stop early needs
+     * it while building thrift, not only while printing EXPLAIN.
+     */
+    public static final String SYNTHETIC_PUSHDOWN_LIMIT = "__pushdown_limit";
+
+    /**
+     * {@code "true"} when NO filtering is left for the engine to do after the scan — every conjunct was taken
+     * by the connector. Companion of {@link #SYNTHETIC_PUSHDOWN_LIMIT}: limiting rows at the source is only
+     * correct when the source is not going to hand back rows that a leftover engine-side filter would then
+     * discard.
+     *
+     * <p>PRECONDITION, or this key lies: the engine can only know which conjuncts were taken if the connector
+     * reported them, i.e. returned {@link ScanNodePropertiesResult#withPushdownTracking}. A connector that
+     * returns the plain result reads {@code "false"} here even when it did in fact push everything. Report
+     * tracking, or do not use this key.</p>
+     */
+    public static final String SYNTHETIC_ALL_CONJUNCTS_PUSHED = "__all_conjuncts_pushed";
 
     private ScanNodePropertyKeys() {
     }

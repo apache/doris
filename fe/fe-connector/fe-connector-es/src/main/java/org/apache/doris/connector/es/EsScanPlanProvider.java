@@ -73,6 +73,23 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     public static final String PROP_DOCVALUE_CONTEXT_JSON = "docvalue_context_json";
     public static final String PROP_FIELDS_CONTEXT_JSON = "fields_context_json";
 
+    /**
+     * BE contract: ES reads this out of {@code es_properties} and stops the search after that many hits
+     * instead of scrolling the whole result ({@code ESScanReader::KEY_TERMINATE_AFTER}). The literal is the
+     * wire value and must not change.
+     */
+    private static final String PROP_LIMIT = "limit";
+
+    /**
+     * Connector-private: how many rows BE reads per batch, taken from the session while the properties are
+     * built (populateScanLevelParams gets no session) and read back there. Namespaced so it can never collide
+     * with an engine-read key.
+     */
+    private static final String PROP_BATCH_SIZE = "es.batch_size";
+
+    /** Session variable carrying BE's per-batch row count; the engine exports every visible variable. */
+    private static final String SESSION_BATCH_SIZE = "batch_size";
+
     private final EsConnectorRestClient restClient;
     private final Map<String, String> properties;
 
@@ -168,6 +185,13 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
 
         // File format type for PluginDrivenScanNode.getFileFormatType()
         nodeProps.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "es_http");
+
+        // Carry BE's per-batch row count forward: populateScanLevelParams decides there whether the pushed
+        // limit is small enough to ask ES to stop early, and it receives no session.
+        String batchSize = session.getSessionProperties().get(SESSION_BATCH_SIZE);
+        if (batchSize != null) {
+            nodeProps.put(PROP_BATCH_SIZE, batchSize);
+        }
 
         // Table/index metadata for EXPLAIN
         nodeProps.put("_table_name", esHandle.getIndexName());
@@ -354,6 +378,17 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         copyIfPresent(properties, PROP_PASSWORD, esProperties);
         copyIfPresent(properties, PROP_HTTP_SSL_ENABLED, esProperties);
         copyIfPresent(properties, PROP_DOC_VALUES_MODE, esProperties);
+        // Ask ES to stop after N hits instead of scrolling everything. Only correct when the engine has NO
+        // filtering left to do after the scan (otherwise rows ES returns could still be filtered out, and
+        // stopping early would lose rows), and only worth it when the limit fits in one BE batch. The engine
+        // supplies both facts; used to live in the generic scan node, which had to recognize this connector
+        // by its format string to do it.
+        long pushdownLimit = parseLongOrDefault(properties.get(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT), -1L);
+        long batchSize = parseLongOrDefault(properties.get(PROP_BATCH_SIZE), -1L);
+        if (pushdownLimit > 0 && batchSize > 0 && pushdownLimit <= batchSize
+                && allConjunctsPushed(properties)) {
+            esProperties.put(PROP_LIMIT, String.valueOf(pushdownLimit));
+        }
         params.setEsProperties(esProperties);
 
         // Deserialize docvalue_context and fields_context from JSON
@@ -392,6 +427,21 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    private static boolean allConjunctsPushed(Map<String, String> properties) {
+        return "true".equals(properties.get(ScanNodePropertyKeys.SYNTHETIC_ALL_CONJUNCTS_PUSHED));
+    }
+
+    private static long parseLongOrDefault(String value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix,
             Map<String, String> properties) {
@@ -427,6 +477,16 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 output.append(prefix).append("ES source fields: ")
                         .append("(parse error)").append("\n");
             }
+        }
+        // ATTN this deliberately does NOT repeat populateScanLevelParams' "limit fits in one batch" test, so
+        // with a batch size below the limit EXPLAIN claims an early stop that is not actually requested. That
+        // mismatch predates the move (the two halves used to live in different files, one with the test and
+        // one without) and is preserved byte for byte here: the acceptance baseline for this relocation is
+        // that EXPLAIN text does not change. Fixing it changes user-visible EXPLAIN and needs a live ES
+        // cluster to verify, so it is tracked separately.
+        long pushdownLimit = parseLongOrDefault(properties.get(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT), -1L);
+        if (pushdownLimit > 0 && allConjunctsPushed(properties)) {
+            output.append(prefix).append("ES terminate_after: ").append(pushdownLimit).append("\n");
         }
     }
 
