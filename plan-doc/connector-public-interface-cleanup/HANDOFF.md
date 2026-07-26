@@ -29,19 +29,27 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 **必读顺序**：本文 → [README.md](./README.md) 的任务清单。
 **不要通读** `audit-report.md`（1600 余行），按 README 里的章节导航 grep 定位。
 
-**当前状态：十三批已合入（共 56 个提交）。25 个编号任务全部完成；「复核登记的开放项」10 条完成 9 条。**
+**当前状态：十四批已合入（共 57 个提交）。25 个编号任务 + 「复核登记的开放项」10 条全部完成。**
 
-### 下一步只剩一件事：`planScan` 合成「一个方法 + 一个请求对象」
+### 下一步：只剩需要集群的事
 
-**已由 owner 拍板要做**，第十三批因上下文预算未动手。规格如下（本轮已侦察，数字为实测）：
+代码侧这条工作线已经做完。剩下的全部是**积压的端到端与插件包重部署冒烟**（见下方欠账清单），本地无集群一律跑不了。
 
-- **现状**：`ConnectorScanPlanProvider` 上是 4 参 →（+limit）5 参 →（+requiredPartitions）6 参 →（+countPushdown）7 参的链式委派，只有 4 参那个是抽象方法。引擎**只调 7 参**那个（`PluginDrivenScanNode:1316` 附近），外加批模式的 `planScanForPartitionBatch`（默认转 6 参）。
-- **要解决的真实陷阱**：照着接口写，最自然的选择是实现那个唯一的抽象方法（4 参），结果 limit 不下推、分区裁剪不生效、COUNT 走全量扫描，**没有任何报错**。
-- **改法**：新增请求对象（handle / columns / filter / limit / requiredPartitions / countPushdown），`planScan(ConnectorSession, <请求对象>)` 成为唯一抽象方法，删掉 4 个重载；`planScanForPartitionBatch` 改为接同一个请求对象（默认实现把 partitionBatch 替换进去再调 `planScan`）。
-- **实测工作量**：连接器主源 **14 个覆写**（es 1 / hudi 1 / hive 1 / jdbc 2 / maxcompute 3 / trino 2 / paimon 2 / iceberg 2）+ 测试替身约 6 个（`fe-connector-api` 的 `ConnectorScanPlanProviderBatchScanTest` / `ConnectorScanPlanProviderCompressTypeTest` / `ScanNodePropertiesFacesTest` / `ConnectorScanProviderSelectionTest` 等）+ fe-core 两个调用点。机械、编译器全兜住。
-- **注意**：`ConnectorScanPlanProviderBatchScanTest` 断言的是「默认的批实现必须转发到参数最多的 `planScan`，并带上 batch 与 limit」——改完这条语义必须等价保留。
+如果要继续在代码上找事做，下面这些是本轮顺带记下的、**没有人认领**的候选（都不是这条线的欠账）：
 
-做完这条，「复核登记的开放项」就全清了，剩下的只有**积压的端到端**（需要集群）。
+- `streamSplits` 与 `getScanNodeProperties` / `getScanNodePropertiesResult` 仍是位置参数（5 参 / 4 参）。它们**没有重载链**，所以没有 `planScan` 那种「实现了却静默失效」的陷阱，本轮刻意没动。真要统一风格可以让它们也接 `ConnectorScanRequest`。
+- 引擎构造扫描请求时若漏掉 `.countPushdown(...)`，COUNT(*) 下推会静默退化成全量扫描，而 fe-core 侧**没有任何单测**压这个调用点（连接器侧有 paimon/iceberg 的 countPushdown 用例，但它们直接调 `planScan`）。这不是本轮引入的，改造前那个位置参数同样没被压住。
+- 逐个连接器接入 `renderShowCreateTableDdl`（今天只有 hive 在用），各自独立排期。
+
+---
+
+## 📌 第十四批落地后的事实变化（1 个提交）
+
+1. **`ConnectorScanPlanProvider.planScan` 只有一个方法了**：`planScan(ConnectorSession, ConnectorScanRequest)`。四个重载（4/5/6/7 参）全部删除。
+2. **新增下推信号不再新增重载**：往 `ConnectorScanRequest` 加一个带默认值的字段即可，所有连接器自动拿到，**不可能再出现「实现了最短的那个抽象方法、静默失去 limit / 分区裁剪 / COUNT 下推」**。
+3. **`planScanForPartitionBatch(session, request, partitionBatch)`**，默认实现走 `request.withRequiredPartitions(batch)`。hive 仍然覆写它（它的 `planScan` 不是按分区集作用域的，继承默认会每批重放整个裁剪集 → 重复行）。
+4. **请求对象的默认值就是「引擎没有额外要求」**：无过滤、limit = -1、分区集为空（= 扫全部）、无 COUNT 下推。`requiredPartitions` 传 `null` 与传空等价（引擎在裁剪到零时早就短路了，走不到这里）。
+5. **零行为变化**：每个连接器收到的值与改造前逐字相同；批模式那条路仍然是「无 limit、无 COUNT 下推」。
 
 ---
 
@@ -81,7 +89,8 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 
 ## ⚠️ 做下一批之前必看
 
-1. **任务文档与登记表会过期，动手前必须按符号重侦察。** 第十三批又实证一次：登记表把「hive 契约正样本」「读事务矛盾」估成中等成本，实际都是低；而 `supportsCastPredicatePushdown` 登记的「五个连接器继承默认值」是错的——其中两个（hive/hudi）根本不消费残余谓词，那个开关对它们是死的。**别按登记表的成本估算排期，先看代码。**
+1. **`UnusedLocalVariable` 是开启的**（第十四批踩到）：把方法参数改成「从请求对象解包成同名局部变量」时，只解包**真正用到**的那些——多解一个就是 checkstyle 失败。判断「用到了吗」别用裸 grep（hudi 的 `columns` 只出现在**别的方法**里，多解了一个）。
+2. **任务文档与登记表会过期，动手前必须按符号重侦察。** 第十三批又实证一次：登记表把「hive 契约正样本」「读事务矛盾」估成中等成本，实际都是低；而 `supportsCastPredicatePushdown` 登记的「五个连接器继承默认值」是错的——其中两个（hive/hudi）根本不消费残余谓词，那个开关对它们是死的。**别按登记表的成本估算排期，先看代码。**
 2. **`git commit` 提交的是整个索引，不是你刚 `git add` 的那几个文件。** 第十三批踩到：更早的 `git mv` 把重命名留在索引里，被第一个提交顺手带走，留下一个**编译不过**的中间提交（文件名已改、类名未改）。修法是 `git reset --mixed HEAD~N` 后逐个重做。**每次提交前先 `git status --porcelain` 看索引里到底有什么。**
 3. **改名类改动会撞行长上限**：`getWriteContext` → `getStaticPartitionSpec` 让 iceberg 一行超 120 字符被 checkstyle 挡。改名后一定要跑改动模块的 `checkstyle:check`。
 4. **`CustomImportOrder` 对新增 import 很敏感**：`sed` 插 import 时按字典序插，`ConnectorMetadata` 在 `ConnectorPassthroughSqlOps` 之前。
@@ -167,6 +176,7 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 | 2026-07-25 | 第五批：09 + 14 + 13 + 12 | 八个模块全量单测 634 个全绿；4 个变异全部被捕获 |
 | 2026-07-26 | 第六批：21 + 16 ｜ 第七批：17 ｜ 第八批：20 + 22 + 19 ｜ 第九批：25 | 逐批全绿；第七批定位并绕过了让构建卡死 60+ 分钟的 checkstyle 退化 |
 | 2026-07-26 | 第十批：引擎概念下沉（5 提交） / 第十一批：展示引擎名交还连接器（3 提交） / 第十二批：引擎上下文存储服务拆分（2 提交） | 全反应堆 `test-compile` **BUILD SUCCESS**；变异全部如期变红；e2e 基线**待集群验证** |
+| 2026-07-27 | **第十四批：扫描计划请求对象 1 个提交**（`ConnectorScanRequest` 新增 + `planScan` 四重载合一 + `planScanForPartitionBatch` 改签名 + 14 个连接器覆写塌成 8 个 + 引擎两个调用点 + 约 20 个测试文件） | 全反应堆 `test-compile` **BUILD SUCCESS**；26 个扫描相关测试类 **402 个测试全绿**；十个模块 checkstyle **0 违规**；2 个变异如期变红（`withRequiredPartitions` 丢过滤条件、批默认忘记按批重定作用域——正是这次改动唯二能静默出错的地方） |
 | 2026-07-26 | **第十三批：开放项清理 8 个提交**（删死接口 `estimateScanRangeCount` / 三条契约文档澄清 / hive 契约校验正样本 / 写句柄改名 `getStaticPartitionSpec` / 直通 TVF 中立命名 / 删建库镜像开关 / SQL 直通独立成可选接口并删重影能力位 / CAST 下推逐连接器显式声明） | 全反应堆 `test-compile` **BUILD SUCCESS**；4 组共 22 个测试类全绿（其中一轮 258 个用例）；九个模块 checkstyle **0 违规**；`CREATE DATABASE IF NOT EXISTS` 的行为变化**待集群验证**；`planScan` 重载合并**已拍板未动手** |
 
 **上下文用量超过 30% 就找一个干净节点覆写本文并通知用户开新 session 续做**，不要等窗口满。
