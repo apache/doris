@@ -1280,70 +1280,33 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return rowWidth;
     }
 
+    /**
+     * The engine name shown in the {@code ENGINE} column of {@code SHOW TABLE STATUS} and
+     * {@code information_schema.tables} (and through the REST metadata API). Named by the connector, which
+     * defaults it to the catalog type; the engine keeps no mapping from data source to displayed name.
+     *
+     * <p>Falls back to the generic {@code Plugin} only for a table whose catalog is not plugin-driven, which
+     * no production path builds.</p>
+     */
     @Override
     public String getEngine() {
-        // Return the legacy engine name based on the actual catalog type,
-        // not the generic "Plugin" from PLUGIN_EXTERNAL_TABLE.toEngineName().
-        // This preserves user-visible compatibility for migrated JDBC/ES tables
-        // across SHOW TABLE STATUS, information_schema.tables, REST API, etc.
-        String catalogType = catalog instanceof PluginDrivenExternalCatalog
-                ? ((PluginDrivenExternalCatalog) catalog).getType() : "";
-        switch (catalogType) {
-            case "jdbc":
-                return TableType.JDBC_EXTERNAL_TABLE.toEngineName();
-            case "es":
-                return TableType.ES_EXTERNAL_TABLE.toEngineName();
-            case "iceberg":
-                // P6.5-T06: preserve the legacy IcebergExternalTable engine name "iceberg"
-                // (TableType.ICEBERG_EXTERNAL_TABLE.toEngineName()) for migrated iceberg base/sys tables,
-                // instead of the generic "Plugin" from PLUGIN_EXTERNAL_TABLE.
-                return TableType.ICEBERG_EXTERNAL_TABLE.toEngineName();
-            case "trino-connector":
-                // TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName() returns null
-                // (no switch case in TableType.toEngineName), matching legacy behavior.
-                return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName();
-            case "max_compute":
-                // TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName() returns null
-                // (no switch case in TableType.toEngineName), matching legacy behavior.
-                return TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName();
-            case "paimon":
-                // TableType.PAIMON_EXTERNAL_TABLE.toEngineName() returns "paimon",
-                // preserving the legacy PaimonExternalTable engine name.
-                return TableType.PAIMON_EXTERNAL_TABLE.toEngineName();
-            case "hms":
-                // Post-flip an HMS external catalog is a PluginDrivenExternalCatalog (type "hms");
-                // legacy HMSExternalTable displayed engine "hms" (TableType.HMS_EXTERNAL_TABLE.toEngineName()),
-                // NOT "hive" — the CREATE-TABLE engine name (the hive connector's provider declares "hive"
-                // through acceptedCreateTableEngineNames) is a separate concern. Falling through to "Plugin"
-                // would regress SHOW TABLE STATUS / information_schema.tables.
-                return TableType.HMS_EXTERNAL_TABLE.toEngineName();
-            default:
-                return super.getEngine();
-        }
+        return catalog instanceof PluginDrivenExternalCatalog
+                ? ((PluginDrivenExternalCatalog) catalog).getDisplayEngineName()
+                : super.getEngine();
     }
 
+    /**
+     * What {@code SHOW CREATE TABLE} prints after {@code ENGINE=}. Deliberately the same string as
+     * {@link #getEngine()}: one connector, one engine name, however the user reaches it.
+     *
+     * <p>It is display only, and was never round-trippable — an HMS catalog prints {@code hms} here while the
+     * name it accepts back in {@code CREATE TABLE ... ENGINE=} is {@code hive}. Connectors that render their
+     * own DDL ({@code ConnectorTableMetadataOps#renderShowCreateTableDdl}, which hive does) never reach this
+     * at all; their statement carries no {@code ENGINE=} clause.</p>
+     */
     @Override
     public String getEngineTableTypeName() {
-        String catalogType = catalog instanceof PluginDrivenExternalCatalog
-                ? ((PluginDrivenExternalCatalog) catalog).getType() : "";
-        switch (catalogType) {
-            case "jdbc":
-                return TableType.JDBC_EXTERNAL_TABLE.name();
-            case "es":
-                return TableType.ES_EXTERNAL_TABLE.name();
-            case "iceberg":
-                return TableType.ICEBERG_EXTERNAL_TABLE.name();
-            case "trino-connector":
-                return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
-            case "max_compute":
-                return TableType.MAX_COMPUTE_EXTERNAL_TABLE.name();
-            case "paimon":
-                return TableType.PAIMON_EXTERNAL_TABLE.name();
-            case "hms":
-                return TableType.HMS_EXTERNAL_TABLE.name();
-            default:
-                return TableType.PLUGIN_EXTERNAL_TABLE.name();
-        }
+        return getEngine();
     }
 
     @Override

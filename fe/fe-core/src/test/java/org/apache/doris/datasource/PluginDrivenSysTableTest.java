@@ -309,15 +309,14 @@ public class PluginDrivenSysTableTest {
         PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(base, "snapshots");
 
         // WHY: SHOW TABLE STATUS / information_schema.tables.ENGINE for an iceberg sys table must read
-        // "iceberg" (not the generic "Plugin"), and getEngineTableTypeName must read "ICEBERG_EXTERNAL_TABLE".
-        // The sys table inherits both from PluginDrivenExternalTable, which switches on the catalog type;
-        // T06-F1 pinned the BASE table, this pins the inherited SYS path. MUTATION: deleting the "iceberg"
-        // case in PluginDrivenExternalTable.getEngine / getEngineTableTypeName -> "Plugin" /
-        // "PLUGIN_EXTERNAL_TABLE" -> red. assertAll so each pin (two independent T06 behaviors) is caught
-        // by its own mutation rather than masked by the other's short-circuit.
+        // "iceberg", and SHOW CREATE TABLE must print ENGINE=iceberg. A sys table inherits both from
+        // PluginDrivenExternalTable, which asks the catalog for the name its connector declares; the base
+        // table is pinned by PluginDrivenExternalTableEngineTest, this pins the inherited SYS path.
+        // MUTATION: making the sys table report the generic plugin name -> red. assertAll so each pin is
+        // caught by its own mutation rather than masked by the other's short-circuit.
         Assertions.assertAll(
                 () -> Assertions.assertEquals("iceberg", sys.getEngine()),
-                () -> Assertions.assertEquals("ICEBERG_EXTERNAL_TABLE", sys.getEngineTableTypeName()));
+                () -> Assertions.assertEquals("iceberg", sys.getEngineTableTypeName()));
     }
 
     // ==================== generic not-found path (no legacy position_deletes marker) ================

@@ -51,6 +51,7 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
@@ -111,6 +112,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     // on teardown -- connectors only borrow that FS and must not close it. Null until the real connector is built
     // (the lightweight CatalogFactory context is not tracked here; its FS is never built).
     private transient volatile DefaultConnectorContext connectorContext;
+
+    // The displayed engine name, resolved from the provider on first use (see getDisplayEngineName).
+    private transient volatile String displayEngineName;
 
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalCatalog() {
@@ -348,6 +352,33 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // Return the actual catalog type (e.g., "es", "jdbc") from properties,
         // not the internal "plugin" logType.
         return catalogProperty.getOrDefault(CatalogMgr.CATALOG_TYPE_PROP, super.getType());
+    }
+
+    /**
+     * The engine name this catalog's tables display, asked of the connector's <em>provider</em> so that the
+     * engine holds no mapping from data source to displayed name. Falls back to the catalog type when no
+     * provider claims it, which is also the provider's own default — a catalog whose plugin is not installed
+     * therefore still displays what it displayed before.
+     *
+     * <p>Resolved once and remembered. Both callers ({@code PluginDrivenExternalTable.getEngine} and
+     * {@code getEngineTableTypeName}) sit in a per-table loop — {@code FrontendServiceImpl.listTableStatus}
+     * calls this for every table of a database — and {@link #getProperties()} copies the whole property map on
+     * every call, so resolving per table would copy that map per table. Remembering is safe because the
+     * provider set is fixed for the life of the FE: {@code Env.initConnectorPluginManager} runs once at
+     * startup, before any catalog is touched, and nothing re-registers afterwards. The field is transient, so
+     * after a restart the first caller recomputes it — a local lookup among loaded plugins that touches
+     * nothing remote and cannot force this catalog to initialize.</p>
+     */
+    public String getDisplayEngineName() {
+        String name = displayEngineName;
+        if (name == null) {
+            String type = getType();
+            name = ConnectorFactory.findProvider(type, getProperties())
+                    .map(ConnectorProvider::displayEngineName)
+                    .orElse(type);
+            displayEngineName = name;
+        }
+        return name;
     }
 
     /** Returns the underlying SPI connector. Ensures the catalog is initialized first. */
