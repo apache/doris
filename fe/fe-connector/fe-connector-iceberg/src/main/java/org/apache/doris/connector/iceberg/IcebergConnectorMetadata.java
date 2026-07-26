@@ -79,6 +79,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -522,11 +523,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // Generic FE partition-column contract: post-cutover, PluginDrivenExternalTable derives the
             // table's partition columns SOLELY from a "partition_columns" CSV property (toSchemaCacheValue),
             // the same key MaxCompute/paimon emit. Mirror legacy IcebergUtils.loadTableSchemaCacheValue:
-            // walk the CURRENT spec, resolve each partition field's SOURCE column name (NO identity filter,
-            // NO dedupe), case-preserved to match parseSchema's case-preserved column names (#65094 read-path
+            // walk the CURRENT spec, resolve each partition field's SOURCE column name (NO identity filter),
+            // case-preserved to match parseSchema's case-preserved column names (#65094 read-path
             // alignment; fromRemoteColumnName is identity for iceberg, so the FE consumer looks the names up
             // case-sensitively).
-            List<String> partitionColumns = new ArrayList<>();
+            // DEDUPED per source column (LinkedHashSet, first-occurrence order): this CSV becomes a SET of
+            // partition COLUMNS on the FE side, not a list of spec FIELDS. fe-core maps each name to one scan
+            // Slot (PruneFileScanPartition) and OneListPartitionEvaluator collects Slot -> literal into an
+            // ImmutableMap, so a source column feeding two fields (e.g. bucket(8, c) + truncate(10, c), or
+            // ADD PARTITION KEY year(ts) then month(ts)) would raise "Multiple entries with same key" and fail
+            // the query at plan time. listPartitions() emits its per-partition value tuple over the SAME
+            // deduped column sequence, so the two stay index-aligned (the arity checkState in
+            // PluginDrivenMvccExternalTable.toListPartitionItem).
+            Set<String> partitionColumns = new LinkedHashSet<>();
             for (PartitionField field : table.spec().fields()) {
                 Types.NestedField source = table.schema().findField(field.sourceId());
                 if (source != null) {

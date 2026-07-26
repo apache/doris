@@ -686,14 +686,25 @@ final class IcebergPartitionUtils {
         }
         List<ConnectorPartitionInfo> partitions = new ArrayList<>(raws.size());
         for (IcebergRawPartition raw : raws) {
+            // Keyed by the partition field's SOURCE column name; a source column feeding two spec fields
+            // (bucket(8, c) + truncate(10, c)) collapses to ONE entry, last field wins — the map has always
+            // behaved this way, and the FE partition-column CSV is deduped the same way
+            // (IcebergConnectorMetadata.buildTableSchema).
             Map<String, String> values = new LinkedHashMap<>();
-            // Ordered values aligned to raw.name's segments; supplied so fe-core skips the name parse.
-            // String.valueOf keeps byte-parity with the legacy parse, which reads a null field rendered
-            // into the name as the literal "null" (StringBuilder append of a null Object).
-            List<String> orderedValues = new ArrayList<>(raw.columnNames.size());
             for (int i = 0; i < raw.columnNames.size(); ++i) {
                 values.put(raw.columnNames.get(i), raw.values.get(i));
-                orderedValues.add(String.valueOf(raw.values.get(i)));
+            }
+            // Ordered values, one per DISTINCT source column in first-occurrence order; supplied so fe-core
+            // skips the name parse. Derived from the deduped map rather than from raw.columnNames so the
+            // tuple arity always equals the deduped partition-column count fe-core declares — fe-core zips
+            // the two positionally (PluginDrivenMvccExternalTable.toListPartitionItem's load-bearing
+            // checkState), so emitting one value per spec FIELD against one column per DISTINCT source
+            // column would skip every partition and silently disable pruning.
+            // String.valueOf keeps byte-parity with the legacy parse, which reads a null field rendered
+            // into the name as the literal "null" (StringBuilder append of a null Object).
+            List<String> orderedValues = new ArrayList<>(values.size());
+            for (String value : values.values()) {
+                orderedValues.add(String.valueOf(value));
             }
             partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap(),
                     orderedValues, Collections.emptyList()));

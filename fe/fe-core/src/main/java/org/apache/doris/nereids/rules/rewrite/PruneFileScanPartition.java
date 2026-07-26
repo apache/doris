@@ -34,7 +34,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,6 +55,7 @@ import java.util.stream.Collectors;
  * external file ScanNode could do the partition filter by themselves.
  */
 public class PruneFileScanPartition extends OneRewriteRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(PruneFileScanPartition.class);
 
     @Override
     public Rule build() {
@@ -92,6 +96,22 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
+
+        // The pruner's input contract is positional AND injective: PartitionPruner zips each partition
+        // slot with the partition key's value at the same index, and OneListPartitionEvaluator collects
+        // (slot -> literal) into an ImmutableMap. A repeated slot therefore aborts planning with
+        // "Multiple entries with same key", and a null slot (a declared partition column missing from the
+        // scan output) would NPE. Either shape means the table's partition model is not expressible as a
+        // Doris partition-column set — e.g. an iceberg spec with two partition FIELDS over one source
+        // column. Decline to prune instead of failing the query: NOT_PRUNED leaves isPruned=false, so
+        // PluginDrivenScanNode.resolveRequiredPartitions returns scan-all and the query reads every
+        // partition — never fewer rows, only a lost optimization.
+        if (partitionSlots.contains(null) || Sets.newHashSet(partitionSlots).size() != partitionSlots.size()) {
+            LOG.warn("skip partition pruning for {}.{}: partition columns {} do not map to a distinct,"
+                            + " fully-resolved scan slot set", externalTable.getDbName(),
+                    externalTable.getName(), partitionSlots);
+            return SelectedPartitions.NOT_PRUNED;
+        }
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
