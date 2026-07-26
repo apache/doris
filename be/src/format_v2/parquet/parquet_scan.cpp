@@ -796,11 +796,17 @@ int64_t count_range_rows(const std::vector<RowRange>& ranges) {
 }
 
 void append_intersection(const RowRange& left, const RowRange& right,
-                         std::vector<RowRange>* result) {
+                         std::vector<RowRange>& result) {
     const int64_t start = std::max(left.start, right.start);
     const int64_t end = std::min(left.start + left.length, right.start + right.length);
     if (start < end) {
-        result->push_back(RowRange {.start = start, .length = end - start});
+        // Cache granules are only filter coordinates. Merge adjacent survivors so cache hits
+        // preserve the original read-range batch boundaries, matching V1 RowRanges semantics.
+        if (!result.empty() && result.back().start + result.back().length == start) {
+            result.back().length = end - result.back().start;
+            return;
+        }
+        result.push_back(RowRange {.start = start, .length = end - start});
     }
 }
 
@@ -832,7 +838,7 @@ std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRang
             const int64_t granule_end = granule_start + ConditionCacheContext::GRANULE_SIZE;
             const RowRange file_granule_range {.start = granule_start - row_group_first_row,
                                                .length = granule_end - granule_start};
-            append_intersection(range, file_granule_range, &result);
+            append_intersection(range, file_granule_range, result);
         }
     }
     return result;
