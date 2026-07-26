@@ -172,10 +172,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        ConnectorWritePlanProvider provider = writePlanProvider();
         // requiresParallelWrite is byte-inert for a heterogeneous gateway (hive and iceberg both true), so the
         // connector-level answer needs no per-handle resolution here.
-        return connector != null && connector.requiresParallelWrite();
+        return provider != null && provider.requiresParallelWrite();
     }
 
     /**
@@ -184,6 +184,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * capabilities per-table (its iceberg tables differ from its hive tables); a single-format connector ignores
      * the handle (the per-handle overloads default to connector-level), so this is byte-identical for it.
      */
+    /**
+     * The CONNECTOR-LEVEL write plan provider, or null when this catalog's connector is absent or declares no
+     * write support. Callers must have already checked that the catalog is plugin-driven. Used by the write
+     * traits whose answer is the same for every table of a heterogeneous gateway, so paying for a per-handle
+     * resolution would buy nothing; the per-table ones go through
+     * {@link #resolveWriteCapabilityHandle(Connector)} and {@code getWritePlanProvider(handle)} instead.
+     */
+    private ConnectorWritePlanProvider writePlanProvider() {
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector == null ? null : connector.getWritePlanProvider();
+    }
+
     private Optional<ConnectorTableHandle> resolveWriteCapabilityHandle(Connector connector) {
         ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
         return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
@@ -203,7 +215,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return EnumSet.noneOf(WriteOperation.class);
         }
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::supportedWriteOperations)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::supportedOperations)
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
     }
 
@@ -220,7 +233,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::supportsWriteBranch)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::supportsWriteBranch)
                 .orElse(false);
     }
 
@@ -363,8 +377,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null && connector.requiresPartitionLocalSort();
+        ConnectorWritePlanProvider provider = writePlanProvider();
+        return provider != null && provider.requiresPartitionLocalSort();
     }
 
     /**
@@ -385,7 +399,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         // Per-table: hive requires partition-hash writes but iceberg does not, so resolve the handle.
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::requiresPartitionHashWrite)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::requiresPartitionHashWrite)
                 .orElse(false);
     }
 
@@ -399,8 +414,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null && connector.requiresFullSchemaWriteOrder();
+        ConnectorWritePlanProvider provider = writePlanProvider();
+        return provider != null && provider.requiresFullSchemaWriteOrder();
     }
 
     /**
@@ -420,7 +435,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         // Per-table: iceberg retains partition columns (materialize the PARTITION literal), hive does not.
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::requiresMaterializeStaticPartitionValues)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::requiresMaterializeStaticPartitionValues)
                 .orElse(false);
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
 import java.util.Set;
 
@@ -40,10 +41,10 @@ import java.util.Set;
  * exercised solely by fe-core's fake-connector test. A connector added without such a test is simply
  * unchecked.</p>
  *
- * <p>Note also that this validator reads the CONNECTOR-LEVEL getters, while the engine's write path reads the
- * per-table overloads (for example {@code Connector.requiresPartitionHashWrite(ConnectorTableHandle)}). A
- * heterogeneous gateway connector can therefore be self-consistent here and still answer differently per
- * table, which is by design and out of this validator's scope.</p>
+ * <p>Note also that this validator reads the CONNECTOR-LEVEL provider, while the engine's write path resolves
+ * the provider per table ({@code Connector.getWritePlanProvider(ConnectorTableHandle)}). A heterogeneous
+ * gateway connector can therefore be self-consistent here and still answer differently per table, which is by
+ * design and out of this validator's scope.</p>
  */
 public final class ConnectorContractValidator {
 
@@ -51,30 +52,38 @@ public final class ConnectorContractValidator {
 
     /** @throws IllegalStateException if any write-capability invariant is violated. */
     public static void validate(Connector connector, String catalogType) {
-        Set<WriteOperation> ops = connector.supportedWriteOperations();
+        // Fetch the provider ONCE. Several connectors build a fresh provider per call and one of them
+        // (iceberg) reaches the live remote catalog while doing so, so asking the connector separately for
+        // each trait would pay that cost eight times over.
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider();
+        if (provider == null) {
+            // No write support at all: every trait is vacuously false and no invariant can be violated.
+            return;
+        }
+        Set<WriteOperation> ops = provider.supportedOperations();
         // #2 branch-write implies plain INSERT is supported (branch is an INSERT modifier).
-        if (connector.supportsWriteBranch() && !ops.contains(WriteOperation.INSERT)) {
+        if (provider.supportsWriteBranch() && !ops.contains(WriteOperation.INSERT)) {
             throw new IllegalStateException("Connector '" + catalogType
                     + "' declares supportsWriteBranch but its supportedOperations lacks INSERT");
         }
         // #3 partition-local-sort implies parallel write AND full-schema write order.
-        if (connector.requiresPartitionLocalSort()
-                && !(connector.requiresParallelWrite() && connector.requiresFullSchemaWriteOrder())) {
+        if (provider.requiresPartitionLocalSort()
+                && !(provider.requiresParallelWrite() && provider.requiresFullSchemaWriteOrder())) {
             throw new IllegalStateException("Connector '" + catalogType
                     + "' declares requiresPartitionLocalSort without requiresParallelWrite"
                     + " AND requiresFullSchemaWriteOrder");
         }
         // #4 partition-hash-write (hash without sort) likewise implies parallel write AND full-schema write
         // order (the sink indexes partition columns by full-schema position and distributes in parallel).
-        if (connector.requiresPartitionHashWrite()
-                && !(connector.requiresParallelWrite() && connector.requiresFullSchemaWriteOrder())) {
+        if (provider.requiresPartitionHashWrite()
+                && !(provider.requiresParallelWrite() && provider.requiresFullSchemaWriteOrder())) {
             throw new IllegalStateException("Connector '" + catalogType
                     + "' declares requiresPartitionHashWrite without requiresParallelWrite"
                     + " AND requiresFullSchemaWriteOrder");
         }
         // #5 the two hash arms are mutually exclusive: the engine checks local-sort first, so declaring both
         // would silently ignore the hash-without-sort request. Fail loud instead.
-        if (connector.requiresPartitionLocalSort() && connector.requiresPartitionHashWrite()) {
+        if (provider.requiresPartitionLocalSort() && provider.requiresPartitionHashWrite()) {
             throw new IllegalStateException("Connector '" + catalogType
                     + "' declares both requiresPartitionLocalSort and requiresPartitionHashWrite;"
                     + " a connector must pick at most one partition-distribution arm");

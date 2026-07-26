@@ -271,13 +271,9 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
         // Production selects the write provider per-handle; a plain mock does not run the interface default.
         Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
-        // The row-level DML gate (buildPluginRowLevelDmlSink) admits on connector.supportedWriteOperations()
-        // containing DELETE/MERGE. On a plain mock the Connector delegator default is not invoked, so stub it
-        // directly (an iceberg connector declares row-level DML support).
-        Mockito.when(connector.supportedWriteOperations())
-                .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.MERGE));
-        // Site 1 (row-level DML) now resolves the handle first and consults the per-handle overload.
-        Mockito.when(connector.supportedWriteOperations(Mockito.any()))
+        // The row-level DML gate (buildPluginRowLevelDmlSink) resolves the handle, fetches the per-handle
+        // provider and admits on ITS supportedOperations containing DELETE/MERGE.
+        Mockito.when(provider.supportedOperations())
                 .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.MERGE));
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))

@@ -109,12 +109,16 @@ public class PluginDrivenExternalTableTest {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(handlePresent ? Optional.of(handle) : Optional.empty());
+        // The write traits live on the provider; the table resolves its handle and asks the PER-HANDLE
+        // provider, so stub them where they are actually declared.
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        Mockito.when(provider.supportedOperations()).thenReturn(ops);
+        Mockito.when(provider.supportsWriteBranch()).thenReturn(branch);
+        Mockito.when(provider.requiresPartitionHashWrite()).thenReturn(true);
+        Mockito.when(provider.requiresMaterializeStaticPartitionValues()).thenReturn(true);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
-        Mockito.when(connector.supportedWriteOperations(Mockito.any())).thenReturn(ops);
-        Mockito.when(connector.supportsWriteBranch(Mockito.any())).thenReturn(branch);
-        Mockito.when(connector.requiresPartitionHashWrite(Mockito.any())).thenReturn(true);
-        Mockito.when(connector.requiresMaterializeStaticPartitionValues(Mockito.any())).thenReturn(true);
+        Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         ConnectorSession session = noneScopedSession();

@@ -326,8 +326,8 @@ class EsScanPlanProviderTest {
                 return 0;
             }
         });
-        Assertions.assertTrue(connector.supportedWriteOperations().isEmpty(),
-                "ES connector should declare no supported write operations");
+        Assertions.assertNull(connector.getWritePlanProvider(),
+                "ES connector should expose no write plan provider, so every write is rejected");
         // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
         ConnectorContractValidator.validate(connector, "es");
     }

@@ -237,6 +237,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -627,13 +628,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
-        Set<WriteOperation> writeOps = connector.supportedWriteOperations(providerTableHandle);
+        // The provider both admits the operation and plans the sink, so resolve it once: several connectors
+        // build a fresh provider per call and iceberg's construction reaches the live remote catalog.
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        Set<WriteOperation> writeOps = writePlanProvider == null
+                ? EnumSet.noneOf(WriteOperation.class)
+                : writePlanProvider.supportedOperations();
         if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support row-level DML operations");
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
@@ -679,12 +684,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
-        if (!connector.supportedWriteOperations(providerTableHandle).contains(WriteOperation.INSERT)) {
+        // Resolve the provider once: it both admits INSERT and plans the sink (see the row-level DML arm).
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        if (writePlanProvider == null
+                || !writePlanProvider.supportedOperations().contains(WriteOperation.INSERT)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support INSERT operations");
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
 
         // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin
         // logic so a DML's write anchors at the SAME snapshot its scan read (the pin is keyed by

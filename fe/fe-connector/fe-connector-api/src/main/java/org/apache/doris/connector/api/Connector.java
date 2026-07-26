@@ -19,7 +19,6 @@ package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
@@ -27,7 +26,6 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -39,15 +37,18 @@ import java.util.Set;
  * <p>A {@code Connector} instance is created once per catalog and provides
  * access to metadata, scan planning, and optional write operations.</p>
  *
- * <p><b>The {@code supportsXxx()} / {@code requiresXxx()} / {@code supportedWriteOperations()} methods on
- * this interface are null-safe READ PORTS for the engine, not declaration points for a connector.</b> Each
- * body does the same thing: fetch the relevant provider and, when there is none, answer {@code false} (or an
- * empty set). Declare such a capability by overriding it on the provider — the provider is the single source
- * of truth — and leave these alone; overriding a mirror while leaving the provider at its default produces
- * two divergent answers with no compile error and no failing test. The provider getters that return
- * {@code null} ({@code getScanPlanProvider}, {@code getWritePlanProvider}, {@code getProcedureOps},
- * {@code getEventSource}) are the opposite case: those ARE the declaration points for "this subsystem
- * exists". See the {@code org.apache.doris.connector.api} package documentation for the full rule.</p>
+ * <p><b>This interface does not mirror any provider's switches, and must not start.</b> A subsystem trait
+ * (write operations, parallel write, partition-hash write, ...) is declared on the provider that owns it and
+ * read from there; a forwarding copy here would be a second overridable answer to one question, and a
+ * connector overriding the copy while leaving the provider at its default would produce two divergent
+ * answers with no compile error and no failing test. The engine reaches a trait by fetching the provider
+ * ({@link #getWritePlanProvider(ConnectorTableHandle)} for a per-table answer, {@link #getWritePlanProvider()}
+ * for a connector-wide one) and asking it, treating a {@code null} provider as "not supported".</p>
+ *
+ * <p>The provider getters that return {@code null} ({@code getScanPlanProvider}, {@code getWritePlanProvider},
+ * {@code getProcedureOps}, {@code getEventSource}) are the opposite case: those ARE the declaration points
+ * for "this subsystem exists". See the {@code org.apache.doris.connector.api} package documentation for the
+ * full rule.</p>
  */
 public interface Connector extends Closeable {
 
@@ -120,84 +121,6 @@ public interface Connector extends Closeable {
      */
     default ConnectorWritePlanProvider getWritePlanProvider(ConnectorTableHandle handle) {
         return getWritePlanProvider();
-    }
-
-    /**
-     * The write operations the engine may perform on this connector — the single admission source. Reads the
-     * write provider's {@link ConnectorWritePlanProvider#supportedOperations()}; no provider ⇒ empty set ⇒ all
-     * writes rejected. The engine consults this instead of {@code getWritePlanProvider() != null}.
-     */
-    default Set<WriteOperation> supportedWriteOperations() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
-    }
-
-    /**
-     * Per-table view of {@link #supportedWriteOperations()}: derives from {@link #getWritePlanProvider(
-     * ConnectorTableHandle)} so a heterogeneous gateway admits the right operations for {@code handle} (e.g. an
-     * iceberg-on-HMS table admits DELETE/MERGE that the hive provider does not). The default routes through the
-     * per-handle provider, so every single-format connector is unaffected.
-     */
-    default Set<WriteOperation> supportedWriteOperations(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#supportsWriteBranch()}. No provider ⇒ false. */
-    default boolean supportsWriteBranch() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.supportsWriteBranch();
-    }
-
-    /** Per-table view of {@link #supportsWriteBranch()} (derives from the per-handle provider). */
-    default boolean supportsWriteBranch(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p != null && p.supportsWriteBranch();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresParallelWrite()}. No provider ⇒ false. */
-    default boolean requiresParallelWrite() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresParallelWrite();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresFullSchemaWriteOrder()}. No provider ⇒ false. */
-    default boolean requiresFullSchemaWriteOrder() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresFullSchemaWriteOrder();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionLocalSort()}. No provider ⇒ false. */
-    default boolean requiresPartitionLocalSort() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresPartitionLocalSort();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionHashWrite()}. No provider ⇒ false. */
-    default boolean requiresPartitionHashWrite() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresPartitionHashWrite();
-    }
-
-    /** Per-table view of {@link #requiresPartitionHashWrite()} (derives from the per-handle provider). */
-    default boolean requiresPartitionHashWrite(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p != null && p.requiresPartitionHashWrite();
-    }
-
-    /**
-     * Null-safe view of {@link ConnectorWritePlanProvider#requiresMaterializeStaticPartitionValues()}. No
-     * provider ⇒ false.
-     */
-    default boolean requiresMaterializeStaticPartitionValues() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresMaterializeStaticPartitionValues();
-    }
-
-    /** Per-table view of {@link #requiresMaterializeStaticPartitionValues()} (derives from the per-handle provider). */
-    default boolean requiresMaterializeStaticPartitionValues(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p != null && p.requiresMaterializeStaticPartitionValues();
     }
 
     /**

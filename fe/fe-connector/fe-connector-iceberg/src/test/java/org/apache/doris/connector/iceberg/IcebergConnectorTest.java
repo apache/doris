@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -352,16 +353,18 @@ public class IcebergConnectorTest {
         catalog.initialize("test", Collections.emptyMap());
         IcebergConnector connector = connectorWithCatalog(Collections.emptyMap(), catalog);
 
+        ConnectorWritePlanProvider writeProvider = connector.getWritePlanProvider();
+        Assertions.assertNotNull(writeProvider, "iceberg connector must expose a write plan provider");
         Assertions.assertEquals(
                 EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.DELETE,
                         WriteOperation.MERGE, WriteOperation.REWRITE),
-                connector.supportedWriteOperations());
-        Assertions.assertTrue(connector.supportsWriteBranch());
-        Assertions.assertTrue(connector.requiresParallelWrite());
-        Assertions.assertFalse(connector.requiresPartitionLocalSort(),
+                writeProvider.supportedOperations());
+        Assertions.assertTrue(writeProvider.supportsWriteBranch());
+        Assertions.assertTrue(writeProvider.requiresParallelWrite());
+        Assertions.assertFalse(writeProvider.requiresPartitionLocalSort(),
                 "iceberg does NOT require partition-local sort (unlike MaxCompute)");
-        Assertions.assertTrue(connector.requiresFullSchemaWriteOrder());
-        Assertions.assertTrue(connector.requiresMaterializeStaticPartitionValues());
+        Assertions.assertTrue(writeProvider.requiresFullSchemaWriteOrder());
+        Assertions.assertTrue(writeProvider.requiresMaterializeStaticPartitionValues());
 
         ConnectorContractValidator.validate(connector, "iceberg");
     }

@@ -73,7 +73,9 @@ public class HudiReadOnlyWriteRejectTest {
         // admitted and mis-executed -> red.
         HudiConnector connector = connector();
         Assertions.assertNull(connector.getWritePlanProvider(HUDI_HANDLE));
-        Assertions.assertTrue(connector.supportedWriteOperations(HUDI_HANDLE).isEmpty());
+        // The connector-level getter must agree: a null provider IS the "no write support" declaration, and
+        // every engine-side write gate is a null check against it.
+        Assertions.assertNull(connector.getWritePlanProvider());
     }
 
     @Test
