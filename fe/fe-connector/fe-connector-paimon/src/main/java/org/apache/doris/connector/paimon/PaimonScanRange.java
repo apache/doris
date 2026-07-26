@@ -261,11 +261,12 @@ public class PaimonScanRange implements ConnectorScanRange {
                 // (PaimonScanPlanProvider.serializePartitionValue) returns Java null for a genuine
                 // null and the literal toString() otherwise — a null is never a Hive directory
                 // sentinel. So derive isNull from the Java null ONLY, matching legacy
-                // PaimonScanNode.setScanParams (source/PaimonScanNode.java:323-326). Do NOT route
-                // through ConnectorPartitionValues.normalize: its __HIVE_DEFAULT_PARTITION__/"\N"
-                // coercion is correct for hudi (path-encoded partitions) but here would turn a
-                // genuine literal partition value of "\N" or "__HIVE_DEFAULT_PARTITION__" into SQL
-                // NULL. BE ignores the rendered string when isNull=true, so "" matches legacy.
+                // PaimonScanNode.setScanParams (source/PaimonScanNode.java:323-326). Do NOT reuse hudi's
+                // directory-name rule (HudiScanRange.populateRangeParams): its
+                // __HIVE_DEFAULT_PARTITION__/"\N" coercion is correct for path-encoded partitions but
+                // here would turn a genuine literal partition value of "\N" or
+                // "__HIVE_DEFAULT_PARTITION__" into SQL NULL. BE ignores the rendered string when
+                // isNull=true, so "" matches legacy.
                 String value = entry.getValue();
                 pathKeys.add(entry.getKey());
                 pathValues.add(value != null ? value : "");

@@ -39,8 +39,8 @@ import java.util.Map;
  * source-specific string matching), so this connector now owns the sentinel-&gt;NULL mapping, mirroring
  * {@code IcebergScanRange}/{@code PaimonScanRange}. These tests pin: (a) real values pass through with
  * {@code is_null=false}; (b) the sentinel maps to {@code ""}+{@code is_null=true}; (c) a LITERAL
- * {@code "\N"} is a genuine value, NOT null (i.e. we use the narrow {@code .equals}, not
- * {@code ConnectorPartitionValues.normalize}); (d) an unpartitioned range emits nothing; (e) an ACID
+ * {@code "\N"} is a genuine value, NOT null (i.e. we use the narrow {@code .equals}, not hudi's wider
+ * directory-name rule); (d) an unpartitioned range emits nothing; (e) an ACID
  * range emits BOTH the transactional params and the partition values. The emitted keys are the
  * partition column names in {@code path_partition_keys} order, keeping the bytes identical to the
  * legacy engine-side path.</p>
@@ -95,7 +95,7 @@ public class HiveScanRangePartitionValuesTest {
     public void testLiteralBackslashNIsNotNull() {
         // A literal "\N" partition value is NOT the Hive default-partition sentinel and must survive as a
         // real value (is_null=false). This is why the connector uses the narrow HIVE_DEFAULT_PARTITION.equals
-        // and NOT ConnectorPartitionValues.normalize (which would coerce "\N" to SQL NULL).
+        // and NOT hudi's directory-name rule (HudiScanRange), which would coerce "\N" to SQL NULL.
         HiveScanRange range = HiveScanRange.builder()
                 .path("/tbl/city=%5CN/000000_0")
                 .partitionValues(orderedPartitionValues("city", "\\N"))

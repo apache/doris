@@ -17,57 +17,10 @@
 
 package org.apache.doris.connector.api.scan;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 public final class ConnectorPartitionValues {
 
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
-    public static final String NULL_PARTITION_VALUE = "\\N";
 
     private ConnectorPartitionValues() {
-    }
-
-    public static Normalized normalize(List<String> partitionValues) {
-        if (partitionValues == null || partitionValues.isEmpty()) {
-            return new Normalized(Collections.emptyList(), Collections.emptyList());
-        }
-        List<String> values = new ArrayList<>(partitionValues.size());
-        List<Boolean> isNull = new ArrayList<>(partitionValues.size());
-        for (String value : partitionValues) {
-            boolean nullValue = isNullPartitionValue(value);
-            values.add(normalizePartitionValue(value));
-            isNull.add(nullValue);
-        }
-        return new Normalized(values, isNull);
-    }
-
-    public static boolean isNullPartitionValue(String value) {
-        return value == null || HIVE_DEFAULT_PARTITION.equals(value)
-                || NULL_PARTITION_VALUE.equals(value);
-    }
-
-    public static String normalizePartitionValue(String value) {
-        return value == null || HIVE_DEFAULT_PARTITION.equals(value)
-                ? NULL_PARTITION_VALUE : value;
-    }
-
-    public static final class Normalized {
-        private final List<String> values;
-        private final List<Boolean> isNull;
-
-        private Normalized(List<String> values, List<Boolean> isNull) {
-            this.values = values;
-            this.isNull = isNull;
-        }
-
-        public List<String> getValues() {
-            return values;
-        }
-
-        public List<Boolean> getIsNull() {
-            return isNull;
-        }
     }
 }

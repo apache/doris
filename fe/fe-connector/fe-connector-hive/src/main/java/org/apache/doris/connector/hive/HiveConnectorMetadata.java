@@ -1238,8 +1238,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * regardless of column casing/order (do NOT derive the order from the value map / partition-key names).
      * A value equal to the HMS default-partition sentinel {@code __HIVE_DEFAULT_PARTITION__} is a genuine
      * SQL NULL — byte-parity with legacy {@code HiveExternalMetaCache.toListPartitionItem}, which marks the
-     * sentinel (and only the sentinel) null; the broader {@code isNullPartitionValue} (which also treats
-     * {@code \N}/null as null) is deliberately not used (HMS partition names never carry {@code \N}).
+     * sentinel (and only the sentinel) null; hudi's broader directory-name rule (which also treats
+     * {@code \N}/null as null) is deliberately not reused (HMS partition names never carry {@code \N}).
      */
     private static List<Boolean> toPartitionValueNullFlags(List<String> values) {
         List<Boolean> flags = new ArrayList<>(values.size());
