@@ -50,16 +50,17 @@ public interface ConnectorSchemaOps {
     }
 
     /**
-     * Whether this connector supports CREATE DATABASE. Defaults to false so the FE
-     * {@code CREATE DATABASE IF NOT EXISTS} remote existence precheck applies only to
-     * connectors that can actually create databases; connectors that cannot keep their
-     * existing "CREATE DATABASE not supported" behavior unchanged.
+     * Creates a new database with the given name and properties. The default throws, which IS the
+     * declaration that this connector cannot create databases — there is no separate boolean to keep in
+     * sync with it (a {@code supportsCreateDatabase()} switch existed and was removed: it could only
+     * restate whether this method was overridden, and getting the two out of step broke
+     * {@code CREATE DATABASE IF NOT EXISTS} with no compile error and no failing test).
+     *
+     * <p>{@code IF NOT EXISTS} is handled by the engine, not here: it consults {@link #databaseExists}
+     * first and only calls this when the answer is no. A connector that cannot create databases therefore
+     * still wants a truthful {@link #databaseExists} — that is what makes {@code IF NOT EXISTS} on an
+     * already-existing database succeed rather than report "not supported".</p>
      */
-    default boolean supportsCreateDatabase() {
-        return false;
-    }
-
-    /** Creates a new database with the given name and properties. */
     default void createDatabase(ConnectorSession session,
             String dbName, Map<String, String> properties) {
         throw new DorisConnectorException(

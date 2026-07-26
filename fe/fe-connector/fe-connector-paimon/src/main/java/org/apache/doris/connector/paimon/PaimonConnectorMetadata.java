@@ -878,16 +878,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     // ==================== DDL: Create/Drop Database ====================
 
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
-
     /**
      * Creates a Paimon database.
      *
-     * <p>fe-core already does the {@code IF NOT EXISTS} short-circuit before reaching here: since
-     * {@link #supportsCreateDatabase()} is true, {@code PluginDrivenExternalCatalog.createDb}
+     * <p>fe-core already does the {@code IF NOT EXISTS} short-circuit before reaching here:
+     * {@code PluginDrivenExternalCatalog.createDb}
      * consults BOTH the FE db-name cache AND the remote {@code databaseExists} and no-ops when the
      * db already exists, so this body passes {@code ignoreIfExists = false} to the seam (mirrors
      * {@code MaxComputeConnectorMetadata.createDatabase}). If the db somehow exists, paimon throws

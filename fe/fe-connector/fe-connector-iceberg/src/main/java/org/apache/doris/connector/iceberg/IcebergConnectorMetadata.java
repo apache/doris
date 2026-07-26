@@ -854,16 +854,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // ========== DDL writes (B1): create/drop database + table ==========
 
     /**
-     * Iceberg supports CREATE DATABASE (namespace). Declaring it lets {@code PluginDrivenExternalCatalog.createDb}
-     * consult the remote namespace existence for IF NOT EXISTS (the SPI default {@code false} would skip that
-     * check). Mirrors paimon.
-     */
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
-
-    /**
      * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. Namespace
      * properties are only honored by an HMS catalog; for every other flavor a non-empty property map fails
      * loud (legacy parity) — the gate is a pure local check run BEFORE the auth context, like paimon.
@@ -1790,6 +1780,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                                 + " (transform: %s).", colName, field.transform().toString()));
             }
         }
+    }
+
+    // ========== Predicate pushdown ==========
+
+    /**
+     * Iceberg accepts CAST-bearing predicates ({@code true}, the SPI default, stated here rather than
+     * inherited).
+     *
+     * <p>This is a conscious acceptance of the risk the SPI documents, not a claim of safety: the residual
+     * predicate is converted by {@code IcebergPredicateConverter} and handed to the {@code TableScan}, so it
+     * prunes manifests and data files AT THE SOURCE, and the engine has already unwrapped the CAST — a
+     * comparison whose literal iceberg binds differently than Doris coerced it can skip files that hold
+     * matching rows, which BE cannot recover. It stays {@code true} for parity with the legacy
+     * {@code IcebergScanNode}, which pushed the same converted predicate; no defect has been observed. A
+     * connector added later should default to {@code false} instead (see the SPI javadoc).</p>
+     */
+    @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        return true;
     }
 
     // ========== B-2: partition enumeration (MTMV RANGE view + SHOW PARTITIONS) ==========

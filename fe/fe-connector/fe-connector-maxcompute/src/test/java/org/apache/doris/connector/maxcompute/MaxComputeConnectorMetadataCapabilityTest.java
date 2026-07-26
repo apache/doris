@@ -23,33 +23,12 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 /**
- * P2-6 FIX-CREATE-DB-PRECHECK (clean-room re-review DG-4 / F26, F23) — pins the
- * MaxCompute schema-op capability declaration the FE CREATE DATABASE precheck depends on.
+ * Pins the MaxCompute metadata capability declarations that change what the engine does.
  *
- * <p><b>WHY this matters:</b> the fix for DG-4 gates the FE
- * {@code CREATE DATABASE IF NOT EXISTS} remote-existence precheck on
- * {@code ConnectorSchemaOps.supportsCreateDatabase()} (default false) so that jdbc/es/trino —
- * which cannot create databases — keep their existing "not supported" behavior. MaxCompute CAN
- * create databases and MUST declare {@code true}, otherwise the precheck is skipped for it and
- * the very regression DG-4 describes (CREATE DATABASE IF NOT EXISTS on a remotely-existing db
- * surfacing ODPS "already exists") returns. The fe-core routing tests use a mocked connector, so
- * this is the only test that pins the real MaxCompute override. MUTATION: flipping the override
- * to {@code return false} makes this red. The capability getter touches no instance field, so a
- * {@code null} odps/helper keeps the test offline (same pattern as
- * {@link MaxComputeBuildTableDescriptorTest}).</p>
+ * <p>A capability getter touches no instance field, so a {@code null} odps/helper keeps these tests
+ * offline (same pattern as {@link MaxComputeBuildTableDescriptorTest}).</p>
  */
 public class MaxComputeConnectorMetadataCapabilityTest {
-
-    @Test
-    public void maxComputeDeclaresSupportsCreateDatabase() {
-        MaxComputeConnectorMetadata metadata = new MaxComputeConnectorMetadata(
-                null, null, "proj", "ep", "quota", Collections.emptyMap(),
-                null); // null: partition cache unused by this test
-
-        Assertions.assertTrue(metadata.supportsCreateDatabase(),
-                "MaxCompute must declare supportsCreateDatabase()=true so the FE "
-                        + "CREATE DATABASE IF NOT EXISTS remote precheck applies to it (DG-4)");
-    }
 
     /**
      * F9 FIX-CAST-PUSHDOWN — pins that MaxCompute disables CAST-predicate pushdown.

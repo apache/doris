@@ -562,11 +562,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * {@code ConnectorSchemaOps.createDatabase(session, dbName, properties)}.
      *
      * <p>The SPI signature carries no {@code ifNotExists}; this override honors it
-     * FE-side. It short-circuits on the local FE cache, and — for connectors that
-     * support CREATE DATABASE ({@code supportsCreateDatabase()}) — also consults the
-     * remote {@code databaseExists} so {@code CREATE DATABASE IF NOT EXISTS} on a
-     * database that exists remotely but is not yet in this FE's cache cleanly no-ops
-     * instead of surfacing a remote "already exists" error (mirroring legacy
+     * FE-side. It short-circuits on the local FE cache and then on the remote
+     * {@code databaseExists}, so {@code CREATE DATABASE IF NOT EXISTS} on a database
+     * that exists remotely but is not yet in this FE's cache cleanly no-ops instead of
+     * surfacing a remote "already exists" error (mirroring legacy
      * {@code MaxComputeMetadataOps.createDbImpl}, which checked both). On success it
      * writes the edit log and invalidates the cached db-name list (mirroring the
      * legacy {@code metadataOps.afterCreateDb()} the plugin path no longer has).</p>
@@ -583,10 +582,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // FE-cache miss but the db may already exist REMOTELY (created on another FE / before this
         // FE's db-name cache was populated). Legacy MaxComputeMetadataOps.createDbImpl consulted
         // BOTH getDbNullable AND the remote databaseExist, and IF NOT EXISTS then no-oped. Mirror
-        // that remote check. Gated on supportsCreateDatabase() so connectors that cannot create
-        // databases (jdbc/es/trino) keep their prior behavior (fall through to createDatabase ->
-        // "not supported"); the && short-circuit means they never even issue the remote query.
-        if (ifNotExists && metadata.supportsCreateDatabase() && metadata.databaseExists(session, dbName)) {
+        // that remote check. Asked of EVERY connector, mirroring Trino's CreateSchemaTask: IF NOT
+        // EXISTS means "ensure it is there", so a connector that cannot create databases but reports
+        // this one as existing has already satisfied the request and must not be made to fail.
+        // A connector that answers neither question keeps the default databaseExists() == false and
+        // falls through to createDatabase() -> "CREATE DATABASE not supported", as before.
+        if (ifNotExists && metadata.databaseExists(session, dbName)) {
             LOG.info("create database[{}] which already exists remotely, skip", dbName);
             return;
         }

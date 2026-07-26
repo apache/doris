@@ -1541,15 +1541,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // ========== ConnectorSchemaOps: DDL writes (create/drop database) ==========
 
     /**
-     * Hive supports CREATE DATABASE. Declaring it lets {@code PluginDrivenExternalCatalog.createDb} consult
-     * the remote database existence for IF NOT EXISTS (the SPI default {@code false} would skip that check).
-     */
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
-
-    /**
      * Creates a Hive database, mirroring legacy {@code HiveMetadataOps.createDbImpl}: the {@code location}
      * property becomes the database location URI (and is dropped from the parameter map), the {@code comment}
      * property becomes the description, and the remaining properties become database parameters. Existence /

@@ -61,12 +61,6 @@ public class IcebergConnectorMetadataDdlTest {
         return new IcebergConnectorMetadata(ops, props(catalogType), ctx);
     }
 
-    @Test
-    public void testSupportsCreateDatabase() {
-        Assertions.assertTrue(metadata(new RecordingIcebergCatalogOps(),
-                new RecordingConnectorContext(), IcebergConnectorProperties.TYPE_REST).supportsCreateDatabase());
-    }
-
     // ---------- createDatabase ----------
 
     @Test

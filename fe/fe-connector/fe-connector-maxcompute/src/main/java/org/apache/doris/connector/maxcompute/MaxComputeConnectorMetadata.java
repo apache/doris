@@ -435,11 +435,6 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     // ==================== DDL: Create/Drop Database ====================
 
     @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
-
-    @Override
     public void createDatabase(ConnectorSession session, String dbName,
             Map<String, String> properties) {
         structureHelper.createDb(odps, dbName, false);
