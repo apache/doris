@@ -397,11 +397,45 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     }
 
     @Test
-    public void foreignHandleSchemaUnchangedWhenSiblingDeclaresNoCapabilities() {
-        // A sibling declaring an EMPTY capability set hits the ownerCaps.isEmpty() early-return in
-        // reflectSiblingScanCapabilities -> the sibling schema is returned untouched -> no marker is stamped. This
-        // guards the empty-owner branch specifically; the real hudi-on-HMS withholding (a NON-empty sibling that
-        // lacks auto-analyze) is pinned by foreignHandleSchemaWithholdsAutoAnalyzeFromRealHudiSibling below.
+    public void foreignHandleSchemaReflectsOnlyThePerTableResolvedCapabilitySubset() {
+        // WHY: fe-core resolves only a FIXED subset of capabilities per-table; every other one is answered
+        // catalog-wide and a marker entry for it is discarded unread. Reflecting the sibling's WHOLE set would
+        // therefore leave an iceberg-on-HMS table's SHOW CREATE TABLE / view / sort-order behaviour hanging on an
+        // implementation detail (how narrowly the engine happens to read the marker) instead of on an explicit
+        // decision here. The gateway reflects SIBLING_INHERITABLE_CAPABILITIES and nothing else.
+        // MUTATION: widening the reflection back to owner.getCapabilities() -> the marker gains SHOW_CREATE_DDL /
+        // SORT_ORDER -> red here, and an engine-side widening would silently change delegated-table behaviour.
+        Set<ConnectorCapability> siblingCaps = EnumSet.of(
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
+                ConnectorCapability.SUPPORTS_SORT_ORDER,
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
+                        SiblingOwner.ICEBERG_LABEL));
+
+        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
+        String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
+        Assertions.assertEquals(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name(), csv,
+                "only the per-table-resolved subset may be reflected onto a delegated table");
+
+        // A NON-empty sibling declaring none of the subset must stamp no marker at all, not an empty one.
+        HiveConnectorMetadata noneInheritable = new HiveConnectorMetadata(null, Collections.emptyMap(),
+                new FakeConnectorContext(), SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
+                        EnumSet.of(ConnectorCapability.SUPPORTS_VIEW, ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)),
+                        SiblingOwner.ICEBERG_LABEL));
+        Assertions.assertNull(noneInheritable.getTableSchema(session, foreignHandle).getProperties()
+                        .get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY),
+                "a sibling declaring only catalog-wide capabilities must stamp no per-table marker");
+    }
+
+    @Test
+    public void foreignHandleSchemaUnchangedWhenSiblingDeclaresNoInheritableCapability() {
+        // A sibling declaring an EMPTY capability set leaves the inherited subset empty -> the sibling schema is
+        // returned untouched -> no marker is stamped. The sibling-declares-only-catalog-wide-capabilities case
+        // takes the same branch and is pinned in
+        // foreignHandleSchemaReflectsOnlyThePerTableResolvedCapabilitySubset above.
         // MUTATION: dropping the isEmpty() early-return and stamping an (empty) marker unconditionally -> red here.
         HiveConnectorMetadata md = withSibling(); // RecordingSiblingConnector declares no capabilities
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
