@@ -8,10 +8,6 @@
 
 ## 🔥 构建命令（照抄，别用更早版本的写法）
 
-旧交接文档里"一轮 4～6 分钟"的命令会让 maven 卡死一小时。根因已定位：checkstyle 的扫描目录取模块的**编译源根**，而 `fe-thrift` / `fe-sql-parser` / `fe-grpc` 把 `target/generated-sources` 加进了源根 → 生成代码被当成待审计源码，而抑制注释过滤器按违规条数重扫全文 → 退化成平方级。
-
-**固定用这两条**：
-
 ```bash
 # ① 全反应堆含测试源编译 + 跑指定测试（checkstyle 摘出去）
 mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
@@ -19,12 +15,12 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
   -Dmaven.build.cache.enabled=false -Dcheckstyle.skip=true -T1C \
   test-compile test -Dtest='<类名清单>' -Dsurefire.failIfNoSpecifiedTests=false
 
-# ② checkstyle 只对本次真正改动的模块单独跑（它们没有生成代码，秒过）
+# ② checkstyle 只对本次真正改动的模块单独跑
 mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
   -pl <改动的模块清单> -Dmaven.build.cache.enabled=false checkstyle:check
 ```
 
-`-pl` 缩到单模块对 `checkstyle:check` **安全**（纯源码审计）；对 `test-compile` 仍然不安全。
+`-pl` 缩到单模块对 `checkstyle:check` **安全**；对 `compile` / `test-compile` **不安全**（本轮又踩了一次：`-pl fe-core compile` 直接报 `Could not resolve dependencies ... fe-authentication:pom:${revision}`）。
 
 ---
 
@@ -33,105 +29,93 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 **必读顺序**：本文 → [README.md](./README.md) 的任务清单 → 挑中的那个任务自己的文档。
 **不要通读** `audit-report.md`（1600 余行），按 README 里的章节导航 grep 定位。
 
-**当前状态：九批已合入（共 38 个提交）。正确性缺陷清零；死接口面删除基本完成；下推契约成文；扫描属性键契约集中；引擎里按数据源名判定的分支全部中立化；能力声明形状问题已根治；公共模块里最后一个数据源品牌常量已中立化；同日另一份评审文档已入库并按 HEAD 标注。**
+**当前状态：十批已合入（共 43 个提交）。本轮由 owner 拍板，把原 18 号（建表能力下沉）升级成了一件更大的事——「让 fe-core 不再用 engine 做判定，改为按 catalog 路由」，并分四步执行。第 1、2、3 步已完成，第 4 步（展示串下沉）未做。**
 
-已完成：07、08、10、11 / 12 / 13 / 14、15、09、01～06、两个真实用户可见缺口、21 与 16、17、20 / 22 / 19，**外加本批的 25（3 个提交）**。
+### 本轮拍板的四条（owner 明确选择，后续不要重开）
 
-**剩下的只有两项**：
+1. **判据落点**：不做「连接器实例声明 + 引擎名」，改为**目录级判定**——`CatalogIf.validateCreateTableEngine(String)`，每个目录自己回答。声明放 `ConnectorProvider`（类型级，读它不初始化目录）。
+2. **文案**：不逐字保留旧文案，**改成按目录说话**——`Engine 'X' does not match catalog 'Y'.`，同批改写 7 处 e2e 断言。
+3. **iceberg/paimon 分桶文案修回来**（删掉 fe-core 的通用拦截，让连接器自己的可操作文案生效）。
+4. **注册期拒绝引擎名撞车**（含 fe-core 保留名 `{olap, mysql, odbc, broker}`）。
+5. **四步全做**（第 4 步本轮未完成，见下）。
 
-- **18**（建表能力下沉，**高风险**，需先拍板报错文案变化，且仓库里**根本不存在**分桶子句的正向端到端护栏——必须自己补一条）；
-- **23**（引擎上下文里的存储服务拆分，**高危**，必须插件包重部署冒烟）。
+### 下一步只有一件事：第 4 步 · 展示串下沉
 
-另有 **10 条"复核登记的开放项"**（README 里新加了一张表），只登记未排期。其中**第一条最便宜也最该先做**：统计接口"列举文件大小"的异常契约与它唯一的实现、以及包级说明里的"响亮失败"规则**三方矛盾**，两方说该抛，改接口 javadoc 一句话即可，不动任何行为。它是被两批工作**从缝里漏下来**的——修正过时接口文档那一批把它明确排除在范围外（归到异常契约那一批），而那一批从未立项。
+**目标**：`PluginDrivenExternalTable.getEngine()` 与 `getEngineTableTypeName()` 两个按目录类型写死的 switch（`PluginDrivenExternalTable.java:1284` 与 `:1326`，各 7 个 case）删掉，改由连接器声明两个展示名。
+
+**动手前必须先解决三个问题（本轮评估出来的，别直接开写）**：
+
+1. **fe-core 单测无法验证。** `PluginDrivenExternalTableEngineTest` 有 16 个用例逐条钉着这两个 switch 的映射，但 **fe-core 测试的 classpath 上没有任何连接器模块**，provider 不会被注册 → 映射会全部回落到 `"Plugin"` / `PLUGIN_EXTERNAL_TABLE`，那 16 个用例会全红。必须先设计好这批用例怎么改（用 `FakeConnectorPlugin` + `ConnectorFactory.initPluginManager` 注册假 provider 是候选，但 `initPluginManager` 会替换全局单例，同 JVM 内会影响别的用例——先确认隔离手段）。
+2. **`getEngine()` 在热循环里。** `FrontendServiceImpl.listTableStatus:759` 对**每一张表**调一次，今天它只读一个持久化属性、零成本。改成 `ConnectorFactory.findProvider(type, props)` 是对 provider 列表的线性扫描 + `supports()` 调用，per-table。表多的库上要先量一下，或者在目录侧缓存一次。
+3. **验收只能靠 e2e 的 `.out` 逐字节不变**，本地无集群跑不了。被钉死的基线至少有：`paimon/test_paimon_table_properties.out`（`ENGINE=PAIMON_EXTERNAL_TABLE`）、`nereids_commands/test_nereids_refresh_catalog.out`（`ENGINE=JDBC_EXTERNAL_TABLE`）、`remote_doris/test_remote_doris_all_types_show.out`（`ENGINE=DORIS_EXTERNAL_TABLE`）、`external_table_p0/hive/test_information_schema_external.out`（information_schema 的 `hms`）。
+
+**还要注意**：`trino-connector` 与 `max_compute` 的展示引擎名今天是 **null**（`TableType.*.toEngineName()` 没有对应 case），所以 SPI 上那个声明必须允许「有类型但无展示引擎名」，不能用非空 String。
+
+**另一半已经不用做了**：「连接器自己产出 SHOW CREATE TABLE」这条路**早就存在**——`ShowCreateTableCommand` 会先问 `PluginDrivenExternalTable.getShowCreateTableDdl()`，hive 已经在用（`HiveConnectorMetadata.renderShowCreateTableDdl`，渲染出来的语句里连 `ENGINE=` 都没有）。其余连接器只是还没走进这扇门，那是**逐个连接器接入**的活，不是 fe-core 重构，可以各自独立排期。
+
+### 其余未完成项
+
+- **23 号**（引擎上下文里的存储服务拆分，高危，必须插件包重部署冒烟）——一直没动。
+- README 里「复核登记的开放项」表还剩 9 条（本轮做掉了最便宜的那条：统计接口异常契约）。
 
 ---
 
-## 📌 本批落地后的事实变化
+## 📌 本轮落地后的事实变化
 
-1. **`plan-doc/connector-api-spi-design-review-2026-07-25.md` 从此进入版本控制。** 它此前**从未在任何分支任何提交里存在过**（不是加了又删，就是从来没人 `git add`），而三份已入库文档在引用它 —— 对只克隆了提交的人全是悬空引用。**分两个提交**：先原样入库保住快照，再提交修订，于是"可 diff、可回退"第一次成立。
-2. **处置方案不是原计划的"就地改 8 处"。** 重侦察发现那份文档写于 **44 个提交**之前，去重后约 **26 个独立论断**失效（散落 40 余处），而那份勘误清单**自己也过期了**：原 8 条里 4 条仍成立、3 条被代码变更取代、1 条彻底失去对象。改为**保留分析正文**（它是评审快照）+ 三类标注（状态戳 36 处、交叉核对修正 15 处、就地重算 3 处）+ **重编两块可消费内容**（现状概览的两张表、文末 17 条行动清单）。
-3. **"当前现状"的权威位置已经在代码注释里。** 这是不做"全文重新校准"的根本理由——八批改动干的恰恰是把规则写进 `package-info.java`（规则一/规则三）、各域接口的最少实现集、契约校验器的"实际覆盖"段落。再维护一份 markdown 副本就是第二真相源，而且下一批落地后又整体过期。
-4. **三处代码注释错误已修**（第三个提交）：值对象把四个数字的来源说反了（求和的是第一、三、四个，来自事务的是**第二个**）；一个测试类的类注释说默认值"必须是空列表"、而接口默认返回 `null` 且**该测试自己断言的就是 `null`**；两处引用了树中已不存在的旧类名。
-5. **公共接口模块并没有在收缩。** 八批删除之后 `fe-connector-api` **净增 6 个文件、829 行**（95/10149 → 101/10978）——删掉的死接口面被写进去的契约文档抵消了。收缩发生在"要实现的方法数"上：`Connector` 从 34 掉到 21，`ConnectorTableOps` 家族从 46 个声明降到 43 个且自身只剩 2 个。**别再用"代码行数在减少"当论据。**
+1. **`CreateTableInfo` 里已经没有任何引擎名判定。** 四道门（补引擎名 / 九名或链 / 与目录一致性 / 子句允许列表）全部删除，换成 `resolveTargetCatalog()` 一处：解析目标目录 → 显式写了 `ENGINE=` 就交给目录判 → 只给内部目录补 `olap` → `isExternal` 改为 `!catalog.isInternalCatalog()`。
+2. **外部目录的建表语句现在不带引擎名（null）。** 这是刻意的：分析之后没有任何代码读它（连接器请求由列、分区、分桶、属性组成）。`CreateTableCommand.needAuditEncryption()` 里那句「`getEngineName()` 可能是 null」的 ATTN 注释本来就预期了这个状态。
+3. **子句允许列表是整个删掉，不是改写成能力位。** 四个能建表的连接器早就在自己的 `createTable` 里校验分区与分桶；fe-core 那份副本只是挡在前面，让 iceberg/paimon 那两条「用 `bucket(num, column)` 写在 `PARTITIONED BY` 里」的可操作文案在生产中永远走不到。现在它们生效了。
+4. **`InternalCatalog.createTable` 的八分支引擎 if-链缩成 olap 一条。** `createMysqlTable` / `createBrokerTable` 一并删除——它们的唯一调用方就是刚删掉的那些分支，而且自 `checkEngineName` 开始对这三个名字无条件抛异常起就已经不可达。
+5. **`MODIFY ENGINE` 子系统删除**（7 文件 36 处）。**刻意保留** `ModifyTableEngineOperationLog` / `OperationType.OP_MODIFY_TABLE_ENGINE` / `JournalEntity` 与 `EditLog` 的读分支 / `Alter.replayProcessModifyEngine`——老日志里可能还有这个操作，删掉 OperationType 会让老镜像读不出来。
+6. **引擎名从来没有被持久化过**（本轮查实）：全 fe-core 没有任何 `@SerializedName` 的 engine 字段；内部表持久化 `TableType`，外部插件表持久化 `PLUGIN_EXTERNAL_TABLE`，引擎串都是运行时算的。所以这条线**不需要镜像版本号、不需要 gson 迁移、不需要 editlog 兼容垫片**。
 
 ---
 
 ## ⚠️ 做下一批之前必看
 
-1. **`-pl <单模块>` 会从本地仓库解析兄弟模块的旧 jar。** 跑连接器模块的测试一律走全反应堆 + `-Dtest=` 过滤。（`checkstyle:check` 例外。）
-2. **checkstyle 不再随 test-compile 跑，必须单独跑。** 方法名正则是 `^[a-z][a-z0-9][a-zA-Z0-9_]*$`（第二个字符也必须小写）；**`CustomImportOrder` 会因为 import 顺序失败**；`UnusedImports` 是强制项且不对 connector 包豁免。
-3. **变异验证只对高价值改动做**：判据=改错了会**静默**产生错误结果、且新测试是唯一护栏。纯改名、删死接口面、javadoc、import 顺序**不做**。本批全是文档与注释，**没有做变异，也不该做**。
-4. **一次跑多个变异时，maven 会在第一个失败的模块中止**，要么加 `--fail-at-end`，要么分开跑。
-5. **冻结基线只冻结 `ConnectorMetadata`**（`fe-connector-api/src/test/resources/connector-metadata-methods.txt`）。改 `Connector` 或 `ConnectorProcedureOps` **不需要**动它。
-6. **删除类改动必须配全仓符号 grep + 清空 `test-classes` 后重跑**（增量编译会跳过未改模块，陈旧 class 留到运行期才炸）。
-7. **编译器抓不到注释里的引用。** 本批第三个提交修的三处全是注释——其中两处引用的类名早已不存在，编译一路绿灯。**删类之后要对类名做一次全仓 grep，包括注释。**
-8. **【本批最重要的一条】任务文档与勘误清单本身都会过期，动手前必须按符号重侦察。** 本批的施工文档写于 44 个提交之前，它列的 8 条勘误里有 1 条的对象已经不存在、3 条已被代码取代——照做会在文档里新写一条指向已删符号的待办。**这是第 4 次复发。别信行号，也别信"照着改就行"的清单，先回到 HEAD 用符号核对。**
-9. **有些"事实错误"在基线时就是错的，不是后来变的。** 本批查出 3 条：契约校验器"零真实连接器调用"（调研日就有 4 家在调）、驱动包路径校验"只对 JDBC 有意义"（iceberg 和 paimon 都在用，照建议拆会打断它们）、网关"无法按名字判定表格式"（hive 网关就是回查元数据判定的）。**复核一条结论时要同时问"它现在还成立吗"和"它当初成立过吗"。**
-10. **`git rm` 会立即入暂存区。** 拆提交时逐个 `git diff --cached --stat` 核对。
-11. **`mvn ... | tail -60` 会把 `Tests run:` 行冲掉。** 一律 `> 日志文件 2>&1` 再 grep；`| tail` 之后的 `$?` 是 `tail` 的。
-12. **纯 Mockito mock 上的新方法默认返回 null。** 加 SPI 方法后必须查所有 mock 该接口的测试。
-13. **仓库有 63 个顶层未跟踪项**（含明文密钥的配置、临时日志、workflow 脚本）。**严禁 `git add -A`**，一律显式路径。
-
----
-
-## 📍 这条线在解决什么（现状）
-
-1. 「新增连接器不需要修改公共模块」：**建目录路径已兑现（15）；四处特性级软阻塞已中立化（16）；能力声明形状已根治（17）；扫描节点里最后两段源专有分支已归位（19）；分布式过程结果列已交还连接器（22）。** 残余只有**建表能力**（18 号）。
-2. 新连接器作者无处可依：**已解决**。两个模块各有包级说明，表操作接口按域拆分且每域写了最少实现集，谓词下推包有六节契约，扫描属性键契约有常量类，能力枚举每条写明作用域与原因。
-3. 接口文档与实现大面积脱节：**已解决**，但**留了一条**——统计接口的异常契约（见"下一个 session 起步"）。
+1. **`engineName == olap` 蕴含「内部目录」，但反过来不成立**（改造前）。内部目录里写 `ENGINE=hive` 过去合法地走非 olap 分支、活到执行期才被拒。本轮把它改成分析期拒绝，因此 `CreateTableCommandTest` 里那批「在内部目录写 `ENGINE=iceberg` 来够到外部分析分支」的捷径全部失效——已改为直接调 `PartitionTableInfo.convertToPartitionDesc(true)`。**以后写外部建表的 fe-core 单测，不要再用引擎名当捷径。**
+2. **`isExternal` 不是显示用的。** 它喂给 `convertToPartitionDesc(isExternal)`，后者会把 `isAutoPartition` 置 true，是 transform 分区的命脉。任何动它的改动都要配用例。
+3. **两个 `AnalysisException` 是不同的类**：`org.apache.doris.common.AnalysisException`（受检，`getMessage()` 带 `errCode = N, detailMessage = ` 前缀）与 `org.apache.doris.nereids.exceptions.AnalysisException`（非受检，无前缀）。跨这两族转换时用 `getDetailMessage()`，否则用户会看到多出来的前缀（本轮单测抓到过一次）。
+4. **变异验证只对高价值改动做**。本轮做了 3 个（删保留字检查 / 不问目录 / `isExternal` 不再由目录推导），全部如期变红。
+5. **删除类改动必须配全仓符号 grep + 清空 `test-classes` 后重跑**。
+6. **纯 Mockito mock 上的新方法默认返回 null / 什么都不做**。加 SPI 方法后必须查所有 mock 该接口的测试。
+7. **仓库有 60 余个顶层未跟踪项**（含明文密钥的配置、临时日志、workflow 脚本）。**严禁 `git add -A`**，一律显式路径。
+8. **任务文档会过期，动手前必须按符号重侦察。** 本轮又实证一次：18 号文档的**核心机制不成立**——它主张把声明放连接器实例上、「字段为空才初始化」，而那个字段是 `transient`，FE 重启后对每个插件目录都是 null，照做等于把远端元数据往返塞进分析期。它还断言「仓库里不存在分桶子句的正向端到端护栏」，实际 `external_table_p2/maxcompute/test_max_compute_create_table.groovy` 有两条。**第 5 次复发。**
 
 ---
 
 ## 🧭 待用户拍板
 
-完整清单在 **[open-decisions.md](./open-decisions.md)**。**已拍板二十五条**（本批新增三条）。
+完整清单在 **[open-decisions.md](./open-decisions.md)**。**已拍板三十条**（本轮新增五条，见上「本轮拍板的四条」）。
 
-**本批拍板的三条**：
-
-- 那份评审文档的处置深度选**"加状态戳 + 重编两块"**，不是只改 8 处、也不是全文重新校准。
-- **纳入版本控制，分两次提交**（原样 + 修订）。
-- 顺带发现的四处代码级问题里，**只修三处注释错误**；异常契约那条（改接口 javadoc 一句话）**本轮不动，登记待排期**。
-
-**仍待拍板（都在 18 号动手前）**：
+**仍待拍板**：
 
 - **含隐式类型转换的谓词下推默认值**（08 号）：`supportsCastPredicatePushdown` 默认 `true`，而它承诺的「引擎会先剥掉类型转换」只对残余谓词那条路径成立。翻成 `false` 是跨六个连接器的行为改动。
-- **建表能力下沉的报错文案变化**（18 号）。
+- **第 4 步展示串下沉的三个前置问题**（见上）——尤其是热循环成本那条，可能需要 owner 定「可以接受在目录侧缓存一次」。
 
 ---
 
 ## 🧾 顺带发现、留给后续批次
 
-**本批新增的开放项已经登记进 [README.md](./README.md) 的"复核登记的开放项"表（10 条）**，不在这里重复。最值得先做的是异常契约那条。
+**本轮新增**：
 
-**沿用的**：
+- **外部目录的 rollup 拒绝失去了 fe-core 单测护栏**。`Catalog 'X' doesn't support rollup tables.` 这条只在外部分析分支里，而外部分支现在只有真插件目录能到达；原来靠「内部目录 + `ENGINE=iceberg`」够到它的两个断言已作废。要重建就得用真插件目录（e2e）或带假 provider 的单测。
+- **`ConnectorFactory.initPluginManager` 会替换全局单例**，测试里用它注册假 provider 会影响同 JVM 的其它用例。要用它先想好隔离。
 
-- **那两个 ES 兼容 HTTP 端点存在既有安全面**（已拍板：单独立项）。`table` 请求参数**不做任何校验**就被拼进 ES 的 URL 路径；口令检查只在 `Config.enable_all_http_auth` 打开时才做；**全程没有目录级权限检查**。落点是端点侧的索引名合法性校验 + 权限检查，**不要**去改连接器。
-- **EXPLAIN 与实际下推的判据不一致**（已拍板：逐字保留）。两半都在 `EsScanPlanProvider` 里、相隔一个方法，已加 ATTN 注释。修它要同步改 `external_table_p2/es/test_es_query_predicate_correctness.groovy`。
-- **hudi 的 `\N` 与其余连接器的空串渲染分歧**（已拍板：不统一）。已证实 BE 在空值位为 true 时根本不看那个字符串，所以统一是安全的、只是需要端到端确认。
-- **合成键机制有个既有的洞**：`nativeReadSplitNum` / `totalReadSplitNum` 只在 `getSplits` 里赋值，批模式的 `startSplit` / `startStreamingSplit` 从不赋值 → 批模式下 paimon 那行渲染成 `0/0`。
-- **`EsScanRange.getFileFormat()` 返回 `"es_http"` 是死代码**且与 SPI 契约矛盾。
-- **`PluginDrivenScanNode.TABLE_FORMAT_TYPE = "plugin_driven"` 全仓零引用**，可删的死常量。
-- **引擎仍在一处按字符串比较哨兵**（`MetadataGenerator` 渲染 `partition_values()` 那一格），与 `PluginDrivenMvccExternalTable` javadoc 里的铁律抵触。真修法是从 `ConnectorPartitionInfo` 的空值标志取——**是行为变更，单独立项**。
-- **`TablePartitionValues.toListPartitionItem` 里的哨兵比较实际不可达**；删掉它对树外连接器是行为变更。
-- **`ConnectorContractValidator` 在生产代码里零调用方**。是留、是移进测试、还是接到真实入口，**单独立项**。（本批复核补充：四家连接器测试在调，但 es 走早退、jdbc 四前件全 false，**真正压到真前件的只有 iceberg 与 maxcompute**。）
-- **带时间旅行钉住的委派路径没有反射兄弟能力** → 钉住快照读 iceberg-on-HMS 表时按表能力在丢。**单独立项**。
-- **两个只写不读的属性键仍在**（paimon/hudi 的 `table_format_type`、es 的 `_table_name`、hive 的 `hive.text.json_serde_lib`）。
-- **hudi 的 `partition_values()` 可能落后一个缓存过期时间**。
-- **es 有一条与 01/02/03 同根因、尚未修的缺陷**：`EsQueryDslBuilder` 把 Doris 的 `REGEXP` 模式串原样交给 ES 的 `regexp` 查询（Doris 部分匹配、Lucene 整串锚定）→ 少行。
-- `fe-core` 的 `org.apache.doris.connector.ConnectorMvccSnapshotAdapter` **全仓库零引用**，可删的死类。
-- **`ConnectorCapability` 里那句 `{@code getTableProperties()}` 指的是 fe-core 那个活方法**，且是安全相关的，做同名清理时极易误伤。
-- **`CatalogFactory` 里 `lakesoul` 那条硬失败在重放期仍会让 FE 退出**（15 号刻意没动）。
-- **`ConnectorScanRange.getLength()` 是「契约写了单位、实现各行其是」的第三处**。
-- **`ConnectorSession.getStatementScope` 默认不记忆**，与 06 号根治的是同一机理的另一处。
-- **两套残差协议仍未合并**（`remainingFilter` 与 not-pushed 下标）。前置是实现细粒度反查。
+**沿用的**（未变）：ES 两个兼容 HTTP 端点的既有安全面（已拍板单独立项）；EXPLAIN 与实际下推判据不一致（已拍板逐字保留）；hudi 的 `\N` 渲染分歧（已拍板不统一）；合成键 `nativeReadSplitNum` 在批模式恒 `0/0`；`EsScanRange.getFileFormat()` 死代码；`PluginDrivenScanNode.TABLE_FORMAT_TYPE` 零引用；`MetadataGenerator` 按字符串比较哨兵；`TablePartitionValues.toListPartitionItem` 哨兵不可达；`ConnectorContractValidator` 生产零调用方；时间旅行委派路径没有反射兄弟能力；两个只写不读的属性键；hudi `partition_values()` 可能落后一个缓存过期；es `REGEXP` 模式串直传 Lucene 少行；`ConnectorMvccSnapshotAdapter` 零引用死类；`ConnectorCapability` 里 `getTableProperties()` 指的是 fe-core 活方法；`CatalogFactory` 的 `lakesoul` 硬失败；`ConnectorScanRange.getLength()` 单位分歧；`ConnectorSession.getStatementScope` 默认不记忆；两套残差协议未合并。
 
 ---
 
 ## 🧪 欠下的端到端（本地无集群，一律标「待集群验证」，不得当作已通过）
 
-**本批新欠 0 条**（纯文档与注释，不产生任何运行时行为）。
+**本轮新欠 2 类**：
 
-**沿用**：ES 的六处 `terminate_after` 断言与两个 REST 端点 curl；iceberg `rewrite_data_files` 的五个套件；paimon 目录查询回归；hive 文本/CSV/JSON 表读回归；文件缓存准入 + `SWITCH <es 目录>` + 事件同步预热；异构目录嵌套列 DDL 与 iceberg 表注释（26/27 号写好未跑）；异构 HMS 目录上的 `ANALYZE`/Top-N/嵌套列裁剪/`SHOW CREATE TABLE`；在一个连接器构建失败的插件目录上跑 `CREATE TABLE ... ORDER BY` 确认报「不支持排序」而不是 NPE。
+1. **7 处改写后的断言必须实跑**：`external_table_p0/iceberg/write/test_iceberg_create_table.groovy:61,66,71` 与 `external_table_p0/hive/ddl/test_hive_ddl.groovy:442,478,727,732`，文案已改为 `Engine 'X' does not match catalog 'Y'.`。
+2. **iceberg / paimon 带 `DISTRIBUTED BY` 建表的新文案**（连接器自己的「用 `bucket(num, column)`」那条）目前**全仓零断言**，值得补一条。
+
+**还欠一条本轮未写**：hive 目录上打开 `enable_create_hive_bucket_table` 后带 `DISTRIBUTED BY HASH(...) BUCKETS N` 成功建表的正向用例（maxcompute 的 p2 用例是唯一现存的正向分桶护栏，但要真实阿里云账号，日常 CI 不跑）。
+
+**沿用**：ES 的六处 `terminate_after` 断言与两个 REST 端点 curl；iceberg `rewrite_data_files` 的五个套件；paimon 目录查询回归；hive 文本/CSV/JSON 表读回归；文件缓存准入 + `SWITCH <es 目录>` + 事件同步预热；异构目录嵌套列 DDL 与 iceberg 表注释；异构 HMS 目录上的 `ANALYZE`/Top-N/嵌套列裁剪/`SHOW CREATE TABLE`。
 
 ---
 
@@ -142,12 +126,10 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 3. **`-Dtest='org.apache.doris.datasource.**'` 这种全包扫描会超时被砍**，用具体类名清单。
 4. **e2e（groovy）需要真集群，本地跑不了**。**没有 `.out` 基线的新用例不要用 `qt_`**。
 5. **`HiveConnectorMetadataDdlTest` 在本分支上本来就是红的**（建表路径），与本线改动无关。
-6. **`PluginDrivenExternalCatalog.getConnector()` 会触发 `makeSureInitialized()`**，纯单测里用不了——除非 `Mockito.mock(X.class, CALLS_REAL_METHODS)` + **`doReturn(...).when(x).getConnector()`**。
-7. **hudi 单测里的 `stub(...)` 执行器会把整个 metaClient lambda 换掉**。
+6. **checkstyle**：方法名正则是 `^[a-z][a-z0-9][a-zA-Z0-9_]*$`（**第二个字符也必须小写**，本轮被 `aTemporaryTable...` 挡过一次）；`CustomImportOrder` 会因 import 顺序失败；`UnusedImports` 是强制项；**注释块前不得有连续两个空行**（`'/*' has more than 1 empty lines before`）。
+7. **`mvn ... | tail -60` 会把 `Tests run:` 行冲掉**。一律 `> 日志文件 2>&1` 再 grep。
 8. **fe-core 测试里注私有字段用 `org.apache.doris.common.jmockit.Deencapsulation`（仓库自带）**。
-9. **`PluginDrivenScanNode` / `PluginDrivenExternalTable` 的单测范式**：`Mockito.mock(类.class, CALLS_REAL_METHODS)` + `Deencapsulation.setField(...)`，再 `Deencapsulation.invoke(...)`。
-10. **`fe-connector-es` 模块没有 mockito / jmockit / fe-core 依赖**，只有纯 JUnit 5。
-11. **数方法数要有口径并写下来**。本批给那份文档重算接口规模时定的口径是：只数写在该接口体内的声明、`default` 计入、重载分别计、**注解不计**（`@ConnectorMustImplement` 会被朴素的"标识符 + 左括号"正则数进去，一度让列 DDL 那个域接口从 11 虚高到 22）、继承的不计。
+9. **`PluginDrivenExternalCatalog.getConnector()` 会触发 `makeSureInitialized()`**；`hasConnectorCapability` 同理。要在分析期读声明必须走 `ConnectorFactory.findProvider(type, props)`（provider 级，零远端）。
 
 ---
 
@@ -157,24 +139,16 @@ mvn -o -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml \
 |---|---|---|
 | 2026-07-25 | 独立 clean-room 调研（14 个并行审查单元 + 30 批对抗复核） | 172 条结论成立/部分成立，4 条被推翻；产出 `audit-report.md` |
 | 2026-07-25 | 建立本任务空间，按优先级拆出 25 个任务并各写一份施工文档 | 代码零改动 |
-| 2026-07-25 | 第一批：07 + 08 + 10 | 全反应堆含测试源 `test-compile` 通过；79 个单测通过；冻结测试双变异验证均变红 |
+| 2026-07-25 | 第一批：07 + 08 + 10 | `test-compile` 通过；79 个单测通过；冻结测试双变异验证均变红 |
 | 2026-07-25 | 修掉调研期发现的两个用户可见缺口 | 单测通过；e2e 已写出但**未执行** |
-| 2026-07-25 | 第二批：11 号五个提交 | `test-compile` 通过；83 个单测 + checkstyle 通过；两次变异验证 |
-| 2026-07-25 | 第三批：15 号两个提交 | `test-compile` + checkstyle 通过；52 个单测通过；三次变异验证均如期变红 |
-| 2026-07-25 | 第四批：01～06 六个正确性缺陷 | `test-compile` + checkstyle **BUILD SUCCESS**；27 个测试类全绿；8 个变异一轮跑完全部被捕获 |
-| 2026-07-25 | 第五批：09 + 14 + 13 + 12 四个提交 | `test-compile` + checkstyle **BUILD SUCCESS**；八个模块全量单测 634 个全绿；4 个变异全部被捕获 |
-| 2026-07-26 | 第六批：21 一个提交 + 16 三个提交 | 两轮 `test-compile` + checkstyle **BUILD SUCCESS**；33 个测试类全绿；5 个变异全部被捕获 |
-| 2026-07-26 | 第七批：17 四个提交 | `test-compile` **BUILD SUCCESS**；四批合计 566 个测试全绿；1 个变异如期只红新增断言；**定位并绕过了让构建卡死 60+ 分钟的 checkstyle 退化** |
-| 2026-07-26 | 第八批：20 两个提交 + 22 一个提交 + 19 两个提交 | 侦察阶段 9 个并行核查单元推翻了 19 号的**核心机制**；清空 66 个 `test-classes` 目录后全反应堆 `test-compile` **BUILD SUCCESS**、27 个测试类 259 个测试全绿；checkstyle 0 违规；4 个高价值变异全部如期变红 |
-| 2026-07-26 | **第九批：25 三个提交**（评审文档原样入库 + 按 HEAD 标注 + 三处代码注释修正） | 侦察阶段 16 个并行核查单元推翻了**任务文档的处置方案本身**（8 条勘误里 1 条对象已不存在、3 条被代码取代）；全文复核查出约 **26 个独立论断失效**（40 余处文字）、其中 **3 条在调研日就是错的**；产出 36 处状态戳 + 15 处交叉核对修正 + 3 处就地重算 + 重编 17 条行动清单；三个模块 checkstyle **0 违规**；新登记 10 条无人认领的开放项 |
-
-### 本批订正的任务文档事实
-
-1. **施工文档写的回退方式根本执行不了**：那份文档从未被 git 跟踪，`git checkout -- <它>` 只会报 `pathspec did not match`，也没有 commit 可 revert。
-2. **勘误清单第 2.2 条已失去对象**：分片类型枚举族整族已删，"把 7 改成 8"照做等于新写一条指向已删符号的待办。
-3. **勘误清单第 2.4 条的 6 个数字只剩 3 个准**：模块规模、`Connector` 方法数都已变。
-4. **勘误清单第 2.5 第 2 条的三条硬约束第 3 条已假**（引擎侧重复定义已删），且漏列了引擎的第三个消费者。
-5. **施工文档第六节那批"原始错误字符串必须消失"的断言，只有 2 条仍适用**——按新方案，另外 3 处刻意保留原句 + 加修正块。
-6. **交接文档记的"`ConnectorRewriteDriver` 引用的两个旧类名都不存在"只对一半**：另一个类是活的，只是搬进了 iceberg 连接器；同时漏了一处同类引用。
+| 2026-07-25 | 第二批：11 号五个提交 | `test-compile` 通过；83 个单测 + checkstyle 通过 |
+| 2026-07-25 | 第三批：15 号两个提交 | `test-compile` + checkstyle 通过；52 个单测通过 |
+| 2026-07-25 | 第四批：01～06 六个正确性缺陷 | `test-compile` + checkstyle **BUILD SUCCESS**；27 个测试类全绿；8 个变异全部被捕获 |
+| 2026-07-25 | 第五批：09 + 14 + 13 + 12 四个提交 | 八个模块全量单测 634 个全绿；4 个变异全部被捕获 |
+| 2026-07-26 | 第六批：21 + 16 四个提交 | 33 个测试类全绿；5 个变异全部被捕获 |
+| 2026-07-26 | 第七批：17 四个提交 | 四批合计 566 个测试全绿；定位并绕过了让构建卡死 60+ 分钟的 checkstyle 退化 |
+| 2026-07-26 | 第八批：20 + 22 + 19 五个提交 | 27 个测试类 259 个测试全绿；4 个变异如期变红 |
+| 2026-07-26 | 第九批：25 三个提交（评审文档入库 + 按 HEAD 标注 + 三处注释修正） | 16 个并行核查单元推翻了任务文档的处置方案本身；新登记 10 条开放项 |
+| 2026-07-26 | **第十批：引擎概念下沉五个提交**（MODIFY ENGINE 删除 / SPI 目录判定入口 / CreateTableInfo 改按目录路由 / InternalCatalog 分派收缩 / 统计异常契约） | 两轮侦察共 68 个 agent（含 50 条对抗复核，其中 15 条推翻或改判）；全反应堆 `test-compile` **BUILD SUCCESS**；105 个单测全绿；六个模块 checkstyle **0 违规**；3 个变异全部如期变红；7 处 e2e 断言已改写**待集群验证** |
 
 **上下文用量超过 30% 就找一个干净节点覆写本文并通知用户开新 session 续做**，不要等窗口满。
