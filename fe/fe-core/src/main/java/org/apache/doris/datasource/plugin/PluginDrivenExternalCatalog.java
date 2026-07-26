@@ -316,6 +316,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildCrossStatementSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         List<String> tableNames = metadata.listTableNames(session, dbName);
+        // Deliberately the raw field, NOT hasConnectorCapability(): this already runs inside an initialized
+        // catalog, so re-entering makeSureInitialized() here would be pointless work on a listing path.
         if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
             return tableNames;
         }
@@ -350,6 +352,26 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public Connector getConnector() {
         makeSureInitialized();
         return connector;
+    }
+
+    /**
+     * Whether the backing connector declares {@code capability} catalog-wide. The single entry point for the
+     * capability checks that do NOT have a table in hand — the alternative is each caller repeating
+     * {@code getConnector() != null && getConnector().getCapabilities().contains(...)}, which is how one of
+     * them ended up without the null check and throwing instead of rejecting cleanly.
+     *
+     * <p><b>Forces initialization</b> (via {@link #getConnector()}), so it is for callers OUTSIDE this class,
+     * which already paid that cost. Code inside this catalog that runs before or during initialization must
+     * keep reading the {@code connector} field directly: routing it here would make a capability check
+     * initialize the catalog, which is exactly what those sites avoid.</p>
+     *
+     * <p>Only the capabilities {@link ConnectorCapability} documents as catalog-scoped belong here; a
+     * table-scoped one is resolved by {@code PluginDrivenExternalTable} instead, as the union of this set and
+     * the table's own.</p>
+     */
+    public boolean hasConnectorCapability(ConnectorCapability capability) {
+        Connector conn = getConnector();
+        return conn != null && conn.getCapabilities().contains(capability);
     }
 
     /**
@@ -1288,6 +1310,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * injection above and the shared-cache bypass ({@link #shouldBypassTableNameCache}).
      */
     private boolean supportsUserSession() {
+        // Deliberately the raw field, NOT hasConnectorCapability(): this runs while building a session and on
+        // the cache-bypass path, where forcing initialization would be an init-order inversion.
         return connector != null
                 && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION);
     }

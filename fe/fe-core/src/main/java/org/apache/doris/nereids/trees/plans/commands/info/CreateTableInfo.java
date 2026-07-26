@@ -790,9 +790,11 @@ public class CreateTableInfo {
             // every internal-catalog engine) is rejected here.
             if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
                 CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+                // hasConnectorCapability degrades to false for a connector that failed to build, so a broken
+                // catalog rejects the clause with the message below instead of throwing NullPointerException.
                 boolean supportsSortOrder = catalog instanceof PluginDrivenExternalCatalog
-                        && ((PluginDrivenExternalCatalog) catalog).getConnector().getCapabilities()
-                                .contains(ConnectorCapability.SUPPORTS_SORT_ORDER);
+                        && ((PluginDrivenExternalCatalog) catalog)
+                                .hasConnectorCapability(ConnectorCapability.SUPPORTS_SORT_ORDER);
                 if (!supportsSortOrder) {
                     throw new AnalysisException(
                             "Sort order (ORDER BY) is not supported for engine: " + engineName);

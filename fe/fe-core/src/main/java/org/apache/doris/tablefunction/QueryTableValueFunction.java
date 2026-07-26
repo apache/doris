@@ -73,9 +73,8 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
             throw new AnalysisException("Catalog not found: " + catalogName);
         }
         if (catalogIf instanceof PluginDrivenExternalCatalog
-                && ((PluginDrivenExternalCatalog) catalogIf).getConnector() != null
-                && ((PluginDrivenExternalCatalog) catalogIf).getConnector()
-                        .getCapabilities().contains(ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY)) {
+                && ((PluginDrivenExternalCatalog) catalogIf)
+                        .hasConnectorCapability(ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY)) {
             return new JdbcQueryTableValueFunction(params);
         } else {
             throw new AnalysisException(
