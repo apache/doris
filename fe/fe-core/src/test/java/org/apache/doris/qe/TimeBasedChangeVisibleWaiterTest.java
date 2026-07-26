@@ -110,7 +110,7 @@ public class TimeBasedChangeVisibleWaiterTest {
 
     private UnboundRelation newChangeRelation(int relationId, Map<String, String> mapParams) {
         return new UnboundRelation(new RelationId(relationId), TABLE_QUALIFIER,
-                ImmutableList.of(), false, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty(),
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, ImmutableList.of()),
                 Optional.empty());
