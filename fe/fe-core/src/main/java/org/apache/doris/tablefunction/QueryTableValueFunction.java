@@ -75,7 +75,7 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
         if (catalogIf instanceof PluginDrivenExternalCatalog
                 && ((PluginDrivenExternalCatalog) catalogIf)
                         .hasConnectorCapability(ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY)) {
-            return new JdbcQueryTableValueFunction(params);
+            return new PluginDrivenQueryTableValueFunction(params);
         } else {
             throw new AnalysisException(
                     "Catalog not supported query tvf: " + catalogName + ", catalog type:" + catalogIf.getType());

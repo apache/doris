@@ -39,10 +39,19 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
-public class JdbcQueryTableValueFunction extends QueryTableValueFunction {
-    public static final Logger LOG = LogManager.getLogger(JdbcQueryTableValueFunction.class);
+/**
+ * The {@code query()} TVF over a plugin-driven catalog: it passes the SQL string through to the connector,
+ * which answers the column list and plans the scan.
+ *
+ * <p>It was called {@code JdbcQueryTableValueFunction} because jdbc is the only connector that declares the
+ * passthrough capability today, but nothing here is jdbc-specific — {@link QueryTableValueFunction} routes
+ * EVERY catalog declaring that capability to this one class, and it reaches the connector only through the
+ * SPI. A second connector declaring it needs no new class and no change here.</p>
+ */
+public class PluginDrivenQueryTableValueFunction extends QueryTableValueFunction {
+    public static final Logger LOG = LogManager.getLogger(PluginDrivenQueryTableValueFunction.class);
 
-    public JdbcQueryTableValueFunction(Map<String, String> params) throws AnalysisException {
+    public PluginDrivenQueryTableValueFunction(Map<String, String> params) throws AnalysisException {
         super(params);
     }
 
