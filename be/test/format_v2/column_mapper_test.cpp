@@ -2071,7 +2071,8 @@ TEST(ColumnMapperConstantTest, PartitionDefaultAndVirtualColumnsUseDedicatedBran
             {"dt", Field::create_field<TYPE_STRING>("2026-06-11")},
     };
 
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    TableColumnMapper mapper(
+            {.mode = TableColumnMappingMode::BY_NAME, .enable_row_lineage_virtual_columns = true});
     ASSERT_TRUE(mapper.create_mapping(table_schema, partition_values, {}).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 5);
@@ -2092,7 +2093,8 @@ TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
             name_col("_last_updated_sequence_number", make_nullable(i64()), 2147483539),
     };
 
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    TableColumnMapper mapper(
+            {.mode = TableColumnMappingMode::BY_NAME, .enable_row_lineage_virtual_columns = true});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 2);
@@ -2125,6 +2127,25 @@ TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
               std::vector<int32_t>({2147483540, 2147483539}));
 }
 
+TEST(ColumnMapperConstantTest, GenericByNameKeepsRowLineageNamesPhysical) {
+    const std::vector<ColumnDefinition> table_schema = {
+            name_col("_row_id", make_nullable(i64())),
+            name_col("_last_updated_sequence_number", make_nullable(i64())),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            name_col("_row_id", make_nullable(i64()), 0),
+            name_col("_last_updated_sequence_number", make_nullable(i64()), 1),
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::INVALID);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type, TableVirtualColumnType::INVALID);
+    EXPECT_EQ(mapper.mappings()[1].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+}
+
 TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMapping) {
     auto id_column = field_id_col("id", 1, make_nullable(i32()));
     auto row_id_column = field_id_col("renamed_row_id", 2147483540, make_nullable(i64()));
@@ -2141,7 +2162,8 @@ TEST(ColumnMapperConstantTest, MissingRowLineageDefaultExprStillUsesVirtualMappi
             field_id_col("name", 2, make_nullable(str()), 1),
     };
 
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID,
+                              .enable_row_lineage_virtual_columns = true});
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 3);
@@ -2485,8 +2507,39 @@ TEST(ColumnMapperScanRequestTest, HiddenTopLevelFilterMappingUsesNameFallback) {
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
+    EXPECT_EQ(request.predicate_only_columns, std::vector<LocalColumnId>({LocalColumnId(1)}));
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(1)).is_local());
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(1)).local_index(), LocalIndex(1));
+}
+
+TEST(ColumnMapperScanRequestTest, OrdinaryPredicateSlotRetainsPayloadForScannerBoundary) {
+    const auto int_type = i32();
+    auto quantity = name_col("ss_quantity", int_type);
+    auto tax = name_col("ss_ext_tax", int_type);
+    const std::vector<ColumnDefinition> table_schema = {quantity, tax};
+    const std::vector<ColumnDefinition> file_schema = {
+            name_col("ss_quantity", int_type, 0),
+            name_col("ss_ext_tax", int_type, 1),
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 2);
+
+    auto filter_expr = int_gt(table_slot(7, 0, int_type, "ss_quantity"), 20);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, table_schema, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(0));
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(1));
+    // The scanner evaluates its table-level conjuncts after TableReader returns, so a visible
+    // predicate slot cannot be replaced with a default-valued placeholder at the file boundary.
+    EXPECT_TRUE(request.predicate_only_columns.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, StructOutputAndFilterOnlyChildAreMerged) {
@@ -3010,6 +3063,7 @@ TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) 
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(10));
+    EXPECT_EQ(request.predicate_only_columns, std::vector<LocalColumnId>({LocalColumnId(10)}));
     EXPECT_TRUE(request.predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
 

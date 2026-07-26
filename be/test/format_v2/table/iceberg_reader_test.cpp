@@ -25,12 +25,15 @@
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <typeinfo>
 #include <utility>
 #include <vector>
@@ -804,6 +807,12 @@ public:
             : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
         config::enable_debug_points = true;
         DebugPoints::instance()->add(_name);
+    }
+
+    ScopedDebugPoint(std::string name, std::function<void()> callback)
+            : _name(std::move(name)), _enable_debug_points(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(_name, std::move(callback));
     }
 
     ~ScopedDebugPoint() {
@@ -2449,8 +2458,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     const auto file_path = (test_dir / "split.parquet").string();
     const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
     write_single_int_parquet_file(file_path, "id", {1, 2, 3}, 0);
-    const std::string binary_default(
-            "\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16);
+    static_assert(sizeof("0123456789abcdef0123456789abcdef") - 1 > StringView::kInlineSize);
+    const std::string binary_default = "0123456789abcdef0123456789abcdef";
     write_iceberg_binary_equality_delete_parquet_file(delete_file_path, 1, binary_default,
                                                       "added_binary");
 
@@ -2460,9 +2469,11 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteMatchesVarbinaryInitialDefaultFor
     scan_params.__set_current_schema_id(100);
     scan_params.__set_history_schema_info({external_schema(
             100, {external_schema_field("id", 0),
-                  external_schema_field("added_binary", 1, {}, "Ej5FZ+ibEtOkVkJmFBdAAA==",
-                                        external_primitive_type(TPrimitiveType::VARBINARY, 16),
-                                        true)})});
+                  external_schema_field(
+                          "added_binary", 1, {}, "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+                          external_primitive_type(TPrimitiveType::VARBINARY,
+                                                  static_cast<int32_t>(binary_default.size())),
+                          true)})});
 
     RuntimeProfile profile("test_profile");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -3443,7 +3454,25 @@ TEST(IcebergV2ReaderTest, IcebergPositionDeleteFileIsReusedAcrossSplits) {
     first_split.cache = &cache;
     first_split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
             first_file_path, {make_iceberg_position_delete_file(delete_file_path)}));
-    ASSERT_TRUE(reader.prepare_split(first_split).ok());
+    const auto* total_timer = profile.get_counter("TableReader");
+    const auto* prepare_timer = profile.get_counter("PrepareSplitTime");
+    ASSERT_NE(total_timer, nullptr);
+    ASSERT_NE(prepare_timer, nullptr);
+    const int64_t total_before = total_timer->value();
+    const int64_t prepare_before = prepare_timer->value();
+    constexpr int64_t DELETE_FILE_DELAY_NS = 8'000'000;
+    {
+        ScopedDebugPoint delay_delete_file_scan(
+                "IcebergTableReader.prepare_split.before_delete_file_scan",
+                [] { std::this_thread::sleep_for(std::chrono::milliseconds(8)); });
+        ASSERT_TRUE(reader.prepare_split(first_split).ok());
+    }
+    const int64_t total_delta = total_timer->value() - total_before;
+    const int64_t prepare_delta = prepare_timer->value() - prepare_before;
+    // A cache-miss delete-file scan is derived prepare work; both common parent timers must
+    // contain it so the expensive miss cannot disappear between profile levels.
+    EXPECT_GE(prepare_delta, DELETE_FILE_DELAY_NS);
+    EXPECT_GE(total_delta, DELETE_FILE_DELAY_NS);
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
 
     // The cached delete file contains entries for every referenced data file, so another split can

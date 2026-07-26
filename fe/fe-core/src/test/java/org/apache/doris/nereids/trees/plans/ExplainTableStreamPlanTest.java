@@ -501,6 +501,24 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testStreamScanWithSelectedPartitionIdsMarksPartitionPruned() {
+        Plan analyzedPlan = PlanChecker.from(connectContext)
+                .analyze("select * from test_stream.s2 where k1 < 100")
+                .getCascadesContext()
+                .getRewritePlan();
+
+        LogicalOlapTableStreamScan streamScan = findFirstLogicalStreamScan(analyzedPlan);
+        Assertions.assertNotNull(streamScan);
+        Assertions.assertFalse(streamScan.isPartitionPruned());
+
+        LogicalOlapTableStreamScan prunedScan =
+                streamScan.withSelectedPartitionIds(streamScan.getSelectedPartitionIds(), false);
+
+        Assertions.assertTrue(prunedScan.isPartitionPruned());
+        Assertions.assertFalse(prunedScan.hasPartitionPredicate());
+    }
+
+    @Test
     public void testRecordPlanForMvPreRewriteNormalizesStreamScanInsideCte() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
@@ -570,6 +588,19 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         }
         for (Plan child : plan.children()) {
             LogicalProject<?> found = findFirstLogicalProject(child);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private LogicalOlapTableStreamScan findFirstLogicalStreamScan(Plan plan) {
+        if (plan instanceof LogicalOlapTableStreamScan) {
+            return (LogicalOlapTableStreamScan) plan;
+        }
+        for (Plan child : plan.children()) {
+            LogicalOlapTableStreamScan found = findFirstLogicalStreamScan(child);
             if (found != null) {
                 return found;
             }

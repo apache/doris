@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -63,10 +64,11 @@ public class AggregateUtils {
 
     /**countDistinctMultiExprToCountIf*/
     public static Expression countDistinctMultiExprToCountIf(Count count) {
-        Set<Expression> arguments = ImmutableSet.copyOf(count.getArguments());
-        Expression countExpr = count.getArgument(arguments.size() - 1);
-        for (int i = arguments.size() - 2; i >= 0; --i) {
-            Expression argument = count.getArgument(i);
+        Iterator<Expression> arguments = ImmutableSet.copyOf(count.getArguments())
+                .asList().reverse().iterator();
+        Expression countExpr = arguments.next();
+        while (arguments.hasNext()) {
+            Expression argument = arguments.next();
             If ifNull = new If(new IsNull(argument), NullLiteral.INSTANCE, countExpr);
             countExpr = assignNullType(ifNull);
         }
@@ -201,6 +203,17 @@ public class AggregateUtils {
             }
         }
         return false;
+    }
+
+    /** e.g. Aggregation with avg(distinct a)(not support multiDistinct) or count(distinct a,b) will return true*/
+    public static boolean containsNotSupportMultiDistinctFunction(LogicalAggregate<? extends Plan> aggregate) {
+        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
+            if (expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()) {
+                return !(expr instanceof SupportMultiDistinct)
+                        || expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1;
+            }
+            return false;
+        });
     }
 
     /** count agg function distinct group, up to 2*/

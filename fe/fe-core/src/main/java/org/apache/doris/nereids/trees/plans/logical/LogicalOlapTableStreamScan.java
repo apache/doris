@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
@@ -276,11 +277,11 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
      */
     @Override
     public LogicalOlapTableStreamScan withSelectedPartitionIds(List<Long> selectedPartitionIds,
-                                                               boolean isPartitionPruned) {
+                                                               boolean hasPartitionPredicate) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, isPartitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedPartitionIds, true, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
@@ -462,6 +463,30 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                         scanParams, readMode));
+    }
+
+    @Override
+    protected boolean hasSameTableIdentity(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) other;
+        return Objects.equals(getTable().getStreamDbId(), that.getTable().getStreamDbId())
+                && Objects.equals(getTable().getStreamId(), that.getTable().getStreamId())
+                && new TableIdentifier(getTable().getBaseTable())
+                .equals(new TableIdentifier(that.getTable().getBaseTable()));
+    }
+
+    @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) other;
+        return super.hasSameScanState(other)
+                && readMode == that.readMode
+                && getTable().getStreamKeysType() == that.getTable().getStreamKeysType()
+                && Objects.equals(getTable().getOutputUpdateMap(), that.getTable().getOutputUpdateMap());
     }
 
     @Override

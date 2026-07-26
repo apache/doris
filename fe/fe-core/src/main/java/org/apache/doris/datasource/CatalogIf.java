@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
@@ -249,6 +250,15 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support add column operation");
     }
 
+    default void addColumn(TableIf table, ColumnPath columnPath, Column column, ColumnPosition columnPosition)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            addColumn(table, column, columnPosition);
+            return;
+        }
+        throw new UserException("Not support nested add column operation");
+    }
+
     default void addColumns(TableIf table, List<Column> columns) throws UserException {
         throw new UserException("Not support add columns operation");
     }
@@ -257,12 +267,45 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support drop column operation");
     }
 
+    default void dropColumn(TableIf table, ColumnPath columnPath) throws UserException {
+        if (!columnPath.isNested()) {
+            dropColumn(table, columnPath.getTopLevelName());
+            return;
+        }
+        throw new UserException("Not support nested drop column operation");
+    }
+
     default void renameColumn(TableIf table, String oldName, String newName) throws UserException {
         throw new UserException("Not support rename column operation");
     }
 
+    default void renameColumn(TableIf table, ColumnPath columnPath, String newName) throws UserException {
+        if (!columnPath.isNested()) {
+            renameColumn(table, columnPath.getTopLevelName(), newName);
+            return;
+        }
+        throw new UserException("Not support nested rename column operation");
+    }
+
     default void modifyColumn(TableIf table, Column column, ColumnPosition columnPosition) throws UserException {
         throw new UserException("Not support update column operation");
+    }
+
+    default void modifyColumn(TableIf table, ColumnPath columnPath, Column column, ColumnPosition columnPosition)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            modifyColumn(table, column, columnPosition);
+            return;
+        }
+        throw new UserException("Not support nested modify column operation");
+    }
+
+    default void modifyColumnComment(TableIf table, String name, String comment) throws UserException {
+        modifyColumnComment(table, ColumnPath.of(name), comment);
+    }
+
+    default void modifyColumnComment(TableIf table, ColumnPath columnPath, String comment) throws UserException {
+        throw new UserException("Not support modify column comment operation");
     }
 
     default void reorderColumns(TableIf table, List<String> newOrder) throws UserException {

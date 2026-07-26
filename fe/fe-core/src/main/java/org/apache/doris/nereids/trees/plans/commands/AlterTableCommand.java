@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -36,6 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -52,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -115,10 +118,6 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
-        for (AlterTableOp op : ops) {
-            op.setTableName(tbl);
-            op.validate(ctx);
-        }
         String ctlName = tbl.getCtl();
         String dbName = tbl.getDb();
         String tableName = tbl.getTbl();
@@ -129,11 +128,150 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
+        checkColumnOperationsSupported(tableIf, ops);
+        for (AlterTableOp op : ops) {
+            op.setTableName(tbl);
+            op.validate(ctx);
+        }
         if (tableIf instanceof OlapTable) {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
             checkExternalTableOperationAllow(tableIf);
         }
+    }
+
+    static void checkColumnOperationsSupported(TableIf table, List<AlterTableOp> alterTableOps)
+            throws AnalysisException {
+        if (table instanceof IcebergExternalTable) {
+            checkIcebergCompoundColumnOperations(alterTableOps);
+            for (AlterTableOp alterTableOp : alterTableOps) {
+                ColumnDefinition columnDefinition = getColumnDefinition(alterTableOp);
+                ColumnPath nestedColumnPath = getNestedColumnPath(alterTableOp);
+                // Keep this before AddColumnOp.validate(), whose generic NOT NULL check would mask
+                // the Iceberg nested-field invariant. Metadata validation retains the same guard for other callers.
+                if (alterTableOp instanceof AddColumnOp && columnDefinition != null && nestedColumnPath != null
+                        && !columnDefinition.isNullable()) {
+                    throw new AnalysisException("New nested field '" + nestedColumnPath.getFullPath()
+                            + "' must be nullable");
+                }
+                if (!isIcebergColumnSchemaOperation(alterTableOp)) {
+                    continue;
+                }
+                if (getRollupName(alterTableOp) != null) {
+                    throw new AnalysisException("Rollup is not supported for Iceberg column operations");
+                }
+                Map<String, String> properties = alterTableOp.getProperties();
+                if (properties != null && !properties.isEmpty()) {
+                    throw new AnalysisException("PROPERTIES are not supported for Iceberg column operations");
+                }
+                checkIcebergColumnDefinition(alterTableOp, columnDefinition);
+                if (alterTableOp instanceof AddColumnsOp) {
+                    for (ColumnDefinition definition : ((AddColumnsOp) alterTableOp).getColumnDefinitions()) {
+                        checkIcebergColumnDefinition(alterTableOp, definition);
+                    }
+                }
+            }
+            return;
+        }
+        for (AlterTableOp alterTableOp : alterTableOps) {
+            ColumnPath columnPath = getNestedColumnPath(alterTableOp);
+            if (columnPath != null) {
+                throw new AnalysisException("Nested column path is only supported for Iceberg tables: "
+                        + columnPath.getFullPath());
+            }
+        }
+    }
+
+    private static void checkIcebergCompoundColumnOperations(List<AlterTableOp> alterTableOps)
+            throws AnalysisException {
+        if (alterTableOps.size() <= 1) {
+            return;
+        }
+        for (AlterTableOp alterTableOp : alterTableOps) {
+            if (isIcebergColumnSchemaOperation(alterTableOp)) {
+                throw new AnalysisException("Multiple Iceberg ALTER clauses are not supported when a statement "
+                        + "contains a column operation");
+            }
+        }
+    }
+
+    private static ColumnPath getNestedColumnPath(AlterTableOp alterTableOp) {
+        ColumnPath columnPath = null;
+        if (alterTableOp instanceof AddColumnOp) {
+            columnPath = ((AddColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof DropColumnOp) {
+            columnPath = ((DropColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof RenameColumnOp) {
+            columnPath = ((RenameColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof ModifyColumnOp) {
+            columnPath = ((ModifyColumnOp) alterTableOp).getColumnPath();
+        } else if (alterTableOp instanceof ModifyColumnCommentOp) {
+            columnPath = ((ModifyColumnCommentOp) alterTableOp).getColumnPath();
+        }
+        return columnPath != null && columnPath.isNested() ? columnPath : null;
+    }
+
+    private static ColumnDefinition getColumnDefinition(AlterTableOp alterTableOp) {
+        if (alterTableOp instanceof AddColumnOp) {
+            return ((AddColumnOp) alterTableOp).getColumnDef();
+        }
+        if (alterTableOp instanceof ModifyColumnOp) {
+            return ((ModifyColumnOp) alterTableOp).getColumnDef();
+        }
+        return null;
+    }
+
+    private static boolean isIcebergColumnSchemaOperation(AlterTableOp alterTableOp) {
+        return alterTableOp instanceof AddColumnOp
+                || alterTableOp instanceof AddColumnsOp
+                || alterTableOp instanceof DropColumnOp
+                || alterTableOp instanceof RenameColumnOp
+                || alterTableOp instanceof ModifyColumnOp
+                || alterTableOp instanceof ModifyColumnCommentOp
+                || alterTableOp instanceof ReorderColumnsOp;
+    }
+
+    private static void checkIcebergColumnDefinition(AlterTableOp alterTableOp, ColumnDefinition columnDefinition)
+            throws AnalysisException {
+        if (columnDefinition == null) {
+            return;
+        }
+        if (columnDefinition.isKey()) {
+            throw new AnalysisException("KEY is not supported for Iceberg ADD/MODIFY COLUMN");
+        }
+        if (columnDefinition.getGeneratedColumnDesc().isPresent()) {
+            throw new AnalysisException("Generated columns are not supported for Iceberg ADD/MODIFY COLUMN");
+        }
+        if (alterTableOp instanceof ModifyColumnOp
+                && (columnDefinition.hasDefaultValue() || columnDefinition.hasOnUpdateDefaultValue())) {
+            columnDefinition.validateComplexTypeDefaultValue();
+            throw new AnalysisException("Modifying default values is not supported for Iceberg columns: "
+                    + ((ModifyColumnOp) alterTableOp).getColumnPath().getFullPath());
+        }
+        if ((alterTableOp instanceof AddColumnOp || alterTableOp instanceof AddColumnsOp)
+                && columnDefinition.hasOnUpdateDefaultValue()) {
+            throw new AnalysisException("ON UPDATE is not supported for Iceberg ADD COLUMN: "
+                    + columnDefinition.getName());
+        }
+    }
+
+    private static String getRollupName(AlterTableOp alterTableOp) {
+        if (alterTableOp instanceof AddColumnOp) {
+            return ((AddColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof AddColumnsOp) {
+            return ((AddColumnsOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof DropColumnOp) {
+            return ((DropColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof ModifyColumnOp) {
+            return ((ModifyColumnOp) alterTableOp).getRollupName();
+        }
+        if (alterTableOp instanceof ReorderColumnsOp) {
+            return ((ReorderColumnsOp) alterTableOp).getRollupName();
+        }
+        return null;
     }
 
     private void rewriteAlterOpForOlapTable(ConnectContext ctx, OlapTable table) throws UserException {
@@ -242,6 +380,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterTableOp instanceof DropColumnOp
                     || alterTableOp instanceof RenameColumnOp
                     || alterTableOp instanceof ModifyColumnOp
+                    || (alterTableOp instanceof ModifyColumnCommentOp && table instanceof IcebergExternalTable)
                     || alterTableOp instanceof ReorderColumnsOp
                     || alterTableOp instanceof ModifyEngineOp
                     || alterTableOp instanceof ModifyTablePropertiesOp

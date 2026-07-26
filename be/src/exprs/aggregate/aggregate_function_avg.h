@@ -29,6 +29,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_fixed_length_object.h"
@@ -167,9 +168,7 @@ public:
     template <bool is_add>
     NO_SANITIZE_UNDEFINED void update_value(AggregateDataPtr __restrict place,
                                             const IColumn** columns, ssize_t row_num) const {
-#ifdef __clang__
-#pragma clang fp reassociate(on)
-#endif
+        ALLOW_FP_REASSOCIATION
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (is_add) {
@@ -262,6 +261,7 @@ public:
     NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column_range(
             AggregateDataPtr __restrict place, const IColumn& column, size_t begin, size_t end,
             Arena&) const override {
+        ALLOW_FP_REASSOCIATION
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);

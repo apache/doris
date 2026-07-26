@@ -1208,11 +1208,36 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        LogicalOlapScan that = (LogicalOlapScan) other;
+        return selectedIndexId == that.selectedIndexId
+                && indexSelected == that.indexSelected
+                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
+                && Objects.equals(manuallySpecifiedPartitions, that.manuallySpecifiedPartitions)
+                && Objects.equals(selectedTabletIds, that.selectedTabletIds)
+                && Objects.equals(manuallySpecifiedTabletIds, that.manuallySpecifiedTabletIds)
+                && Objects.equals(tableSample, that.tableSample)
+                && hasSameScanParams(scanParams, that.scanParams);
+    }
+
+    @Override
     public boolean supportPruneNestedColumn() {
         return true;
     }
 
     public Optional<TableScanParams> getScanParams() {
         return scanParams;
+    }
+
+    private boolean hasSameScanParams(Optional<TableScanParams> left, Optional<TableScanParams> right) {
+        if (!left.isPresent() || !right.isPresent()) {
+            return left.isPresent() == right.isPresent();
+        }
+        return Objects.equals(left.get().getParamType(), right.get().getParamType())
+                && Objects.equals(left.get().getMapParams(), right.get().getMapParams())
+                && Objects.equals(left.get().getListParams(), right.get().getListParams());
     }
 }

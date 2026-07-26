@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnType;
@@ -81,6 +82,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.logging.log4j.LogManager;
@@ -95,6 +97,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -812,17 +816,52 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (!column.isAllowNull()) {
             throw new UserException("can't add a non-nullable column to an Iceberg table");
         }
-        org.apache.iceberg.types.Type dorisType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+        org.apache.iceberg.types.Type dorisType =
+                toIcebergTypeForSchemaChange(column.getType(), column.getName());
         Literal<?> defaultValue = IcebergUtils.parseIcebergLiteral(column.getDefaultValue(), dorisType);
         updateSchema.addColumn(column.getName(), dorisType, column.getComment(), defaultValue);
     }
 
-    private void applyPosition(UpdateSchema updateSchema, ColumnPosition position, String columnName) {
+    private void applyPosition(UpdateSchema updateSchema, ColumnPosition position, ColumnPath columnPath, Schema schema,
+            String operation) throws UserException {
+        String columnName = columnPath.getFullPath();
         if (position.isFirst()) {
             updateSchema.moveFirst(columnName);
         } else {
-            updateSchema.moveAfter(columnName, position.getLastCol());
+            updateSchema.moveAfter(columnName, getPositionReferencePath(schema, columnPath, position, operation));
         }
+    }
+
+    private void validatePositionTarget(Schema schema, ColumnPath columnPath, String operation)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            return;
+        }
+        ResolvedColumnPath parentPath = resolveColumnPath(schema, columnPath.getParentPath(), operation);
+        if (!parentPath.getType().isStructType()) {
+            throw new UserException("Cannot apply column position to '" + columnPath.getFullPath()
+                    + "': parent column path '" + parentPath.getFullPath() + "' is not a struct");
+        }
+    }
+
+    @VisibleForTesting
+    String getPositionReferencePath(ColumnPath columnPath, ColumnPosition position) {
+        if (position == null || position.isFirst() || !columnPath.isNested()) {
+            return position == null || position.isFirst() ? null : position.getLastCol();
+        }
+        return columnPath.getParentPathString() + "." + position.getLastCol();
+    }
+
+    @VisibleForTesting
+    String getPositionReferencePath(Schema schema, ColumnPath columnPath, ColumnPosition position, String operation)
+            throws UserException {
+        if (position == null || position.isFirst()) {
+            return null;
+        }
+        ColumnPath referencePath = columnPath.isNested()
+                ? childPath(columnPath.getParentPath(), position.getLastCol())
+                : ColumnPath.of(position.getLastCol());
+        return resolveColumnPath(schema, referencePath, operation).getFullPath();
     }
 
     private void refreshTable(ExternalTable dorisTable, long updateTime) {
@@ -839,12 +878,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
-        validateCommonColumnInfo(column);
+        validateAddColumnMetadata(column, true);
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
+        Schema schema = icebergTable.schema();
+        validateNoCaseInsensitiveSiblingCollision(
+                schema.asStruct(), "", column.getName(), null, "add");
         UpdateSchema updateSchema = icebergTable.updateSchema();
         addOneColumn(updateSchema, column);
         if (position != null) {
-            applyPosition(updateSchema, position, column.getName());
+            applyPosition(updateSchema, position, ColumnPath.of(column.getName()), schema, "add");
         }
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
@@ -856,11 +899,54 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void addColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column, ColumnPosition position,
+            long updateTime) throws UserException {
+        if (!columnPath.isNested()) {
+            addColumn(dorisTable, column, position, updateTime);
+            return;
+        }
+        validateNestedAddColumnMetadata(column, columnPath);
+        if (!column.isAllowNull()) {
+            throw new UserException("New nested field '" + columnPath.getFullPath() + "' must be nullable");
+        }
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "add");
+        if (!parentPath.getType().isStructType()) {
+            throw new UserException("Parent column path '" + columnPath.getParentPathString()
+                    + "' is not a struct in Iceberg table: " + icebergTable.name());
+        }
+        validateNoCaseInsensitiveSiblingCollision(parentPath.getType().asStructType(),
+                parentPath.getColumnPath(), columnPath.getLeafName(), null, "add");
+
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        org.apache.iceberg.types.Type dorisType =
+                toIcebergTypeForSchemaChange(column.getType(), columnPath.getFullPath());
+        updateSchema.addColumn(parentPath.getFullPath(), columnPath.getLeafName(), dorisType,
+                column.getComment());
+        if (position != null) {
+            applyPosition(updateSchema, position, childPath(parentPath.getColumnPath(), columnPath.getLeafName()),
+                    icebergTable.schema(), "add");
+        }
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to add nested column: " + columnPath.getFullPath() + " to table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
     public void addColumns(ExternalTable dorisTable, List<Column> columns, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        for (Column column : columns) {
+            validateAddColumnMetadata(column, true);
+            validateRowLineageColumnMutation(icebergTable, column.getName(), "add");
+        }
+        validateNoCaseInsensitiveTopLevelCollisions(icebergTable.schema(), columns);
+
         UpdateSchema updateSchema = icebergTable.updateSchema();
         for (Column column : columns) {
-            validateCommonColumnInfo(column);
             addOneColumn(updateSchema, column);
         }
         try {
@@ -875,8 +961,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, columnName, "drop");
+        ResolvedColumnPath columnPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(columnName), "drop");
         UpdateSchema updateSchema = icebergTable.updateSchema();
-        updateSchema.deleteColumn(columnName);
+        updateSchema.deleteColumn(columnPath.getFullPath());
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
@@ -887,11 +975,37 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void dropColumn(ExternalTable dorisTable, ColumnPath columnPath, long updateTime) throws UserException {
+        if (!columnPath.isNested()) {
+            dropColumn(dorisTable, columnPath.getTopLevelName(), updateTime);
+            return;
+        }
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "drop");
+
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.deleteColumn(resolvedPath.getFullPath());
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to drop nested column: " + columnPath.getFullPath() + " from table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
     public void renameColumn(ExternalTable dorisTable, String oldName, String newName, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        validateRowLineageColumnMutation(icebergTable, oldName, "rename");
+        validateRowLineageColumnMutation(icebergTable, newName, "rename to");
+        Schema schema = icebergTable.schema();
+        ResolvedColumnPath oldPath = resolveColumnPath(schema, ColumnPath.of(oldName), "rename");
+        validateNoCaseInsensitiveSiblingCollision(
+                schema.asStruct(), "", newName, oldPath.getField(), "rename");
         UpdateSchema updateSchema = icebergTable.updateSchema();
-        updateSchema.renameColumn(oldName, newName);
+        applyRenameColumn(schema, updateSchema, oldPath, newName);
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
         } catch (Exception e) {
@@ -902,41 +1016,111 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void renameColumn(ExternalTable dorisTable, ColumnPath columnPath, String newName, long updateTime)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            renameColumn(dorisTable, columnPath.getTopLevelName(), newName, updateTime);
+            return;
+        }
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "rename");
+        ResolvedColumnPath parentPath = resolveColumnPath(icebergTable.schema(), columnPath.getParentPath(), "rename");
+        validateNoCaseInsensitiveSiblingCollision(parentPath.getType().asStructType(),
+                parentPath.getColumnPath(), newName, resolvedPath.getField(), "rename");
+
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        applyRenameColumn(icebergTable.schema(), updateSchema, resolvedPath, newName);
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to rename nested column: " + columnPath.getFullPath() + " to " + newName
+                    + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable, updateTime);
+    }
+
+    private void applyRenameColumn(Schema schema, UpdateSchema updateSchema,
+            ResolvedColumnPath oldPath, String newName) {
+        String oldFullPath = oldPath.getFullPath();
+        ColumnPath renamedPath = oldPath.getColumnPath().isNested()
+                ? childPath(oldPath.getColumnPath().getParentPath(), newName)
+                : ColumnPath.of(newName);
+        String renamedFullPath = renamedPath.getFullPath();
+        boolean identifierFieldRenamed = false;
+        Set<String> renamedIdentifierFields = new TreeSet<>();
+        int renamedFieldId = oldPath.getField().fieldId();
+        // Iceberg 1.10.1 does not preserve full identifier paths when an identifier field or one
+        // of its ancestors is renamed. Use field identity so dotted sibling names are not mistaken for descendants.
+        for (int identifierFieldId : schema.identifierFieldIds()) {
+            String identifierField = schema.findColumnName(identifierFieldId);
+            boolean isRenamedField = identifierFieldId == renamedFieldId;
+            boolean isDescendant = TypeUtil.ancestorFields(schema, identifierFieldId).stream()
+                    .anyMatch(field -> field.fieldId() == renamedFieldId);
+            if (isRenamedField || isDescendant) {
+                renamedIdentifierFields.add(renamedFullPath + identifierField.substring(oldFullPath.length()));
+                identifierFieldRenamed = true;
+            } else {
+                renamedIdentifierFields.add(identifierField);
+            }
+        }
+
+        updateSchema.renameColumn(oldFullPath, newName);
+        if (identifierFieldRenamed) {
+            updateSchema.setIdentifierFields(renamedIdentifierFields);
+        }
+    }
+
+    @Override
     public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
+        // This overload predates nullableSpecified/commentSpecified. Keep its top-level values
+        // explicit while delegating to the path-aware implementation.
+        Column explicitColumn = new Column(column);
+        explicitColumn.setIsKey(false);
+        explicitColumn.setNullableSpecified(true);
+        explicitColumn.setCommentSpecified(true);
+        modifyColumn(dorisTable, ColumnPath.of(column.getName()), explicitColumn, position, updateTime);
+    }
+
+    private void modifyTopLevelColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column,
+            ColumnPosition position, long updateTime) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        NestedField currentCol = icebergTable.schema().findField(column.getName());
+        validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify");
+        NestedField currentCol = icebergTable.schema().asStruct()
+                .caseInsensitiveField(columnPath.getTopLevelName());
         if (currentCol == null) {
-            throw new UserException("Column " + column.getName() + " does not exist");
+            throw new UserException("Column " + columnPath.getTopLevelName() + " does not exist");
+        }
+        ResolvedColumnPath resolvedPath = new ResolvedColumnPath(ColumnPath.of(currentCol.name()),
+                currentCol.type(), currentCol);
+
+        validateModifyColumnMetadata(column, resolvedPath.getFullPath(), true);
+        org.apache.iceberg.types.Type targetType;
+        if (column.getType().isComplexType()) {
+            validateForModifyComplexColumn(column, currentCol);
+            targetType = currentCol.type();
+        } else {
+            validateForModifyColumn(column, currentCol);
+            targetType = resolvePrimitiveTypeForModify(
+                    currentCol.type(), column.getType(), resolvedPath.getFullPath());
         }
 
-        validateCommonColumnInfo(column);
         UpdateSchema updateSchema = icebergTable.updateSchema();
-
+        String targetComment = resolveTargetComment(currentCol, column);
         if (column.getType().isComplexType()) {
-            // Complex type processing branch
-            validateForModifyComplexColumn(column, currentCol);
-            applyComplexTypeChange(updateSchema, column.getName(), currentCol.type(), column.getType());
-            if (column.isAllowNull()) {
-                updateSchema.makeColumnOptional(column.getName());
-            }
-            if (!Objects.equals(currentCol.doc(), column.getComment())) {
-                updateSchema.updateColumnDoc(column.getName(), column.getComment());
+            applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
+                    column.getType());
+            if (!Objects.equals(currentCol.doc(), targetComment)) {
+                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), targetComment);
             }
         } else {
-            // Primitive type processing (existing logic)
-            validateForModifyColumn(column, currentCol);
-            Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
-            updateSchema.updateColumn(column.getName(), icebergType.asPrimitiveType(), column.getComment());
-            if (column.isAllowNull()) {
-                // we can change a required column to optional, but not the other way around
-                // because we don't know whether there is existing data with null values.
-                updateSchema.makeColumnOptional(column.getName());
-            }
+            applyPrimitiveColumnChange(updateSchema, resolvedPath.getFullPath(), currentCol,
+                    targetType.asPrimitiveType(), targetComment);
         }
+        applyExplicitNullableChange(updateSchema, resolvedPath.getFullPath(), column);
 
         if (position != null) {
-            applyPosition(updateSchema, position, column.getName());
+            applyPosition(updateSchema, position, resolvedPath.getColumnPath(), icebergTable.schema(), "modify");
         }
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());
@@ -947,18 +1131,158 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         refreshTable(dorisTable, updateTime);
     }
 
+    @Override
+    public void modifyColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column, ColumnPosition position,
+            long updateTime) throws UserException {
+        if (!columnPath.isNested()) {
+            modifyTopLevelColumn(dorisTable, columnPath, column, position, updateTime);
+            return;
+        }
+
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        ResolvedColumnPath resolvedPath = resolveColumnPath(icebergTable.schema(), columnPath, "modify");
+        NestedField currentCol = resolvedPath.getField();
+        validateCollectionPseudoFieldComment(
+                icebergTable.schema(), resolvedPath, column.getComment(), column.isCommentSpecified());
+        if (position != null) {
+            validatePositionTarget(icebergTable.schema(), resolvedPath.getColumnPath(), "modify");
+        }
+
+        validateNestedModifyColumnMetadata(column, resolvedPath.getFullPath());
+        org.apache.iceberg.types.Type targetType;
+        if (column.getType().isComplexType()) {
+            validateForModifyComplexColumn(column, currentCol, columnPath.getFullPath());
+            targetType = currentCol.type();
+        } else {
+            validateForModifyColumn(column, currentCol, columnPath.getFullPath());
+            targetType = resolvePrimitiveTypeForModify(
+                    currentCol.type(), column.getType(), resolvedPath.getFullPath());
+        }
+
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        String targetComment = resolveTargetComment(currentCol, column);
+        if (column.getType().isComplexType()) {
+            applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
+                    column.getType());
+            if (!Objects.equals(currentCol.doc(), targetComment)) {
+                updateSchema.updateColumnDoc(resolvedPath.getFullPath(), targetComment);
+            }
+        } else {
+            applyPrimitiveColumnChange(updateSchema, resolvedPath.getFullPath(), currentCol,
+                    targetType.asPrimitiveType(), targetComment);
+        }
+        applyExplicitNullableChange(updateSchema, resolvedPath.getFullPath(), column);
+
+        if (position != null) {
+            applyPosition(updateSchema, position, resolvedPath.getColumnPath(), icebergTable.schema(), "modify");
+        }
+
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to modify nested column: " + columnPath.getFullPath() + " in table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable, updateTime);
+    }
+
+    @Override
+    public void modifyColumnComment(ExternalTable dorisTable, ColumnPath columnPath, String comment, long updateTime)
+            throws UserException {
+        Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        if (!columnPath.isNested()) {
+            validateRowLineageColumnMutation(icebergTable, columnPath.getTopLevelName(), "modify comment for");
+        }
+        ResolvedColumnPath resolvedPath = resolveColumnPath(
+                icebergTable.schema(), columnPath, "modify comment");
+        validateCollectionPseudoFieldComment(icebergTable.schema(), resolvedPath, comment, true);
+
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+        updateSchema.updateColumnDoc(resolvedPath.getFullPath(), StringUtils.defaultString(comment));
+        try {
+            executionAuthenticator.execute(() -> updateSchema.commit());
+        } catch (Exception e) {
+            throw new UserException("Failed to modify column comment: " + columnPath.getFullPath() + " in table: "
+                    + icebergTable.name() + ", error message is: " + e.getMessage(), e);
+        }
+        refreshTable(dorisTable, updateTime);
+    }
+
+    private void validateCollectionPseudoFieldComment(Schema schema, ResolvedColumnPath resolvedPath,
+            String comment, boolean commentSpecified) throws UserException {
+        if (!resolvedPath.getColumnPath().isNested()
+                || (!commentSpecified && StringUtils.isEmpty(comment))) {
+            return;
+        }
+        ResolvedColumnPath parentPath = resolveColumnPath(
+                schema, resolvedPath.getColumnPath().getParentPath(), "modify comment");
+        if (parentPath.getType().isListType() || parentPath.getType().isMapType()) {
+            throw new UserException("Iceberg does not support comments on collection element or value fields: "
+                    + resolvedPath.getFullPath());
+        }
+    }
+
+    private void applyExplicitNullableChange(UpdateSchema updateSchema, String columnPath, Column column) {
+        if (column.isNullableSpecified() && column.isAllowNull()) {
+            updateSchema.makeColumnOptional(columnPath);
+        }
+    }
+
+    private String resolveTargetComment(NestedField currentCol, Column column) {
+        return column.isCommentSpecified() ? column.getComment() : currentCol.doc();
+    }
+
+    private org.apache.iceberg.types.Type.PrimitiveType resolvePrimitiveTypeForModify(
+            org.apache.iceberg.types.Type currentIcebergType,
+            org.apache.doris.catalog.Type requestedDorisType, String columnPath) throws UserException {
+        if (isSameMappedDorisType(mappedDorisType(currentIcebergType), requestedDorisType)) {
+            return currentIcebergType.asPrimitiveType();
+        }
+        org.apache.iceberg.types.Type.PrimitiveType currentType = currentIcebergType.asPrimitiveType();
+        org.apache.iceberg.types.Type.PrimitiveType targetType =
+                toIcebergTypeForSchemaChange(requestedDorisType, columnPath).asPrimitiveType();
+        if (!currentType.equals(targetType) && !TypeUtil.isPromotionAllowed(currentType, targetType)) {
+            throw new UserException("Cannot change column type: " + columnPath + ": "
+                    + currentType + " -> " + targetType);
+        }
+        return targetType;
+    }
+
+    private void applyPrimitiveColumnChange(UpdateSchema updateSchema, String columnPath,
+            NestedField currentCol, org.apache.iceberg.types.Type.PrimitiveType targetType,
+            String targetComment) {
+        if (!currentCol.type().equals(targetType)) {
+            updateSchema.updateColumn(columnPath, targetType, targetComment);
+        } else if (!Objects.equals(currentCol.doc(), targetComment)) {
+            updateSchema.updateColumnDoc(columnPath, targetComment);
+        }
+    }
+
     private void validateForModifyColumn(Column column, NestedField currentCol) throws UserException {
+        validateForModifyColumn(column, currentCol, column.getName());
+    }
+
+    private void validateForModifyColumn(Column column, NestedField currentCol, String columnPath)
+            throws UserException {
         // check complex type
         if (column.getType().isComplexType()) {
             throw new UserException("Modify column type to non-primitive type is not supported: " + column.getType());
         }
+        if (!currentCol.type().isPrimitiveType()) {
+            throw new UserException("Modify column type from complex to primitive is not supported: " + columnPath);
+        }
         // check nullable
         if (currentCol.isOptional() && !column.isAllowNull()) {
-            throw new UserException("Can not change nullable column " + column.getName() + " to not null");
+            throw new UserException("Can not change nullable column " + columnPath + " to not null");
         }
     }
 
     private void validateForModifyComplexColumn(Column column, NestedField currentCol) throws UserException {
+        validateForModifyComplexColumn(column, currentCol, column.getName());
+    }
+
+    private void validateForModifyComplexColumn(Column column, NestedField currentCol, String columnPath)
+            throws UserException {
         if (!column.getType().isComplexType()) {
             throw new UserException("Modify column type to non-complex type is not supported: " + column.getType());
         }
@@ -968,7 +1292,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + column.getName());
         }
 
-        org.apache.doris.catalog.Type oldDorisType = IcebergUtils.icebergTypeToDorisType(oldIcebergType, false, false);
+        org.apache.doris.catalog.Type oldDorisType = mappedDorisType(oldIcebergType);
         org.apache.doris.catalog.Type newDorisType = column.getType();
         if (!isSameComplexCategory(oldIcebergType, newDorisType)) {
             throw new UserException("Cannot change complex column type category from "
@@ -979,11 +1303,166 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         } catch (DdlException e) {
             throw new UserException(e.getMessage(), e);
         }
+        validateComplexTypeChanges(oldIcebergType, newDorisType, columnPath);
         if (currentCol.isOptional() && !column.isAllowNull()) {
-            throw new UserException("Cannot change nullable column " + column.getName() + " to not null");
+            throw new UserException("Cannot change nullable column " + columnPath + " to not null");
         }
         if (column.getDefaultValue() != null || column.getDefaultValueExprDef() != null) {
             throw new UserException("Complex type default value only supports NULL");
+        }
+    }
+
+    @VisibleForTesting
+    org.apache.iceberg.types.Type resolveNestedColumnPath(Schema schema, ColumnPath columnPath, String operation)
+            throws UserException {
+        return resolveColumnPath(schema, columnPath, operation).getType();
+    }
+
+    @VisibleForTesting
+    String getCanonicalColumnPath(Schema schema, ColumnPath columnPath, String operation) throws UserException {
+        return resolveColumnPath(schema, columnPath, operation).getFullPath();
+    }
+
+    private ResolvedColumnPath resolveColumnPath(Schema schema, ColumnPath columnPath, String operation)
+            throws UserException {
+        org.apache.iceberg.types.Type currentType = schema.asStruct();
+        NestedField currentField = null;
+        String currentPath = "";
+        List<String> canonicalParts = new ArrayList<>();
+        for (String part : columnPath.getParts()) {
+            if (!currentPath.isEmpty()) {
+                currentPath += ".";
+            }
+            currentPath += part;
+
+            if (currentType.isStructType()) {
+                NestedField field = currentType.asStructType().caseInsensitiveField(part);
+                if (field == null) {
+                    throw new UserException("Column path does not exist in Iceberg schema: "
+                            + columnPath.getFullPath());
+                }
+                canonicalParts.add(field.name());
+                currentField = field;
+                currentType = field.type();
+            } else if (currentType.isListType()) {
+                Types.ListType listType = currentType.asListType();
+                NestedField elementField = listType.field(listType.elementId());
+                if (!elementField.name().equalsIgnoreCase(part)) {
+                    throw new UserException("Expected array element path at '" + currentPath
+                            + "' for Iceberg column path: " + columnPath.getFullPath());
+                }
+                canonicalParts.add(elementField.name());
+                currentField = elementField;
+                currentType = listType.elementType();
+            } else if (currentType.isMapType()) {
+                Types.MapType mapType = currentType.asMapType();
+                NestedField keyField = mapType.field(mapType.keyId());
+                if (keyField.name().equalsIgnoreCase(part)) {
+                    throw new UserException("Cannot " + operation + " MAP key nested column: "
+                            + columnPath.getFullPath());
+                }
+                NestedField valueField = mapType.field(mapType.valueId());
+                if (!valueField.name().equalsIgnoreCase(part)) {
+                    throw new UserException("Expected map value path at '" + currentPath
+                            + "' for Iceberg column path: " + columnPath.getFullPath());
+                }
+                canonicalParts.add(valueField.name());
+                currentField = valueField;
+                currentType = mapType.valueType();
+            } else {
+                throw new UserException("Cannot resolve nested field under primitive column path: "
+                        + columnPath.getFullPath());
+            }
+        }
+        return new ResolvedColumnPath(ColumnPath.of(canonicalParts), currentType, currentField);
+    }
+
+    @VisibleForTesting
+    org.apache.iceberg.types.Type validateNestedStructField(Schema schema, ColumnPath columnPath, String operation)
+            throws UserException {
+        return validateNestedStructFieldPath(schema, columnPath, operation).getType();
+    }
+
+    private ResolvedColumnPath validateNestedStructFieldPath(Schema schema, ColumnPath columnPath, String operation)
+            throws UserException {
+        ResolvedColumnPath parentPath = resolveColumnPath(schema, columnPath.getParentPath(), operation);
+        org.apache.iceberg.types.Type parentType = parentPath.getType();
+        if (!parentType.isStructType()) {
+            throw new UserException("Parent column path '" + columnPath.getParentPathString()
+                    + "' is not a struct for Iceberg nested " + operation + ": " + columnPath.getFullPath());
+        }
+        NestedField field = parentType.asStructType().caseInsensitiveField(columnPath.getLeafName());
+        if (field == null) {
+            throw new UserException("Column path does not exist in Iceberg schema: " + columnPath.getFullPath());
+        }
+        return new ResolvedColumnPath(childPath(parentPath.getColumnPath(), field.name()), field.type(), field);
+    }
+
+    private ColumnPath childPath(ColumnPath parentPath, String childName) {
+        List<String> parts = new ArrayList<>(parentPath.getParts());
+        parts.add(childName);
+        return ColumnPath.of(parts);
+    }
+
+    @VisibleForTesting
+    void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, ColumnPath parentPath,
+            String targetName, NestedField sourceField, String operation) throws UserException {
+        validateNoCaseInsensitiveSiblingCollision(
+                parentType, parentPath.getFullPath(), targetName, sourceField, operation);
+    }
+
+    private void validateNoCaseInsensitiveSiblingCollision(Types.StructType parentType, String parentPath,
+            String targetName, NestedField sourceField, String operation) throws UserException {
+        NestedField conflictingField = parentType.caseInsensitiveField(targetName);
+        if (conflictingField != null
+                && (sourceField == null || conflictingField.fieldId() != sourceField.fieldId())) {
+            String targetPath = parentPath.isEmpty() ? targetName : parentPath + "." + targetName;
+            String conflictingPath = parentPath.isEmpty()
+                    ? conflictingField.name() : parentPath + "." + conflictingField.name();
+            String columnDescription = parentPath.isEmpty() ? "column" : "nested column";
+            throw new UserException("Cannot " + operation + " " + columnDescription + " '" + targetPath
+                    + "': conflicts with existing Iceberg field '" + conflictingPath + "' (case-insensitive)");
+        }
+    }
+
+    private void validateNoCaseInsensitiveTopLevelCollisions(Schema schema, List<Column> columns)
+            throws UserException {
+        Set<String> requestedNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : columns) {
+            validateNoCaseInsensitiveSiblingCollision(
+                    schema.asStruct(), "", column.getName(), null, "add");
+            if (!requestedNames.add(column.getName())) {
+                throw new UserException("Cannot add column '" + column.getName()
+                        + "': conflicts with another requested column (case-insensitive)");
+            }
+        }
+    }
+
+    private static class ResolvedColumnPath {
+        private final ColumnPath columnPath;
+        private final org.apache.iceberg.types.Type type;
+        private final NestedField field;
+
+        private ResolvedColumnPath(ColumnPath columnPath, org.apache.iceberg.types.Type type, NestedField field) {
+            this.columnPath = columnPath;
+            this.type = type;
+            this.field = field;
+        }
+
+        private ColumnPath getColumnPath() {
+            return columnPath;
+        }
+
+        private String getFullPath() {
+            return columnPath.getFullPath();
+        }
+
+        private org.apache.iceberg.types.Type getType() {
+            return type;
+        }
+
+        private NestedField getField() {
+            return field;
         }
     }
 
@@ -998,6 +1477,59 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             default:
                 return false;
         }
+    }
+
+    private void validateComplexTypeChanges(org.apache.iceberg.types.Type oldIcebergType,
+            org.apache.doris.catalog.Type newDorisType, String path) throws UserException {
+        switch (oldIcebergType.typeId()) {
+            case STRUCT:
+                validateStructTypeChanges(oldIcebergType.asStructType(), (StructType) newDorisType, path);
+                break;
+            case LIST:
+                Types.ListType oldListType = oldIcebergType.asListType();
+                validateExistingTypeChange(oldListType.elementType(), ((ArrayType) newDorisType).getItemType(),
+                        path + "." + oldListType.field(oldListType.elementId()).name());
+                break;
+            case MAP:
+                Types.MapType oldMapType = oldIcebergType.asMapType();
+                MapType newMapType = (MapType) newDorisType;
+                org.apache.doris.catalog.Type oldDorisKeyType = mappedDorisType(oldMapType.keyType());
+                if (!isSameMappedDorisType(oldDorisKeyType, newMapType.getKeyType())) {
+                    throw new UserException("Cannot change MAP key type from "
+                            + oldDorisKeyType.toSql() + " to " + newMapType.getKeyType().toSql());
+                }
+                validateExistingTypeChange(oldMapType.valueType(), newMapType.getValueType(),
+                        path + "." + oldMapType.field(oldMapType.valueId()).name());
+                break;
+            default:
+                throw new UserException("Unsupported complex type for modify: " + oldIcebergType);
+        }
+    }
+
+    private void validateStructTypeChanges(Types.StructType oldStructType,
+            StructType newStructType, String path) throws UserException {
+        List<NestedField> oldFields = oldStructType.fields();
+        List<StructField> newFields = newStructType.getFields();
+        for (int i = 0; i < oldFields.size(); i++) {
+            NestedField oldField = oldFields.get(i);
+            validateExistingTypeChange(oldField.type(), newFields.get(i).getType(),
+                    path + "." + oldField.name());
+        }
+        for (int i = oldFields.size(); i < newFields.size(); i++) {
+            StructField newField = newFields.get(i);
+            toIcebergTypeForSchemaChange(newField.getType(), path + "." + newField.getName());
+        }
+    }
+
+    private void validateExistingTypeChange(org.apache.iceberg.types.Type oldIcebergType,
+            org.apache.doris.catalog.Type newDorisType, String path) throws UserException {
+        if (oldIcebergType.isPrimitiveType()) {
+            if (!isSameMappedDorisType(mappedDorisType(oldIcebergType), newDorisType)) {
+                toIcebergTypeForSchemaChange(newDorisType, path);
+            }
+            return;
+        }
+        validateComplexTypeChanges(oldIcebergType, newDorisType, path);
     }
 
     private void applyComplexTypeChange(UpdateSchema updateSchema, String path,
@@ -1019,7 +1551,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void applyStructChange(UpdateSchema updateSchema, String path,
-            Types.StructType oldStructType, StructType newStructType) throws UserException {
+            Types.StructType oldStructType, StructType newStructType)
+            throws UserException {
         List<NestedField> oldFields = oldStructType.fields();
         List<StructField> newFields = newStructType.getFields();
 
@@ -1034,26 +1567,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
             org.apache.iceberg.types.Type oldFieldType = oldField.type();
             org.apache.doris.catalog.Type newFieldType = newField.getType();
+            String targetComment = newField.isCommentSpecified()
+                    ? newField.getComment() : oldField.doc();
             if (oldFieldType.isPrimitiveType()) {
-                org.apache.doris.catalog.Type oldDorisFieldType =
-                        IcebergUtils.icebergTypeToDorisType(oldFieldType, false, false);
-                boolean typeChanged = !oldDorisFieldType.equals(newFieldType);
-                boolean commentChanged = !Objects.equals(oldField.doc(), newField.getComment());
-                if (typeChanged || commentChanged) {
+                org.apache.doris.catalog.Type oldDorisFieldType = mappedDorisType(oldFieldType);
+                boolean typeChanged = !isSameMappedDorisType(oldDorisFieldType, newFieldType);
+                boolean commentChanged = !Objects.equals(oldField.doc(), targetComment);
+                if (typeChanged) {
                     org.apache.iceberg.types.Type newIcebergFieldType =
-                            IcebergUtils.dorisTypeToIcebergType(newFieldType);
+                            toIcebergTypeForSchemaChange(newFieldType, fieldPath);
                     updateSchema.updateColumn(fieldPath, newIcebergFieldType.asPrimitiveType(),
-                            newField.getComment());
+                            targetComment);
+                } else if (commentChanged) {
+                    updateSchema.updateColumnDoc(fieldPath, targetComment);
                 }
             } else {
                 applyComplexTypeChange(updateSchema, fieldPath, oldFieldType, newFieldType);
-                if (!Objects.equals(oldField.doc(), newField.getComment())) {
-                    updateSchema.updateColumnDoc(fieldPath, newField.getComment());
+                if (!Objects.equals(oldField.doc(), targetComment)) {
+                    updateSchema.updateColumnDoc(fieldPath, targetComment);
                 }
-            }
-
-            if (!oldField.isOptional() && newField.getContainsNull()) {
-                updateSchema.makeColumnOptional(fieldPath);
             }
         }
 
@@ -1063,13 +1595,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 throw new UserException("New struct field '" + newField.getName() + "' must be nullable");
             }
             org.apache.iceberg.types.Type newFieldIcebergType =
-                    IcebergUtils.dorisTypeToIcebergType(newField.getType());
+                    toIcebergTypeForSchemaChange(newField.getType(), path + "." + newField.getName());
             updateSchema.addColumn(path, newField.getName(), newFieldIcebergType, newField.getComment());
         }
     }
 
     private void applyListChange(UpdateSchema updateSchema, String path,
-            Types.ListType oldListType, ArrayType newArrayType) throws UserException {
+            Types.ListType oldListType, ArrayType newArrayType)
+            throws UserException {
         String elementPath = path + "." + oldListType.field(oldListType.elementId()).name();
         if (oldListType.isElementOptional() && !newArrayType.getContainsNull()) {
             throw new UserException("Cannot change nullable column " + elementPath + " to not null");
@@ -1077,28 +1610,24 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         org.apache.iceberg.types.Type oldElementType = oldListType.elementType();
         org.apache.doris.catalog.Type newElementType = newArrayType.getItemType();
         if (oldElementType.isPrimitiveType()) {
-            org.apache.doris.catalog.Type oldDorisElementType =
-                    IcebergUtils.icebergTypeToDorisType(oldElementType, false, false);
-            if (!oldDorisElementType.equals(newElementType)) {
+            org.apache.doris.catalog.Type oldDorisElementType = mappedDorisType(oldElementType);
+            if (!isSameMappedDorisType(oldDorisElementType, newElementType)) {
                 org.apache.iceberg.types.Type newIcebergElementType =
-                        IcebergUtils.dorisTypeToIcebergType(newElementType);
+                        toIcebergTypeForSchemaChange(newElementType, elementPath);
                 updateSchema.updateColumn(elementPath, newIcebergElementType.asPrimitiveType(), null);
             }
         } else {
             applyComplexTypeChange(updateSchema, elementPath, oldElementType, newElementType);
         }
-        if (!oldListType.isElementOptional() && newArrayType.getContainsNull()) {
-            updateSchema.makeColumnOptional(elementPath);
-        }
     }
 
     private void applyMapChange(UpdateSchema updateSchema, String path,
-            Types.MapType oldMapType, MapType newMapType) throws UserException {
+            Types.MapType oldMapType, MapType newMapType)
+            throws UserException {
         org.apache.iceberg.types.Type oldKeyType = oldMapType.keyType();
         org.apache.doris.catalog.Type newKeyType = newMapType.getKeyType();
-        org.apache.doris.catalog.Type oldDorisKeyType =
-                IcebergUtils.icebergTypeToDorisType(oldKeyType, false, false);
-        if (!oldDorisKeyType.equals(newKeyType)) {
+        org.apache.doris.catalog.Type oldDorisKeyType = mappedDorisType(oldKeyType);
+        if (!isSameMappedDorisType(oldDorisKeyType, newKeyType)) {
             throw new UserException("Cannot change MAP key type from "
                     + oldDorisKeyType.toSql() + " to " + newKeyType.toSql());
         }
@@ -1110,22 +1639,29 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         org.apache.iceberg.types.Type oldValueType = oldMapType.valueType();
         org.apache.doris.catalog.Type newValueType = newMapType.getValueType();
         if (oldValueType.isPrimitiveType()) {
-            org.apache.doris.catalog.Type oldDorisValueType =
-                    IcebergUtils.icebergTypeToDorisType(oldValueType, false, false);
-            if (!oldDorisValueType.equals(newValueType)) {
+            org.apache.doris.catalog.Type oldDorisValueType = mappedDorisType(oldValueType);
+            if (!isSameMappedDorisType(oldDorisValueType, newValueType)) {
                 org.apache.iceberg.types.Type newIcebergValueType =
-                        IcebergUtils.dorisTypeToIcebergType(newValueType);
+                        toIcebergTypeForSchemaChange(newValueType, valuePath);
                 updateSchema.updateColumn(valuePath, newIcebergValueType.asPrimitiveType(), null);
             }
         } else {
             applyComplexTypeChange(updateSchema, valuePath, oldValueType, newValueType);
         }
-        if (!oldMapType.isValueOptional() && newMapType.getIsValueContainsNull()) {
-            updateSchema.makeColumnOptional(valuePath);
-        }
     }
 
-    private void validateCommonColumnInfo(Column column) throws UserException {
+    private void validateCommonColumnInfo(Column column, boolean rejectKey) throws UserException {
+        validateCommonColumnMetadata(column, rejectKey);
+        toIcebergTypeForSchemaChange(column.getType(), column.getName());
+    }
+
+    private void validateCommonColumnMetadata(Column column, boolean rejectKey) throws UserException {
+        if (rejectKey && column.isKey()) {
+            throw new UserException("KEY is not supported for Iceberg ADD/MODIFY COLUMN");
+        }
+        if (column.isGeneratedColumn()) {
+            throw new UserException("Generated columns are not supported for Iceberg ADD/MODIFY COLUMN");
+        }
         // check aggregation method
         if (column.isAggregated()) {
             throw new UserException("Can not specify aggregation method for iceberg table column");
@@ -1136,16 +1672,87 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
+    private org.apache.doris.catalog.Type mappedDorisType(org.apache.iceberg.types.Type icebergType) {
+        return IcebergUtils.icebergTypeToDorisType(icebergType,
+                dorisCatalog.getEnableMappingVarbinary(), dorisCatalog.getEnableMappingTimestampTz());
+    }
+
+    private boolean isSameMappedDorisType(org.apache.doris.catalog.Type mappedType,
+            org.apache.doris.catalog.Type requestedType) {
+        // ScalarType.equals does not compare VARBINARY length, but Iceberg FIXED uses the
+        // mapped length to distinguish an unchanged view from a requested type change.
+        return mappedType.equals(requestedType)
+                && (!mappedType.isVarbinaryType() || mappedType.getLength() == requestedType.getLength());
+    }
+
+    private org.apache.iceberg.types.Type toIcebergTypeForSchemaChange(
+            org.apache.doris.catalog.Type dorisType, String columnPath) throws UserException {
+        try {
+            return IcebergUtils.dorisTypeToIcebergType(dorisType);
+        } catch (UnsupportedOperationException | IllegalArgumentException e) {
+            throw new UserException("Type " + dorisType.toSql()
+                    + " is not supported for Iceberg column " + columnPath, e);
+        }
+    }
+
+    private void validateNestedAddColumnMetadata(Column column, ColumnPath columnPath) throws UserException {
+        validateCommonColumnInfo(column, true);
+        if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
+            throw new UserException("DEFAULT and ON UPDATE are not supported for Iceberg nested ADD COLUMN: "
+                    + columnPath.getFullPath());
+        }
+    }
+
+    private void validateNestedModifyColumnMetadata(Column column, String columnPath) throws UserException {
+        validateModifyColumnMetadata(column, columnPath, true);
+    }
+
+    private void validateAddColumnMetadata(Column column, boolean rejectKey) throws UserException {
+        validateCommonColumnInfo(column, rejectKey);
+        if (column.hasOnUpdateDefaultValue()) {
+            throw new UserException("ON UPDATE is not supported for Iceberg ADD COLUMN: " + column.getName());
+        }
+    }
+
+    private void validateModifyColumnMetadata(Column column, String columnPath, boolean rejectKey)
+            throws UserException {
+        validateCommonColumnMetadata(column, rejectKey);
+        if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
+            throw new UserException("Modifying default values is not supported for Iceberg columns: " + columnPath);
+        }
+    }
+
+    private void validateRowLineageColumnMutation(Table icebergTable, String columnName, String operation)
+            throws UserException {
+        int formatVersion = IcebergUtils.getFormatVersion(icebergTable);
+        if (formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                && IcebergUtils.isIcebergRowLineageColumn(columnName)) {
+            throw new UserException("Cannot " + operation + " Iceberg v" + formatVersion
+                    + " reserved row lineage column: " + columnName);
+        }
+    }
+
     @Override
     public void reorderColumns(ExternalTable dorisTable, List<String> newOrder, long updateTime) throws UserException {
         if (newOrder == null || newOrder.isEmpty()) {
             throw new UserException("Reorder column failed, new order is empty.");
         }
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        List<String> canonicalOrder = new ArrayList<>(newOrder.size());
+        Set<String> canonicalNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (String columnName : newOrder) {
+            validateRowLineageColumnMutation(icebergTable, columnName, "reorder");
+            String canonicalName = resolveColumnPath(
+                    icebergTable.schema(), ColumnPath.of(columnName), "reorder").getFullPath();
+            if (!canonicalNames.add(canonicalName)) {
+                throw new UserException("Duplicate column in reorder columns: " + columnName);
+            }
+            canonicalOrder.add(canonicalName);
+        }
         UpdateSchema updateSchema = icebergTable.updateSchema();
-        updateSchema.moveFirst(newOrder.get(0));
-        for (int i = 1; i < newOrder.size(); i++) {
-            updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
+        updateSchema.moveFirst(canonicalOrder.get(0));
+        for (int i = 1; i < canonicalOrder.size(); i++) {
+            updateSchema.moveAfter(canonicalOrder.get(i), canonicalOrder.get(i - 1));
         }
         try {
             executionAuthenticator.execute(() -> updateSchema.commit());

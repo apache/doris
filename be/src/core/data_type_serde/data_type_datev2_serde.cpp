@@ -30,6 +30,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -37,8 +38,59 @@
 
 namespace doris {
 
-// This number represents the number of days from 0000-01-01 to 1970-01-01
-static const int32_t date_threshold = 719528;
+// This number represents the number of days from 0000-01-01 to 1970-01-01.
+static constexpr int32_t date_threshold = 719528;
+
+namespace {
+
+Status decode_parquet_date(int32_t encoded_date, DateV2Value<DateV2ValueType>* value) {
+    DORIS_CHECK(value != nullptr);
+    const int64_t day_number = static_cast<int64_t>(encoded_date) + date_threshold;
+    if (day_number < 0 || !value->get_date_from_daynr(static_cast<uint64_t>(day_number))) {
+        return Status::DataQualityError("Parquet DATE value is out of range");
+    }
+    return Status::OK();
+}
+
+class DateV2ParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    explicit DateV2ParquetConsumer(IColumn& column, ParquetMaterializationState* state = nullptr)
+            : _data(assert_cast<ColumnDateV2&>(column).get_data()), _state(state) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        DORIS_CHECK_EQ(value_width, sizeof(int32_t));
+        const size_t old_size = _data.size();
+        _data.resize(old_size + num_values);
+        for (size_t row = 0; row < num_values; ++row) {
+            DateV2Value<DateV2ValueType> value;
+            const auto status = decode_parquet_date(
+                    unaligned_load<int32_t>(values + row * sizeof(int32_t)), &value);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
+                    _data[old_size + row] = DateV2Value<DateV2ValueType>();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+            _data[old_size + row] = value;
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnDateV2::Container& _data;
+    ParquetMaterializationState* _state;
+};
+
+class RejectDateV2BinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as DATEV2");
+    }
+};
+
+} // namespace
 
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
@@ -140,6 +192,7 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
     auto& data = assert_cast<ColumnDateV2&>(column).get_data();
+    const auto old_size = data.size();
     const auto* values = reinterpret_cast<const int32_t*>(view.values);
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {
@@ -147,10 +200,54 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
             continue;
         }
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.get_date_from_daynr(values[row] + date_threshold);
+        const auto status = decode_parquet_date(values[row], &date_v2);
+        if (!status.ok()) {
+            // Decoded values back both metadata conversion and native materialization. Preserve
+            // strict errors while allowing nullable non-strict scans to mark only the bad row.
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return status;
+        }
         data.push_back(date_v2);
     }
     return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                                    const ParquetDecodeContext& context) const {
+    DateV2ParquetConsumer consumer(column);
+    RejectDateV2BinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeDateV2SerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                                     const ParquetDecodeContext& context,
+                                                     size_t num_values,
+                                                     ParquetMaterializationState& state) const {
+    if (context.physical_type != ParquetPhysicalType::INT32 ||
+        context.logical_type != ParquetLogicalType::DATE) {
+        return Status::NotSupported("DATEV2 expects Parquet DATE stored as INT32");
+    }
+    DateV2ParquetConsumer consumer(column, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DateV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, &state);
+        RejectDateV2BinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
 }
 
 Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,

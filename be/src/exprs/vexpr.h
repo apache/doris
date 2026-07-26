@@ -174,6 +174,19 @@ public:
                                   uint8_t* __restrict result_filter_data, size_t rows,
                                   bool accept_null, bool* can_filter_all) const;
 
+    // Raw fixed-width evaluation is an optional expression capability used before a storage reader
+    // materializes a column. `matches` is ANDed in place; callers handle NULL rows separately
+    // because raw value streams contain only non-NULL payloads.
+    virtual bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                 int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                               size_t value_width, const DataTypePtr& data_type,
+                                               int column_id, uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
+    }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
