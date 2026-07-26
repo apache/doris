@@ -535,6 +535,15 @@ public interface ConnectorScanPlanProvider {
      * {@code queryId} is the engine query id string ({@link ConnectorSession#getQueryId()}), the same key the
      * provider registered the transaction under.</p>
      *
+     * <p><b>Where that transaction may be kept.</b> This method releases state opened by a DIFFERENT call, yet
+     * a provider instance cannot carry it: providers are built fresh per acquisition ({@code
+     * Connector.getScanPlanProvider}), so the instance that opened the transaction is generally not the one
+     * asked to release it. The state therefore belongs to the CONNECTOR — a connector-scoped, query-id-keyed
+     * registry that both the opening {@code planScan} and this callback reach through the connector instance
+     * they were built from (this is what hive does). A provider that stashes the transaction in its own field
+     * leaks it, and no test will say so. The same rule applies to any other cross-call state a provider
+     * appears to need: put it on the connector, keyed by query id, and clean it up here.</p>
+     *
      * @param queryId the finishing query's id (== {@link ConnectorSession#getQueryId()})
      */
     default void releaseReadTransaction(String queryId) {

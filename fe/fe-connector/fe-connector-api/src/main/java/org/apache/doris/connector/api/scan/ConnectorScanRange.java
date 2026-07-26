@@ -51,7 +51,21 @@ public interface ConnectorScanRange extends Serializable {
         return 0;
     }
 
-    /** Returns the number of bytes to read, or -1 for the entire file. */
+    /**
+     * Returns this range's size, or -1 when the connector does not quantify it (the default).
+     *
+     * <p><b>The unit is connector-defined, NOT universally bytes.</b> A file-backed connector reports the byte
+     * count to read from {@link #getStart()} (hive, iceberg), but a connector whose split is not a byte range
+     * reports what its own SDK gave it — MaxCompute's row-offset splits carry a ROW count, and its default
+     * splits, like Paimon's JNI ranges, carry -1. BE is told the value only through the range's own thrift, so
+     * each connector stays self-consistent.</p>
+     *
+     * <p>Consequently the ENGINE must not read this as a byte size to drive a generic size-based decision
+     * (sampling, split merging, parallelism): a value meaning rows would silently mis-size the plan for that
+     * connector. Such a feature is gated on an explicit capability the connector opts into (mirroring
+     * {@code supportsTableSample}), and only a connector whose {@code getLength} is genuinely a byte count may
+     * opt in.</p>
+     */
     default long getLength() {
         return -1;
     }
