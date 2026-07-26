@@ -59,6 +59,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -635,6 +636,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
                         .withManifestEntryFilter(entry ->
                                 entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
+                preserveBatchScanFilters(fileStoreTable, snapshotReader);
                 if (predicates != null) {
                     predicates.forEach(snapshotReader::withFilter);
                 }
@@ -665,6 +667,20 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
             }
+        }
+    }
+
+    private void preserveBatchScanFilters(FileStoreTable table, SnapshotReader snapshotReader) {
+        CoreOptions options = table.coreOptions();
+        // This direct reader bypasses DataTableBatchScan, so preserve its correctness filters for
+        // deletion-vector/first-row tables and postponed buckets before reading the pinned plan.
+        if (!table.primaryKeys().isEmpty()
+                && options.batchScanSkipLevel0()
+                && options.toConfiguration().get(CoreOptions.BATCH_SCAN_MODE) == CoreOptions.BatchScanMode.NONE) {
+            snapshotReader.withLevelFilter(level -> level > 0).enableValueFilter();
+        }
+        if (options.bucket() == BucketMode.POSTPONE_BUCKET) {
+            snapshotReader.onlyReadRealBuckets();
         }
     }
 

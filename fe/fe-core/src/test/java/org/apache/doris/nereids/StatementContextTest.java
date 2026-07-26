@@ -171,7 +171,7 @@ public class StatementContextTest {
     }
 
     @Test
-    public void testSkipLatestPreloadWhenExplicitSnapshotExists() {
+    public void testPreloadLatestRelationWhenExplicitSnapshotAliasExists() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
         HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
@@ -180,7 +180,7 @@ public class StatementContextTest {
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
 
-        // Mark one relation as latest and another relation as explicit snapshot, then skip latest snapshot preload.
+        // A historical alias must not cancel the metadata warmup required by a latest alias.
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(connectContext.getQueryIdentifier()).thenReturn("query-2");
         Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
@@ -206,11 +206,10 @@ public class StatementContextTest {
 
             org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
             org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
-            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
-            Mockito.verify(hmsExternalTable, Mockito.never())
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getPreloadedTableCount());
+            Mockito.verify(hmsExternalTable, Mockito.times(1))
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
-            Mockito.verify(hmsExternalTable, Mockito.never()).getBaseSchema();
-            Mockito.verify(hmsExternalTable, Mockito.never()).initSelectedPartitions(Mockito.any());
+            Mockito.verify(hmsExternalTable, Mockito.times(1)).getBaseSchema();
         } finally {
             statementContext.close();
         }

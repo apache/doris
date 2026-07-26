@@ -20,10 +20,12 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.analysis.TableScanParams;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
+import org.apache.paimon.utils.SnapshotManager;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
@@ -143,15 +145,16 @@ public class PaimonScanParamsTest {
             Assert.assertTrue(type, PaimonScanParams.supportsIncrementalRead(type));
             Assert.assertFalse(type, PaimonScanParams.requiresPaimonReader(type));
         }
-        for (String type : new String[] {"buckets", "table_indexes"}) {
-            Assert.assertTrue(type, PaimonScanParams.supportsOptions(type));
-        }
+        Assert.assertFalse(PaimonScanParams.supportsOptions("buckets"));
+        Assert.assertFalse(PaimonScanParams.supportsOptions("files"));
+        Assert.assertTrue(PaimonScanParams.supportsOptions("table_indexes"));
         Assert.assertTrue(PaimonScanParams.requiresPaimonReader("audit_log"));
 
-        PaimonScanParams.validateSystemTable("files", new TableScanParams(
-                TableScanParams.OPTIONS,
-                ImmutableMap.of("scan.creation-time-millis", "1234"),
-                Collections.emptyList()));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.validateSystemTable("files", new TableScanParams(
+                        TableScanParams.OPTIONS,
+                        ImmutableMap.of("scan.creation-time-millis", "1234"),
+                        Collections.emptyList())));
         Assert.assertThrows(IllegalArgumentException.class,
                 () -> PaimonScanParams.validateSystemTable("files", new TableScanParams(
                         TableScanParams.OPTIONS,
@@ -228,6 +231,66 @@ public class PaimonScanParamsTest {
             Assert.assertTrue(PaimonScanParams.isPinnedEmptyScan(resolved));
             Assert.assertFalse(resolved.containsKey("scan.mode"));
         }
+    }
+
+    @Test
+    public void testCompactedFullPinsCompactedSnapshotInsteadOfLatest() {
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        Snapshot appendSnapshot = Mockito.mock(Snapshot.class);
+        Snapshot compactSnapshot = Mockito.mock(Snapshot.class);
+        SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+        Mockito.when(latestSnapshot.id()).thenReturn(19L);
+        Mockito.when(appendSnapshot.commitKind()).thenReturn(Snapshot.CommitKind.APPEND);
+        Mockito.when(compactSnapshot.commitKind()).thenReturn(Snapshot.CommitKind.COMPACT);
+        Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
+        Mockito.when(selectedTable.coreOptions()).thenReturn(new CoreOptions(Collections.emptyMap()));
+        Mockito.when(selectedTable.snapshotManager()).thenReturn(snapshotManager);
+        Mockito.when(snapshotManager.pickOrLatest(ArgumentMatchers.any())).thenAnswer(invocation -> {
+            java.util.function.Predicate<Snapshot> selector = invocation.getArgument(0);
+            Assert.assertFalse(selector.test(appendSnapshot));
+            Assert.assertTrue(selector.test(compactSnapshot));
+            return 17L;
+        });
+
+        try (MockedStatic<TimeTravelUtil> timeTravel = Mockito.mockStatic(TimeTravelUtil.class)) {
+            timeTravel.when(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable)).thenReturn(latestSnapshot);
+
+            Map<String, String> resolved = PaimonScanParams.resolveOptions(
+                    baseTable, ImmutableMap.of("scan.mode", "compacted-full"));
+
+            Assert.assertEquals("17", resolved.get("scan.snapshot-id"));
+        }
+    }
+
+    @Test
+    public void testCompactedFullHonorsFullCompactionDeltaCommits() {
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot nonFullCompaction = Mockito.mock(Snapshot.class);
+        Snapshot fullCompaction = Mockito.mock(Snapshot.class);
+        SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+        Mockito.when(nonFullCompaction.commitKind()).thenReturn(Snapshot.CommitKind.COMPACT);
+        Mockito.when(nonFullCompaction.commitIdentifier()).thenReturn(4L);
+        Mockito.when(fullCompaction.commitKind()).thenReturn(Snapshot.CommitKind.COMPACT);
+        Mockito.when(fullCompaction.commitIdentifier()).thenReturn(6L);
+        Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
+        Mockito.when(selectedTable.coreOptions()).thenReturn(new CoreOptions(ImmutableMap.of(
+                "changelog-producer", "full-compaction",
+                "full-compaction.delta-commits", "3")));
+        Mockito.when(selectedTable.snapshotManager()).thenReturn(snapshotManager);
+        Mockito.when(snapshotManager.pickOrLatest(ArgumentMatchers.any())).thenAnswer(invocation -> {
+            java.util.function.Predicate<Snapshot> selector = invocation.getArgument(0);
+            Assert.assertFalse(selector.test(nonFullCompaction));
+            Assert.assertTrue(selector.test(fullCompaction));
+            return 17L;
+        });
+
+        Map<String, String> resolved = PaimonScanParams.resolveOptions(
+                baseTable, ImmutableMap.of("scan.mode", "compacted-full"));
+
+        Assert.assertEquals("17", resolved.get("scan.snapshot-id"));
     }
 
     private static boolean containsNull(Map<String, String> options, String key) {

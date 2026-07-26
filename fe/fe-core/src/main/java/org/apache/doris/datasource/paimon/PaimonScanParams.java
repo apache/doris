@@ -26,6 +26,7 @@ import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.snapshot.FullCompactedStartingScanner;
 import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
 
 import java.util.Arrays;
@@ -68,7 +69,9 @@ public final class PaimonScanParams {
             "audit_log", "binlog", "row_tracking");
 
     private static final Set<String> OPTIONS_SYSTEM_TABLES = ImmutableSet.of(
-            "audit_log", "binlog", "buckets", "files", "manifests", "partitions", "ro",
+            // A system table may advertise OPTIONS only when every row-producing stage observes
+            // the selected snapshot; files and buckets still consult latest metadata internally.
+            "audit_log", "binlog", "manifests", "partitions", "ro",
             "row_tracking", "table_indexes");
 
     private PaimonScanParams() {
@@ -204,11 +207,34 @@ public final class PaimonScanParams {
         }
 
         Table selectedTable = applyOptions(table, options);
+        if ("compacted-full".equalsIgnoreCase(options.get(CoreOptions.SCAN_MODE.key()))) {
+            Long snapshotId = compactedFullSnapshotId((FileStoreTable) selectedTable);
+            return snapshotId == null
+                    ? resolvedEmptyOptions(options)
+                    : resolvedSnapshotOptions(options, String.valueOf(snapshotId));
+        }
         Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest((FileStoreTable) selectedTable);
         if (snapshot == null) {
             return resolvedEmptyOptions(options);
         }
         return resolvedSnapshotOptions(options, String.valueOf(snapshot.id()));
+    }
+
+    private static Long compactedFullSnapshotId(FileStoreTable table) {
+        CoreOptions coreOptions = table.coreOptions();
+        int deltaCommits = coreOptions.toConfiguration()
+                .getOptional(CoreOptions.FULL_COMPACTION_DELTA_COMMITS)
+                .orElse(1);
+        if (coreOptions.changelogProducer() == CoreOptions.ChangelogProducer.FULL_COMPACTION
+                || coreOptions.toConfiguration().contains(CoreOptions.FULL_COMPACTION_DELTA_COMMITS)) {
+            return table.snapshotManager().pickOrLatest(snapshot ->
+                    snapshot.commitKind() == Snapshot.CommitKind.COMPACT
+                            && FullCompactedStartingScanner.isFullCompactedIdentifier(
+                                    snapshot.commitIdentifier(), deltaCommits));
+        }
+        // COMPACTED_FULL means the newest compact snapshot, which can be older than latest.
+        return table.snapshotManager().pickOrLatest(
+                snapshot -> snapshot.commitKind() == Snapshot.CommitKind.COMPACT);
     }
 
     private static Map<String, String> resolveFileCreationTime(

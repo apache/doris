@@ -151,26 +151,7 @@ suite("paimon_system_table", "p0,external") {
                         desc ${tableName}\$snapshots
                         """
 
-        // 2.6 system table supports dynamic scan options but not time travel
-        // Quote Paimon's partition column because PARTITION is reserved in Doris SQL.
-        List<List<Object>> filesAtSnapshotResult = sql """
-                SELECT `partition`,
-                       bucket,
-                       file_path,
-                       file_format,
-                       schema_id,
-                       level,
-                       record_count,
-                       file_size_in_bytes,
-                       min_sequence_number,
-                       max_sequence_number,
-                       creation_time
-                FROM ${tableName}\$files
-                @options('scan.snapshot-id'='${direct_query_snapshot_id}')
-                """
-        assertTrue(filesAtSnapshotResult.size() > 0,
-                "Files system table should return data for snapshot ${direct_query_snapshot_id}")
-
+        // 2.6 only system tables whose complete reader path observes a selected snapshot support OPTIONS.
         String multiSnapshotTable = "test_paimon_incr_read_db.paimon_incr"
         List<List<Object>> snapshotRows = sql """
                 select snapshot_id from ${multiSnapshotTable}\$snapshots order by snapshot_id
@@ -178,34 +159,19 @@ suite("paimon_system_table", "p0,external") {
         assertTrue(snapshotRows.size() > 1, "The regression table should contain multiple snapshots")
         String firstSnapshotId = String.valueOf(snapshotRows.first()[0])
         String latestSnapshotId = String.valueOf(snapshotRows.last()[0])
-        order_qt_files_at_first_snapshot """
-                select count(*) from ${multiSnapshotTable}\$files
-                @options('scan.snapshot-id'='${firstSnapshotId}')
-                """
-        order_qt_files_at_latest_snapshot """
-                select count(*) from ${multiSnapshotTable}\$files
-                @options('scan.snapshot-id'='${latestSnapshotId}')
-                """
         order_qt_files_without_options """
                 select count(*) from ${multiSnapshotTable}\$files
                 """
 
-        List<List<Object>> bucketsAtFirstSnapshot = sql """
-                select sum(record_count), sum(file_count)
-                from ${multiSnapshotTable}\$buckets
-                @options('scan.snapshot-id'='${firstSnapshotId}')
+        for (String systemTable : ["files", "buckets"]) {
+            test {
+                sql """
+                    select count(*) from ${multiSnapshotTable}\$${systemTable}
+                    @options('scan.snapshot-id'='${firstSnapshotId}')
                 """
-        List<List<Object>> bucketsAtLatestSnapshot = sql """
-                select sum(record_count), sum(file_count)
-                from ${multiSnapshotTable}\$buckets
-                @options('scan.snapshot-id'='${latestSnapshotId}')
-                """
-        // Snapshot ranges can have identical aggregate counts after overwrite commits; reaching
-        // both snapshots without an OPTIONS capability error is the invariant under test.
-        assertEquals(1, bucketsAtFirstSnapshot.size())
-        assertEquals(1, bucketsAtLatestSnapshot.size())
-        assertNotNull(bucketsAtFirstSnapshot[0][0])
-        assertNotNull(bucketsAtLatestSnapshot[0][0])
+                exception "does not support OPTIONS"
+            }
+        }
 
         // The fixture has no deletion vectors, but both reads must reach Paimon's index table
         // instead of being rejected by Doris' OPTIONS capability gate.
