@@ -761,46 +761,28 @@ public class CreateTableCommandTest extends TestWithFeService {
         // NOTE: the iceberg DISTRIBUTE BY rejection moved off fe-core into IcebergConnectorMetadata.createTable
         // (SPI cutover); it is covered by fe-connector-iceberg IcebergCreateTableValidationTest.
 
-        par = getCreateTableStmt("create table tb1 (id int not null, id2 int not null, id3 int not null) "
-                + "ENGINE=iceberg partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
+        // Writing ENGINE=iceberg while sitting in the internal catalog used to be how a test reached the
+        // external analysis arm: the nine-name whitelist accepted the name wherever it was written, and the
+        // statement only failed at execution. The target catalog now judges the name, so that shortcut is a
+        // rejection -- assert it, and exercise the external partition conversion where it actually lives.
+        AnalysisException wrongTarget = Assertions.assertThrows(AnalysisException.class,
+                () -> getCreateTableStmt("create table tb1 (id int) ENGINE=iceberg properties (\"a\"=\"b\")"));
+        Assertions.assertEquals("Engine 'iceberg' does not match catalog 'internal'.", wrongTarget.getMessage());
+
+        par = externalPartitionDesc("create table tb1 (id int not null, id2 int not null, id3 int not null) "
+                + "partition by (id, func1(id2, 1), func(3,id1), id3) () properties (\"a\"=\"b\")");
         Assertions.assertEquals(
                 "PARTITION BY LIST(`id`, func1(`id2`, '1'), func('3', `id1`), `id3`)\n" + "(\n" + "\n" + ")",
                 par.toSql());
 
-        try {
-            getCreateTableStmt(
-                    "create table tb1 (id int) "
-                    + "engine = iceberg rollup (ab (cd)) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "iceberg catalog doesn't support rollup tables.",
-                     e.getMessage());
-        }
-
-        try {
-            getCreateTableStmt("create table tb1 (id int) engine = hive rollup (ab (cd)) properties (\"a\"=\"b\")");
-        } catch (Exception e) {
-            Assertions.assertEquals(
-                    "hive catalog doesn't support rollup tables.",
-                    e.getMessage());
-        }
-
         // test with empty partitions
-        LogicalPlan plan = new NereidsParser().parseSingle(
-                "create table tb1 (id int) engine = iceberg properties (\"a\"=\"b\")");
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
-        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
-        createTableInfo.validate(connectContext);
-        Assertions.assertNull(createTableInfo.getPartitionDesc());
+        Assertions.assertNull(
+                externalPartitionDesc("create table tb1 (id int) properties (\"a\"=\"b\")"),
+                "no partition clause must convert to no partition descriptor");
 
         // test with multi partitions
-        LogicalPlan plan2 = new NereidsParser().parseSingle(
-                "create table tb1 (id int) engine = iceberg "
+        PartitionDesc partitionDesc2 = externalPartitionDesc("create table tb1 (id int) "
                     + "partition by (val, bucket(2, id), par, day(ts), efg(a,b,c)) () properties (\"a\"=\"b\")");
-        Assertions.assertTrue(plan2 instanceof CreateTableCommand);
-        CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
-        createTableInfo2.validate(connectContext);
-        PartitionDesc partitionDesc2 = createTableInfo2.getPartitionDesc();
         List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
         Assertions.assertEquals(5, partitionFields2.size());
 
@@ -845,6 +827,18 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertEquals(
                 "PARTITION BY LIST(`val`, bucket('2', `id`), `par`, day(`ts`), efg(`a`, `b`, `c`))\n(\n\n)",
                 partitionDesc2.toSql());
+    }
+
+    /**
+     * The partition descriptor an EXTERNAL target produces. Exercised directly rather than through a
+     * CREATE TABLE aimed at the internal catalog: {@code isExternal} is now derived from the target catalog,
+     * so an engine name can no longer stand in for one.
+     */
+    private PartitionDesc externalPartitionDesc(String sql) {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateTableCommand);
+        CreateTableInfo info = ((CreateTableCommand) plan).getCreateTableInfo();
+        return info.getPartitionTableInfo().convertToPartitionDesc(true);
     }
 
     private PartitionDesc getCreateTableStmt(String sql) {
