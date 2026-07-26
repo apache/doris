@@ -113,22 +113,8 @@ public class HiveConnectorMetadataSchemaTest {
                 .parameters(Collections.emptyMap());
     }
 
-    private static String perTableCapabilities(ConnectorTableSchema schema) {
-        return schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-    }
-
-    /** Membership test over the CSV marker (order-independent, robust as more per-table capabilities are added). */
     private static boolean hasCapability(ConnectorTableSchema schema, ConnectorCapability capability) {
-        String csv = perTableCapabilities(schema);
-        if (csv == null) {
-            return false;
-        }
-        for (String name : csv.split(",")) {
-            if (name.trim().equals(capability.name())) {
-                return true;
-            }
-        }
-        return false;
+        return schema.getTableCapabilities().contains(capability);
     }
 
     @Test
@@ -346,7 +332,7 @@ public class HiveConnectorMetadataSchemaTest {
         // supportedHiveTopNLazyTable which returns false for a view BEFORE the format check.
         ConnectorTableSchema schema = schemaOf(
                 unpartitionedTable(PARQUET_INPUT_FORMAT).tableType("VIRTUAL_VIEW").build());
-        Assertions.assertNull(perTableCapabilities(schema));
+        Assertions.assertTrue(schema.getTableCapabilities().isEmpty());
     }
 
     @Test
@@ -355,7 +341,7 @@ public class HiveConnectorMetadataSchemaTest {
         // hive connector must NOT claim Top-N for it even though its data files are parquet (detect() != HIVE).
         ConnectorTableSchema schema = schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT)
                 .parameters(Collections.singletonMap("table_type", "ICEBERG")).build());
-        Assertions.assertNull(perTableCapabilities(schema));
+        Assertions.assertTrue(schema.getTableCapabilities().isEmpty());
     }
 
     @Test

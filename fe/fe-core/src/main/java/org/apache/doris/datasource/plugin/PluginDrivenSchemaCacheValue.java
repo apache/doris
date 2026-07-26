@@ -18,11 +18,13 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@link SchemaCacheValue} for plugin-driven external tables.
@@ -54,6 +56,10 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
     // transient ConnectorTableSchema is not kept on the table, so this is the persisted-via-cache
     // carrier (mirroring how the partition-column views are cached).
     private final Map<String, String> tableProperties;
+    // The capabilities the connector declared for THIS table, on top of its connector-wide set. Same
+    // rationale as tableProperties: the ConnectorTableSchema is transient, so the schema cache is the
+    // carrier. Empty for every connector that does not refine per table.
+    private final Set<ConnectorCapability> tableCapabilities;
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames) {
@@ -62,10 +68,17 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames, Map<String, String> tableProperties) {
+        this(schema, partitionColumns, partitionColumnRemoteNames, tableProperties, Collections.emptySet());
+    }
+
+    public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
+            List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
+            Set<ConnectorCapability> tableCapabilities) {
         super(schema);
         this.partitionColumns = partitionColumns;
         this.partitionColumnRemoteNames = partitionColumnRemoteNames;
         this.tableProperties = tableProperties == null ? Collections.emptyMap() : tableProperties;
+        this.tableCapabilities = tableCapabilities == null ? Collections.emptySet() : tableCapabilities;
     }
 
     public List<Column> getPartitionColumns() {
@@ -78,5 +91,9 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     public Map<String, String> getTableProperties() {
         return tableProperties;
+    }
+
+    public Set<ConnectorCapability> getTableCapabilities() {
+        return tableCapabilities;
     }
 }

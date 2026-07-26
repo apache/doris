@@ -227,7 +227,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
     /**
      * Returns whether THIS table supports background per-column auto-analyze. The statistics auto-collector
      * consults this (in place of the legacy {@code instanceof IcebergExternalTable} whitelist) to admit a flipped
-     * plugin table into the auto-analyze framework. Resolved per-table via {@link #hasScanCapability} (not the
+     * plugin table into the auto-analyze framework. Resolved per-table via {@link #hasCapability} (not the
      * connector-wide set alone) so a heterogeneous hive catalog can express the legacy
      * {@code StatisticsUtil.supportAutoAnalyze} gate of {@code dlaType HIVE || ICEBERG} but NOT {@code HUDI}: a
      * uniform-format connector (native iceberg/paimon) still declares it connector-wide, while hive emits it
@@ -236,19 +236,19 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * withheld. Mirrors {@link #supportsTopNLazyMaterialize} / {@link #supportsNestedColumnPrune}.
      */
     public boolean supportsColumnAutoAnalyze() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+        return hasCapability(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
     }
 
     /**
      * Returns whether THIS table supports Top-N lazy materialization. The nereids Top-N lazy-materialize probe
      * consults this (in place of the legacy exact-class {@code SUPPORT_RELATION_TYPES} membership) to enable
-     * lazy materialization for a flipped plugin table. Resolved per-table via {@link #hasScanCapability}: a
+     * lazy materialization for a flipped plugin table. Resolved per-table via {@link #hasCapability}: a
      * uniform-format connector (iceberg) declares it connector-wide, a heterogeneous connector (hive) emits it
      * only for its orc/parquet tables — so a hive text/csv/json/view table is correctly excluded, as it was in
      * legacy {@code MaterializeProbeVisitor}.
      */
     public boolean supportsTopNLazyMaterialize() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+        return hasCapability(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
     }
 
     /**
@@ -256,12 +256,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * sub-fields). The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn})
      * consults this (in place of the legacy exact-class {@code IcebergExternalTable} arm) to enable pruning for a
      * flipped plugin table, and the {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same
-     * answer. Resolved per-table via {@link #hasScanCapability} for the same reason as Top-N: legacy gated it on
+     * answer. Resolved per-table via {@link #hasCapability} for the same reason as Top-N: legacy gated it on
      * the per-table file format (parquet/orc only), which a connector-wide capability cannot express for a
      * heterogeneous hive catalog.
      */
     public boolean supportsNestedColumnPrune() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+        return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     /**
@@ -269,37 +269,41 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * nested paths and {@code MODIFY COLUMN ... COMMENT}). The nereids {@code AlterTableCommand} column-op
      * validation consults this (in place of the legacy exact-class {@code IcebergExternalTable} gate) to admit
      * the Iceberg-style clause set and to allow nested {@code ColumnPath} targets. Resolved per-table via
-     * {@link #hasScanCapability} so an iceberg-on-HMS table inherits it through the reflected per-table
+     * {@link #hasCapability} so an iceberg-on-HMS table inherits it through the reflected per-table
      * capability set, mirroring {@link #supportsNestedColumnPrune}.
      */
     public boolean supportsNestedColumnSchemaChange() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
+        return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
     }
 
     /**
      * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
      * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
      * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.
-     * Resolved per-table via {@link #hasScanCapability}: hive emits it for its plain-hive tables only (legacy
+     * Resolved per-table via {@link #hasCapability}: hive emits it for its plain-hive tables only (legacy
      * {@code dlaType==HIVE}), so iceberg/hudi-on-HMS are excluded; native iceberg/paimon never declare it (their
      * {@code doSample} is unimplemented), keeping their current build-time reject. Mirrors
      * {@link #supportsTopNLazyMaterialize}.
      */
     public boolean supportsSampleAnalyze() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
+        return hasCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
     }
 
     /**
-     * Whether this table supports a per-table-refinable scan-planning capability, resolved connector-wide OR
-     * per-table. A uniform-format connector (iceberg — every table orc/parquet) declares the capability for all
-     * its tables via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is
-     * per-table file-format gated instead emits the capability name per-table in the
-     * {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} schema marker, read here from the already-cached
-     * schema (no remote round-trip). The two sources are additive, so single-format connectors never emit the
-     * marker and behave exactly as before. fe-core never inspects the file format — the connector decides which
-     * of its tables qualify by emitting (or not) the capability name.
+     * Whether this table supports a table-scoped capability, resolved connector-wide OR per-table. A
+     * uniform-format connector (iceberg — every table orc/parquet) declares the capability for all its tables
+     * via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is per-table
+     * file-format gated instead declares it per-table in {@link ConnectorTableSchema#getTableCapabilities()},
+     * read here from the already-cached schema (no remote round-trip). The two sources are additive, so
+     * single-format connectors declare nothing per-table and behave exactly as before. fe-core never inspects
+     * the file format — the connector decides which of its tables qualify.
+     *
+     * <p>Only the capabilities {@link ConnectorCapability} documents as table-scoped may be resolved through
+     * here. Routing a catalog-scoped one through it would be a behaviour change, and for two of them a
+     * damaging one: reading the per-table set touches the schema cache, and those two are consulted while the
+     * table is being initialized / in order to decide whether to load metadata at all.</p>
      */
-    private boolean hasScanCapability(ConnectorCapability capability) {
+    private boolean hasCapability(ConnectorCapability capability) {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
@@ -307,19 +311,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return false;
         }
-        if (connector.getCapabilities().contains(capability)) {
-            return true;
-        }
-        String csv = rawTableProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        if (csv == null || csv.isEmpty()) {
-            return false;
-        }
-        for (String name : csv.split(",")) {
-            if (name.trim().equals(capability.name())) {
-                return true;
-            }
-        }
-        return false;
+        return connector.getCapabilities().contains(capability) || tableCapabilities().contains(capability);
+    }
+
+    /** The connector-declared per-table capability set, from the cached schema; empty on any miss. */
+    private Set<ConnectorCapability> tableCapabilities() {
+        makeSureInitialized();
+        return getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableCapabilities())
+                .orElse(Collections.emptySet());
     }
 
     /**
@@ -538,7 +538,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
-                tableSchema.getProperties());
+                tableSchema.getProperties(), tableSchema.getTableCapabilities());
     }
 
     @Override
@@ -759,9 +759,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
     /**
      * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
      * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). Every FE-internal
-     * reserved control key ({@link ConnectorTableSchema#RESERVED_CONTROL_KEYS} — the partition-columns /
-     * primary-keys markers, the SHOW CREATE render hints, and the per-table capability / distribution markers,
-     * all namespaced under {@code __internal.}) is stripped: they are not user-facing options and must not
+     * reserved control key ({@link ConnectorTableSchema#RESERVED_CONTROL_KEYS} — the partition-columns and
+     * distribution-columns markers plus the SHOW CREATE render hints, all namespaced under
+     * {@code __internal.}) is stripped: they are not user-facing options and must not
      * leak into the rendered PROPERTIES(...). Because the reserved keys are namespaced, a source table's own
      * user property can never collide with one, so it flows through here unchanged.
      */

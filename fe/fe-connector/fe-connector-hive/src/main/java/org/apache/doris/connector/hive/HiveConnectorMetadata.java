@@ -89,7 +89,6 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -479,7 +478,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         if (!(handle instanceof HiveTableHandle)) {
             // An iceberg/hudi-on-HMS table's schema is built by the embedded sibling connector, but fe-core's
-            // PluginDrivenExternalTable.hasScanCapability only ever reads the CATALOG connector (this HIVE
+            // PluginDrivenExternalTable.hasCapability only ever reads the CATALOG connector (this HIVE
             // connector), never the sibling — so a per-table capability the sibling declares connector-wide
             // (auto-analyze / Top-N lazy / nested-column prune) would be lost for the embedded table. Reflect the
             // SIBLING_INHERITABLE_CAPABILITIES subset of the owning sibling's connector-wide set onto the
@@ -526,25 +525,21 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // HMSExternalTable.supportedHiveTopNLazyTable), which the connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE
         // cannot express for a heterogeneous hive catalog; emit it per-table so fe-core enables the optimization
         // only for eligible tables and never for text/csv/json/view/hudi.
-        List<String> perTableCapabilities = new ArrayList<>();
+        Set<ConnectorCapability> perTableCapabilities = EnumSet.noneOf(ConnectorCapability.class);
         // Legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into background
         // per-column auto-analyze regardless of file format. Emit it per-table for every plain-hive data table (any
-        // format, view excluded) so fe-core's hasScanCapability admits them WITHOUT a connector-wide flag (which
+        // format, view excluded) so fe-core's hasCapability admits them WITHOUT a connector-wide flag (which
         // would also admit hudi-on-HMS, which legacy excluded). This branch is reached only for a HiveTableHandle;
         // an iceberg-on-HMS table is served by the delegation branch above (which reflects the iceberg sibling's
         // own auto-analyze capability), and a hudi-on-HMS table's connector declares neither.
         if (supportsHiveColumnAutoAnalyze(tableInfo)) {
-            perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name());
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
         }
         if (supportsHiveSampleAnalyze(tableInfo)) {
-            perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE.name());
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
         }
         if (supportsHiveTopNLazyMaterialize(tableInfo)) {
-            perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
-        }
-        if (!perTableCapabilities.isEmpty()) {
-            tableProperties.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                    String.join(",", perTableCapabilities));
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
         }
 
         // Distribution (bucketing) columns for the flipped table's getDistributionColumnNames() — legacy
@@ -556,12 +551,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             tableProperties.put(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, String.join(",", bucketCols));
         }
 
-        return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties);
+        return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties,
+                perTableCapabilities);
     }
 
     /**
      * The capabilities a delegated (iceberg/hudi-on-HMS) table INHERITS from its owning sibling connector —
-     * exactly the set fe-core resolves per-table ({@code PluginDrivenExternalTable.hasScanCapability}). Every
+     * exactly the set fe-core resolves per-table ({@code PluginDrivenExternalTable.hasCapability}). Every
      * other capability is resolved catalog-wide, so reflecting it would record an intent the engine never
      * honours. Listing the subset here (rather than reflecting whatever the sibling happens to declare) is what
      * keeps a delegated table's behaviour independent of the sibling's declaration: an iceberg-on-HMS table's
@@ -578,14 +574,14 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Reflects the {@link #SIBLING_INHERITABLE_CAPABILITIES} subset of the owning sibling connector's
-     * connector-wide capability set onto a delegated (iceberg/hudi-on-HMS) table's schema as a per-table
-     * {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} marker, merged with any marker the sibling already
-     * emitted. fe-core's {@code PluginDrivenExternalTable.hasScanCapability} resolves a per-table capability from
-     * the CATALOG (hive) connector-wide set OR this marker and NEVER consults the sibling connector directly, so
+     * connector-wide capability set onto a delegated (iceberg/hudi-on-HMS) table's schema as per-table
+     * capabilities, merged with whatever the sibling already declared for that table. fe-core's
+     * {@code PluginDrivenExternalTable.hasCapability} resolves a table-scoped capability from the CATALOG
+     * (hive) connector-wide set OR the table's own set, and NEVER consults the sibling connector directly, so
      * without this reflection an iceberg-on-HMS table would silently lose every such capability the iceberg
      * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / nested column DDL).
-     * Returns the sibling schema unchanged when the sibling declares none of them (e.g. a hudi sibling, which
-     * declares no capabilities at all).
+     * Returns the sibling schema unchanged when nothing is inherited and the sibling declared nothing itself
+     * (e.g. a hudi sibling, which declares no capabilities at all).
      */
     private ConnectorTableSchema reflectSiblingCapabilities(Connector owner, ConnectorTableSchema siblingSchema) {
         Set<ConnectorCapability> inherited = EnumSet.noneOf(ConnectorCapability.class);
@@ -597,23 +593,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (inherited.isEmpty()) {
             return siblingSchema;
         }
-        LinkedHashSet<String> caps = new LinkedHashSet<>();
-        String existing = siblingSchema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        if (existing != null && !existing.isEmpty()) {
-            for (String name : existing.split(",")) {
-                String trimmed = name.trim();
-                if (!trimmed.isEmpty()) {
-                    caps.add(trimmed);
-                }
-            }
-        }
-        for (ConnectorCapability cap : inherited) {
-            caps.add(cap.name());
-        }
-        Map<String, String> props = new HashMap<>(siblingSchema.getProperties());
-        props.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY, String.join(",", caps));
+        inherited.addAll(siblingSchema.getTableCapabilities());
         return new ConnectorTableSchema(siblingSchema.getTableName(), siblingSchema.getColumns(),
-                siblingSchema.getTableFormatType(), props);
+                siblingSchema.getTableFormatType(), siblingSchema.getProperties(), inherited);
     }
 
     // ========== ConnectorTableOps: Column Handles ==========

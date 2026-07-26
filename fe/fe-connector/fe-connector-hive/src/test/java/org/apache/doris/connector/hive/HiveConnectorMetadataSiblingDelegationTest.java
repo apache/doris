@@ -369,7 +369,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
     @Test
     public void foreignHandleSchemaReflectsSiblingScanCapabilitiesAsPerTableMarker() {
-        // Option C: fe-core's PluginDrivenExternalTable.hasScanCapability reads only the CATALOG (hive) connector,
+        // Option C: fe-core's PluginDrivenExternalTable.hasCapability reads only the CATALOG (hive) connector,
         // never the embedded sibling — so the hive gateway must reflect the sibling's connector-wide scan
         // capabilities onto the delegated schema as a per-table marker, or an iceberg-on-HMS table silently loses
         // auto-analyze / Top-N lazy / nested-column prune (all of which the iceberg sibling declares connector-wide).
@@ -385,15 +385,13 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                         SiblingOwner.ICEBERG_LABEL));
 
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        Assertions.assertNotNull(csv, "the delegated schema must carry the reflected per-table capability marker");
-        List<String> names = Arrays.asList(csv.split(","));
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name()),
-                "auto-analyze must survive the delegation as a per-table marker");
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name()),
-                "Top-N lazy must survive the delegation as a per-table marker");
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name()),
-                "nested-column prune must survive the delegation as a per-table marker");
+        Set<ConnectorCapability> reflected = schema.getTableCapabilities();
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                "auto-analyze must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                "Top-N lazy must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                "nested-column prune must survive the delegation as a per-table capability");
     }
 
     @Test
@@ -415,19 +413,19 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                         SiblingOwner.ICEBERG_LABEL));
 
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        Assertions.assertEquals(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name(), csv,
+        Assertions.assertEquals(EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                schema.getTableCapabilities(),
                 "only the per-table-resolved subset may be reflected onto a delegated table");
 
-        // A NON-empty sibling declaring none of the subset must stamp no marker at all, not an empty one.
+        // A NON-empty sibling declaring none of the subset must inherit nothing.
         HiveConnectorMetadata noneInheritable = new HiveConnectorMetadata(null, Collections.emptyMap(),
                 new FakeConnectorContext(), SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
                         EnumSet.of(ConnectorCapability.SUPPORTS_VIEW, ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)),
                         SiblingOwner.ICEBERG_LABEL));
-        Assertions.assertNull(noneInheritable.getTableSchema(session, foreignHandle).getProperties()
-                        .get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY),
-                "a sibling declaring only catalog-wide capabilities must stamp no per-table marker");
+        Assertions.assertTrue(noneInheritable.getTableSchema(session, foreignHandle)
+                        .getTableCapabilities().isEmpty(),
+                "a sibling declaring only catalog-wide capabilities must contribute no per-table capability");
     }
 
     @Test
@@ -436,11 +434,11 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // returned untouched -> no marker is stamped. The sibling-declares-only-catalog-wide-capabilities case
         // takes the same branch and is pinned in
         // foreignHandleSchemaReflectsOnlyThePerTableResolvedCapabilitySubset above.
-        // MUTATION: dropping the isEmpty() early-return and stamping an (empty) marker unconditionally -> red here.
+        // MUTATION: dropping the isEmpty() early-return and rebuilding the schema unconditionally -> red here.
         HiveConnectorMetadata md = withSibling(); // RecordingSiblingConnector declares no capabilities
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        Assertions.assertNull(schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY),
-                "no marker when the sibling declares no capabilities");
+        Assertions.assertTrue(schema.getTableCapabilities().isEmpty(),
+                "nothing inherited when the sibling declares no capabilities");
     }
 
     // ============== per-statement sibling-metadata funnel (HMS heterogeneous gateway) ==============

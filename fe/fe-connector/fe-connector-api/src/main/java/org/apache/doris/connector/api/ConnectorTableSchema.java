@@ -19,6 +19,7 @@ package org.apache.doris.connector.api;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -33,11 +34,15 @@ public final class ConnectorTableSchema {
 
     /**
      * Common prefix for every FE-internal reserved control key below. The connector uses these keys to pass
-     * structural info to fe-core (partition columns / primary keys / SHOW CREATE render hints / per-table
-     * capabilities / distribution columns) INSIDE the same property map that also carries the source table's
-     * user-facing pass-through properties. The {@code __internal.} prefix keeps them out of the namespace a
-     * real user table property would ever use, so a source property can never be mistaken for a control key
-     * (and vice versa). These keys are FE-only — none is forwarded to BE.
+     * structural info to fe-core (partition columns / SHOW CREATE render hints / distribution columns) INSIDE
+     * the same property map that also carries the source table's user-facing pass-through properties. The
+     * {@code __internal.} prefix keeps them out of the namespace a real user table property would ever use, so
+     * a source property can never be mistaken for a control key (and vice versa). These keys are FE-only —
+     * none is forwarded to BE.
+     *
+     * <p>A reserved key is the right carrier only for structure that is naturally a <em>name</em> (a column
+     * name, a pre-rendered SQL clause). Anything drawn from a closed set gets a typed field instead — see
+     * {@link #getTableCapabilities()}, which used to be a reserved key holding a CSV of enum constant names.</p>
      */
     public static final String INTERNAL_KEY_PREFIX = "__internal.";
 
@@ -74,24 +79,6 @@ public final class ConnectorTableSchema {
     public static final String PARTITION_COLUMNS_KEY = INTERNAL_KEY_PREFIX + "partition_columns";
 
     /**
-     * Reserved property key carrying a CSV of {@link ConnectorCapability#name()} values that THIS specific
-     * table supports, refining the connector-wide {@link Connector#getCapabilities()} set per-table.
-     *
-     * <p>A uniform-format connector (e.g. iceberg — every table orc/parquet) declares a scan capability for all
-     * its tables connector-wide. A heterogeneous connector (e.g. hive — orc/parquet/text/json/csv/view/hudi in
-     * one catalog) whose eligibility is per-table file-format gated cannot: Top-N lazy materialization and
-     * nested-column pruning are orc/parquet-only, and blanket-declaring them connector-wide would over-admit a
-     * text/json table (a correctness bug for nested-column pruning, which reads NULL leaves without field ids).
-     * Such a connector instead emits the capability name here, per-table, computed from that table's format.</p>
-     *
-     * <p>fe-core reads it ADDITIVELY (a capability counts as supported if it is in the connector-wide set OR in
-     * this per-table list) from the already-cached schema — no remote round-trip and no file-format inspection
-     * in fe-core. Single-format connectors never emit it and are unaffected. Stripped from the user-facing
-     * SHOW CREATE TABLE PROPERTIES(...) block.</p>
-     */
-    public static final String PER_TABLE_CAPABILITIES_KEY = INTERNAL_KEY_PREFIX + "connector.per-table-capabilities";
-
-    /**
      * Reserved property key carrying a CSV of the table's distribution (bucketing) column names, already
      * lowercased. A heterogeneous connector (hive) whose bucketing varies per table cannot express it as a
      * connector-wide trait, so it emits it here per-table.
@@ -112,17 +99,28 @@ public final class ConnectorTableSchema {
     public static final Set<String> RESERVED_CONTROL_KEYS = Collections.unmodifiableSet(new HashSet<>(
             Arrays.asList(
                     PARTITION_COLUMNS_KEY, SHOW_LOCATION_KEY, SHOW_PARTITION_CLAUSE_KEY,
-                    SHOW_SORT_CLAUSE_KEY, PER_TABLE_CAPABILITIES_KEY, DISTRIBUTION_COLUMNS_KEY)));
+                    SHOW_SORT_CLAUSE_KEY, DISTRIBUTION_COLUMNS_KEY)));
 
     private final String tableName;
     private final List<ConnectorColumn> columns;
     private final String tableFormatType;
     private final Map<String, String> properties;
+    private final Set<ConnectorCapability> tableCapabilities;
 
+    /** For a connector whose tables all have the same capabilities — the per-table set is empty. */
     public ConnectorTableSchema(String tableName,
             List<ConnectorColumn> columns,
             String tableFormatType,
             Map<String, String> properties) {
+        this(tableName, columns, tableFormatType, properties, Collections.emptySet());
+    }
+
+    /** For a connector that refines its capabilities per table — see {@link #getTableCapabilities()}. */
+    public ConnectorTableSchema(String tableName,
+            List<ConnectorColumn> columns,
+            String tableFormatType,
+            Map<String, String> properties,
+            Set<ConnectorCapability> tableCapabilities) {
         this.tableName = Objects.requireNonNull(tableName, "tableName");
         this.columns = columns == null
                 ? Collections.emptyList()
@@ -131,6 +129,9 @@ public final class ConnectorTableSchema {
         this.properties = properties == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(properties);
+        this.tableCapabilities = tableCapabilities == null || tableCapabilities.isEmpty()
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(EnumSet.copyOf(tableCapabilities));
     }
 
     public String getTableName() {
@@ -149,6 +150,26 @@ public final class ConnectorTableSchema {
         return properties;
     }
 
+    /**
+     * The capabilities THIS table supports on top of the connector-wide {@link Connector#getCapabilities()}
+     * set. Never null; empty for a connector that does not refine per table.
+     *
+     * <p>A uniform-format connector (e.g. iceberg — every table orc/parquet) declares its capabilities
+     * connector-wide. A heterogeneous connector (e.g. hive — orc/parquet/text/json/csv/view/hudi in one
+     * catalog) whose eligibility is per-table file-format gated cannot: Top-N lazy materialization and
+     * nested-column pruning are orc/parquet-only, and blanket-declaring them connector-wide would over-admit a
+     * text/json table (a correctness bug for nested-column pruning, which reads NULL leaves without field
+     * ids). Such a connector computes this set from the table's own format instead.</p>
+     *
+     * <p>fe-core reads it ADDITIVELY (a capability counts as supported if it is in the connector-wide set OR
+     * here) from the already-cached schema — no remote round-trip and no file-format inspection in fe-core.
+     * Only the capabilities {@link ConnectorCapability} documents as table-scoped are consulted here; a
+     * catalog-scoped one placed in this set is ignored, so put it in {@link Connector#getCapabilities()}.</p>
+     */
+    public Set<ConnectorCapability> getTableCapabilities() {
+        return tableCapabilities;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -161,12 +182,13 @@ public final class ConnectorTableSchema {
         return tableName.equals(that.tableName)
                 && columns.equals(that.columns)
                 && Objects.equals(tableFormatType, that.tableFormatType)
-                && properties.equals(that.properties);
+                && properties.equals(that.properties)
+                && tableCapabilities.equals(that.tableCapabilities);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableName, columns, tableFormatType, properties);
+        return Objects.hash(tableName, columns, tableFormatType, properties, tableCapabilities);
     }
 
     @Override

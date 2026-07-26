@@ -26,8 +26,35 @@ package org.apache.doris.connector.api;
  * sort, full-schema write order, static-partition materialization) are NOT declared here —
  * they live on the connector's {@link org.apache.doris.connector.api.write.ConnectorWritePlanProvider}
  * instead, surfaced via {@link Connector#getWritePlanProvider()}.</p>
+ *
+ * <h2>Two resolution scopes</h2>
+ *
+ * <p>Most of these the engine resolves once per CATALOG, from {@link Connector#getCapabilities()}.
+ * Five it resolves per TABLE, as the union of the catalog-wide set and that table's own
+ * {@link ConnectorTableSchema#getTableCapabilities()} — which is what lets a heterogeneous connector
+ * (hive: orc/parquet/text/json/view/hudi in one catalog) admit only the tables that qualify. <b>Every
+ * constant below states its scope.</b> Putting a catalog-scoped capability in a table's set is silently
+ * ignored, so the distinction is part of the contract, not an implementation detail.</p>
+ *
+ * <p>The split is not arbitrary. A capability can be table-scoped only if, at the moment the engine asks,
+ * (a) there IS a table, and (b) reading that table's cached schema is affordable. Three of the
+ * catalog-scoped ones fail (a) — the answer picks the table subclass before the table object exists,
+ * or feeds a table-valued function, or gates a CREATE TABLE clause for a table that does not exist yet.
+ * Two fail (b): they are consulted from inside table initialization, or in order to decide whether to
+ * load metadata at all, so reading the schema cache there would invert the order and force a remote
+ * round-trip per table. The remaining ones are catalog-scoped because two call sites must agree, or
+ * because no consumer needs the refinement. Widening any of them to table scope is a reviewable change,
+ * not a mechanical one.</p>
  */
 public enum ConnectorCapability {
+    /**
+     * Indicates the connector exposes a point-in-time snapshot of a table (MVCC), so its tables can serve
+     * time travel and back a materialized view's freshness tracking.
+     *
+     * <p><b>Scope: catalog-wide only.</b> The engine reads it to choose WHICH TABLE SUBCLASS to instantiate,
+     * i.e. strictly before the table object exists; a table-scoped answer would have to come from that
+     * table's schema, which cannot be reached without the table.</p>
+     */
     SUPPORTS_MVCC_SNAPSHOT,
     /**
      * Indicates the connector supports passthrough query via the {@code query()} TVF.
@@ -35,6 +62,9 @@ public enum ConnectorCapability {
      * <p>Connectors declaring this capability must implement
      * {@link ConnectorTableOps#getColumnsFromQuery} to provide column metadata
      * for arbitrary SQL queries passed through to the remote data source.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> A table-valued function names a catalog and a SQL string; there is
+     * no table to refine against.</p>
      */
     SUPPORTS_PASSTHROUGH_QUERY,
     /**
@@ -45,6 +75,11 @@ public enum ConnectorCapability {
      * RecordCount / FileSizeInBytes / FileCount) for connectors declaring this capability, instead
      * of the single partition-name column used by connectors that only implement
      * {@code listPartitionNames}.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> Two call sites must return the SAME answer — one decides how many
+     * columns each result row carries, the other how many column headers to declare — and the header path
+     * has no resolved table in hand. A per-table answer risks a row width that disagrees with its header,
+     * which is a visibly wrong result rather than a missed optimization.</p>
      */
     SUPPORTS_PARTITION_STATS,
     /**
@@ -57,6 +92,9 @@ public enum ConnectorCapability {
      * unimplemented for external SQL-driven tables ({@code ExternalAnalysisTask.doSample} throws).
      * Row/passthrough connectors that cannot serve per-column statistics (e.g. JDBC, ES) must NOT
      * declare it so they stay excluded.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table for its plain-hive data tables
+     * only (legacy gated on the table being plain hive, so an embedded hudi table stays out).</p>
      */
     SUPPORTS_COLUMN_AUTO_ANALYZE,
     /**
@@ -68,6 +106,9 @@ public enum ConnectorCapability {
      * for a plugin-driven table only when its connector declares this (replacing the legacy exact-class
      * {@code SUPPORT_RELATION_TYPES} membership of {@code IcebergExternalTable}). Row/passthrough
      * connectors (e.g. JDBC, ES) must NOT declare it.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table because eligibility is
+     * orc/parquet-only, which it cannot express for a catalog that also holds text/json tables.</p>
      */
     SUPPORTS_TOPN_LAZY_MATERIALIZE,
     /**
@@ -80,6 +121,10 @@ public enum ConnectorCapability {
      * Row/passthrough connectors whose {@code getTableProperties()} returns connection properties
      * <b>including credentials</b> (e.g. JDBC, ES) must NOT declare it, or SHOW CREATE TABLE would leak
      * the connection password — the security control the legacy engine-name gate provided.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> Nothing needs the refinement — property safety is a property of the
+     * connector, not of one of its tables — and since this doubles as the credential-leak guard, moving it to
+     * table scope would put a security decision behind a per-table value. Widening it needs its own review.</p>
      */
     SUPPORTS_SHOW_CREATE_DDL,
     /**
@@ -91,6 +136,12 @@ public enum ConnectorCapability {
      * subtracts views from {@code listTableNames}), and the read/DML/SHOW CREATE arms treat the object as a
      * view. Connectors with no view concept (e.g. JDBC, ES) must NOT declare it so every table stays
      * {@code isView()==false} and no view round-trips are issued.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> The engine asks this from INSIDE table initialization (resolving
+     * {@code isView()} is part of initializing the table) and also while merely listing names. A table-scoped
+     * answer would have to be read from that table's cached schema, so every table in every plugin catalog
+     * would trigger a schema load just to learn it is not a view — an order inversion that turns a free
+     * in-memory check into one remote round-trip per table.</p>
      */
     SUPPORTS_VIEW,
     /**
@@ -107,6 +158,10 @@ public enum ConnectorCapability {
      * nested leaves by id — an un-translated (name / {@code -1}) leaf is skipped and returns NULL. Row/
      * passthrough connectors (e.g. JDBC, ES) and connectors that do not carry nested field ids must NOT
      * declare it.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table because eligibility is
+     * orc/parquet-only; blanket-declaring it for a mixed catalog would be a correctness bug, not just an
+     * over-admission — a text/json table has no field ids, so pruned leaves would read back NULL.</p>
      */
     SUPPORTS_NESTED_COLUMN_PRUNE,
     /**
@@ -121,6 +176,10 @@ public enum ConnectorCapability {
      * pure planning/lock-latency optimization with no correctness effect: connectors whose metadata reads are
      * cheap or not yet validated for concurrent pre-warming (e.g. ES) simply do not declare it and fall back
      * to synchronous load at binding time.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> Its sole consumer asks it in order to decide whether to load this
+     * table's metadata at all, so a table-scoped answer — which lives in that table's cached schema — would
+     * mean loading the metadata to find out whether to load the metadata.</p>
      */
     SUPPORTS_METADATA_PRELOAD,
     /**
@@ -136,6 +195,9 @@ public enum ConnectorCapability {
      * user's REST-authorized/vended view is never served to another (cross-user leakage). Connectors that
      * authenticate with a single static catalog identity (every non-REST iceberg flavor, JDBC, ES, ...) must
      * NOT declare it. Declared by the iceberg connector only when configured {@code iceberg.rest.session=user}.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> It is a property of how the catalog authenticates, and it is read
+     * while BUILDING the session — before any table is named, let alone loaded.</p>
      */
     SUPPORTS_USER_SESSION,
     /**
@@ -144,10 +206,12 @@ public enum ConnectorCapability {
      * Doris-type slot-width math).
      *
      * <p>fe-core admits sampled analyze for a plugin-driven table only when it declares this. A heterogeneous
-     * connector (hive) emits it as a PER-TABLE marker in getTableSchema for its plain-hive tables only (legacy
+     * connector (hive) declares it PER-TABLE in getTableSchema for its plain-hive tables only (legacy
      * gated on {@code dlaType==HIVE}), so iceberg/hudi-on-HMS are excluded. Connectors whose {@code doSample} is
      * unimplemented (native iceberg/paimon, JDBC, ES) must NOT declare it so sampled analyze stays rejected at
      * build time.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b></p>
      */
     SUPPORTS_SAMPLE_ANALYZE,
     /**
@@ -161,6 +225,9 @@ public enum ConnectorCapability {
      * duplicates) inside its own {@code createTable}. This is a DDL-clause gate and is distinct from the runtime
      * sink trait {@code ConnectorWritePlanProvider.requiresFullSchemaWriteOrder()}, which governs how rows are
      * ordered on the write path, not whether the CREATE TABLE DDL accepts the clause.</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> It gates a clause of the statement that CREATES the table, so the
+     * table it would be refined against does not exist when the question is asked.</p>
      */
     SUPPORTS_SORT_ORDER,
     /**
@@ -173,11 +240,12 @@ public enum ConnectorCapability {
      * table only when its connector declares this (replacing the legacy exact-class {@code instanceof
      * IcebergExternalTable} gate). The actual mutation is routed through {@code PluginDrivenExternalCatalog}'s
      * {@code ColumnPath} column-DDL overrides into the connector's {@link ConnectorColumnEvolutionOps} column-evolution
-     * ops. Resolved per-table via {@code hasScanCapability} so an iceberg-on-HMS table (whose catalog
-     * connector is hive) inherits it through the reflected per-table capability set, exactly like
-     * {@link #SUPPORTS_NESTED_COLUMN_PRUNE}. Connectors without column schema-change support (JDBC, ES,
-     * paimon/maxcompute today) must NOT declare it so their tables reject nested paths at analysis and
-     * column DDL stays unsupported.</p>
+     * ops. Connectors without column schema-change support (JDBC, ES, paimon/maxcompute today) must NOT
+     * declare it so their tables reject nested paths at analysis and column DDL stays unsupported.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> An iceberg-on-HMS table (whose catalog connector is hive)
+     * inherits it through the per-table set the gateway reflects from its sibling, exactly like
+     * {@link #SUPPORTS_NESTED_COLUMN_PRUNE}.</p>
      */
     SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE
 }

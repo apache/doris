@@ -431,24 +431,38 @@ public class PluginDrivenExternalTableTest {
      * exercise the capability-helper methods over the real connector chain.
      */
     private static PluginDrivenExternalTable pluginTableWithCapabilities(Set<ConnectorCapability> capabilities) {
-        return pluginTableWithCapabilities(capabilities, Collections.emptyMap());
+        return pluginTableWithCapabilities(capabilities, Collections.emptySet());
     }
 
     /**
      * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable whose connector declares {@code capabilities}
-     * connector-wide AND whose cached schema emits {@code perTableProps} as its raw table-property map (carrying
-     * the {@code connector.per-table-capabilities} marker for heterogeneous connectors like hive). Exercises the
-     * additive connector-wide-OR-per-table resolution in {@code hasScanCapability}. makeSureInitialized is
-     * stubbed to a no-op (no Env-backed init in a unit test).
+     * connector-wide AND whose cached schema carries {@code perTableCapabilities} (what a heterogeneous
+     * connector like hive declares for one specific table). Exercises the additive
+     * connector-wide-OR-per-table resolution in {@code hasCapability}. makeSureInitialized is stubbed to a
+     * no-op (no Env-backed init in a unit test).
      */
     private static PluginDrivenExternalTable pluginTableWithCapabilities(
-            Set<ConnectorCapability> capabilities, Map<String, String> perTableProps) {
+            Set<ConnectorCapability> capabilities, Set<ConnectorCapability> perTableCapabilities) {
+        return pluginTable(capabilities, perTableCapabilities, Collections.emptyMap());
+    }
+
+    /**
+     * Same, for the assertions that read a reserved control key out of the cached raw property map (e.g. the
+     * distribution-columns marker) rather than the per-table capability set.
+     */
+    private static PluginDrivenExternalTable pluginTableWithProperties(Map<String, String> tableProperties) {
+        return pluginTable(EnumSet.noneOf(ConnectorCapability.class), Collections.emptySet(), tableProperties);
+    }
+
+    private static PluginDrivenExternalTable pluginTable(Set<ConnectorCapability> capabilities,
+            Set<ConnectorCapability> perTableCapabilities, Map<String, String> tableProperties) {
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getCapabilities()).thenReturn(capabilities);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         PluginDrivenSchemaCacheValue scv = Mockito.mock(PluginDrivenSchemaCacheValue.class);
-        Mockito.when(scv.getTableProperties()).thenReturn(perTableProps);
+        Mockito.when(scv.getTableCapabilities()).thenReturn(perTableCapabilities);
+        Mockito.when(scv.getTableProperties()).thenReturn(tableProperties);
         PluginDrivenExternalTable table =
                 Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
@@ -466,19 +480,36 @@ public class PluginDrivenExternalTableTest {
                 EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE)).supportsTopNLazyMaterialize());
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class)).supportsColumnAutoAnalyze());
-        // Auto-analyze is now resolved per-table (like Top-N / nested-prune): a heterogeneous hive catalog emits it
-        // via the connector.per-table-capabilities marker for its plain-hive tables (and reflects the iceberg
-        // sibling's set onto an iceberg-on-HMS table) even when the CATALOG connector-wide set lacks it. MUTATION:
-        // reverting supportsColumnAutoAnalyze() to a connector-wide-only read ignores this marker, so a flipped
+        // Auto-analyze is now resolved per-table (like Top-N / nested-prune): a heterogeneous hive catalog
+        // declares it per-table for its plain-hive tables (and reflects the iceberg sibling's set onto an
+        // iceberg-on-HMS table) even when the CATALOG connector-wide set lacks it. MUTATION: reverting
+        // supportsColumnAutoAnalyze() to a connector-wide-only read ignores the per-table set, so a flipped
         // plain-hive / iceberg-on-HMS table silently drops out of auto-analyze -> red here.
-        Map<String, String> autoAnalyzeMarker = Collections.singletonMap(
-                ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name());
+        Set<ConnectorCapability> autoAnalyzeOnly = EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
         Assertions.assertTrue(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeMarker).supportsColumnAutoAnalyze());
-        // The marker is capability-specific: an auto-analyze marker must NOT enable Top-N.
+                EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeOnly).supportsColumnAutoAnalyze());
+        // The per-table set is capability-specific: auto-analyze must NOT enable Top-N.
         Assertions.assertFalse(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeMarker).supportsTopNLazyMaterialize());
+                EnumSet.noneOf(ConnectorCapability.class), autoAnalyzeOnly).supportsTopNLazyMaterialize());
+    }
+
+    @Test
+    public void capabilityResolutionUnionsConnectorWideAndPerTableSets() {
+        // WHY: the two sources are ADDITIVE, and no other case in this class ever sets BOTH non-empty — so a
+        // mutation replacing the union with "per-table wins" (or "connector-wide wins") would pass every other
+        // assertion here while silently disabling a capability on exactly the tables a heterogeneous catalog
+        // cares about. Pin both directions of the union explicitly.
+        // MUTATION: turning `connectorWide.contains(c) || perTable.contains(c)` into either arm alone -> red.
+        PluginDrivenExternalTable table = pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE));
+        Assertions.assertTrue(table.supportsNestedColumnPrune(),
+                "a connector-wide capability must survive a non-empty per-table set");
+        Assertions.assertTrue(table.supportsSampleAnalyze(),
+                "a per-table capability must survive a non-empty connector-wide set");
+        // ...and neither arm may leak into a capability declared by nobody.
+        Assertions.assertFalse(table.supportsTopNLazyMaterialize(),
+                "a capability in neither set must stay off");
     }
 
     @Test
@@ -491,8 +522,7 @@ public class PluginDrivenExternalTableTest {
                 EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE)).supportsSampleAnalyze());
         Assertions.assertTrue(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class),
-                Collections.singletonMap(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                        ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE.name())).supportsSampleAnalyze());
+                EnumSet.of(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE)).supportsSampleAnalyze());
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class)).supportsSampleAnalyze());
         // Independent: sample must NOT enable auto-analyze (iceberg-on-HMS gets auto-analyze but not sample).
@@ -506,7 +536,7 @@ public class PluginDrivenExternalTableTest {
         // legacy HMSExternalTable.getDistributionColumnNames. Consumed by sampled analyze's linear-vs-DUJ1 NDV
         // estimator choice. MUTATION: not lowercasing / not reading the marker -> the estimator choice regresses
         // for a flipped bucketed hive table.
-        PluginDrivenExternalTable table = pluginTableWithCapabilities(EnumSet.noneOf(ConnectorCapability.class),
+        PluginDrivenExternalTable table = pluginTableWithProperties(
                 Collections.singletonMap(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, "Id,Region"));
         Assertions.assertEquals(new HashSet<>(Arrays.asList("id", "region")), table.getDistributionColumnNames());
         // No marker -> empty (paimon/iceberg unchanged, TableIf default).
@@ -542,33 +572,29 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
-    public void scanCapabilityHonorsPerTableMarkerWhenConnectorWideAbsent() {
+    public void scanCapabilityHonorsPerTableSetWhenConnectorWideAbsent() {
         // WHY: a heterogeneous connector (hive) cannot declare Top-N lazy / nested-column-prune connector-wide
         // because eligibility is per-table file-format gated (orc/parquet only) — blanket-declaring would
-        // over-admit a text/json table (a correctness bug for nested prune). It emits the capability name only
-        // for eligible tables via the connector.per-table-capabilities schema marker; the helper must honor that
-        // additively even when the connector-wide set is EMPTY. MUTATION: dropping the per-table marker read ->
-        // a flipped orc/parquet hive table silently loses the optimization -> red here.
-        Map<String, String> topnMarker = Collections.singletonMap(
-                ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
+        // over-admit a text/json table (a correctness bug for nested prune). It declares the capability only
+        // for eligible tables, in the table's own capability set; the resolver must honor that additively even
+        // when the connector-wide set is EMPTY. MUTATION: dropping the per-table read -> a flipped orc/parquet
+        // hive table silently loses the optimization -> red here.
+        Set<ConnectorCapability> topnOnly = EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
         Assertions.assertTrue(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), topnMarker).supportsTopNLazyMaterialize());
-        // The marker is capability-specific: a Top-N marker must NOT enable nested-column pruning.
+                EnumSet.noneOf(ConnectorCapability.class), topnOnly).supportsTopNLazyMaterialize());
+        // The per-table set is capability-specific: Top-N must NOT enable nested-column pruning.
         Assertions.assertFalse(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), topnMarker).supportsNestedColumnPrune());
-        // A multi-value marker enables exactly the listed capabilities.
-        Map<String, String> bothMarker = Collections.singletonMap(
-                ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name() + ","
-                        + ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name());
+                EnumSet.noneOf(ConnectorCapability.class), topnOnly).supportsNestedColumnPrune());
+        // A multi-value set enables exactly the listed capabilities.
+        Set<ConnectorCapability> both = EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
         Assertions.assertTrue(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), bothMarker).supportsTopNLazyMaterialize());
+                EnumSet.noneOf(ConnectorCapability.class), both).supportsTopNLazyMaterialize());
         Assertions.assertTrue(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), bothMarker).supportsNestedColumnPrune());
-        // An empty / absent marker leaves both off (the plain-hive text-table case).
+                EnumSet.noneOf(ConnectorCapability.class), both).supportsNestedColumnPrune());
+        // An empty per-table set leaves both off (the plain-hive text-table case).
         Assertions.assertFalse(pluginTableWithCapabilities(
-                EnumSet.noneOf(ConnectorCapability.class), Collections.emptyMap()).supportsTopNLazyMaterialize());
+                EnumSet.noneOf(ConnectorCapability.class), Collections.emptySet()).supportsTopNLazyMaterialize());
     }
 
     @Test
