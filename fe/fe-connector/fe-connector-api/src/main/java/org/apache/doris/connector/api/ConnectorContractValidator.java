@@ -35,10 +35,9 @@ import java.util.Set;
  * caller that already holds an eagerly-built connector and wants the same check.</p>
  *
  * <p><b>Actual coverage today</b> (do not read the paragraph above as a statement that every connector is
- * checked): four connectors' tests call {@link #validate} — iceberg, elasticsearch, maxcompute and jdbc. The
- * two partition-hash-write invariants below have NO positive sample on a real connector: the only connector
- * declaring that capability is hive, and hive's tests do not call this validator, so those two branches are
- * exercised solely by fe-core's fake-connector test. A connector added without such a test is simply
+ * checked): five connectors' tests call {@link #validate} — iceberg, elasticsearch, maxcompute, jdbc and
+ * hive. Every invariant below now has a positive sample on a real connector: maxcompute for the local-sort
+ * arm, hive for the hash arm and for their mutual exclusion. A connector added without such a test is simply
  * unchecked.</p>
  *
  * <p>Note also that this validator reads the CONNECTOR-LEVEL provider, while the engine's write path resolves
