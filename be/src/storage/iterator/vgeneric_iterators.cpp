@@ -80,8 +80,8 @@ Status VStatisticsIterator::next_batch(Block* block) {
                     _schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     auto col = columns[i]->clone_empty();
                     for (size_t j = 0; j < columns[i]->size(); ++j) {
-                        const auto& ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
-                        col->insert(Field::create_field<TYPE_CHAR>(ref.to_string()));
+                        const auto ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
+                        col->insert_data(ref.data, ref.size);
                     }
                     columns[i].swap(col);
                 }
