@@ -21,12 +21,14 @@ package org.apache.doris.connector.api.procedure;
  * What a distributed rewrite actually did, handed back to the connector so it can render the procedure's
  * result row ({@link ConnectorProcedureOps#buildRewriteResult}).
  *
- * <p>The first three numbers are straight sums of the {@link ConnectorRewriteGroup}s the connector itself
- * planned — the engine ran one {@code INSERT-SELECT} per group, so counting the groups is part of
- * orchestrating them; no unit conversion or reinterpretation happens on the way. The fourth comes from
+ * <p>Three of the four — {@code dataFileCount}, {@code totalSizeBytes}, {@code deleteFileCount} — are straight
+ * sums of the {@link ConnectorRewriteGroup}s the connector itself planned; the engine ran one
+ * {@code INSERT-SELECT} per group, so counting the groups is part of orchestrating them, and no unit
+ * conversion or reinterpretation happens on the way. The remaining one, {@code addedDataFileCount}, comes from
  * {@code RewriteCapableTransaction#getRewriteAddedDataFilesCount()} and is valid only after commit; it is the
- * one figure the engine cannot derive from planning. On the "nothing to rewrite" path the engine reports all
- * zeros without having opened a transaction.</p>
+ * one figure the engine cannot derive from planning. Note it is the SECOND constructor argument, not the last
+ * — the constructor follows the result row's conventional column order, not this split. On the "nothing to
+ * rewrite" path the engine reports all zeros without having opened a transaction.</p>
  *
  * <p>The field names mirror {@code ConnectorRewriteGroup}'s getters so the summation is obvious, and the
  * constructor order matches the order these values conventionally appear in a rewrite result row, so there is

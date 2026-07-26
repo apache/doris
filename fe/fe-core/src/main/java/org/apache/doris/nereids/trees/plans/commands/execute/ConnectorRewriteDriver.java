@@ -245,8 +245,8 @@ public class ConnectorRewriteDriver {
     }
 
     /**
-     * Collects concurrent group-task completions and cancels the rest on the first failure (copied from the
-     * legacy {@code RewriteDataFileExecutor.RewriteResultCollector}).
+     * Collects concurrent group-task completions and cancels the rest on the first failure (ported verbatim
+     * from the result collector of the pre-SPI rewrite executor, which no longer exists in the tree).
      */
     private static class RewriteResultCollector {
         private final int expectedTasks;

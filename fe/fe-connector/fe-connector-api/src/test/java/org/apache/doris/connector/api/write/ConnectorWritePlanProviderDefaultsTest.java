@@ -28,9 +28,10 @@ import org.junit.jupiter.api.Test;
  * Pins the {@link ConnectorWritePlanProvider#getWriteSortColumns} default.
  *
  * <p><b>WHY this matters:</b> the generic translator asks every write-capable connector for its
- * write-sort columns. The default MUST be an empty list so connectors that declare no write sort
- * (jdbc / maxcompute) produce no {@code TSortInfo} and keep their byte-identical unsorted sink output —
- * only iceberg (with a {@code WRITE ORDERED BY}) overrides it.</p>
+ * write-sort columns. The default MUST be {@code null} — NOT an empty list, which would signal a
+ * present-but-empty sort order — so connectors that declare no write sort (jdbc / maxcompute) produce no
+ * {@code TSortInfo} and keep their byte-identical unsorted sink output; only iceberg (with a
+ * {@code WRITE ORDERED BY}) overrides it.</p>
  */
 public class ConnectorWritePlanProviderDefaultsTest {
 
