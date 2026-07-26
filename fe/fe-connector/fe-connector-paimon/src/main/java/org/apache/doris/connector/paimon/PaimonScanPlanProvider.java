@@ -51,7 +51,6 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
-import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.SchemaManager;
@@ -77,7 +76,6 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -146,17 +144,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final TypeReference<Map<String, String>> MAP_TYPE_REF =
             new TypeReference<Map<String, String>>() {};
 
-    // Session variable name (byte-identical to SessionVariable.ENABLE_PAIMON_CPP_READER) surfaced
-    // through ConnectorSession.getSessionProperties() (VariableMgr.toMap). When true, BE routes the
-    // JNI-format paimon split to PaimonCppReader, which deserializes the NATIVE paimon binary format
-    // (paimon::Split::Deserialize), so FE must serialize a DataSplit with that format, not Java serde.
-    private static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
-
     // Session variable name (byte-identical to SessionVariable.FORCE_JNI_SCANNER) surfaced through
-    // ConnectorSession.getSessionProperties() (VariableMgr.toMap), exactly like ENABLE_PAIMON_CPP_READER
-    // above. When true it is the user/session JNI escape hatch: every native-eligible DataSplit is routed
-    // to the JNI reader (legacy PaimonScanNode.getSplits gate, sessionVariable.isForceJniScanner()),
-    // bypassing the native ORC/Parquet readers to dodge native-reader bugs. Default false (legacy default).
+    // ConnectorSession.getSessionProperties() (VariableMgr.toMap). When true it is the user/session JNI
+    // escape hatch: every native-eligible DataSplit is routed to the JNI reader (legacy
+    // PaimonScanNode.getSplits gate, sessionVariable.isForceJniScanner()), bypassing the native ORC/Parquet
+    // readers to dodge native-reader bugs. Default false (legacy default).
+    //
+    // NOTE: enable_paimon_cpp_reader is deliberately NOT read here. Upstream #66008 removed the paimon-cpp
+    // arm from PaimonScanNode.setPaimonParams (file-scanner-v2 has no split-aware paimon-cpp adapter and
+    // hard-rejects a PAIMON_CPP range), so the flag no longer influences planning — see
+    // PaimonScanRange.populateRangeParams.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
     // Session variable name (byte-identical to SessionVariable.IGNORE_SPLIT_TYPE) surfaced through the same
@@ -170,7 +167,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     // FIX-NATIVE-SUBSPLIT (M-3): file-split session vars (byte-identical to SessionVariable.{FILE_SPLIT_SIZE,
     // MAX_INITIAL_FILE_SPLIT_SIZE, MAX_FILE_SPLIT_SIZE, MAX_INITIAL_FILE_SPLIT_NUM, MAX_FILE_SPLIT_NUM}),
-    // read via the same VariableMgr.toMap channel as ENABLE_PAIMON_CPP_READER. They drive the native
+    // read via the same VariableMgr.toMap channel as FORCE_JNI_SCANNER. They drive the native
     // sub-split target size, mirroring legacy PaimonScanNode.determineTargetFileSplitSize without
     // importing fe-core SessionVariable/FileSplitter. Defaults below are byte-identical to SessionVariable.
     private static final String FILE_SPLIT_SIZE = "file_split_size";
@@ -246,20 +243,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Reads the {@code enable_paimon_cpp_reader} session flag from the SPI session properties
-     * (forwarded by the engine via {@code VariableMgr.toMap}). Default false (legacy default), so
-     * normal reads are unaffected. Package-private static for offline unit testing.
-     */
-    static boolean isCppReaderEnabled(ConnectorSession session) {
-        if (session == null) {
-            return false;
-        }
-        return Boolean.parseBoolean(session.getSessionProperties().get(ENABLE_PAIMON_CPP_READER));
-    }
-
-    /**
-     * Reads the {@code force_jni_scanner} session flag from the SPI session properties (same
-     * {@code VariableMgr.toMap} channel as {@link #isCppReaderEnabled}). When true the JNI escape
+     * Reads the {@code force_jni_scanner} session flag from the SPI session properties (forwarded by the
+     * engine via {@code VariableMgr.toMap}). When true the JNI escape
      * hatch is engaged: every native-eligible DataSplit is routed to JNI (see
      * {@link #shouldUseNativeReader}), bypassing the native ORC/Parquet readers to dodge native-reader
      * bugs. Default false (legacy default), so normal reads are unaffected. Package-private static for
@@ -274,7 +259,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Reads the {@code ignore_split_type} session variable (same {@code VariableMgr.toMap} channel as
-     * {@link #isCppReaderEnabled}). Returns {@code "NONE"} when the session is absent (offline unit tests)
+     * {@link #isForceJniScannerEnabled}). Returns {@code "NONE"} when the session is absent (offline unit tests)
      * or the variable is unset, matching this file's null-tolerant session-read convention. Only
      * {@code IGNORE_JNI} / {@code IGNORE_NATIVE} carry behavior (skip the matching split type, legacy
      * {@code PaimonScanNode.getSplits}); every other value (incl. {@code NONE} / {@code IGNORE_PAIMON_CPP})
@@ -520,8 +505,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         List<Split> paimonSplits = planSplits(scan);
         stashScanProfile(session, table, paimonHandle, metricRegistry);
 
-        // Determine table location
-        String tableLocation = getTableLocation(table);
         String defaultFileFormat = table.options().getOrDefault(
                 CoreOptions.FILE_FORMAT.key(), "parquet");
 
@@ -537,9 +520,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
-
-        // Read the cpp-reader flag once: it selects the JNI split serialization format (see encodeSplit).
-        boolean cppReader = isCppReaderEnabled(session);
 
         // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
         // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
@@ -570,8 +550,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
                 continue;
             }
-            ranges.add(buildJniScanRange(split, tableLocation, defaultFileFormat,
-                    Collections.emptyMap(), false, cppReader, weightDenominator));
+            ranges.add(buildJniScanRange(split, defaultFileFormat,
+                    Collections.emptyMap(), false, weightDenominator));
         }
 
         // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
@@ -640,9 +620,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
-                ranges.add(buildJniScanRange(
-                        dataSplit, tableLocation, defaultFileFormat,
-                        partitionValues, true, cppReader, weightDenominator));
+                ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
+                        partitionValues, true, weightDenominator));
             }
         }
 
@@ -651,8 +630,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (countRepresentative != null) {
             Map<String, String> partitionValues = getPartitionInfoMap(
                     table, countRepresentative.partition(), session.getTimeZone());
-            ranges.add(buildCountRange(countRepresentative, tableLocation, defaultFileFormat,
-                    partitionValues, cppReader, countSum, weightDenominator));
+            ranges.add(buildCountRange(countRepresentative, defaultFileFormat,
+                    partitionValues, countSum, weightDenominator));
         }
 
         return ranges;
@@ -926,9 +905,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return raw == null ? Collections.emptyMap() : new HashMap<>(raw);
     }
 
-    private PaimonScanRange buildJniScanRange(Split split, String tableLocation,
-            String defaultFileFormat, Map<String, String> partitionValues,
-            boolean isDataSplit, boolean cppReader, long weightDenominator) {
+    private PaimonScanRange buildJniScanRange(Split split, String defaultFileFormat,
+            Map<String, String> partitionValues, boolean isDataSplit, long weightDenominator) {
         long splitWeight = 0;
         if (isDataSplit) {
             splitWeight = computeSplitWeight((DataSplit) split);
@@ -936,7 +914,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             splitWeight = split.rowCount();
         }
 
-        String serializedSplit = encodeSplit(split, cppReader);
+        String serializedSplit = encodeSplit(split);
 
         // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: emit the real data-file format (orc/parquet/avro), NOT "jni".
         // JNI routing is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this
@@ -951,10 +929,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return new PaimonScanRange.Builder()
                 .fileFormat(fileFormat)
                 .paimonSplit(serializedSplit)
-                // FIX-READER-TYPE (3645dc94306): lockstep with encodeSplit above — PAIMON_CPP iff we
-                // native-serialized a DataSplit for the paimon-cpp reader, else PAIMON_JNI.
-                .cppReaderSplit(cppReader && isDataSplit)
-                .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
                 .targetSplitSize(weightDenominator)
@@ -977,21 +951,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * Builds the single collapsed COUNT(*)-pushdown range: a JNI-serialized {@link DataSplit} (legacy
      * {@code new PaimonSplit(dataSplit)}) carrying the summed merged row count via {@code paimon.row_count}
      * &rarr; BE's {@code table_level_row_count} &rarr; {@code CountReader}, so BE emits the count without
-     * reading data. The serialization format honors the cpp-reader flag, like {@link #buildJniScanRange}.
+     * reading data. Uses the same Java-object split serialization as {@link #buildJniScanRange}.
      */
-    private PaimonScanRange buildCountRange(DataSplit dataSplit, String tableLocation,
-            String defaultFileFormat, Map<String, String> partitionValues, boolean cppReader, long rowCount,
-            long weightDenominator) {
-        String serializedSplit = encodeSplit(dataSplit, cppReader);
+    private PaimonScanRange buildCountRange(DataSplit dataSplit, String defaultFileFormat,
+            Map<String, String> partitionValues, long rowCount, long weightDenominator) {
+        String serializedSplit = encodeSplit(dataSplit);
         // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: real data-file format from the first data-file suffix, not
         // "jni" and not the bare table default (see buildJniScanRange / dataSplitFileFormat).
         return new PaimonScanRange.Builder()
                 .fileFormat(dataSplitFileFormat(dataSplit, defaultFileFormat))
                 .paimonSplit(serializedSplit)
-                // FIX-READER-TYPE (3645dc94306): dataSplit is always a DataSplit here, so cpp-reader
-                // serialization (hence PAIMON_CPP) is chosen iff the flag is on — matches encodeSplit above.
-                .cppReaderSplit(cppReader)
-                .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(computeSplitWeight(dataSplit))
                 .targetSplitSize(weightDenominator)
@@ -1100,7 +1069,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Reads a long session var from the SPI session properties (VariableMgr.toMap channel), falling
      * back to {@code defaultValue} when absent/blank/unparseable. Mirrors the null-tolerant
-     * {@link #isCppReaderEnabled} pattern.
+     * {@link #isForceJniScannerEnabled} pattern.
      */
     private static long sessionLong(ConnectorSession session, String key, long defaultValue) {
         if (session == null) {
@@ -1251,13 +1220,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 throw new UnsupportedOperationException(
                         "Unsupported type for serializePartitionValue: " + type);
         }
-    }
-
-    private String getTableLocation(Table table) {
-        if (table instanceof FileStoreTable) {
-            return ((FileStoreTable) table).location().toString();
-        }
-        return table.options().get("path");
     }
 
     // #65332: JNI IOManager backend options. Paimon primary-key merge reads (the most common
@@ -1765,26 +1727,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Selects the split serialization that matches the BE reader the engine will use.
-     * When the paimon-cpp reader is enabled AND the split is a {@link DataSplit}, serialize with
-     * Paimon's NATIVE binary format ({@code DataSplit.serialize}) so BE's PaimonCppReader
-     * ({@code paimon::Split::Deserialize}) can decode it. Otherwise (flag off, or a non-DataSplit
-     * system split / no-raw-file fallback that has no native format) fall back to Java object
-     * serialization for the Java JNI reader. Mirrors legacy PaimonScanNode.setPaimonParams +
-     * PaimonUtil.encodeDataSplitToString; the {@code instanceof DataSplit} guard is load-bearing
-     * parity (non-DataSplit splits MUST stay Java-serialized even when the flag is on).
+     * Serializes a paimon {@link Split} for the BE JNI reader: ALWAYS Java object serialization, which is
+     * what BE's PaimonJniScanner deserializes. Mirrors upstream {@code PaimonScanNode.setPaimonParams} +
+     * {@code PaimonUtil.encodeObjectToString} after #66008 removed the paimon-cpp arm — a logical
+     * {@link DataSplit} may span several files, and file-scanner-v2 has no split-aware paimon-cpp adapter,
+     * so the native-binary ({@code DataSplit.serialize} / {@code paimon::Split::Deserialize}) encoding is
+     * never emitted and {@code enable_paimon_cpp_reader} no longer influences the wire format.
      */
-    static String encodeSplit(Split split, boolean cppReader) {
-        if (cppReader && split instanceof DataSplit) {
-            try {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ((DataSplit) split).serialize(new DataOutputViewStreamWrapper(baos));
-                return new String(BASE64_ENCODER.encode(baos.toByteArray()), StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to serialize Paimon DataSplit (native format): "
-                        + e.getMessage(), e);
-            }
-        }
+    static String encodeSplit(Split split) {
         return encodeObjectToString(split);
     }
 

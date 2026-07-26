@@ -237,7 +237,6 @@ public class PaimonScanExplainTest {
         PaimonScanRange range = new PaimonScanRange.Builder()
                 .fileFormat("parquet")
                 .paimonSplit("serialized-split")
-                .tableLocation("oss://bkt/db/tbl")
                 .build();
         Assertions.assertFalse(range.isNativeReadRange());
     }
@@ -250,7 +249,6 @@ public class PaimonScanExplainTest {
         PaimonScanRange range = new PaimonScanRange.Builder()
                 .fileFormat("parquet")
                 .paimonSplit("serialized-split")
-                .tableLocation("oss://bkt/db/tbl")
                 .rowCount(12L)
                 .build();
         Assertions.assertFalse(range.isNativeReadRange());
