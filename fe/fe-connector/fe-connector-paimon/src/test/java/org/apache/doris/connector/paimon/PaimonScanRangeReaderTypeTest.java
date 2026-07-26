@@ -29,18 +29,22 @@ import org.junit.jupiter.api.Test;
  * {@link PaimonScanRange#populateRangeParams} sets the BE thrift {@code TPaimonFileDesc.reader_type} so
  * BE's file-scanner-v2 selects the matching paimon reader stack:
  * <ul>
- *   <li>a cpp-serialized JNI split (Paimon native binary format) &rarr; {@link TPaimonReaderType#PAIMON_CPP};</li>
- *   <li>a Java-serialized JNI split &rarr; {@link TPaimonReaderType#PAIMON_JNI};</li>
+ *   <li>a JNI split (serialized {@code paimon.split} present) &rarr; {@link TPaimonReaderType#PAIMON_JNI};</li>
  *   <li>a native ORC/Parquet split &rarr; {@link TPaimonReaderType#PAIMON_NATIVE}.</li>
  * </ul>
  *
- * <p>WHY this matters: legacy {@code PaimonScanNode.setPaimonParams} set reader_type on all three arms,
- * but the SPI migration to {@code PaimonScanRange} dropped it (the thrift {@code TPaimonFileDesc} was built
- * without reader_type), so BE could not distinguish the cpp reader from the Java JNI reader for a JNI split.
- * The cpp-vs-jni bit is threaded through {@link PaimonScanRange.Builder#cppReaderSplit} because
- * populateRangeParams only sees the opaque serialized {@code paimon.split} string and cannot re-derive it —
- * it must stay in lockstep with {@code PaimonScanPlanProvider.encodeSplit}'s
- * {@code cppReader && split instanceof DataSplit} serialization choice.
+ * <p>WHY this matters: legacy {@code PaimonScanNode.setPaimonParams} set reader_type on every arm, but the
+ * SPI migration to {@code PaimonScanRange} dropped it (the thrift {@code TPaimonFileDesc} was built without
+ * reader_type), so BE could not tell which paimon reader stack a split wanted.
+ *
+ * <p>There is deliberately NO {@link TPaimonReaderType#PAIMON_CPP} arm: upstream #66008 removed it from
+ * {@code PaimonScanNode.setPaimonParams} because a logical {@code DataSplit} may span several files and
+ * file-scanner-v2 has no split-aware paimon-cpp adapter. Under the default {@code enable_file_scanner_v2
+ * = true}, a PAIMON_CPP range is HARD-REJECTED ({@code is_supported_jni_table_format} &rarr;
+ * {@code _validate_scan_range} &rarr; "FileScannerV2 does not support table format paimon") with no
+ * per-range fallback to the V1 scanner that still implements {@code PaimonCppReader}. So the JNI arm must
+ * answer PAIMON_JNI unconditionally, and {@code enable_paimon_cpp_reader} is a plan-path no-op
+ * (see {@code PaimonScanPlanProviderTest.cppReaderSessionFlagNoLongerChangesThePlan}).
  */
 public class PaimonScanRangeReaderTypeTest {
 
@@ -51,44 +55,30 @@ public class PaimonScanRangeReaderTypeTest {
     }
 
     @Test
-    public void cppJniSplitSetsReaderTypeCpp() {
-        // A JNI split serialized in Paimon's native binary format for the paimon-cpp reader
-        // (PaimonScanPlanProvider: cppReader && split instanceof DataSplit -> cppReaderSplit(true)).
+    public void jniSplitSetsReaderTypeJniAndNoPaimonTable() {
+        // Any JNI split (a Java-object-serialized DataSplit, or a non-DataSplit system split).
         PaimonScanRange range = new PaimonScanRange.Builder()
-                .fileFormat("parquet")
-                .paimonSplit("native-serialized-split")   // JNI marker (paimon.split prop present)
-                .cppReaderSplit(true)
+                .fileFormat("orc")
+                .paimonSplit("java-serialized-split")      // JNI marker (paimon.split prop present)
                 .build();
 
-        // MUTATION: dropping setReaderType, or wiring cpp->PAIMON_JNI, turns this red — BE would pick the
-        // Java JNI reader for a native-binary split it cannot decode that way.
+        // MUTATION: dropping setReaderType, or reinstating a cpp arm, turns this red — with reader_type
+        // absent BE's V2 paimon reader can still infer JNI from paimon_split, but a PAIMON_CPP answer
+        // fails the query outright (see the class javadoc).
         TTableFormatFileDesc formatDesc = populate(range);
         Assertions.assertTrue(formatDesc.getPaimonParams().isSetReaderType(),
                 "a JNI split must set reader_type so BE can pick the reader stack");
-        Assertions.assertEquals(TPaimonReaderType.PAIMON_CPP,
-                formatDesc.getPaimonParams().getReaderType());
-    }
-
-    @Test
-    public void javaJniSplitSetsReaderTypeJni() {
-        // A JNI split serialized with Java object serialization: flag off, or a non-DataSplit system split
-        // (PaimonScanPlanProvider: cppReaderSplit(false)).
-        PaimonScanRange range = new PaimonScanRange.Builder()
-                .fileFormat("orc")
-                .paimonSplit("java-serialized-split")      // JNI marker
-                .cppReaderSplit(false)
-                .build();
-
-        TTableFormatFileDesc formatDesc = populate(range);
-        Assertions.assertTrue(formatDesc.getPaimonParams().isSetReaderType());
         Assertions.assertEquals(TPaimonReaderType.PAIMON_JNI,
                 formatDesc.getPaimonParams().getReaderType());
+        // paimon_table (the table root path) is read ONLY by the V1 PaimonCppReader, so #66008 stopped
+        // shipping it. MUTATION: re-adding setPaimonTable -> red.
+        Assertions.assertFalse(formatDesc.getPaimonParams().isSetPaimonTable(),
+                "paimon_table is cpp-reader-only state and must not be shipped");
     }
 
     @Test
     public void nativeSplitSetsReaderTypeNative() {
-        // A native ORC/Parquet split: no paimonSplit marker -> native reader branch, always PAIMON_NATIVE
-        // regardless of the (defaulted false) cppReaderSplit.
+        // A native ORC/Parquet split: no paimonSplit marker -> native reader branch, always PAIMON_NATIVE.
         PaimonScanRange range = new PaimonScanRange.Builder()
                 .fileFormat("orc")
                 .path("s3://bkt/a/part-0.orc")

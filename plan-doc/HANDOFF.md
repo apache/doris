@@ -5,7 +5,38 @@
 
 ---
 
-# 🆕🆕 最新一轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
+# 🆕🆕🆕 最新一轮（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
+
+> `git pull --rebase upstream-apache master`，61 commit onto **`962bd5b28c7`**（上游只新增 2 个 commit）。
+
+**唯一冲突** = `#66008` 改了 `fe-core/.../paimon/source/PaimonScanNode{,Test}.java`，本分支 `1ee79930faf` 已整体删除该子系统
+（modify/delete）⇒ 解法 = `git rm` 保留删除，能力另行移植进 `fe-connector-paimon`。另一个上游 commit `#66036` 纯 BE，无冲突。
+
+**移植结论：必须移植，不是可选**。#66008 把 `PaimonScanNode.setPaimonParams` 的 paimon-cpp 臂整体删掉
+（永远 `PAIMON_JNI` + `encodeObjectToString`，不再 `setPaimonTable`），原因在 BE：`_should_use_file_scanner_v2`
+不再排除 `FORMAT_JNI`（`enable_file_scanner_v2` 默认 **true**）⇒ paimon JNI 扫描进 V2；而
+`file_scanner_v2.cpp:is_supported_jni_table_format` 对 `reader_type == PAIMON_CPP` 返回 false ⇒
+`_validate_scan_range` **直接 `Status::NotSupported` 报错**，**没有 per-range 回落 V1**（V1 的 `PaimonCppReader` 只有
+`set enable_file_scanner_v2=false` 才够得着）。`enable_paimon_cpp_reader` 是 `fuzzy=true`，且 3 个上游 e2e suite
+（`test_paimon_cpp_reader`、`test_paimon_partition_{pk_delete,schema_filter}_refs`）会显式 `set ...=true` ⇒ 不移植就是
+paimon e2e 必红。
+
+已交付 commit（见 `git log`）：删 `PaimonScanPlanProvider.isCppReaderEnabled` / `ENABLE_PAIMON_CPP_READER` /
+`encodeSplit` 的 native-binary 臂 / `getTableLocation` / `tableLocation` 线程，删 `PaimonScanRange.cppReaderSplit` +
+`paimon.table_location` + `setPaimonTable`，JNI 臂恒 `PAIMON_JNI`。测试：`PaimonScanRangeReaderTypeTest` 去 cpp 例、
+`PaimonScanPlanProviderTest` 3 个 cpp 例换成 2 个（`encodeSplitAlwaysUsesJavaSerializationForDataSplit` +
+新的 planScan 级 `cppReaderSessionFlagNoLongerChangesThePlan`）、`PaimonScanExplainTest` 去 `.tableLocation(...)`。
+**e2e 无需改**（3 个 suite 只做 flag on/off 结果对比，flag 变 no-op 后自然通过）。
+
+验证：模块 **382/382**（1 个既有 live-connectivity skip）、checkstyle **0**、双变异均 RED
+（`PAIMON_JNI→PAIMON_CPP`；重加 `setPaimonTable`）→ 复原后 GREEN。
+
+⏭ 下一轮注意：#66008 把 `FORMAT_JNI` 放进了 V2 **对所有连接器生效**（hudi/iceberg/max_compute/trino_connector）。
+已核 hudi 侧安全（`delta_logs` 只在 `isJni` 分支写，不会造出 V2 拒收的 "parquet + delta_logs" 形状）；其余连接器未逐一核。
+
+---
+
+# 🆕🆕 上一轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
 
 > 任务 = TeamCity `Doris_External_Regression` **#1005291**（PR **66028** @ `7ff51a106f0`）中
 > `external_table_p0/iceberg/test_iceberg_nested_schema_evolution_spark_doris_interop.groovy:273`。

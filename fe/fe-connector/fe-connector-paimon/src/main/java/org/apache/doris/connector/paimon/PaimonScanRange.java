@@ -64,12 +64,6 @@ public class PaimonScanRange implements ConnectorScanRange {
     // FileSplit proportional weight. -1 = not provided (SPI sentinel). Separate from the file-splitting
     // granularity used to slice native files.
     private final long targetSplitSize;
-    // FIX-READER-TYPE (3645dc94306): true iff this JNI split was serialized with Paimon's native binary
-    // format for the paimon-cpp reader (cppReader && split instanceof DataSplit, mirrored from
-    // PaimonScanPlanProvider.encodeSplit). Selects PAIMON_CPP vs PAIMON_JNI in populateRangeParams's JNI
-    // branch; the native branch is always PAIMON_NATIVE. Defaults false (JNI) for non-cpp ranges. Cannot be
-    // re-derived in populateRangeParams — the serialized paimon.split string is opaque there.
-    private final boolean cppReaderSplit;
 
     private PaimonScanRange(Builder builder) {
         this.path = builder.path;
@@ -79,7 +73,6 @@ public class PaimonScanRange implements ConnectorScanRange {
         this.fileFormat = builder.fileFormat;
         this.selfSplitWeight = builder.selfSplitWeight;
         this.targetSplitSize = builder.targetSplitSize;
-        this.cppReaderSplit = builder.cppReaderSplit;
         this.partitionValues = builder.partitionValues != null
                 ? Collections.unmodifiableMap(builder.partitionValues)
                 : Collections.emptyMap();
@@ -87,9 +80,6 @@ public class PaimonScanRange implements ConnectorScanRange {
         Map<String, String> props = new HashMap<>();
         if (builder.paimonSplit != null) {
             props.put("paimon.split", builder.paimonSplit);
-        }
-        if (builder.tableLocation != null) {
-            props.put("paimon.table_location", builder.tableLocation);
         }
         if (builder.schemaId != null) {
             props.put("paimon.schema_id", String.valueOf(builder.schemaId));
@@ -212,15 +202,15 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (paimonSplitVal != null) {
             // JNI reader path
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // FIX-READER-TYPE (3645dc94306): tell BE's file-scanner-v2 which paimon reader stack to use —
-            // the paimon-cpp reader (native binary split) vs the Java JNI reader. Mirrors legacy
-            // PaimonScanNode.setPaimonParams's fileDesc.setReaderType.
-            fileDesc.setReaderType(cppReaderSplit ? TPaimonReaderType.PAIMON_CPP : TPaimonReaderType.PAIMON_JNI);
+            // FIX-READER-TYPE (3645dc94306): tell BE's file-scanner-v2 which paimon reader stack to use.
+            // ALWAYS the Java JNI reader (upstream #66008 removed the paimon-cpp arm from
+            // PaimonScanNode.setPaimonParams): a logical DataSplit may span several files, and
+            // file-scanner-v2 has no split-aware paimon-cpp adapter, so it HARD-REJECTS a PAIMON_CPP range
+            // ("FileScannerV2 does not support table format paimon", file_scanner_v2.cpp
+            // is_supported_jni_table_format -> _validate_scan_range) with no per-range V1 fallback.
+            // enable_paimon_cpp_reader is therefore a no-op on the plan path, exactly like on master.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
             fileDesc.setPaimonSplit(paimonSplitVal);
-            String tableLocation = props.get("paimon.table_location");
-            if (tableLocation != null) {
-                fileDesc.setPaimonTable(tableLocation);
-            }
             String weightStr = props.get("paimon.self_split_weight");
             if (weightStr != null) {
                 rangeDesc.setSelfSplitWeight(Long.parseLong(weightStr));
@@ -309,12 +299,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         // -1 = not provided (SPI sentinel). NOT 0: a 0 denominator is invalid (would divide-by-zero), unlike
         // selfSplitWeight whose 0 is a legitimate empty-file / 0-row weight.
         private long targetSplitSize = -1;
-        // FIX-READER-TYPE (3645dc94306): see PaimonScanRange.cppReaderSplit. Only meaningful for JNI splits.
-        private boolean cppReaderSplit;
 
         // JNI reader fields
         private String paimonSplit;
-        private String tableLocation;
 
         // Native reader fields
         private Long schemaId;
@@ -365,18 +352,8 @@ public class PaimonScanRange implements ConnectorScanRange {
             return this;
         }
 
-        public Builder cppReaderSplit(boolean cppReaderSplit) {
-            this.cppReaderSplit = cppReaderSplit;
-            return this;
-        }
-
         public Builder paimonSplit(String paimonSplit) {
             this.paimonSplit = paimonSplit;
-            return this;
-        }
-
-        public Builder tableLocation(String tableLocation) {
-            this.tableLocation = tableLocation;
             return this;
         }
 
