@@ -26,8 +26,11 @@ import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
@@ -723,37 +726,37 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
-    @Test
-    public void cppReaderFlagSelectsNativeBinaryForDataSplit(@TempDir Path warehouse) throws Exception {
-        DataSplit dataSplit = buildRealDataSplit(warehouse);
-
-        String nativeWire = PaimonScanPlanProvider.encodeSplit(dataSplit, /*cppReader*/ true);
-        byte[] bytes = Base64.getDecoder().decode(nativeWire.getBytes(StandardCharsets.UTF_8));
-        DataSplit roundTripped = DataSplit.deserialize(
-                new DataInputViewStreamWrapper(new ByteArrayInputStream(bytes)));
-
-        // WHY: when enable_paimon_cpp_reader is on, BE's PaimonCppReader runs the NATIVE
-        // paimon::Split::Deserialize over the blob. So FE must emit DataSplit.serialize (native
-        // binary), NOT Java object serde — else BE dies with "paimon-cpp deserialize split failed".
-        // The native wire must (a) decode back to an equal DataSplit (the format BE consumes), and
-        // (b) DIFFER from the Java-serde wire (proves the format actually switched).
-        // MUTATION: dropping the cppReader branch -> both encodings equal / native deserialize fails -> red.
-        Assertions.assertEquals(dataSplit, roundTripped,
-                "native-format wire must round-trip via DataSplit.deserialize (what BE cpp reader decodes)");
-        Assertions.assertNotEquals(feJavaEncode(dataSplit), nativeWire,
-                "flag-on must produce the native binary format, not Java object serialization");
+    /** The paimon-cpp NATIVE binary split encoding (DataSplit.serialize + Base64) — what FE must NEVER emit. */
+    private static String nativeBinaryEncode(DataSplit dataSplit) throws Exception {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        dataSplit.serialize(new org.apache.paimon.io.DataOutputViewStreamWrapper(baos));
+        return Base64.getEncoder().encodeToString(baos.toByteArray());
     }
 
     @Test
-    public void cppReaderFlagOffKeepsJavaSerialization(@TempDir Path warehouse) throws Exception {
+    public void encodeSplitAlwaysUsesJavaSerializationForDataSplit(@TempDir Path warehouse) throws Exception {
         DataSplit dataSplit = buildRealDataSplit(warehouse);
 
-        // WHY: default reads (flag off) must be byte-for-byte the existing Java object serialization
-        // for the Java JNI reader — no behavior change when the cpp reader is disabled.
-        // MUTATION: always-native -> the encoding differs from the Java leg -> red.
-        Assertions.assertEquals(feJavaEncode(dataSplit),
-                PaimonScanPlanProvider.encodeSplit(dataSplit, /*cppReader*/ false),
-                "flag-off must keep the Java object serialization byte-for-byte");
+        // WHY: upstream #66008 removed the paimon-cpp arm from PaimonScanNode.setPaimonParams, so the ONLY
+        // split wire format FE emits is Java object serialization (what BE's PaimonJniScanner deserializes).
+        // Emitting the native binary format would now be fatal, not just different: file-scanner-v2 (default
+        // ON) has no split-aware paimon-cpp adapter, so is_supported_jni_table_format rejects a PAIMON_CPP
+        // range and _validate_scan_range fails the query — there is no per-range V1 fallback.
+        // MUTATION: re-adding a cpp/native-binary branch -> the wire stops matching the Java encoding and
+        // starts matching the native one -> both assertions red.
+        String wire = PaimonScanPlanProvider.encodeSplit(dataSplit);
+        Assertions.assertEquals(feJavaEncode(dataSplit), wire,
+                "a DataSplit must be Java-object-serialized byte-for-byte (the Java JNI reader's format)");
+        Assertions.assertNotEquals(nativeBinaryEncode(dataSplit), wire,
+                "FE must never emit the paimon-cpp native binary split format (file-scanner-v2 rejects it)");
+
+        // Sanity-check the negative reference really is the paimon-cpp format (else the assertion above
+        // would pass vacuously): it decodes back to an equal DataSplit via paimon's native deserializer.
+        byte[] nativeBytes = Base64.getDecoder().decode(
+                nativeBinaryEncode(dataSplit).getBytes(StandardCharsets.UTF_8));
+        Assertions.assertEquals(dataSplit, DataSplit.deserialize(
+                        new DataInputViewStreamWrapper(new ByteArrayInputStream(nativeBytes))),
+                "precondition: nativeBinaryEncode really is the paimon::Split::Deserialize format");
     }
 
     /** A non-DataSplit Split (the only abstract method is rowCount(); Split is Serializable). */
@@ -767,16 +770,15 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void nonDataSplitStaysJavaSerializedEvenWithCppFlag() throws Exception {
+    public void nonDataSplitStaysJavaSerialized() throws Exception {
         NonDataSplitStub stub = new NonDataSplitStub();
 
-        // WHY: the native binary format only exists for DataSplit. System splits (the nonDataSplits
-        // loop) and the no-raw-file JNI fallback have no native form, so they MUST stay Java-serialized
-        // even when the flag is on (legacy's `split instanceof DataSplit` gate). MUTATION: removing the
-        // instanceof guard -> ClassCastException / wrong format applied to a non-DataSplit -> red.
+        // WHY: system splits (the nonDataSplits loop) and the no-raw-file JNI fallback are not DataSplits and
+        // have no native form at all, so Java object serialization is the only possible encoding for them.
+        // MUTATION: any format switch keyed off the split type -> red.
         Assertions.assertEquals(feJavaEncode(stub),
-                PaimonScanPlanProvider.encodeSplit(stub, /*cppReader*/ true),
-                "a non-DataSplit must never take the native format, even with the cpp flag on");
+                PaimonScanPlanProvider.encodeSplit(stub),
+                "a non-DataSplit must be Java-object-serialized");
     }
 
     @Test
@@ -1193,6 +1195,79 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void cppReaderSessionFlagNoLongerChangesThePlan(@TempDir Path warehouse) throws Exception {
+        // WHY (upstream #66008): enable_paimon_cpp_reader must be a NO-OP on the plan path. It stays a
+        // documented (fuzzy=true!) session variable, so the regression fuzzer and the upstream suites
+        // test_paimon_cpp_reader / test_paimon_partition_*_refs do set it to true — and if the connector
+        // still answered with PAIMON_CPP, every such query would HARD-FAIL under the default
+        // enable_file_scanner_v2=true ("FileScannerV2 does not support table format paimon with file format
+        // FORMAT_JNI": file_scanner_v2.cpp is_supported_jni_table_format -> _validate_scan_range, with no
+        // per-range fallback to the V1 scanner that still implements PaimonCppReader).
+        // MUTATION: reinstating a cpp arm keyed off this session flag -> reader_type flips to PAIMON_CPP
+        // (and paimon_table reappears) -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                write.write(GenericRow.of(2, 200L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorColumnHandle> noColumns = Collections.emptyList();
+
+            // force_jni_scanner pins every split onto the JNI arm (the only arm the cpp flag ever touched).
+            Map<String, String> cppOn = new HashMap<>();
+            cppOn.put("force_jni_scanner", "true");
+            cppOn.put("enable_paimon_cpp_reader", "true");
+            Map<String, String> cppOff = new HashMap<>();
+            cppOff.put("force_jni_scanner", "true");
+            cppOff.put("enable_paimon_cpp_reader", "false");
+
+            List<ConnectorScanRange> onRanges = provider.planScan(
+                    sessionWithProps(cppOn), handle, noColumns, Optional.empty(), -1, null, false);
+            List<ConnectorScanRange> offRanges = provider.planScan(
+                    sessionWithProps(cppOff), handle, noColumns, Optional.empty(), -1, null, false);
+            Assertions.assertFalse(onRanges.isEmpty(), "baseline scan must emit >=1 JNI range");
+            Assertions.assertEquals(offRanges.size(), onRanges.size(),
+                    "the cpp flag must not change the emitted range count");
+
+            for (int i = 0; i < onRanges.size(); i++) {
+                TTableFormatFileDesc onDesc = new TTableFormatFileDesc();
+                onRanges.get(i).populateRangeParams(onDesc, new TFileRangeDesc());
+                TTableFormatFileDesc offDesc = new TTableFormatFileDesc();
+                offRanges.get(i).populateRangeParams(offDesc, new TFileRangeDesc());
+
+                Assertions.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                        onDesc.getPaimonParams().getReaderType(),
+                        "reader_type must stay PAIMON_JNI even with enable_paimon_cpp_reader=true");
+                Assertions.assertFalse(onDesc.getPaimonParams().isSetPaimonTable(),
+                        "paimon_table is cpp-reader-only state and must no longer be shipped");
+                Assertions.assertEquals(offDesc.getPaimonParams().getPaimonSplit(),
+                        onDesc.getPaimonParams().getPaimonSplit(),
+                        "the split wire format must be identical with the cpp flag on and off");
+            }
+        }
+    }
+
     // ---- FIX-NATIVE-SUBSPLIT (M-3) ----
 
     private static final long MB = 1024L * 1024L;
@@ -1445,21 +1520,6 @@ public class PaimonScanPlanProviderTest {
                 return sessionProps;
             }
         };
-    }
-
-    @Test
-    public void isCppReaderEnabledReadsSessionProperty() {
-        // WHY: pins the EXACT session key ("enable_paimon_cpp_reader", byte-identical to
-        // SessionVariable.ENABLE_PAIMON_CPP_READER) and the default-false semantics. The format choice
-        // hinges on reading this flag correctly. MUTATION: wrong key, or defaulting true -> red.
-        Assertions.assertTrue(PaimonScanPlanProvider.isCppReaderEnabled(
-                sessionWithProps(Collections.singletonMap("enable_paimon_cpp_reader", "true"))));
-        Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(
-                sessionWithProps(Collections.singletonMap("enable_paimon_cpp_reader", "false"))));
-        Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(
-                sessionWithProps(Collections.emptyMap())), "absent flag must default to false");
-        Assertions.assertFalse(PaimonScanPlanProvider.isCppReaderEnabled(null),
-                "a null session must default to false");
     }
 
     @Test
