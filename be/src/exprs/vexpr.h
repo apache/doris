@@ -286,6 +286,20 @@ public:
 
     static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
 
+    // A static, structural estimate of how expensive this conjunct is to evaluate per row,
+    // used to order scan-layer filter conjuncts cheap-first so a cheap, highly-selective
+    // predicate can shrink the row set (or filter the whole block) before an expensive one
+    // runs. Mirrors PrestoDB's OrcSelectiveRecordReader.scoreFilter seed scores: a bare
+    // `col = const` / `col IN (consts)` is cheapest, arithmetic/cast slightly more, and any
+    // function call scales with the size of its expression tree; unknown complex nodes score
+    // highest so they sort last. Lower is cheaper. This is a heuristic for ordering only --
+    // it never changes which rows pass, so a wrong estimate costs at most a suboptimal order.
+    static double compute_conjunct_cost(const VExprSPtr& root);
+
+    // Stable-sort `conjuncts` ascending by compute_conjunct_cost so cheaper predicates run
+    // first. Stable so equal-cost conjuncts keep their original (planner) relative order.
+    static void reorder_conjuncts_by_cost(VExprContextSPtrs& conjuncts);
+
     Status deep_clone(VExprSPtr* cloned_expr,
                       const VExprCloneNodeOverride& clone_node_override = {}) const;
     virtual Status clone_node(VExprSPtr* cloned_expr) const;

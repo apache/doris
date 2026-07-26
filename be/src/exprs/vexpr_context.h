@@ -244,6 +244,60 @@ class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
+    // Per-conjunct selectivity + per-row cost measured across batches (the scan holds one
+    // VExprContext per conjunct for the whole scan). Both feed a periodic reorder that
+    // corrects the static cost order when a predicate's real behavior differs from the
+    // estimate -- e.g. a derived predicate like split_by_string(col,sep)[n]='x' the planner
+    // has no column stats for, or two FUNCTION_CALL predicates the static score can't tell
+    // apart. Selectivity is free (rows already counted on the filter path). Cost is sampled:
+    // one CLOCK_MONOTONIC pair per kTimingSampleEvery batches, so cheap predicates do not
+    // pay per-batch ~50ns of clock_gettime. Static phase-1 cost is the cold-start until
+    // enough timed rows accrue; then per_row_ns takes over.
+    struct FilterRuntimeStats {
+        int64_t input_rows = 0;       // cumulative rows fed to this conjunct
+        int64_t output_rows = 0;      // cumulative rows it let through
+        int64_t elapsed_ns = 0;       // cumulative sampled execution time
+        int64_t input_rows_timed = 0; // rows counted while sampling was on
+        int64_t sample_counter = 0;   // batch counter driving the sample gate
+
+        // Sample every Nth batch; other batches skip the clock reads entirely.
+        static constexpr int64_t kTimingSampleEvery = 8;
+        // Below this many timed rows the measurement is too noisy to trust; the reorder
+        // falls back on the static cost estimate until we cross the threshold.
+        static constexpr int64_t kTimingMinRows = 4096;
+
+        bool should_sample() const { return sample_counter % kTimingSampleEvery == 0; }
+
+        void update(int64_t in, int64_t out) {
+            input_rows += in;
+            output_rows += out;
+            ++sample_counter;
+        }
+        void update(int64_t in, int64_t out, int64_t sampled_ns) {
+            update(in, out);
+            if (sampled_ns > 0) {
+                elapsed_ns += sampled_ns;
+                input_rows_timed += in;
+            }
+        }
+        // Fraction of rows this conjunct eliminates, in [0, 1]; higher is more selective.
+        // Undefined (returns 0) before any rows are seen -- callers gate on input_rows first.
+        double dropped_fraction() const {
+            if (input_rows == 0) {
+                return 0.0;
+            }
+            return static_cast<double>(input_rows - output_rows) / static_cast<double>(input_rows);
+        }
+        // Measured per-row cost in ns, or 0 if we have not accrued enough timed rows to
+        // trust the average (caller then falls back on the static structural estimate).
+        double per_row_ns() const {
+            if (input_rows_timed < kTimingMinRows || elapsed_ns <= 0) {
+                return 0.0;
+            }
+            return static_cast<double>(elapsed_ns) / static_cast<double>(input_rows_timed);
+        }
+    };
+
     VExprContext(VExprSPtr expr);
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
@@ -324,6 +378,44 @@ public:
                                     const std::vector<IColumn::Filter*>* filters, Block* block,
                                     IColumn::Filter* result_filter, bool* can_filter_all);
 
+    // Selection-vector variant of execute_conjuncts for the scan filter path. Instead of
+    // evaluating every conjunct over all rows and AND-ing the results, it threads the set of
+    // surviving row indices between conjuncts so a later (typically expensive) predicate is
+    // evaluated only on the rows earlier ones let through -- mirroring PrestoDB's positions[]
+    // selective reader. Conjuncts should be ordered cheap-first (see
+    // VExpr::reorder_conjuncts_by_cost) so the surviving set shrinks fast.
+    //
+    // Produces the same full-width `result_filter` / `can_filter_all` contract as
+    // execute_conjuncts, so callers are interchangeable. Runtime-filter-wrapper conjuncts are
+    // always evaluated full-width (they carry selectivity/counter side effects), and the
+    // selective gather is skipped while the surviving fraction is still high (gather is not
+    // worth its memcpy then). `filters` are AND-ed in as pre-existing delete/position masks.
+    static Status execute_conjuncts_selective(const VExprContextSPtrs& ctxs,
+                                              const std::vector<IColumn::Filter*>* filters,
+                                              const Block* block, IColumn::Filter* result_filter,
+                                              bool* can_filter_all);
+
+    // Static-cost threshold at/above which a conjunct counts as "expensive" for the adaptive
+    // reorder admission gate. compute_conjunct_cost scores a function call ~100 and a plain
+    // comparison ~2, so this fires only when a real function/expression predicate is present.
+    static constexpr double kAdaptiveReorderMinCost = 50.0;
+    // Measured per-row cost (ns) at/above which a conjunct counts as "expensive" even if the
+    // static estimate underrated it. ~50ns is a couple of L1 hits' worth of work; anything
+    // below that is a cheap comparison the reorder needn't fight over.
+    static constexpr double kAdaptiveReorderMinPerRowNs = 50.0;
+
+    // Reorder `conjuncts` in place by (per-row cost / measured drop fraction) ascending, once
+    // conjuncts have seen at least `min_rows` input rows; below that they keep their current
+    // (static phase-1) order so a noisy early measurement does not churn the plan. Only kicks
+    // in when at least one conjunct is expensive -- either by the static estimate
+    // (cost >= `min_cost`) or by measured per-row ns (>= kAdaptiveReorderMinPerRowNs) --
+    // because reordering cheap-only predicates is not worth even this small overhead. Runtime-
+    // filter wrappers are left in front. Returns true if it reordered. Combines PrestoDB's
+    // static-cost bootstrap with DuckDB-style measured cost and StarRocks-style measured
+    // selectivity.
+    static bool adaptive_reorder_conjuncts(VExprContextSPtrs& conjuncts, int64_t min_rows,
+                                           double min_cost = kAdaptiveReorderMinCost);
+
     [[nodiscard]] static Status execute_conjuncts_and_filter_block(
             const VExprContextSPtrs& ctxs, Block* block, std::vector<uint32_t>& columns_to_filter,
             int column_to_keep);
@@ -347,6 +439,8 @@ public:
         }
         return *_rf_selectivity;
     }
+
+    FilterRuntimeStats& filter_runtime_stats() { return _filter_runtime_stats; }
 
     FunctionContext::FunctionStateScope get_function_state_scope() const {
         return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
@@ -418,5 +512,6 @@ private:
 
     std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
             std::make_unique<RuntimeFilterSelectivity>();
+    FilterRuntimeStats _filter_runtime_stats;
 };
 } // namespace doris

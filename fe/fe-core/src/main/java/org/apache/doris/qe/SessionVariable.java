@@ -600,6 +600,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_EXPR_ZONEMAP_FILTER = "enable_expr_zonemap_filter";
 
+    public static final String ENABLE_SCAN_CONJUNCT_REORDER = "enable_scan_conjunct_reorder";
+
+    public static final String ENABLE_SCAN_SELECTIVE_FILTER = "enable_scan_selective_filter";
+
+    public static final String ENABLE_SCAN_ADAPTIVE_REORDER = "enable_scan_adaptive_reorder";
+
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
 
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
@@ -2718,6 +2724,46 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableExprZonemapFilter = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_SCAN_CONJUNCT_REORDER,
+            description = {"控制 orc/parquet reader 是否按结构化代价对 filter 谓词重排序,"
+                    + "让便宜且高过滤率的谓词先执行(便宜谓词刷空整块后昂贵谓词天然跳过)。"
+                    + "重排只改执行顺序,不改变结果集。默认为 false。",
+                    "Controls whether orc/parquet readers reorder filter conjuncts by a "
+                            + "structural cost estimate so cheap, highly selective predicates "
+                            + "run first (an expensive predicate is skipped when a cheap one "
+                            + "already filters the whole block). Reordering only changes "
+                            + "execution order, never the result set. The default value is false."},
+            needForward = true)
+    public boolean enableScanConjunctReorder = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_SCAN_SELECTIVE_FILTER,
+            description = {"控制 orc/parquet reader 是否用选择向量执行 filter:后续谓词只在前面谓词"
+                    + "保留下来的幸存行上求值(而非每个谓词都在全部行上算再 AND),让昂贵谓词只在"
+                    + "少量幸存行上执行。只改执行方式,不改变结果集。默认为 false。",
+                    "Controls whether orc/parquet readers evaluate filters with a selection "
+                            + "vector: a later predicate is evaluated only on rows surviving the "
+                            + "earlier ones (instead of every predicate over all rows then AND), "
+                            + "so an expensive predicate runs only on the few surviving rows. It "
+                            + "changes execution only, never the result set. Default is false."},
+            needForward = true)
+    public boolean enableScanSelectiveFilter = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_SCAN_ADAPTIVE_REORDER,
+            description = {"控制 orc/parquet reader 是否在运行时按实测代价(每消除一行的耗时)重排 filter"
+                    + "谓词:攒够一定行数后用实测顺序覆盖静态估计,纠正倾斜数据或 UDF 未知代价导致的"
+                    + "误判。依赖 enable_scan_selective_filter 采集统计。只改执行顺序,不改结果集。默认为 false。",
+                    "Controls whether orc/parquet readers reorder filter conjuncts at runtime by "
+                            + "measured cost (time per row eliminated): once enough rows are seen, "
+                            + "the measured order overrides the static estimate, correcting for "
+                            + "skewed data or unknown UDF cost. Relies on enable_scan_selective_filter "
+                            + "to collect stats. Changes execution order only, never the result "
+                            + "set. Default is false."},
+            needForward = true)
+    public boolean enableScanAdaptiveReorder = false;
 
     @VarAttrDef.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
@@ -5053,6 +5099,30 @@ public class SessionVariable implements Serializable, Writable {
         this.enableExprZonemapFilter = enableExprZonemapFilter;
     }
 
+    public boolean isEnableScanConjunctReorder() {
+        return enableScanConjunctReorder;
+    }
+
+    public void setEnableScanConjunctReorder(boolean enableScanConjunctReorder) {
+        this.enableScanConjunctReorder = enableScanConjunctReorder;
+    }
+
+    public boolean isEnableScanSelectiveFilter() {
+        return enableScanSelectiveFilter;
+    }
+
+    public void setEnableScanSelectiveFilter(boolean enableScanSelectiveFilter) {
+        this.enableScanSelectiveFilter = enableScanSelectiveFilter;
+    }
+
+    public boolean isEnableScanAdaptiveReorder() {
+        return enableScanAdaptiveReorder;
+    }
+
+    public void setEnableScanAdaptiveReorder(boolean enableScanAdaptiveReorder) {
+        this.enableScanAdaptiveReorder = enableScanAdaptiveReorder;
+    }
+
     public boolean isCheckOrcInitSargsSuccess() {
         return checkOrcInitSargsSuccess;
     }
@@ -5771,6 +5841,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
+        tResult.setEnableScanConjunctReorder(enableScanConjunctReorder);
+        tResult.setEnableScanSelectiveFilter(enableScanSelectiveFilter);
+        tResult.setEnableScanAdaptiveReorder(enableScanAdaptiveReorder);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);

@@ -410,8 +410,23 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 bool can_filter_all = false;
 
                 {
-                    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
-                            _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+                    VExprContextSPtrs filter_contexts = _filter_conjuncts;
+                    if (_state != nullptr && _state->query_options().enable_scan_conjunct_reorder) {
+                        VExpr::reorder_conjuncts_by_cost(filter_contexts);
+                    }
+                    if (_state != nullptr && _state->query_options().enable_scan_adaptive_reorder) {
+                        VExprContext::adaptive_reorder_conjuncts(filter_contexts,
+                                                                 _state->batch_size());
+                    }
+                    if (_state != nullptr && _state->query_options().enable_scan_selective_filter) {
+                        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                                VExprContext::execute_conjuncts_selective(filter_contexts, &filters,
+                                                                          block, &result_filter,
+                                                                          &can_filter_all));
+                    } else {
+                        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
+                                filter_contexts, &filters, block, &result_filter, &can_filter_all));
+                    }
                 }
 
                 // Condition cache MISS: mark granules with surviving rows (non-lazy path)
@@ -684,10 +699,24 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             for (auto& conjunct : _filter_conjuncts) {
                 filter_contexts.emplace_back(conjunct);
             }
+            // Run cheap, highly selective predicates first so an expensive one is skipped
+            // once a cheap one filters the whole block. Reordering only changes execution
+            // order, never the result set.
+            if (_state != nullptr && _state->query_options().enable_scan_conjunct_reorder) {
+                VExpr::reorder_conjuncts_by_cost(filter_contexts);
+            }
+            if (_state != nullptr && _state->query_options().enable_scan_adaptive_reorder) {
+                VExprContext::adaptive_reorder_conjuncts(filter_contexts, _state->batch_size());
+            }
 
             {
-                RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
-                                                                &result_filter, &can_filter_all));
+                if (_state != nullptr && _state->query_options().enable_scan_selective_filter) {
+                    RETURN_IF_ERROR(VExprContext::execute_conjuncts_selective(
+                            filter_contexts, &filters, block, &result_filter, &can_filter_all));
+                } else {
+                    RETURN_IF_ERROR(VExprContext::execute_conjuncts(
+                            filter_contexts, &filters, block, &result_filter, &can_filter_all));
+                }
             }
 
             // Condition cache MISS: mark granules with surviving rows
