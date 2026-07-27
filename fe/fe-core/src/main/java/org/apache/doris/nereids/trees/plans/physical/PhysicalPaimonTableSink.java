@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -106,8 +108,13 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        List<String> primaryKeys = ((PaimonExternalTable) targetTable)
-                .getPaimonTable(Optional.empty()).primaryKeys();
+        PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTable;
+        Table paimonTable = paimonExternalTable.getPaimonTable(Optional.empty());
+        if (requiresSingleWriter(CoreOptions.fromMap(paimonTable.options()))) {
+            return PhysicalProperties.GATHER;
+        }
+
+        List<String> primaryKeys = paimonTable.primaryKeys();
         if (primaryKeys.isEmpty()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }
@@ -127,6 +134,19 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                     "Paimon primary-key column is missing from sink output"));
         }
         return PhysicalProperties.createHash(primaryKeyExprIds, ShuffleType.REQUIRE);
+    }
+
+    public boolean requiresSingleWriter() {
+        Table paimonTable = ((PaimonExternalTable) targetTable)
+                .getPaimonTable(Optional.empty());
+        return requiresSingleWriter(CoreOptions.fromMap(paimonTable.options()));
+    }
+
+    private boolean requiresSingleWriter(CoreOptions coreOptions) {
+        return !coreOptions.writeOnly()
+                && (coreOptions.needLookup()
+                        || coreOptions.changelogProducer()
+                                == CoreOptions.ChangelogProducer.FULL_COMPACTION);
     }
 
     @Override

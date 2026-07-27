@@ -26,6 +26,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.memory.HeapMemorySegmentPool;
@@ -34,6 +35,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.InnerTableCommit;
+import org.apache.paimon.table.sink.SinkRecord;
 import org.apache.paimon.table.sink.TableWriteImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,8 +47,12 @@ import java.nio.file.Paths;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * JNI entry point for Paimon write operations.
@@ -89,6 +95,8 @@ public class PaimonJniWriter {
     private IOManager ioManager;
     private long commitIdentifier;
     private String commitUser;
+    private boolean fullCompactionChangelog;
+    private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
     private List<CommitMessage> preparedCommitMessages = Collections.emptyList();
 
     public PaimonJniWriter() {
@@ -142,6 +150,10 @@ public class PaimonJniWriter {
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames);
                     validateWriteColumnsForMergeEngine(columnNames.length, coreOptions);
+                    this.fullCompactionChangelog =
+                            !coreOptions.writeOnly()
+                                    && coreOptions.changelogProducer()
+                                    == CoreOptions.ChangelogProducer.FULL_COMPACTION;
                     openFileStoreWriter(table, commitUser, overwrite, spillDirectories, coreOptions);
                     return null;
                 } catch (Throwable t) {
@@ -310,7 +322,17 @@ public class PaimonJniWriter {
         Object[][] columnValues = arrowConverter.convert(root, writeSchema.targetTypes());
         BatchTableWrite currentWriter = requireWriter();
         for (int r = 0; r < rowCount; r++) {
-            currentWriter.write(writeSchema.tableRow(columnValues, r));
+            if (fullCompactionChangelog) {
+                SinkRecord sinkRecord =
+                        tableWrite.writeAndReturn(writeSchema.tableRow(columnValues, r));
+                if (sinkRecord != null) {
+                    fullCompactionBuckets.add(
+                            new PartitionBucket(
+                                    sinkRecord.partition().copy(), sinkRecord.bucket()));
+                }
+            } else {
+                currentWriter.write(writeSchema.tableRow(columnValues, r));
+            }
         }
     }
 
@@ -330,11 +352,26 @@ public class PaimonJniWriter {
 
     private List<CommitMessage> prepareCommitMessages() throws Exception {
         BatchTableWrite currentWriter = requireWriter();
+        submitFullCompaction();
         List<CommitMessage> messages = tableWrite != null && commitIdentifier > 0
                 ? tableWrite.prepareCommit(true, commitIdentifier)
                 : currentWriter.prepareCommit();
         preparedCommitMessages = new ArrayList<>(messages);
         return messages;
+    }
+
+    private void submitFullCompaction() throws Exception {
+        if (!fullCompactionChangelog || fullCompactionBuckets.isEmpty()) {
+            return;
+        }
+        LOG.info("PaimonJniWriter submitting full compaction for {} buckets",
+                fullCompactionBuckets.size());
+        Iterator<PartitionBucket> iterator = fullCompactionBuckets.iterator();
+        while (iterator.hasNext()) {
+            PartitionBucket partitionBucket = iterator.next();
+            tableWrite.compact(partitionBucket.partition, partitionBucket.bucket, true);
+            iterator.remove();
+        }
     }
 
     private BatchTableWrite requireWriter() {
@@ -354,6 +391,8 @@ public class PaimonJniWriter {
             tableWrite = null;
             table = null;
             commitUser = null;
+            fullCompactionChangelog = false;
+            fullCompactionBuckets.clear();
             preparedCommitMessages = Collections.emptyList();
             try {
                 if (ioManager != null) {
@@ -387,6 +426,33 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
     // Utilities
     // ────────────────────────────────────────────────────────────
+
+    private static class PartitionBucket {
+        private final BinaryRow partition;
+        private final int bucket;
+
+        private PartitionBucket(BinaryRow partition, int bucket) {
+            this.partition = partition;
+            this.bucket = bucket;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof PartitionBucket)) {
+                return false;
+            }
+            PartitionBucket that = (PartitionBucket) other;
+            return bucket == that.bucket && partition.equals(that.partition);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(partition, bucket);
+        }
+    }
 
     /** InputStream over a direct ByteBuffer (no copy). */
     private static class DirectBufInputStream extends InputStream {
