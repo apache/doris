@@ -699,6 +699,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         buildMetaCache();
         // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
+        // By default, incremental updates keep cold names/object cache entries cold.
+        // forceUpdateCacheState is only for paths that intentionally populate those cold entries.
         if (forceUpdateCacheState) {
             tableNames.compute("", (ignored, current) ->
                     (current == null ? NameCacheValue.empty() : current).withName(remoteTableName, localTableName));
@@ -710,7 +712,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         tables.computeAndRun(
                 localTableName,
-                (ignored, current) -> forceUpdateCacheState || current != null ? table : null,
+                (ignored, current) -> (forceUpdateCacheState || current != null) ? table : null,
                 () -> tableIdToName.put(table.getId(), localTableName));
     }
 

@@ -164,8 +164,6 @@ public abstract class ExternalCatalog
     // no need to persist this field.
     private String errorMsg = "";
 
-    // db name does not contains "default_cluster"
-    protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
     protected TransactionManager transactionManager;
     protected MetaCacheEntry<String, NameCacheValue> databaseNames;
@@ -1337,6 +1335,8 @@ public abstract class ExternalCatalog
         long dbId = db.getId();
         // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
+        // By default, incremental updates keep cold names/object cache entries cold.
+        // forceUpdateCacheState is only for paths that intentionally populate those cold entries.
         if (forceUpdateCacheState) {
             databaseNames.compute("", (ignored, current) ->
                     (current == null ? NameCacheValue.empty() : current).withName(remoteDbName, localDbName));
@@ -1348,7 +1348,7 @@ public abstract class ExternalCatalog
         }
         databases.computeAndRun(
                 localDbName,
-                (ignored, current) -> forceUpdateCacheState || current != null ? db : null,
+                (ignored, current) -> (forceUpdateCacheState || current != null) ? db : null,
                 () -> dbIdToName.put(dbId, localDbName));
     }
 
