@@ -621,6 +621,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                 loadIds.add(((LoadLoadingTask) loadTask).getLoadId());
             }
         }
+        addLoadIdsToCancel(loadIds);
         idToTasks.clear();
 
         // set failMsg and state
@@ -663,6 +664,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // change state
         state = JobState.CANCELLED;
+    }
+
+    /** Add coordinator ids that are not represented by LoadLoadingTask instances. */
+    protected void addLoadIdsToCancel(List<TUniqueId> loadIds) {
     }
 
     protected void executeFinish() {

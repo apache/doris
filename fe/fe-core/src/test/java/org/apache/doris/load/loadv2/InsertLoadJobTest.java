@@ -24,12 +24,15 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -63,5 +66,34 @@ public class InsertLoadJobTest {
             Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());
             Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
         }
+    }
+
+    @Test
+    public void testRunningInsertLoadJobBindings() {
+        TUniqueId queryId = new TUniqueId(1, 2);
+        UserIdentity userInfo = new UserIdentity("root", "localhost");
+        InsertLoadJob insertLoadJob = new InsertLoadJob(
+                1L, 2L, "db1", "table1", "label", 3L, queryId, userInfo);
+
+        Assert.assertEquals(2L, ((Long) Deencapsulation.getField(insertLoadJob, "tableId")).longValue());
+        Assert.assertEquals(userInfo, Deencapsulation.getField(insertLoadJob, "userInfo"));
+        Assert.assertNotNull(Deencapsulation.getField(insertLoadJob, "authorizationInfo"));
+        Assert.assertTrue(insertLoadJob.bindTransaction(4L));
+        Assert.assertEquals(4L, insertLoadJob.getTransactionId());
+
+        List<TUniqueId> loadIds = new ArrayList<>();
+        insertLoadJob.addLoadIdsToCancel(loadIds);
+        Assert.assertEquals(1, loadIds.size());
+        Assert.assertEquals(queryId, loadIds.get(0));
+    }
+
+    @Test
+    public void testCancelledInsertLoadJobRejectsTransactionBinding() {
+        InsertLoadJob insertLoadJob = new InsertLoadJob(
+                1L, 2L, "db1", "table1", "label", 3L, new TUniqueId(1, 2), UserIdentity.UNKNOWN);
+        Deencapsulation.setField(insertLoadJob, "state", JobState.CANCELLED);
+
+        Assert.assertFalse(insertLoadJob.bindTransaction(4L));
+        Assert.assertEquals(4L, insertLoadJob.getTransactionId());
     }
 }

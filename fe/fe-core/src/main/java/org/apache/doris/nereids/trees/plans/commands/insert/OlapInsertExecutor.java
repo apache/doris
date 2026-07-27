@@ -132,6 +132,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
                     loadJobSourceType, ctx.getExecTimeoutS());
+            if (!insertLoadJob.bindTransaction(txnId)) {
+                throw new AnalysisException("Insert load job was cancelled before transaction binding");
+            }
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }

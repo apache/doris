@@ -27,6 +27,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
@@ -34,12 +35,13 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Set;
 
 /**
- * The class is performed to record the finished info of insert load job.
- * It is created after txn is visible which belongs to insert load job.
- * The state of insert load job is always finished, so it will never be scheduled by JobScheduler.
+ * The class records both running and finished insert load jobs. A running job is registered before
+ * execution so SHOW LOAD can report it and CANCEL LOAD can stop its transaction and coordinator.
+ * Insert load jobs are driven by their statement executors and are never scheduled by JobScheduler.
  */
 public class InsertLoadJob extends LoadJob {
 
@@ -54,6 +56,8 @@ public class InsertLoadJob extends LoadJob {
     @SerializedName("jdj")
     private String jobDetailsJson = null;
 
+    private transient TUniqueId queryId;
+
     // only for log replay
     public InsertLoadJob() {
         super(EtlJobType.INSERT);
@@ -61,6 +65,19 @@ public class InsertLoadJob extends LoadJob {
 
     public InsertLoadJob(long dbId, String label, long jobId) {
         super(EtlJobType.INSERT, dbId, label, jobId);
+    }
+
+    /**
+     * Create a load job for a running insert. Unlike a historical insert load record, this job is
+     * published before the insert finishes and must contain enough metadata for SHOW/CANCEL LOAD.
+     */
+    public InsertLoadJob(long dbId, long tableId, String dbName, String tableName, String label,
+            long jobId, TUniqueId queryId, UserIdentity userInfo) {
+        super(EtlJobType.INSERT, dbId, label, jobId);
+        this.tableId = tableId;
+        this.queryId = queryId;
+        this.authorizationInfo = new AuthorizationInfo(dbName, Sets.newHashSet(tableName));
+        this.userInfo = userInfo;
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
@@ -105,6 +122,37 @@ public class InsertLoadJob extends LoadJob {
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    /**
+     * Bind the transaction created by the insert executor to the running load job.
+     *
+     * @return false if CANCEL LOAD won the race and the executor must not start the coordinator
+     */
+    public boolean bindTransaction(long transactionId) {
+        writeLock();
+        try {
+            this.transactionId = transactionId;
+            return state != JobState.CANCELLED;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public boolean isCancelled() {
+        readLock();
+        try {
+            return state == JobState.CANCELLED;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    @Override
+    protected void addLoadIdsToCancel(List<TUniqueId> loadIds) {
+        if (queryId != null) {
+            loadIds.add(queryId);
+        }
     }
 
     @Override
