@@ -376,6 +376,18 @@ TEST_F(FunctionCastTest, test_from_datetime_to_date) {
                 {{Null()}, Null()}};
         check_function_for_cast<DataTypeDateV2>(input_types, data_set);
     }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2_NANO, 9}};
+        DataSet data_set = {
+                {{std::string("1677-09-21 00:12:43.145224192")}, std::string("1677-09-21")},
+                {{std::string("1969-12-31 23:59:59.999999999")}, std::string("1969-12-31")},
+                {{std::string("1970-01-01 00:00:00.000000000")}, std::string("1970-01-01")},
+                {{std::string("2262-04-11 23:47:16.854775807")}, std::string("2262-04-11")},
+                {{Null()}, Null()},
+        };
+        check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+    }
 }
 
 TEST_F(FunctionCastTest, test_from_time_to_date) {

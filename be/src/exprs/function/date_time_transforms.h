@@ -145,6 +145,10 @@ struct ToDateImpl {
         } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             t.cast_to_date();
             return t;
+        } else if constexpr (std::is_same_v<DateType, DateTimeV2NanoValue>) {
+            DateV2Value<DateV2ValueType> result;
+            DataTypeDateTimeV2::cast_to_date_v2(t, result);
+            return result;
         } else {
             return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
                     (UInt32)(t.to_date_int_val() >> TIME_PART_LENGTH));
@@ -205,14 +209,16 @@ struct ToIso8601Impl {
     static constexpr PrimitiveType OpArgType = PType;
     using ArgType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_iso8601";
-    static constexpr auto max_size = PType == TYPE_DATEV2 ? 10 : 26;
+    static constexpr auto max_size =
+            PType == TYPE_DATEV2 ? 10 : (PType == TYPE_DATETIMEV2_NANO ? 29 : 26);
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
                         const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
-        auto length = dt.to_buffer((char*)res_data.data() + offset,
-                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
-        if (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+        constexpr int scale = PType == TYPE_DATEV2 ? -1 : (PType == TYPE_DATETIMEV2_NANO ? 9 : 6);
+        auto length = dt.to_buffer((char*)res_data.data() + offset, scale);
+        if (PType == TYPE_DATETIMEV2 || PType == TYPE_DATETIMEV2_NANO ||
+            PType == TYPE_TIMESTAMPTZ) {
             res_data[offset + 10] = 'T';
         }
 

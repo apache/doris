@@ -37,7 +37,7 @@ import java.util.Objects;
  * Datetime type in Nereids.
  */
 public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
-    public static final int MAX_SCALE = 6;
+    public static final int MAX_SCALE = ScalarType.MAX_DATETIMEV2_SCALE;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
     public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
     public static final DateTimeV2Type WILDCARD = new DateTimeV2Type(-1);
@@ -57,7 +57,8 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         if (scale == SYSTEM_DEFAULT.scale) {
             return SYSTEM_DEFAULT;
         } else if (scale > MAX_SCALE || scale < 0) {
-            throw new AnalysisException("Scale of Datetime/Time must between 0 and 6. Scale was set to: " + scale);
+            throw new AnalysisException("Scale of Datetime must between 0 and " + MAX_SCALE
+                    + ". Scale was set to: " + scale);
         } else {
             return new DateTimeV2Type(scale);
         }
@@ -85,15 +86,26 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
             return SYSTEM_DEFAULT;
         }
         if (dataType instanceof DecimalV3Type) {
-            return DateTimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), 6));
+            return DateTimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), MAX_SCALE));
         }
         if (dataType instanceof DecimalV2Type) {
-            return DateTimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
+            return DateTimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), MAX_SCALE));
         }
         if (dataType instanceof TimeV2Type) {
             return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
         }
         return MAX;
+    }
+
+    /**
+     * Return the DATETIMEV2 type inferred from {@code dataType}, widened only when the operation
+     * itself requires more fractional digits.
+     */
+    public static DateTimeV2Type forTypeWithMinimumScale(DataType dataType, int minimumScale) {
+        if (dataType instanceof CharacterType) {
+            return DateTimeV2Type.of(minimumScale);
+        }
+        return DateTimeV2Type.of(Math.max(forType(dataType).getScale(), minimumScale));
     }
 
     public ScaleTimeType scaleTypeForType(DataType dataType) {

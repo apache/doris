@@ -59,11 +59,11 @@ class DateLiteralTest {
         s = DateLiteral.normalize("2021-5-01 0:0:0.001").get();
         Assertions.assertEquals("2021-05-01 00:00:00.001", s);
         s = DateLiteral.normalize("2021-5-01 0:0:0.12345678").get();
-        Assertions.assertEquals("2021-05-01 00:00:00.1234567", s);
+        Assertions.assertEquals("2021-05-01 00:00:00.12345678", s);
         s = DateLiteral.normalize("2021-5-1    Asia/Shanghai").get();
         Assertions.assertEquals("2021-05-01Asia/Shanghai", s);
         s = DateLiteral.normalize("2021-5-1 0:0:0.12345678   Asia/Shanghai").get();
-        Assertions.assertEquals("2021-05-01 00:00:00.1234567Asia/Shanghai", s);
+        Assertions.assertEquals("2021-05-01 00:00:00.12345678Asia/Shanghai", s);
     }
 
     @Test
@@ -222,6 +222,53 @@ class DateLiteralTest {
         new DateTimeV2Literal("2020.02.01 00.00.00.1");
         new DateTimeV2Literal("2020.02.01 00.00.00.000001");
         new DateTimeV2Literal("2020.02.01 00.00.00.0000001");
+    }
+
+    @Test
+    void testDateTimeV2Nanoseconds() {
+        DateTimeV2Literal nanoseconds =
+                new DateTimeV2Literal("1970-01-01 00:00:00.123456789");
+        Assertions.assertEquals(DateTimeV2Type.of(9), nanoseconds.getDataType());
+        Assertions.assertEquals(123456789, nanoseconds.nanoSecond);
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                nanoseconds.getStringValue());
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                nanoseconds.toLegacyLiteral().getStringValue());
+
+        DateTimeV2Literal rounded = new DateTimeV2Literal(
+                DateTimeV2Type.of(7), "1970-01-01 00:00:00.12345675");
+        Assertions.assertEquals("1970-01-01 00:00:00.1234568",
+                rounded.getStringValue());
+
+        DateTimeV2Literal scale7 = new DateTimeV2Literal(
+                DateTimeV2Type.of(7), "1969-12-31 23:59:59.99999994");
+        Assertions.assertEquals("1969-12-31 23:59:59.9999999",
+                scale7.getStringValue());
+        DateTimeV2Literal scale8 = new DateTimeV2Literal(
+                DateTimeV2Type.of(8), "1969-12-31 23:59:59.999999995");
+        Assertions.assertEquals("1970-01-01 00:00:00.00000000",
+                scale8.getStringValue());
+        Assertions.assertEquals(DateTimeV2Type.of(7),
+                DateTimeV2Type.forTypeFromString("2024-02-29 12:34:56.1234567"));
+        Assertions.assertEquals(DateTimeV2Type.of(8),
+                DateTimeV2Type.forTypeFromString("2024-02-29 12:34:56.12345678"));
+        Assertions.assertEquals(DateTimeV2Type.of(9),
+                DateTimeV2Type.forTypeFromString("2024-02-29 12:34:56.123456789"));
+
+        Assertions.assertDoesNotThrow(() ->
+                new DateTimeV2Literal("1677-09-21 00:12:43.145224192"));
+        Assertions.assertDoesNotThrow(() ->
+                new DateTimeV2Literal("2262-04-11 23:47:16.854775807"));
+        Assertions.assertEquals(Long.MIN_VALUE,
+                new DateTimeV2Literal("1677-09-21 00:12:43.145224192")
+                        .toLegacyLiteral().getRealValue());
+        Assertions.assertEquals(Long.MAX_VALUE,
+                new DateTimeV2Literal("2262-04-11 23:47:16.854775807")
+                        .toLegacyLiteral().getRealValue());
+        Assertions.assertThrows(AnalysisException.class, () ->
+                new DateTimeV2Literal("1677-09-21 00:12:43.145224191"));
+        Assertions.assertThrows(AnalysisException.class, () ->
+                new DateTimeV2Literal("2262-04-11 23:47:16.854775808"));
     }
 
     @Test

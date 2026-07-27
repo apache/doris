@@ -513,9 +513,20 @@ TimestampTzValue timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail
     return TimestampTzValue(datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone));
 }
 
+std::optional<DateTimeV2NanoValue> datetime_v2_nano_from_orc_millis(
+        int64_t millis, int32_t nanos_tail, const cctz::time_zone& timezone) {
+    const auto datetime = datetime_v2_from_orc_millis(millis, nanos_tail, timezone);
+    DateTimeV2NanoValue value;
+    if (!value.from_datetime(datetime,
+                             cast_set<uint16_t>(std::max<int32_t>(nanos_tail, 0) % 1000))) {
+        return std::nullopt;
+    }
+    return value;
+}
+
 bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
                             const cctz::time_zone& timezone, bool use_timestamp_tz,
-                            segment_v2::ZoneMap* zone_map) {
+                            bool use_datetime_v2_nano, segment_v2::ZoneMap* zone_map) {
     const auto* timestamp_statistics =
             dynamic_cast<const ::orc::TimestampColumnStatistics*>(&statistics);
     if (timestamp_statistics == nullptr || !timestamp_statistics->hasMinimum() ||
@@ -538,6 +549,20 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
                         timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
                                                      timestamp_statistics->getMaximumNanos())),
                 zone_map);
+    }
+    if (use_datetime_v2_nano) {
+        const auto minimum =
+                datetime_v2_nano_from_orc_millis(timestamp_statistics->getMinimum(),
+                                                 timestamp_statistics->getMinimumNanos(), timezone);
+        const auto maximum =
+                datetime_v2_nano_from_orc_millis(timestamp_statistics->getMaximum(),
+                                                 timestamp_statistics->getMaximumNanos(), timezone);
+        if (!minimum.has_value() || !maximum.has_value()) {
+            return false;
+        }
+        return set_validated_zone_map(Field::create_field<TYPE_DATETIMEV2_NANO>(*minimum),
+                                      Field::create_field<TYPE_DATETIMEV2_NANO>(*maximum),
+                                      zone_map);
     }
     if (!format::utc_timestamp_range_is_monotonic(
                 format::floor_epoch_seconds(timestamp_statistics->getMinimum(), 1000),
@@ -634,10 +659,11 @@ bool build_zone_map_from_orc_statistics(const ::orc::Type& type,
         // ORC stores timestamp statistics as wall-clock values in UTC coordinates. Restore them
         // with UTC so the session timezone does not shift the civil time.
         static const auto utc_time_zone = cctz::utc_time_zone();
-        return set_timestamp_zone_map(statistics, utc_time_zone, false, zone_map);
+        return set_timestamp_zone_map(statistics, utc_time_zone, false, true, zone_map);
     }
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
-        return set_timestamp_zone_map(statistics, timezone, enable_mapping_timestamp_tz, zone_map);
+        return set_timestamp_zone_map(statistics, timezone, enable_mapping_timestamp_tz,
+                                      !enable_mapping_timestamp_tz, zone_map);
     case ::orc::TypeKind::DECIMAL:
         return set_decimal_zone_map(type, statistics, zone_map);
     default:
@@ -1013,13 +1039,13 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeDateV2>();
         break;
     case ::orc::TypeKind::TIMESTAMP:
-        data_type = std::make_shared<DataTypeDateTimeV2>(6);
+        data_type = create_datetimev2(9);
         break;
     case ::orc::TypeKind::TIMESTAMP_INSTANT:
         if (_enable_mapping_timestamp_tz) {
             data_type = std::make_shared<DataTypeTimeStampTz>(6);
         } else {
-            data_type = std::make_shared<DataTypeDateTimeV2>(6);
+            data_type = create_datetimev2(9);
         }
         break;
     case ::orc::TypeKind::DECIMAL:

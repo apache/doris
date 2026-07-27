@@ -160,13 +160,10 @@ public class JdbcClickHouseClient extends JdbcClient {
             if (ckType.startsWith("DateTime(") || ckType.equals("DateTime")) {
                 return ScalarType.createDatetimeV2Type(0);
             } else {
-                // DateTime64 with millisecond precision
-                // Datetime64(6) / DateTime64(6, 'Asia/Shanghai')
+                // DateTime64(precision) / DateTime64(precision, 'Asia/Shanghai')
                 String[] accuracy = ckType.substring(11, ckType.length() - 1).split(", ");
                 int precision = Integer.parseInt(accuracy[0]);
-                if (precision > 6) {
-                    precision = JDBC_DATETIME_SCALE;
-                }
+                precision = normalizeDateTime64Precision(precision);
                 return ScalarType.createDatetimeV2Type(precision);
             }
         }
@@ -209,6 +206,10 @@ public class JdbcClickHouseClient extends JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
+    }
+
+    static int normalizeDateTime64Precision(int precision) {
+        return Math.min(precision, ScalarType.MAX_DATETIMEV2_SCALE);
     }
 
     /**

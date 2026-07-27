@@ -252,7 +252,8 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         type = orc::createPrimitiveType(orc::DATE);
         break;
     }
-    case TYPE_DATETIMEV2: {
+    case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO: {
         type = orc::createPrimitiveType(orc::TIMESTAMP);
         break;
     }

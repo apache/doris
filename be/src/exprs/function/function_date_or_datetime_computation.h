@@ -596,10 +596,11 @@ struct TimeDiffImpl {
     }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        const auto scale = std::min(arguments[0].type->get_scale(), DataTypeTimeV2::MAX_SCALE);
         if (arguments[0].type->is_nullable() || arguments[1].type->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale()));
+            return make_nullable(std::make_shared<DataTypeTimeV2>(scale));
         }
-        return std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale());
+        return std::make_shared<DataTypeTimeV2>(scale);
     }
 };
 
@@ -1011,24 +1012,46 @@ struct CurrentDateTimeImpl {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
+        const auto result_type = block.get_by_position(result).type->get_primitive_type();
         if constexpr (WithPrecision) {
-            DCHECK(block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2 ||
-                   block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2);
-            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
+            DCHECK(result_type == TYPE_DATETIMEV2_NANO || result_type == TYPE_DATETIMEV2 ||
+                   result_type == TYPE_DATEV2);
+            if (result_type == TYPE_DATETIMEV2_NANO) {
+                return executeImpl<TYPE_DATETIMEV2_NANO>(context, block, arguments, result,
+                                                         input_rows_count);
+            }
+            if (result_type == TYPE_DATETIMEV2) {
                 return executeImpl<TYPE_DATETIMEV2>(context, block, arguments, result,
                                                     input_rows_count);
-            } else {
-                return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
-                                                input_rows_count);
             }
+            return executeImpl<TYPE_DATEV2>(context, block, arguments, result, input_rows_count);
         } else {
-            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
+            if (result_type == TYPE_DATETIMEV2) {
                 return executeImpl<TYPE_DATETIMEV2>(context, block, arguments, result,
                                                     input_rows_count);
-            } else {
-                return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
-                                                input_rows_count);
             }
+            DCHECK(result_type == TYPE_DATEV2);
+            return executeImpl<TYPE_DATEV2>(context, block, arguments, result, input_rows_count);
+        }
+    }
+
+    template <typename DateValueType>
+    static void set_current_datetime(DateValueType& value, FunctionContext* context, int scale) {
+        if constexpr (std::is_same_v<DateValueType, DateTimeV2NanoValue>) {
+            const int scale_factor = int_exp10(9 - scale);
+            const int32_t nano_seconds =
+                    context->state()->nano_seconds() / scale_factor * scale_factor;
+            DateV2Value<DateTimeV2ValueType> datetime;
+            datetime.from_unixtime(context->state()->timestamp_ms() / 1000, nano_seconds,
+                                   context->state()->timezone_obj(), scale);
+            DORIS_CHECK(value.from_datetime(
+                    datetime,
+                    static_cast<uint16_t>(nano_seconds %
+                                          (DateTimeV2NanoValue::NANOS_PER_SECOND / 1000000))));
+        } else {
+            value.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                context->state()->nano_seconds(), context->state()->timezone_obj(),
+                                scale);
         }
     }
 
@@ -1044,9 +1067,7 @@ struct CurrentDateTimeImpl {
             if (const auto* const_column = check_and_get_column<ColumnConst>(
                         block.get_by_position(arguments[0]).column.get())) {
                 int64_t scale = const_column->get_int(0);
-                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                  context->state()->nano_seconds(),
-                                  context->state()->timezone_obj(), scale);
+                set_current_datetime(dtv, context, scale);
                 if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                     reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                 }
@@ -1060,10 +1081,7 @@ struct CurrentDateTimeImpl {
                         nullable_column->get_nested_column_ptr().get());
                 for (int i = 0; i < input_rows_count; i++) {
                     if (!null_map[i]) {
-                        dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                          context->state()->nano_seconds(),
-                                          context->state()->timezone_obj(),
-                                          nested_column->get_element(i));
+                        set_current_datetime(dtv, context, nested_column->get_element(i));
                         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                             reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                         }
@@ -1080,9 +1098,7 @@ struct CurrentDateTimeImpl {
                 const auto* int_column = assert_cast<const ColumnInt32*>(
                         block.get_by_position(arguments[0]).column.get());
                 for (int i = 0; i < input_rows_count; i++) {
-                    dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                      context->state()->nano_seconds(),
-                                      context->state()->timezone_obj(), int_column->get_element(i));
+                    set_current_datetime(dtv, context, int_column->get_element(i));
                     if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                         reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                     }
@@ -1326,6 +1342,26 @@ struct UtcImpl {
             const auto* col = assert_cast<const ColumnInt32*>(
                     block.get_by_position(arguments[0]).column.get());
             scale = col->get_element(0);
+        }
+        if constexpr (ReturnType == TYPE_DATETIMEV2) {
+            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2_NANO) {
+                auto col_to = ColumnDateTimeV2Nano::create();
+                const int scale_factor = int_exp10(9 - scale);
+                const int32_t nano_seconds =
+                        context->state()->nano_seconds() / scale_factor * scale_factor;
+                DateV2Value<DateTimeV2ValueType> datetime;
+                DORIS_CHECK(datetime.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                                   nano_seconds, "+00:00", scale));
+                DateTimeV2NanoValue value;
+                DORIS_CHECK(value.from_datetime(
+                        datetime,
+                        static_cast<uint16_t>(nano_seconds %
+                                              DateTimeV2NanoValue::NANOS_PER_MICROSECOND)));
+                col_to->insert_value(value);
+                block.get_by_position(result).column =
+                        ColumnConst::create(std::move(col_to), input_rows_count);
+                return Status::OK();
+            }
         }
         auto col_to = PrimitiveTypeTraits<ReturnType>::ColumnType::create();
         DateV2Value<DateTimeV2ValueType> dtv;
@@ -1613,19 +1649,34 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeTimeV2>(arguments[0]->get_scale());
+        return std::make_shared<DataTypeTimeV2>(
+                std::min(arguments[0]->get_scale(), DataTypeTimeV2::MAX_SCALE));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
-        ColumnPtr col = block.get_by_position(arguments[0]).column;
-        const auto& arg = assert_cast<const ColumnDateTimeV2&>(*col.get());
+        const auto& argument = block.get_by_position(arguments[0]);
+        if (argument.type->get_primitive_type() == TYPE_DATETIMEV2_NANO) {
+            return execute_typed<TYPE_DATETIMEV2_NANO>(block, arguments[0], result,
+                                                       input_rows_count);
+        }
+        DORIS_CHECK_EQ(argument.type->get_primitive_type(), TYPE_DATETIMEV2);
+        return execute_typed<TYPE_DATETIMEV2>(block, arguments[0], result, input_rows_count);
+    }
+
+private:
+    template <PrimitiveType PType>
+    Status execute_typed(Block& block, uint32_t argument, uint32_t result,
+                         size_t input_rows_count) const {
+        const auto& arg = assert_cast<const typename PrimitiveTypeTraits<PType>::ColumnType&>(
+                *block.get_by_position(argument).column);
         ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res->get_data();
-        for (int i = 0; i < arg.size(); i++) {
+        for (size_t i = 0; i < arg.size(); ++i) {
             const auto& v = arg.get_element(i);
-            // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
+            // TIMEV2 supports at most microseconds, so sub-microsecond digits are intentionally
+            // discarded for DATETIMEV2(7..9).
             res_data[i] = TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
         }
         block.replace_by_position(result, std::move(res));

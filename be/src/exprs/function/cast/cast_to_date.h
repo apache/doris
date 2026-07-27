@@ -19,6 +19,7 @@
 
 #include <sys/types.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <type_traits>
@@ -43,7 +44,8 @@
 
 namespace doris {
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
+    requires(IsStringType<FromDataType> &&
+             (IsDatelikeTypes<ToDataType> || std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -77,7 +79,82 @@ public:
 };
 
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(CastUtil::IsPureDigitType<FromDataType> && IsDatelikeTypes<ToDataType>)
+    requires(CastUtil::IsPureDigitType<FromDataType> &&
+             std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>)
+class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from = assert_cast<const typename FromDataType::ColumnType&>(
+                *block.get_by_position(arguments[0]).column);
+        auto col_to = ColumnDateTimeV2Nano::create(input_rows_count);
+        auto col_nullmap = ColumnUInt8::create(input_rows_count, 0);
+        const auto to_scale = block.get_by_position(result).type->get_scale();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+
+            Status status = Status::OK();
+            DateTimeV2NanoValue value;
+            if constexpr (IsDataTypeDecimal<FromDataType>) {
+                const auto string_value = col_from.get_data()[i].to_string(col_from.get_scale());
+                int64_t epoch_nanos = 0;
+                status = parse_datetimev2_nano(StringRef(string_value.data(), string_value.size()),
+                                               to_scale, &epoch_nanos);
+                value = DateTimeV2NanoValue(epoch_nanos);
+            } else {
+                CastParameters params {.status = Status::OK(),
+                                       .is_strict = CastMode == CastModeType::StrictMode};
+                DateV2Value<DateTimeV2ValueType> datetime;
+                bool parsed = false;
+                if constexpr (IsDataTypeInt<FromDataType>) {
+                    parsed = CastToDatetimeV2::from_integer(col_from.get_element(i), datetime,
+                                                            params);
+                } else {
+                    static_assert(IsDataTypeFloat<FromDataType>);
+                    parsed = CastToDatetimeV2::from_float(col_from.get_element(i), datetime,
+                                                          std::min<UInt32>(to_scale, 6), params);
+                }
+                if (!parsed) {
+                    status = params.status.ok()
+                                     ? Status::InvalidArgument("Invalid numeric datetime value")
+                                     : params.status;
+                } else if (!value.from_datetime(datetime)) {
+                    status = Status::InvalidArgument(
+                            "DATETIMEV2({}) value is outside the signed epoch-nanosecond range",
+                            to_scale);
+                }
+            }
+
+            if (!status.ok()) {
+                if constexpr (CastMode == CastModeType::StrictMode) {
+                    status.prepend(fmt::format("Cannot cast row {} from {} to DATETIMEV2({}): ", i,
+                                               block.get_by_position(arguments[0]).type->get_name(),
+                                               to_scale));
+                    return status;
+                }
+                col_nullmap->get_data()[i] = true;
+            } else {
+                col_to->get_data()[i] = value;
+            }
+        }
+
+        if constexpr (CastMode == CastModeType::StrictMode) {
+            block.get_by_position(result).column = std::move(col_to);
+        } else {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
+        }
+        return Status::OK();
+    }
+};
+
+template <CastModeType CastMode, typename FromDataType, typename ToDataType>
+    requires(CastUtil::IsPureDigitType<FromDataType> && IsDatelikeTypes<ToDataType> &&
+             !std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -130,14 +207,67 @@ public:
 };
 
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(IsDatelikeTypes<FromDataType> && IsDatelikeTypes<ToDataType>)
+    requires(IsDataTypeDateTimeV2<FromDataType> && IsDataTypeDateTimeV2<ToDataType> &&
+             (std::is_same_v<FromDataType, DataTypeDateTimeV2Nano> ||
+              std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        constexpr bool Nullable = std::is_same_v<FromDataType, ToDataType> &&
-                                  (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>);
+        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
+                block.get_by_position(arguments[0]).column.get());
+        auto col_to = ToDataType::ColumnType::create(input_rows_count);
+        auto col_nullmap = ColumnUInt8::create(input_rows_count, 0);
+
+        const auto& from_type = block.get_by_position(arguments[0]).type;
+        const auto& to_type = block.get_by_position(result).type;
+        const UInt32 from_scale = from_type->get_scale();
+        const UInt32 to_scale = to_type->get_scale();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+
+            if (!transform_date_scale(to_scale, from_scale, col_to->get_data()[i],
+                                      col_from->get_data()[i])) {
+                if constexpr (CastMode == CastModeType::StrictMode) {
+                    auto format_options = DataTypeSerDe::get_default_format_options();
+                    auto time_zone = cctz::utc_time_zone();
+                    format_options.timezone = (context && context->state())
+                                                      ? &context->state()->timezone_obj()
+                                                      : &time_zone;
+                    return Status::InvalidArgument(
+                            "DatetimeV2 overflow when casting {} from {} to {}",
+                            from_type->to_string(*col_from, i, format_options),
+                            from_type->get_name(), to_type->get_name());
+                }
+                col_nullmap->get_data()[i] = true;
+                col_to->get_data()[i] = typename ToDataType::FieldType {};
+            }
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
+        return Status::OK();
+    }
+};
+
+template <CastModeType CastMode, typename FromDataType, typename ToDataType>
+    requires(IsDatelikeTypes<FromDataType> && IsDatelikeTypes<ToDataType> &&
+             !(IsDataTypeDateTimeV2<FromDataType> && IsDataTypeDateTimeV2<ToDataType> &&
+               (std::is_same_v<FromDataType, DataTypeDateTimeV2Nano> ||
+                std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>)))
+class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        constexpr bool Nullable =
+                (std::is_same_v<FromDataType, ToDataType> &&
+                 (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>)) ||
+                std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>;
 
         const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
@@ -214,11 +344,30 @@ public:
                 DataTypeDateV2::cast_to_date_time(col_from->get_data()[i], col_to->get_data()[i]);
             } else if constexpr (IsDateType<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 auto dtv1 = col_from->get_data()[i];
-                col_to->get_data()[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                auto datetimev2 = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
                         dtv1.to_datetime_v2());
+                if constexpr (std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>) {
+                    if (!col_to->get_data()[i].from_datetime(datetimev2)) {
+                        RETURN_IF_ERROR(handle_datetime_v2_nano_overflow(block, arguments, result,
+                                                                         i, col_to->get_data(),
+                                                                         col_nullmap->get_data()));
+                    }
+                } else {
+                    col_to->get_data()[i] = datetimev2;
+                }
             } else if constexpr (IsDateV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
-                DataTypeDateV2::cast_to_date_time_v2(col_from->get_data()[i],
-                                                     col_to->get_data()[i]);
+                if constexpr (std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>) {
+                    DateV2Value<DateTimeV2ValueType> datetimev2;
+                    DataTypeDateV2::cast_to_date_time_v2(col_from->get_data()[i], datetimev2);
+                    if (!col_to->get_data()[i].from_datetime(datetimev2)) {
+                        RETURN_IF_ERROR(handle_datetime_v2_nano_overflow(block, arguments, result,
+                                                                         i, col_to->get_data(),
+                                                                         col_nullmap->get_data()));
+                    }
+                } else {
+                    DataTypeDateV2::cast_to_date_time_v2(col_from->get_data()[i],
+                                                         col_to->get_data()[i]);
+                }
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeType<ToDataType>) {
                 // from Time to Datetime
                 VecDateTimeValue dtv; // datetime by default
@@ -261,22 +410,36 @@ public:
                 dtmv2.date_add_interval<TimeUnit::MICROSECOND, false>(
                         TimeInterval(MICROSECOND, microsecond, neg));
 
-                col_to->get_data()[i] = dtmv2;
+                if constexpr (std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>) {
+                    if (!col_to->get_data()[i].from_datetime(dtmv2)) {
+                        RETURN_IF_ERROR(handle_datetime_v2_nano_overflow(block, arguments, result,
+                                                                         i, col_to->get_data(),
+                                                                         col_nullmap->get_data()));
+                    }
+                } else {
+                    col_to->get_data()[i] = dtmv2;
+                }
             } else if constexpr (IsDateTimeType<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 // from Datetime to Datetime
                 auto dtmv1 = col_from->get_data()[i];
-                col_to->get_data()[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                auto datetimev2 = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
                         dtmv1.to_datetime_v2());
+                if constexpr (std::is_same_v<ToDataType, DataTypeDateTimeV2Nano>) {
+                    if (!col_to->get_data()[i].from_datetime(datetimev2)) {
+                        RETURN_IF_ERROR(handle_datetime_v2_nano_overflow(block, arguments, result,
+                                                                         i, col_to->get_data(),
+                                                                         col_nullmap->get_data()));
+                    }
+                } else {
+                    col_to->get_data()[i] = datetimev2;
+                }
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateTimeType<ToDataType>) {
                 DataTypeDateTimeV2::cast_to_date_time(col_from->get_data()[i],
                                                       col_to->get_data()[i]);
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(arguments[0]).type.get());
+                const auto& type = block.get_by_position(arguments[0]).type;
                 auto scale = type->get_scale();
-
-                const auto* to_type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(result).type.get());
+                const auto& to_type = block.get_by_position(result).type;
                 UInt32 to_scale = to_type->get_scale();
 
                 bool success = transform_date_scale(to_scale, scale, col_to->get_data()[i],
@@ -297,9 +460,7 @@ public:
                         //TODO: maybe we can remove all set operations on nested of null cell.
                         // the correctness should be keep by downstream user with replace_... or manually
                         // process null data if need.
-                        col_to->get_data()[i] =
-                                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
-                                        MIN_DATETIME_V2);
+                        col_to->get_data()[i] = typename ToDataType::FieldType {};
                     }
                 }
 
@@ -350,9 +511,7 @@ public:
                 // from Datetime to Time
                 auto dtmv2 = col_from->get_data()[i];
 
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(arguments[0]).type.get());
-                auto scale = type->get_scale();
+                auto scale = block.get_by_position(arguments[0]).type->get_scale();
                 const auto* to_type = assert_cast<const DataTypeTimeV2*>(
                         block.get_by_position(result).type.get());
                 UInt32 to_scale = to_type->get_scale();
@@ -360,21 +519,29 @@ public:
                 uint32_t hour = dtmv2.hour();
                 uint32_t minute = dtmv2.minute();
                 uint32_t second = dtmv2.second();
-                uint32_t microseconds = dtmv2.microsecond();
+                constexpr UInt32 fraction_scale =
+                        std::is_same_v<FromDataType, DataTypeDateTimeV2Nano> ? 9 : 6;
+                uint32_t fraction = 0;
+                if constexpr (std::is_same_v<FromDataType, DataTypeDateTimeV2Nano>) {
+                    fraction = dtmv2.nanosecond();
+                } else {
+                    fraction = dtmv2.microsecond();
+                }
                 if (to_scale < scale) { // need to round
-                    // e.g. scale reduce to 4, means we need to round the last 2 digits
-                    // 999956: 56 > 100/2, then round up to 1000000
                     DCHECK(to_scale <= 6)
                             << "to_scale should be in range [0, 6], but got " << to_scale;
-                    auto divisor = (uint32_t)common::exp10_i64(6 - to_scale);
-                    uint32_t remainder = microseconds % divisor;
-                    microseconds = (microseconds / divisor) * divisor;
+                    const auto divisor =
+                            static_cast<uint32_t>(common::exp10_i64(fraction_scale - to_scale));
+                    const uint32_t remainder = fraction % divisor;
+                    fraction = fraction / divisor * divisor;
                     if (remainder >= divisor / 2) {
-                        // do rounding up
-                        microseconds += divisor;
+                        fraction += divisor;
                     }
                 }
 
+                uint32_t microseconds = std::is_same_v<FromDataType, DataTypeDateTimeV2Nano>
+                                                ? fraction / 1000
+                                                : fraction;
                 // carry on if microseconds >= 1000000
                 if (microseconds >= 1000000) {
                     microseconds -= 1000000;
@@ -406,6 +573,22 @@ public:
         } else {
             block.get_by_position(result).column = std::move(col_to);
         }
+        return Status::OK();
+    }
+
+private:
+    Status handle_datetime_v2_nano_overflow(Block& block, const ColumnNumbers& arguments,
+                                            uint32_t result, size_t row,
+                                            ColumnDateTimeV2Nano::Container& result_data,
+                                            ColumnUInt8::Container& null_map) const {
+        if constexpr (CastMode == CastModeType::StrictMode) {
+            const auto& from_type = block.get_by_position(arguments[0]).type;
+            const auto& to_type = block.get_by_position(result).type;
+            return Status::InvalidArgument("DatetimeV2 overflow when casting row {} from {} to {}",
+                                           row, from_type->get_name(), to_type->get_name());
+        }
+        null_map[row] = true;
+        result_data[row] = DateTimeV2NanoValue {};
         return Status::OK();
     }
 };
@@ -479,6 +662,52 @@ public:
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null));
+        return Status::OK();
+    }
+};
+
+template <CastModeType Mode>
+class CastToImpl<Mode, DataTypeTimeStampTz, DataTypeDateTimeV2Nano> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
+                        .get_data();
+        auto col_to = ColumnDateTimeV2Nano::create(input_rows_count);
+        auto& col_to_data = col_to->get_data();
+        auto col_null = ColumnBool::create(input_rows_count, 0);
+        auto& col_null_map = col_null->get_data();
+        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto tz_scale = block.get_by_position(arguments[0]).type->get_scale();
+        const auto dt_scale = block.get_by_position(result).type->get_scale();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+            TimestampTzValue from_tz {col_from[i]};
+            DateV2Value<DateTimeV2ValueType> datetime;
+            const bool converted =
+                    from_tz.to_datetime(datetime, local_time_zone, tz_scale, tz_scale) &&
+                    transform_date_scale(dt_scale, tz_scale, col_to_data[i], datetime);
+            if (!converted) {
+                if constexpr (Mode == CastModeType::StrictMode) {
+                    return Status::InvalidArgument(
+                            "can not cast from timestamptz : {} to datetime in timezone : {}",
+                            from_tz.to_string(local_time_zone), context->state()->timezone());
+                }
+                col_null_map[i] = true;
+            }
+        }
+
+        if constexpr (Mode == CastModeType::StrictMode) {
+            block.get_by_position(result).column = std::move(col_to);
+        } else {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null));
+        }
         return Status::OK();
     }
 };

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -402,28 +403,34 @@ class DateTimeLiteralTest {
         check("2016-07-02 01:01:01.123456", DateTimeV2Literal::new);
         check("2016-7-02 01:01:01.123456", DateTimeV2Literal::new);
 
-        // Testing with microsecond of length 7
+        // Fractional digits above microsecond precision are preserved by inferred nano types.
         DateTimeV2Literal literal = check("2016-07-02 01:01:01.12345678", DateTimeV2Literal::new);
-        Assertions.assertEquals(123457, literal.microSecond);
+        Assertions.assertEquals(123456, literal.microSecond);
+        Assertions.assertEquals(123456780, literal.nanoSecond);
 
         literal = check("2016-07-02 01:01:01.44444444", DateTimeV2Literal::new);
         Assertions.assertEquals(444444, literal.microSecond);
+        Assertions.assertEquals(444444440, literal.nanoSecond);
 
         literal = check("2016-07-02 01:01:01.44444445", DateTimeV2Literal::new);
         Assertions.assertEquals(444444, literal.microSecond);
+        Assertions.assertEquals(444444450, literal.nanoSecond);
 
         literal = check("2016-07-02 01:01:01.4444445", DateTimeV2Literal::new);
-        Assertions.assertEquals(444445, literal.microSecond);
+        Assertions.assertEquals(444444, literal.microSecond);
+        Assertions.assertEquals(444444500, literal.nanoSecond);
 
         literal = check("2016-07-02 01:01:01.9999995", DateTimeV2Literal::new);
-        Assertions.assertEquals(0, literal.microSecond);
-        Assertions.assertEquals(2, literal.second);
+        Assertions.assertEquals(999999, literal.microSecond);
+        Assertions.assertEquals(999999500, literal.nanoSecond);
+        Assertions.assertEquals(1, literal.second);
 
         literal = check("2021-01-01 23:59:59.9999995", DateTimeV2Literal::new);
-        Assertions.assertEquals(0, literal.microSecond);
-        Assertions.assertEquals(0, literal.second);
-        Assertions.assertEquals(0, literal.minute);
-        Assertions.assertEquals(0, literal.hour);
+        Assertions.assertEquals(999999, literal.microSecond);
+        Assertions.assertEquals(999999500, literal.nanoSecond);
+        Assertions.assertEquals(59, literal.second);
+        Assertions.assertEquals(59, literal.minute);
+        Assertions.assertEquals(23, literal.hour);
     }
 
     @Test
@@ -625,7 +632,8 @@ class DateTimeLiteralTest {
 
     @Test
     void testDateTimeV2UncheckedCastTo() {
-        DateTimeV2Literal v2 = new DateTimeV2Literal(DateTimeV2Type.MAX, 2025, 7, 23, 13, 25, 59, 999999);
+        DateTimeV2Literal v2 = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), 2025, 7, 23, 13, 25, 59, 999999);
         Expression expression = v2.uncheckedCastTo(BigIntType.INSTANCE);
         Assertions.assertInstanceOf(BigIntLiteral.class, expression);
 
@@ -689,9 +697,55 @@ class DateTimeLiteralTest {
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("2025-07-23 13:25:59", ((StringLiteral) expression).value);
 
-        v2 = new DateTimeV2Literal(DateTimeV2Type.MAX, 2025, 7, 23, 13, 25, 59, 0);
+        v2 = new DateTimeV2Literal(DateTimeV2Type.of(6), 2025, 7, 23, 13, 25, 59, 0);
         expression = v2.uncheckedCastTo(StringType.INSTANCE);
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("2025-07-23 13:25:59.000000", ((StringLiteral) expression).value);
+    }
+
+    @Test
+    void testDateTimeV2NanoUncheckedCastRoundingAndRange() {
+        DateTimeV2Literal nano = new DateTimeV2Literal(
+                DateTimeV2Type.of(9), "2024-02-29 12:34:56.123456789");
+        DateTimeV2Literal micro = (DateTimeV2Literal) nano.uncheckedCastTo(DateTimeV2Type.of(6));
+        Assertions.assertEquals("2024-02-29 12:34:56.123457", micro.getStringValue());
+
+        nano = new DateTimeV2Literal(DateTimeV2Type.of(9), "1969-12-31 23:59:59.999999999");
+        micro = (DateTimeV2Literal) nano.uncheckedCastTo(DateTimeV2Type.of(6));
+        Assertions.assertEquals("1970-01-01 00:00:00.000000", micro.getStringValue());
+        TimeV2Literal time = (TimeV2Literal) nano.uncheckedCastTo(TimeV2Type.of(6));
+        Assertions.assertEquals("24:00:00.000000", time.getStringValue());
+
+        nano = new DateTimeV2Literal(DateTimeV2Type.of(9), "2024-02-29 12:34:56.123456789");
+        time = (TimeV2Literal) nano.uncheckedCastTo(TimeV2Type.of(6));
+        Assertions.assertEquals("12:34:56.123457", time.getStringValue());
+
+        DateTimeV2Literal lower = new DateTimeV2Literal(
+                DateTimeV2Type.of(9), "1677-09-21 00:12:43.145224192");
+        Assertions.assertEquals("1677-09-21 00:12:43.1452242",
+                ((DateTimeV2Literal) lower.uncheckedCastTo(DateTimeV2Type.of(7))).getStringValue());
+        Assertions.assertThrows(CastException.class,
+                () -> lower.uncheckedCastTo(DateTimeV2Type.of(8)));
+
+        DateTimeV2Literal upper = new DateTimeV2Literal(
+                DateTimeV2Type.of(9), "2262-04-11 23:47:16.854775807");
+        Assertions.assertEquals("2262-04-11 23:47:16.8547758",
+                ((DateTimeV2Literal) upper.uncheckedCastTo(DateTimeV2Type.of(7))).getStringValue());
+        Assertions.assertThrows(CastException.class,
+                () -> upper.uncheckedCastTo(DateTimeV2Type.of(8)));
+
+        DateTimeV2Literal lowerMicro = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "1677-09-21 00:12:43.145225");
+        Assertions.assertEquals("1677-09-21 00:12:43.145225000",
+                ((DateTimeV2Literal) lowerMicro.uncheckedCastTo(DateTimeV2Type.of(9))).getStringValue());
+
+        DateTimeV2Literal yearZero = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "0000-01-01 00:00:00.000000");
+        DateTimeV2Literal yearNineNineNineNine = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "9999-12-31 23:59:59.999999");
+        Assertions.assertThrows(CastException.class,
+                () -> yearZero.uncheckedCastTo(DateTimeV2Type.of(9)));
+        Assertions.assertThrows(CastException.class,
+                () -> yearNineNineNineNine.uncheckedCastTo(DateTimeV2Type.of(9)));
     }
 }

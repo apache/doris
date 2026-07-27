@@ -339,6 +339,62 @@ TEST_F(FunctionCastTest, test_from_numeric_to_datetime_invalid) {
     }
 }
 
+TEST_F(FunctionCastTest, test_from_numeric_to_datetime_nano) {
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {
+                {{19700101000000.0}, std::string("1970-01-01 00:00:00.000000000")},
+                {{20240229123456.125}, std::string("2024-02-29 12:34:56.125000000")},
+                {{16770920000000.0}, Null()},
+                {{22620412000000.0}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2Nano>(input_types, data_set, 9);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {
+                {{int64_t(16770921001243)}, std::string("1677-09-21 00:12:43.000000000")},
+                {{int64_t(19691231235959)}, std::string("1969-12-31 23:59:59.000000000")},
+                {{int64_t(19700101000000)}, std::string("1970-01-01 00:00:00.000000000")},
+                {{int64_t(22620411234716)}, std::string("2262-04-11 23:47:16.000000000")},
+                {{int64_t(16770920000000)}, Null()},
+                {{int64_t(22620412000000)}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2Nano>(input_types, data_set, 9);
+    }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL128I, 9, 23}};
+        DataSet data_set = {
+                {{DECIMAL128V3(16770921001243, 145224192, 9)},
+                 std::string("1677-09-21 00:12:43.145224192")},
+                {{DECIMAL128V3(19691231235959, 999999999, 9)},
+                 std::string("1969-12-31 23:59:59.999999999")},
+                {{DECIMAL128V3(19700101000000, 0, 9)},
+                 std::string("1970-01-01 00:00:00.000000000")},
+                {{DECIMAL128V3(20240229123456, 123456789, 9)},
+                 std::string("2024-02-29 12:34:56.123456789")},
+                {{DECIMAL128V3(22620411234716, 854775807, 9)},
+                 std::string("2262-04-11 23:47:16.854775807")},
+                {{DECIMAL128V3(16770921001243, 145224191, 9)}, Null()},
+                {{DECIMAL128V3(22620411234716, 854775808, 9)}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2Nano>(input_types, data_set, 9);
+    }
+}
+
+TEST_F(FunctionCastTest, test_from_numeric_to_datetime_nano_invalid_strict_mode) {
+    InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL128I, 9, 23}};
+    DataSet data_set = {
+            {{DECIMAL128V3(16770921001243, 145224191, 9)}, Null()},
+            {{DECIMAL128V3(22620411234716, 854775808, 9)}, Null()},
+            {{DECIMAL128V3(99991231235959, 999999999, 9)}, Null()},
+    };
+    check_function_for_cast_strict_mode<DataTypeDateTimeV2Nano>(input_types, data_set,
+                                                                "Cannot cast row", 9);
+}
+
 TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
     // Test casting from Decimal(9,3)
     {
@@ -390,6 +446,60 @@ TEST_F(FunctionCastTest, test_from_date_to_datetime) {
     }
 }
 
+TEST_F(FunctionCastTest, test_from_date_and_datetime_to_datetime_nano) {
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
+        DataSet data_set = {
+                {{std::string("1677-09-22")}, std::string("1677-09-22 00:00:00.000000000")},
+                {{std::string("1970-01-01")}, std::string("1970-01-01 00:00:00.000000000")},
+                {{std::string("2262-04-11")}, std::string("2262-04-11 00:00:00.000000000")},
+                {{std::string("1677-09-21")}, Null()},
+                {{std::string("1677-09-20")}, Null()},
+                {{std::string("9999-12-31")}, Null()},
+                {{Null()}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2Nano>(input_types, data_set, 9);
+    }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
+        DataSet data_set = {
+                {{std::string("1677-09-21 00:12:43.145225")},
+                 std::string("1677-09-21 00:12:43.145225000")},
+                {{std::string("1969-12-31 23:59:59.999999")},
+                 std::string("1969-12-31 23:59:59.999999000")},
+                {{std::string("1970-01-01 00:00:00.000000")},
+                 std::string("1970-01-01 00:00:00.000000000")},
+                {{std::string("2262-04-11 23:47:16.854775")},
+                 std::string("2262-04-11 23:47:16.854775000")},
+                {{std::string("1677-09-21 00:12:43.145224")}, Null()},
+                {{std::string("2262-04-11 23:47:16.854776")}, Null()},
+                {{std::string("0000-01-01 00:00:00.000000")}, Null()},
+                {{std::string("9999-12-31 23:59:59.999999")}, Null()},
+                {{Null()}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2Nano>(input_types, data_set, 9);
+    }
+}
+
+TEST_F(FunctionCastTest, test_from_datetime_nano_to_datetime) {
+    InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2_NANO, 9}};
+    DataSet data_set = {
+            {{std::string("1677-09-21 00:12:43.145224192")},
+             std::string("1677-09-21 00:12:43.145224")},
+            {{std::string("1969-12-31 23:59:59.999999999")},
+             std::string("1970-01-01 00:00:00.000000")},
+            {{std::string("1970-01-01 00:00:00.000000000")},
+             std::string("1970-01-01 00:00:00.000000")},
+            {{std::string("2024-02-29 12:34:56.123456789")},
+             std::string("2024-02-29 12:34:56.123457")},
+            {{std::string("2262-04-11 23:47:16.854775807")},
+             std::string("2262-04-11 23:47:16.854776")},
+            {{Null()}, Null()},
+    };
+    check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
+}
+
 TEST_F(FunctionCastTest, test_from_time_to_datetime) {
     // we mocked current time in function test util
     {
@@ -410,6 +520,17 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
                 {{std::string("-128:00:00")}, std::string("2019-07-31 16:00:00.000000")},
                 {{Null()}, Null()}};
         check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
+    }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 6}};
+        DataSet data_set = {
+                {{std::string("500:00:00.123456")}, std::string("2019-08-26 20:00:00.123456000")},
+                {{std::string("23:59:59.999999")}, std::string("2019-08-06 23:59:59.999999000")},
+                {{std::string("-128:00:00")}, std::string("2019-07-31 16:00:00.000000000")},
+                {{Null()}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2Nano>(input_types, data_set, 9);
     }
 }
 //FIXME: fix cast with different scale then add cases about datetime to datetime

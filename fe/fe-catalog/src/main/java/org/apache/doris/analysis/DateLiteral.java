@@ -34,13 +34,16 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.sql.Timestamp;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
@@ -53,18 +56,19 @@ import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
-    private static final double[] SCALE_FACTORS;
+    private static final long[] NANO_SCALE_FACTORS;
 
     static {
-        SCALE_FACTORS = new double[7];
-        for (int i = 0; i < SCALE_FACTORS.length; i++) {
-            SCALE_FACTORS[i] = Math.pow(10, 6 - i);
+        NANO_SCALE_FACTORS = new long[10];
+        for (int i = 0; i < NANO_SCALE_FACTORS.length; i++) {
+            NANO_SCALE_FACTORS[i] = (long) Math.pow(10, 9 - i);
         }
     }
 
@@ -76,12 +80,16 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MIN_DATETIMEV2
             = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2_WITH_MAX_SCALAR);
     private static final DateLiteral MAX_DATETIMEV2
-            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2_WITH_MAX_SCALAR);
+            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999999L, Type.DATETIMEV2_WITH_MAX_SCALAR);
     private static final DateLiteral MIN_TIMESTAMP_TZ
             = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.TIMESTAMP_TZ_WITH_MAX_SCALAR);
     private static final DateLiteral MAX_TIMESTAMP_TZ
             = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.TIMESTAMP_TZ_WITH_MAX_SCALAR);
     private static final int MAX_MICROSECOND = 999999;
+    private static final LocalDateTime MIN_DATETIMEV2_NANO
+            = LocalDateTime.of(1677, 9, 21, 0, 12, 43, 145224192);
+    private static final LocalDateTime MAX_DATETIMEV2_NANO
+            = LocalDateTime.of(2262, 4, 11, 23, 47, 16, 854775807);
 
     static List<DateTimeFormatter> formatterList = null;
 
@@ -195,8 +203,11 @@ public class DateLiteral extends LiteralExpr {
             } else {
                 copy(MIN_DATETIME);
             }
-        } else if (type.equals(Type.DATETIMEV2)) {
-            if (isMax) {
+        } else if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            if (scale > 6) {
+                setNanoBoundary(scale, isMax);
+            } else if (isMax) {
                 copy(MAX_DATETIMEV2);
             } else {
                 copy(MIN_DATETIMEV2);
@@ -252,8 +263,15 @@ public class DateLiteral extends LiteralExpr {
         this.year = year;
         this.month = month;
         this.day = day;
-        this.microsecond = microsecond;
         Preconditions.checkArgument(type.isDatetimeV2() || type.isTimeStampTz());
+        int scale = ((ScalarType) type).getScalarScale();
+        if (type.isDatetimeV2() && scale > 6) {
+            this.nanosecond = microsecond;
+            this.microsecond = microsecond / 1000;
+        } else {
+            this.microsecond = microsecond;
+            this.nanosecond = microsecond * 1000;
+        }
         this.type = type;
         this.nullable = false;
     }
@@ -282,6 +300,7 @@ public class DateLiteral extends LiteralExpr {
             this.minute = dateTime.getMinute();
             this.second = dateTime.getSecond();
             this.microsecond = dateTime.get(ChronoField.MICRO_OF_SECOND);
+            this.nanosecond = dateTime.getNano();
         }
         this.nullable = false;
     }
@@ -295,6 +314,7 @@ public class DateLiteral extends LiteralExpr {
         month = other.month;
         day = other.day;
         microsecond = other.microsecond;
+        nanosecond = other.getNanosecond();
         type = other.type;
     }
 
@@ -310,6 +330,7 @@ public class DateLiteral extends LiteralExpr {
         month = other.month;
         day = other.day;
         microsecond = other.microsecond;
+        nanosecond = other.getNanosecond();
         type = other.type;
     }
 
@@ -331,7 +352,7 @@ public class DateLiteral extends LiteralExpr {
                 int scale = ((ScalarType) getType()).getScalarScale();
                 return year == 0 && month == 1 && day == 1
                         && hour == 0 &&  minute == 0 && second == 0
-                        && microsecond / SCALE_FACTORS[scale] == 0;
+                        && getNanosecond() / NANO_SCALE_FACTORS[scale] == 0;
             default:
                 return false;
         }
@@ -346,6 +367,9 @@ public class DateLiteral extends LiteralExpr {
         } else if (type.equals(Type.DATEV2)) {
             return (year << 9) | (month << 5) | day;
         } else if (type.isDatetimeV2() || type.isTimeStampTz()) {
+            if (type.isDatetimeV2() && ((ScalarType) type).getScalarScale() > 6) {
+                return epochNanoseconds();
+            }
             return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
                 | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
         } else {
@@ -364,8 +388,14 @@ public class DateLiteral extends LiteralExpr {
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putInt(value);
         } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ) {
-            long value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
-                    | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+            long value;
+            if (type == PrimitiveType.DATETIMEV2 && this.type.isDatetimeV2()
+                    && ((ScalarType) this.type).getScalarScale() > 6) {
+                value = epochNanoseconds();
+            } else {
+                value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
+                        | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
+            }
             buffer = ByteBuffer.allocate(8);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putLong(value);
@@ -445,7 +475,7 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
+        char[] dateTimeChars = new char[29]; // Enough to hold "YYYY-MM-DD HH:MM:SS.nnnnnnnnn"
 
         // Populate the date part
         fillPaddedValue(dateTimeChars, 0, year, 4);
@@ -468,9 +498,9 @@ public class DateLiteral extends LiteralExpr {
 
         if (type.isDatetimeV2() || type.isTimeStampTz()) {
             int scale = ((ScalarType) type).getScalarScale();
-            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+            long scaledFraction = getNanosecond() / NANO_SCALE_FACTORS[scale];
             dateTimeChars[19] = '.';
-            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            fillPaddedValue(dateTimeChars, 20, scaledFraction, scale);
             if (scale == 0) {
                 scale = -1;
             }
@@ -484,7 +514,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public String getStringValue(Type type) {
-        char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
+        char[] dateTimeChars = new char[29]; // Enough to hold "YYYY-MM-DD HH:MM:SS.nnnnnnnnn"
 
         // Populate the date part
         fillPaddedValue(dateTimeChars, 0, year, 4);
@@ -507,9 +537,9 @@ public class DateLiteral extends LiteralExpr {
 
         if (type.isDatetimeV2() || type.isTimeStampTz()) {
             int scale = ((ScalarType) type).getScalarScale();
-            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+            long scaledFraction = getNanosecond() / NANO_SCALE_FACTORS[scale];
             dateTimeChars[19] = '.';
-            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            fillPaddedValue(dateTimeChars, 20, scaledFraction, scale);
             if (scale == 0) {
                 scale = -1;
             }
@@ -523,8 +553,9 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public void roundFloor(int newScale) {
-        microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - newScale))
-            * (Math.pow(10, 6 - newScale))).longValue();
+        long factor = NANO_SCALE_FACTORS[newScale];
+        nanosecond = getNanosecond() / factor * factor;
+        microsecond = nanosecond / 1000;
     }
 
     private String convertToString(PrimitiveType type) {
@@ -533,10 +564,12 @@ public class DateLiteral extends LiteralExpr {
         } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ) {
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
                     year, month, day, hour, minute, second);
-            if (microsecond == 0) {
+            if (getNanosecond() == 0) {
                 return tmp;
             }
-            return tmp + String.format(".%06d", microsecond);
+            int scale = this.type.isDatetimeV2() ? ((ScalarType) this.type).getScalarScale() : 6;
+            return tmp + String.format(".%0" + scale + "d",
+                    getNanosecond() / NANO_SCALE_FACTORS[scale]);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
@@ -588,8 +621,17 @@ public class DateLiteral extends LiteralExpr {
             if (second < 0 || second > 60) {
                 throw new AnalysisException("DateLiteral has invalid second value: " + second);
             }
-            if ((type.isDatetimeV2() || type.isTimeStampTz()) && (microsecond < 0 || microsecond > 999999)) {
-                throw new AnalysisException("DateLiteral has invalid microsecond value: " + microsecond);
+            if ((type.isDatetimeV2() || type.isTimeStampTz())
+                    && (getNanosecond() < 0 || getNanosecond() > 999999999)) {
+                throw new AnalysisException("DateLiteral has invalid nanosecond value: " + getNanosecond());
+            }
+            if (type.isDatetimeV2() && ((ScalarType) type).getScalarScale() > 6) {
+                LocalDateTime value = LocalDateTime.of((int) year, (int) month, (int) day,
+                        (int) hour, (int) minute, (int) second, (int) getNanosecond());
+                if (value.isBefore(MIN_DATETIMEV2_NANO) || value.isAfter(MAX_DATETIMEV2_NANO)) {
+                    throw new AnalysisException("DateLiteral is outside Int64 epoch nanosecond range: "
+                            + getStringValue());
+                }
             }
         }
     }
@@ -601,13 +643,18 @@ public class DateLiteral extends LiteralExpr {
 
     private Timestamp getTimestamp(TimeZone timeZone) {
         ZonedDateTime zonedDateTime = ZonedDateTime.of((int) year, (int) month, (int) day, (int) hour,
-                (int) minute, (int) second, (int) microsecond * 1000, ZoneId.of(timeZone.getID()));
+                (int) minute, (int) second, (int) getNanosecond(), ZoneId.of(timeZone.getID()));
         return Timestamp.from(zonedDateTime.toInstant());
     }
 
     public long getUnixTimestampWithMicroseconds(TimeZone timeZone) {
         Timestamp timestamp = getTimestamp(timeZone);
         return timestamp.getTime() * 1000 + timestamp.getNanos() / 1000 % 1000;
+    }
+
+    public long getUnixTimestampWithNanoseconds(TimeZone timeZone) {
+        Instant instant = getTimestamp(timeZone).toInstant();
+        return Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000_000L), instant.getNano());
     }
 
     public static boolean hasTimePart(String format) {
@@ -742,7 +789,7 @@ public class DateLiteral extends LiteralExpr {
         } else if (type.isDatetimeV2() || type.isTimeStampTz()) {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
                 (int) this.minute,
-                (int) this.second, (int) this.microsecond * 1000);
+                (int) this.second, (int) getNanosecond());
         } else {
             return LocalDateTime.of((int) this.year, (int) this.month, (int) this.day, (int) this.hour,
                 (int) this.minute,
@@ -820,6 +867,11 @@ public class DateLiteral extends LiteralExpr {
         return microsecond;
     }
 
+    public long getNanosecond() {
+        // Journals written before nanosecond support only contain the microsecond field.
+        return nanosecond == 0 && microsecond != 0 ? microsecond * 1000 : nanosecond;
+    }
+
     @SerializedName("y")
     private long year;
     @SerializedName("m")
@@ -834,13 +886,15 @@ public class DateLiteral extends LiteralExpr {
     private long second;
     @SerializedName("ms")
     private long microsecond;
+    @SerializedName("ns")
+    private long nanosecond;
 
     @Override
     public int hashCode() {
-        // do not invoke the super.hashCode(), just use the return value of getLongValue()
-        // a DateV2 DateLiteral obj may be equal to a Date DateLiteral
-        // if the return value of getLongValue() is the same
-        return Long.hashCode(getLongValue());
+        if (isDateType()) {
+            return Objects.hash(year, month, day);
+        }
+        return Objects.hash(year, month, day, hour, minute, second, getNanosecond());
     }
 
     // parse the date string value in 'value' by 'format' pattern.
@@ -1008,6 +1062,7 @@ public class DateLiteral extends LiteralExpr {
                             intValue = strToLong(value.substring(pValue, tmp));
                         }
                         this.microsecond = (long) (intValue * Math.pow(10, 6 - Math.min(6, tmp - pValue)));
+                        this.nanosecond = this.microsecond * 1000;
                         partUsed |= fracPart;
                         pValue = tmp;
                         break;
@@ -1259,7 +1314,7 @@ public class DateLiteral extends LiteralExpr {
     boolean checkRange() {
         return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
             || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
-            || microsecond > MAX_MICROSECOND;
+            || getNanosecond() > MAX_MICROSECOND * 1000L + 999L;
     }
 
     // Package-private so DateLiteralUtils can use it for validation
@@ -1375,14 +1430,18 @@ public class DateLiteral extends LiteralExpr {
 
     private long getMicroPartWithinScale() {
         if (type.isDatetimeV2() || type.isTimeStampTz()) {
-            int scale = ((ScalarType) type).getScalarScale();
-            return (long) (microsecond / SCALE_FACTORS[scale]);
+            return getNanosecond();
         } else {
             return 0;
         }
     }
 
     public void setMinValue() {
+        if (type != null && type.isDatetimeV2()
+                && ((ScalarType) type).getScalarScale() > 6) {
+            setNanoBoundary(((ScalarType) type).getScalarScale(), false);
+            return;
+        }
         year = 0;
         month = 1;
         day = 1;
@@ -1390,5 +1449,38 @@ public class DateLiteral extends LiteralExpr {
         minute = 0;
         second = 0;
         microsecond = 0;
+        nanosecond = 0;
+    }
+
+    private void setNanoBoundary(int scale, boolean isMax) {
+        LocalDateTime value = isMax ? MAX_DATETIMEV2_NANO : MIN_DATETIMEV2_NANO;
+        long factor = NANO_SCALE_FACTORS[scale];
+        long nanos = value.getNano();
+        if (isMax) {
+            nanos = nanos / factor * factor;
+        } else {
+            nanos = (nanos + factor - 1) / factor * factor;
+            if (nanos == 1000000000L) {
+                value = value.plusSeconds(1);
+                nanos = 0;
+            }
+        }
+        year = value.getYear();
+        month = value.getMonthValue();
+        day = value.getDayOfMonth();
+        hour = value.getHour();
+        minute = value.getMinute();
+        second = value.getSecond();
+        nanosecond = nanos;
+        microsecond = nanos / 1000;
+    }
+
+    private long epochNanoseconds() {
+        LocalDateTime value = LocalDateTime.of((int) year, (int) month, (int) day, (int) hour,
+                (int) minute, (int) second, (int) getNanosecond());
+        return BigInteger.valueOf(value.toEpochSecond(ZoneOffset.UTC))
+                .multiply(BigInteger.valueOf(1000000000L))
+                .add(BigInteger.valueOf(getNanosecond()))
+                .longValueExact();
     }
 }

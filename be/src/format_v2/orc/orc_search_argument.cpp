@@ -383,7 +383,8 @@ bool is_safe_date_schema_evolution_cast(const OrcSargColumn& column, const VExpr
     }
     const auto target_primitive_type = target_type->get_primitive_type();
     return target_primitive_type == TYPE_DATE || target_primitive_type == TYPE_DATEV2 ||
-           target_primitive_type == TYPE_DATETIME || target_primitive_type == TYPE_DATETIMEV2;
+           target_primitive_type == TYPE_DATETIME || target_primitive_type == TYPE_DATETIMEV2 ||
+           target_primitive_type == TYPE_DATETIMEV2_NANO;
 }
 
 bool is_safe_string_schema_evolution_cast(const OrcSargColumn& column, const VExprSPtr& cast_expr) {
@@ -571,6 +572,17 @@ std::optional<::orc::Literal> make_date_literal(const Field& field) {
                 cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
         return ::orc::Literal(::orc::PredicateDataType::DATE, day_offset);
     }
+    case TYPE_DATETIMEV2_NANO: {
+        const auto& datetime = field.get<TYPE_DATETIMEV2_NANO>();
+        if (datetime.hour() != 0 || datetime.minute() != 0 || datetime.second() != 0 ||
+            datetime.nanosecond() != 0) {
+            return std::nullopt;
+        }
+        const cctz::civil_day civil_date(datetime.year(), datetime.month(), datetime.day());
+        const auto day_offset =
+                cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
+        return ::orc::Literal(::orc::PredicateDataType::DATE, day_offset);
+    }
     default:
         return std::nullopt;
     }
@@ -611,6 +623,16 @@ std::optional<DateTimeLiteralParts> date_time_literal_parts(const Field& field) 
                 .day = datetime.day(),
                 .has_time = datetime.hour() != 0 || datetime.minute() != 0 ||
                             datetime.second() != 0 || datetime.microsecond() != 0,
+        };
+    }
+    case TYPE_DATETIMEV2_NANO: {
+        const auto& datetime = field.get<TYPE_DATETIMEV2_NANO>();
+        return DateTimeLiteralParts {
+                .year = datetime.year(),
+                .month = datetime.month(),
+                .day = datetime.day(),
+                .has_time = datetime.hour() != 0 || datetime.minute() != 0 ||
+                            datetime.second() != 0 || datetime.nanosecond() != 0,
         };
     }
     default:
@@ -663,6 +685,19 @@ std::optional<::orc::Literal> make_timestamp_literal(const Field& field,
         const auto seconds = lookup.pre.time_since_epoch().count();
         const auto nanos = cast_set<int32_t>(datetime.microsecond() * 1000);
         return ::orc::Literal(seconds, nanos);
+    }
+    case TYPE_DATETIMEV2_NANO: {
+        const auto& datetime = field.get<TYPE_DATETIMEV2_NANO>();
+        const cctz::civil_second civil_seconds(datetime.year(), datetime.month(), datetime.day(),
+                                               datetime.hour(), datetime.minute(),
+                                               datetime.second());
+        const auto lookup = timezone.lookup(civil_seconds);
+        if (!civil_year_is_monotonic(civil_seconds) ||
+            lookup.kind != cctz::time_zone::civil_lookup::UNIQUE) {
+            return std::nullopt;
+        }
+        return ::orc::Literal(lookup.pre.time_since_epoch().count(),
+                              cast_set<int32_t>(datetime.nanosecond()));
     }
     default:
         return std::nullopt;
@@ -841,7 +876,8 @@ bool is_date_to_datetime_cast_for_sarg(const OrcSargColumn& column, const VExprS
         return false;
     }
     const auto target_type_id = target_type->get_primitive_type();
-    return target_type_id == TYPE_DATETIME || target_type_id == TYPE_DATETIMEV2;
+    return target_type_id == TYPE_DATETIME || target_type_id == TYPE_DATETIMEV2 ||
+           target_type_id == TYPE_DATETIMEV2_NANO;
 }
 
 bool is_integer_to_floating_cast_for_sarg(const OrcSargColumn& column, const VExprSPtr& expr) {

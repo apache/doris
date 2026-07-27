@@ -742,6 +742,23 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
 
         static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
     }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2_NANO, 9},
+                                    {PrimitiveType::TYPE_DATETIMEV2_NANO, 9}};
+
+        DataSet data_set = {
+                {{std::string("1969-12-31 23:59:59.999999999"),
+                  std::string("1970-01-01 00:00:00.000000000")},
+                 std::string {"0.0"}},
+                {{std::string("2024-02-29 12:34:56.123456789"),
+                  std::string("2024-02-29 12:34:55.000000001")},
+                 std::string {"00:00:01.123456"}},
+        };
+
+        static_cast<void>(
+                check_function<DataTypeTimeV2, true>(func_name, input_types, data_set, 6));
+    }
 }
 
 TEST(VTimestampFunctionsTest, datediff_v2_test) {
@@ -1293,6 +1310,18 @@ TEST(VTimestampFunctionsTest, to_days_v2_test) {
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2_NANO, 9}};
+
+        DataSet data_set = {
+                {{std::string("1677-09-21 00:12:43.145224192")}, 612776},
+                {{std::string("1970-01-01 00:00:00.000000000")}, 719528},
+                {{std::string("2262-04-11 23:47:16.854775807")}, 826279},
+        };
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
 }
 
 TEST(VTimestampFunctionsTest, date_v2_test) {
@@ -1497,6 +1526,105 @@ TEST(VTimestampFunctionsTest, datetrunc_test) {
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
     }
+}
+
+TEST(VTimestampFunctionsTest, datetimev2_nano_floor_ceil_test) {
+    const InputTypeSet one_argument = {{PrimitiveType::TYPE_DATETIMEV2, 9}};
+
+    DataSet second_floor_cases = {
+            {{std::string("1969-12-31 23:59:59.999999999")},
+             std::string("1969-12-31 23:59:59.000000000")},
+            {{std::string("1970-01-01 00:00:00.000000001")},
+             std::string("1970-01-01 00:00:00.000000000")},
+            {{std::string("2262-04-11 23:47:16.854775807")},
+             std::string("2262-04-11 23:47:16.000000000")},
+    };
+    EXPECT_TRUE((check_function<DataTypeDateTimeV2Nano, true>("second_floor", one_argument,
+                                                              second_floor_cases, 9)
+                         .ok()));
+
+    DataSet second_ceil_cases = {
+            {{std::string("1969-12-31 23:59:59.999999999")},
+             std::string("1970-01-01 00:00:00.000000000")},
+            {{std::string("1970-01-01 00:00:00.000000001")},
+             std::string("1970-01-01 00:00:01.000000000")},
+            {{std::string("1970-01-01 00:00:00.000000000")},
+             std::string("1970-01-01 00:00:00.000000000")},
+    };
+    EXPECT_TRUE((check_function<DataTypeDateTimeV2Nano, true>("second_ceil", one_argument,
+                                                              second_ceil_cases, 9)
+                         .ok()));
+
+    const InputTypeSet period_argument = {{PrimitiveType::TYPE_DATETIMEV2, 9},
+                                          Consted {PrimitiveType::TYPE_INT}};
+    DataSet period_cases = {
+            {{std::string("1969-12-31 23:59:59.999999999"), 2},
+             std::string("1969-12-31 23:59:58.000000000")},
+            {{std::string("1970-01-01 00:00:05.000000001"), 2},
+             std::string("1970-01-01 00:00:04.000000000")},
+    };
+    for (const auto& test_case : period_cases) {
+        EXPECT_TRUE((check_function<DataTypeDateTimeV2Nano, true>("second_floor", period_argument,
+                                                                  DataSet {test_case}, 9)
+                             .ok()));
+    }
+
+    const InputTypeSet origin_argument = {{PrimitiveType::TYPE_DATETIMEV2, 9},
+                                          {Consted {PrimitiveType::TYPE_DATETIMEV2}, 9}};
+    DataSet origin_cases = {
+            {{std::string("1970-01-01 00:00:05.000000001"),
+              std::string("1970-01-01 00:00:00.500000000")},
+             std::string("1970-01-01 00:00:04.500000000")},
+            {{std::string("1969-12-31 23:59:59.499999999"),
+              std::string("1970-01-01 00:00:00.500000000")},
+             std::string("1969-12-31 23:59:58.500000000")},
+    };
+    for (const auto& test_case : origin_cases) {
+        EXPECT_TRUE((check_function<DataTypeDateTimeV2Nano, true>("second_floor", origin_argument,
+                                                                  DataSet {test_case}, 9)
+                             .ok()));
+    }
+
+    const InputTypeSet period_origin_arguments = {{PrimitiveType::TYPE_DATETIMEV2, 9},
+                                                  Consted {PrimitiveType::TYPE_INT},
+                                                  {Consted {PrimitiveType::TYPE_DATETIMEV2}, 9}};
+    DataSet period_origin_cases = {
+            {{std::string("1970-01-01 00:00:05.000000001"), 2,
+              std::string("1970-01-01 00:00:00.500000000")},
+             std::string("1970-01-01 00:00:04.500000000")},
+            {{std::string("1969-12-31 23:59:59.499999999"), 2,
+              std::string("1970-01-01 00:00:00.500000000")},
+             std::string("1969-12-31 23:59:58.500000000")},
+    };
+    for (const auto& test_case : period_origin_cases) {
+        EXPECT_TRUE((check_function<DataTypeDateTimeV2Nano, true>(
+                             "second_floor", period_origin_arguments, DataSet {test_case}, 9)
+                             .ok()));
+    }
+
+    DataSet day_floor_cases = {
+            {{std::string("1969-12-31 23:59:59.999999999")},
+             std::string("1969-12-31 00:00:00.000000000")},
+            {{std::string("2024-02-29 12:34:56.123456789")},
+             std::string("2024-02-29 00:00:00.000000000")},
+    };
+    EXPECT_TRUE((check_function<DataTypeDateTimeV2Nano, true>("day_floor", one_argument,
+                                                              day_floor_cases, 9)
+                         .ok()));
+
+    DataSet last_day_cases = {
+            {{std::string("1969-12-31 23:59:59.999999999")}, std::string("1969-12-31")},
+            {{std::string("2024-02-01 00:00:00.000000001")}, std::string("2024-02-29")},
+    };
+    EXPECT_TRUE(
+            (check_function<DataTypeDateV2, true>("last_day", one_argument, last_day_cases).ok()));
+
+    DataSet to_monday_cases = {
+            {{std::string("1969-12-31 23:59:59.999999999")}, std::string("1969-12-29")},
+            {{std::string("2024-02-29 12:34:56.123456789")}, std::string("2024-02-26")},
+    };
+    EXPECT_TRUE((
+            check_function<DataTypeDateV2, true>("to_monday", one_argument, to_monday_cases).ok()));
 }
 
 TEST(VTimestampFunctionsTest, hours_add_v2_test) {
@@ -1750,6 +1878,16 @@ TEST(VTimestampFunctionsTest, time) {
     };
 
     static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
+
+    InputTypeSet nano_input_types = {{PrimitiveType::TYPE_DATETIMEV2_NANO, 9}};
+    DataSet nano_data_set = {
+            {{std::string("1677-09-21 00:12:43.145224192")}, std::string("00:12:43.145224")},
+            {{std::string("1970-01-01 00:00:00.000000001")}, std::string("0.0")},
+            {{std::string("2262-04-11 23:47:16.854775807")}, std::string("23:47:16.854775")},
+    };
+
+    static_cast<void>(
+            check_function<DataTypeTimeV2, true>(func_name, nano_input_types, nano_data_set, 6));
 }
 
 TEST(VTimestampFunctionsTest, curtime_test) {
@@ -1857,6 +1995,15 @@ TEST(VTimestampFunctionsTest, utc_timestamp_test) {
         };
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 3));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{int32_t(9)}, std::string("2019-08-05 17:38:57.805000000")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2Nano, true>(func_name, input_types, data_set, 9));
     }
 }
 

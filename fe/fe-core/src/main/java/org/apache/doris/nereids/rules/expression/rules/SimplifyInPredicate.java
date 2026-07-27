@@ -93,7 +93,7 @@ public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
     */
     private static boolean canLosslessConvertToDateV2Literal(DateTimeV2Literal literal) {
         return (literal.getHour() | literal.getMinute() | literal.getSecond()
-                | literal.getMicroSecond()) == 0L;
+                | literal.getNanoSecond()) == 0L;
     }
 
     private static DateV2Literal convertToDateV2Literal(DateTimeV2Literal literal) {
@@ -102,6 +102,6 @@ public class SimplifyInPredicate implements ExpressionPatternRuleFactory {
 
     private static boolean canLosslessConvertToLowScaleLiteral(DateTimeV2Literal literal, int targetScale) {
         long scaleFactor = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - targetScale);
-        return literal.getMicroSecond() % scaleFactor == 0;
+        return literal.getNanoSecond() % scaleFactor == 0;
     }
 }

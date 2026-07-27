@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 
 import java.util.Objects;
@@ -31,10 +32,18 @@ public class JdbcColumnHandle implements ConnectorColumnHandle {
 
     private final String localName;
     private final String remoteName;
+    private final String typeName;
+    private final int precision;
 
     public JdbcColumnHandle(String localName, String remoteName) {
+        this(localName, remoteName, null);
+    }
+
+    public JdbcColumnHandle(String localName, String remoteName, ConnectorType type) {
         this.localName = Objects.requireNonNull(localName, "localName");
         this.remoteName = Objects.requireNonNull(remoteName, "remoteName");
+        this.typeName = type == null ? "" : type.getTypeName();
+        this.precision = type == null ? -1 : type.getPrecision();
     }
 
     public String getLocalName() {
@@ -45,9 +54,13 @@ public class JdbcColumnHandle implements ConnectorColumnHandle {
         return remoteName;
     }
 
+    public boolean isDatetimeV2Nano() {
+        return "DATETIMEV2".equals(typeName) && precision > 6;
+    }
+
     @Override
     public int hashCode() {
-        return Objects.hash(localName, remoteName);
+        return Objects.hash(localName, remoteName, typeName, precision);
     }
 
     @Override
@@ -59,7 +72,10 @@ public class JdbcColumnHandle implements ConnectorColumnHandle {
             return false;
         }
         JdbcColumnHandle that = (JdbcColumnHandle) o;
-        return localName.equals(that.localName) && remoteName.equals(that.remoteName);
+        return precision == that.precision
+                && localName.equals(that.localName)
+                && remoteName.equals(that.remoteName)
+                && typeName.equals(that.typeName);
     }
 
     @Override

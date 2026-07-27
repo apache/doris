@@ -119,6 +119,16 @@ struct type_limit<DateV2Value<DateTimeV2ValueType>> {
 };
 
 template <>
+struct type_limit<DateTimeV2NanoValue> {
+    static DateTimeV2NanoValue min() {
+        return DateTimeV2NanoValue(std::numeric_limits<int64_t>::min());
+    }
+    static DateTimeV2NanoValue max() {
+        return DateTimeV2NanoValue(std::numeric_limits<int64_t>::max());
+    }
+};
+
+template <>
 struct type_limit<TimestampTzValue> {
     static TimestampTzValue min() {
         uint64_t min = MIN_DATETIME_V2;

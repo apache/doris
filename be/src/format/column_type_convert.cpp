@@ -49,6 +49,7 @@ namespace doris::converter {
     M(TYPE_DATETIME)              \
     M(TYPE_DATE)                  \
     M(TYPE_DATETIMEV2)            \
+    M(TYPE_DATETIMEV2_NANO)       \
     M(TYPE_DATEV2)
 
 #define FOR_ALL_LOGICAL_TYPES(M) \
@@ -68,6 +69,7 @@ namespace doris::converter {
     M(TYPE_DATETIME)             \
     M(TYPE_DATE)                 \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_DATETIMEV2_NANO)      \
     M(TYPE_DATEV2)
 
 static bool _is_numeric_type(PrimitiveType type) {
@@ -414,6 +416,16 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     }
     if (src_primitive_type == TYPE_DATETIMEV2 && dst_primitive_type == TYPE_DATEV2) {
         return std::make_unique<TimeV2Converter<TYPE_DATETIMEV2, TYPE_DATEV2>>();
+    }
+    if (src_primitive_type == TYPE_DATETIMEV2 && dst_primitive_type == TYPE_DATETIMEV2_NANO) {
+        return std::make_unique<
+                DateTimeV2PrecisionConverter<TYPE_DATETIMEV2, TYPE_DATETIMEV2_NANO>>(
+                dst_type->get_scale());
+    }
+    if (src_primitive_type == TYPE_DATETIMEV2_NANO && dst_primitive_type == TYPE_DATETIMEV2) {
+        return std::make_unique<
+                DateTimeV2PrecisionConverter<TYPE_DATETIMEV2_NANO, TYPE_DATETIMEV2>>(
+                dst_type->get_scale());
     }
 
     // datetime to bigint (ms)

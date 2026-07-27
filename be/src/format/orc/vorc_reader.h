@@ -612,7 +612,17 @@ private:
                         continue;
                     }
                 }
-                v.from_unixtime(data->data[i], _time_zone);
+                if constexpr (std::is_same_v<CppType, DateTimeV2NanoValue>) {
+                    DateV2Value<DateTimeV2ValueType> local_value;
+                    local_value.from_unixtime(data->data[i], _time_zone);
+                    local_value.set_microsecond(data->nanoseconds[i] / 1000);
+                    if (!v.from_datetime(local_value, data->nanoseconds[i] % 1000)) {
+                        return Status::DataQualityError(
+                                "ORC timestamp is outside DATETIMEV2(9) range");
+                    }
+                } else {
+                    v.from_unixtime(data->data[i], _time_zone);
+                }
                 if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                     // nanoseconds will lose precision. only keep microseconds.
                     v.set_microsecond(data->nanoseconds[i] / 1000);

@@ -503,6 +503,10 @@ std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
         char* pos = value.to_string(buf, type_desc->get_scale());
         return std::string(buf, pos - buf - 1);
     }
+    case TYPE_DATETIMEV2_NANO: {
+        const DateTimeV2NanoValue value(*reinterpret_cast<const int64_t*>(item));
+        return value.to_string(type_desc->get_scale());
+    }
     case TYPE_DECIMALV2: {
         Decimal128V2 value = *(Decimal128V2*)(item);
         return value.to_string(type_desc->get_scale());

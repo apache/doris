@@ -138,6 +138,11 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, precision, scale));
         break;
     }
+    case TYPE_DATETIMEV2_NANO: {
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DATETIMEV2_NANO>(data, &node, precision, scale));
+        break;
+    }
     case TYPE_DATE: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATE>(data, &node));
         break;
@@ -259,6 +264,12 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
         const auto& storage = field.get<TYPE_DATETIMEV2>();
         THROW_IF_ERROR(
                 create_texpr_literal_node<TYPE_DATETIMEV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DATETIMEV2_NANO: {
+        const auto& storage = field.get<TYPE_DATETIMEV2_NANO>();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DATETIMEV2_NANO>(&storage, &node, precision, scale));
         break;
     }
     case TYPE_TIMESTAMPTZ: {

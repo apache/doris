@@ -33,6 +33,10 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -69,6 +73,11 @@ import java.util.Map;
  */
 public class JdbcJniWriter extends JniWriter {
     private static final Logger LOG = Logger.getLogger(JdbcJniWriter.class);
+    private static final DateTimeFormatter DATETIMEV2_NANO_FORMATTER =
+            new DateTimeFormatterBuilder()
+                    .appendPattern("yyyy-MM-dd HH:mm:ss")
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+                    .toFormatter();
 
     private final String jdbcUrl;
     private final String jdbcUser;
@@ -284,10 +293,15 @@ public class JdbcJniWriter extends JniWriter {
             case DATEV2:
                 preparedStatement.setDate(parameterIndex, Date.valueOf(column.getDate(rowIdx)));
                 break;
-            case DATETIMEV2:
-                preparedStatement.setTimestamp(
-                        parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
+            case DATETIMEV2: {
+                LocalDateTime value = column.getDateTime(rowIdx);
+                if (column.getColumnType().getPrecision() > 6) {
+                    preparedStatement.setString(parameterIndex, value.format(DATETIMEV2_NANO_FORMATTER));
+                } else {
+                    preparedStatement.setTimestamp(parameterIndex, Timestamp.valueOf(value));
+                }
                 break;
+            }
             case TIMESTAMPTZ:
                 preparedStatement.setObject(
                         parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));

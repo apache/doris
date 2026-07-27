@@ -393,6 +393,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToInt::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                          vec_to[i], params);
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeDateTimeV2Nano>) {
+                CastToInt::from_datetime(vec_from[i].to_datetime(), vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
                 CastToInt::from_datetime(
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),
@@ -418,6 +420,8 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
             } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 CastToFloat::from_datetime(reinterpret_cast<const VecDateTimeValue&>(vec_from[i]),
                                            vec_to[i], params);
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeDateTimeV2Nano>) {
+                CastToFloat::from_datetime(vec_from[i].to_datetime(), vec_to[i], params);
             } else if constexpr (IsDateTimeV2Type<FromDataType>) {
                 CastToFloat::from_datetime(
                         reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(vec_from[i]),

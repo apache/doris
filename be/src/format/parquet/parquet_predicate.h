@@ -338,10 +338,13 @@ public:
             if (std::signbit(max_value) != 0 && max_value == -0.0F) {
                 max_value = 0.0F;
             }
-        } else if (col_schema->parquet_schema.type == tparquet::Type::type::INT96 ||
-                   logical_prim_type == TYPE_DATETIMEV2) {
-            auto min_value = min_field->get<TYPE_DATETIMEV2>();
-            auto max_value = min_field->get<TYPE_DATETIMEV2>();
+        } else if (logical_prim_type == TYPE_DATETIMEV2 ||
+                   logical_prim_type == TYPE_DATETIMEV2_NANO) {
+            const bool min_equals_max =
+                    logical_prim_type == TYPE_DATETIMEV2
+                            ? min_field->get<TYPE_DATETIMEV2>() == max_field->get<TYPE_DATETIMEV2>()
+                            : min_field->get<TYPE_DATETIMEV2_NANO>() ==
+                                      max_field->get<TYPE_DATETIMEV2_NANO>();
 
             // From Trino: Parquet INT96 timestamp values were compared incorrectly
             // for the purposes of producing statistics by older parquet writers,
@@ -349,7 +352,7 @@ public:
             // was producing unusable incorrect values, except the special case where min == max
             // and an incorrect ordering would not be material to the result.
             // PARQUET-1026 made binary stats available and valid in that special case.
-            if (min_value != max_value) {
+            if (!min_equals_max) {
                 return Status::DataQualityError("invalid min/max value");
             }
         }

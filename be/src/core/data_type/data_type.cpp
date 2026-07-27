@@ -125,6 +125,7 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     case PrimitiveType::TYPE_VARIANT:
         return PGenericType::VARIANT;
     case PrimitiveType::TYPE_DATETIMEV2:
+    case PrimitiveType::TYPE_DATETIMEV2_NANO:
         return PGenericType::DATETIMEV2;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return PGenericType::TIMESTAMPTZ;

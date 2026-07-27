@@ -68,7 +68,7 @@ public final class JdbcQueryBuilder {
     private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
-     * Formatter that preserves fractional seconds (up to microsecond precision).
+     * Formatter that preserves fractional seconds (up to nanosecond precision).
      * Used for non-Oracle paths where the previous JDBC scan path emitted
      * {@code expr.getStringValue()}, keeping DATETIMEV2 literals intact.
      */
@@ -78,7 +78,7 @@ public final class JdbcQueryBuilder {
         DATETIME_FRAC_FMT = new DateTimeFormatterBuilder()
                 .appendPattern("yyyy-MM-dd HH:mm:ss")
                 .optionalStart()
-                .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+                .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
                 .optionalEnd()
                 .toFormatter();
     }
@@ -158,8 +158,14 @@ public final class JdbcQueryBuilder {
             StringJoiner colJoiner = new StringJoiner(", ");
             for (ConnectorColumnHandle col : columns) {
                 if (col instanceof JdbcColumnHandle) {
-                    colJoiner.add(JdbcIdentifierQuoter.quoteRemoteIdentifier(
-                            dbType, ((JdbcColumnHandle) col).getRemoteName()));
+                    JdbcColumnHandle jdbcColumn = (JdbcColumnHandle) col;
+                    String quotedColumn = JdbcIdentifierQuoter.quoteRemoteIdentifier(
+                            dbType, jdbcColumn.getRemoteName());
+                    if (dbType == JdbcDbType.MYSQL && jdbcColumn.isDatetimeV2Nano()) {
+                        colJoiner.add("CAST(" + quotedColumn + " AS CHAR) AS " + quotedColumn);
+                    } else {
+                        colJoiner.add(quotedColumn);
+                    }
                 }
             }
             String colStr = colJoiner.toString();

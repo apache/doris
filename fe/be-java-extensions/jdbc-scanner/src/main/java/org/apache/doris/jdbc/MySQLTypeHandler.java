@@ -34,6 +34,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 import java.util.List;
@@ -49,6 +50,11 @@ import java.util.stream.Collectors;
  * - Connection abort for incomplete result sets
  */
 public class MySQLTypeHandler extends DefaultTypeHandler {
+    private static final DateTimeFormatter DATETIMEV2_NANO_FORMATTER =
+            new DateTimeFormatterBuilder()
+                    .appendPattern("yyyy-MM-dd HH:mm:ss")
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+                    .toFormatter();
 
     // Store the table type to differentiate MySQL vs OceanBase behavior.
     // OceanBase TIME columns lose fractional second precision with rs.getString(),
@@ -103,7 +109,12 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
             case DATEV2:
                 return rs.getObject(columnIndex, LocalDate.class);
             case DATETIME:
+                return rs.getObject(columnIndex, LocalDateTime.class);
             case DATETIMEV2:
+                if (type.getPrecision() > 6) {
+                    String value = rs.getString(columnIndex);
+                    return value == null ? null : LocalDateTime.parse(value, DATETIMEV2_NANO_FORMATTER);
+                }
                 return rs.getObject(columnIndex, LocalDateTime.class);
             case CHAR:
             case VARCHAR:

@@ -372,9 +372,6 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 } else {
                     scale = 0;
                 }
-                if (scale > 6) {
-                    scale = 6;
-                }
                 return ConnectorType.of("DATETIMEV2", scale, -1);
             }
             case "CHAR":
@@ -522,9 +519,9 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         }
     }
 
-    private static int computeDatetimeScale(int columnSize) {
+    static int computeDatetimeScale(int columnSize) {
         int scale = columnSize > 19 ? columnSize - 20 : 0;
-        return Math.min(scale, JDBC_DATETIME_SCALE);
+        return Math.min(scale, 9);
     }
 
     private static boolean isConvertDatetimeToNull(String url) {

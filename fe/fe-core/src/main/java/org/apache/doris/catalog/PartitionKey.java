@@ -351,14 +351,15 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         (int) dateLiteral.getHour(),
                         (int) dateLiteral.getMinute(),
                         (int) dateLiteral.getSecond(),
-                        (int) dateLiteral.getMicrosecond() * 1000
+                        (int) dateLiteral.getNanosecond()
                 );
                 if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
                     successorDateTime = successorDateTime.plusDays(1);
                 } else if (type == PrimitiveType.DATETIME) {
                     successorDateTime = successorDateTime.plusSeconds(1);
                 } else {
-                    int scale = Math.min(6, Math.max(0, ((ScalarType) literal.getType()).getScalarScale()));
+                    int scale = Math.min(ScalarType.MAX_DATETIMEV2_SCALE,
+                            Math.max(0, ((ScalarType) literal.getType()).getScalarScale()));
                     long nanoSeconds = BigInteger.TEN.pow(9 - scale).longValue();
                     successorDateTime = successorDateTime.plusNanos(nanoSeconds);
                 }

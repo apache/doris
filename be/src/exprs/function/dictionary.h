@@ -114,9 +114,9 @@ public:
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeIPv4, DataTypeIPv6, DataTypeString, DataTypeDateV2,
-                                   DataTypeDateTimeV2, DataTypeDecimal32, DataTypeDecimal64,
-                                   DataTypeDecimal128, DataTypeDecimal256>(type,
-                                                                           std::forward<F>(f));
+                                   DataTypeDateTimeV2, DataTypeDateTimeV2Nano, DataTypeDecimal32,
+                                   DataTypeDecimal64, DataTypeDecimal128, DataTypeDecimal256>(
+                type, std::forward<F>(f));
     }
 
     virtual size_t allocated_bytes() const;
@@ -189,6 +189,7 @@ protected:
                          ColumnWithType<DataTypeString>, ColumnWithType<DictDataTypeString64>,
 
                          ColumnWithType<DataTypeDateV2>, ColumnWithType<DataTypeDateTimeV2>,
+                         ColumnWithType<DataTypeDateTimeV2Nano>,
 
                          ColumnWithType<DataTypeDecimal32>, ColumnWithType<DataTypeDecimal64>,
                          ColumnWithType<DataTypeDecimal128>, ColumnWithType<DataTypeDecimal256>>;

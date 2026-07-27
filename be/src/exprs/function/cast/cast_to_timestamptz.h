@@ -138,6 +138,54 @@ public:
     }
 };
 
+template <CastModeType Mode>
+class CastToImpl<Mode, DataTypeDateTimeV2Nano, DataTypeTimeStampTz> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from = assert_cast<const ColumnDateTimeV2Nano&>(
+                                       *block.get_by_position(arguments[0]).column)
+                                       .get_data();
+        auto col_to = ColumnTimeStampTz::create(input_rows_count);
+        auto& col_to_data = col_to->get_data();
+        auto col_null = ColumnBool::create(input_rows_count, 0);
+        auto& col_null_map = col_null->get_data();
+        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
+        const auto tz_scale = block.get_by_position(result).type->get_scale();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+            DateV2Value<DateTimeV2ValueType> rounded_datetime;
+            TimestampTzValue tz_value;
+            const bool converted =
+                    transform_date_scale(tz_scale, dt_scale, rounded_datetime, col_from[i]) &&
+                    tz_value.from_datetime(rounded_datetime, local_time_zone, tz_scale, tz_scale);
+            if (!converted) {
+                if constexpr (Mode == CastModeType::StrictMode) {
+                    return Status::InvalidArgument(
+                            "can not cast from datetime : {} to timestamptz in timezone : {}",
+                            col_from[i].to_string(), context->state()->timezone());
+                }
+                col_null_map[i] = true;
+                continue;
+            }
+            col_to_data[i] = tz_value;
+        }
+
+        if constexpr (Mode == CastModeType::StrictMode) {
+            block.get_by_position(result).column = std::move(col_to);
+        } else {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null));
+        }
+        return Status::OK();
+    }
+};
+
 template <>
 class CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeTimeStampTz>
         : public CastToBase {

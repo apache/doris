@@ -174,6 +174,7 @@ TEST_F(KeyCoderTest, test_int) {
     test_integer_encode<FieldType::OLAP_FIELD_TYPE_LARGEINT>();
 
     test_integer_encode<FieldType::OLAP_FIELD_TYPE_DATETIME>();
+    test_integer_encode<FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO>();
 }
 
 TEST_F(KeyCoderTest, test_date) {

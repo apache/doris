@@ -111,15 +111,16 @@ public class DateV2Literal extends DateLiteral {
      * @return 2020-01-01 23:59:59.9[scale]
      */
     public DateTimeV2Literal toEndOfTheDay(DateTimeV2Type dateType) {
-        long microSecond = 0;
+        long fractionalSecond = 0;
+        int fractionalWidth = dateType.getScale() > 6 ? 9 : 6;
         // eg. scale == 4 -> 999900
-        for (int i = 0; i < 6; ++i) {
-            microSecond *= 10;
+        for (int i = 0; i < fractionalWidth; ++i) {
+            fractionalSecond *= 10;
             if (i < dateType.getScale()) {
-                microSecond += 9;
+                fractionalSecond += 9;
             }
         }
-        return new DateTimeV2Literal(dateType, year, month, day, 23, 59, 59, microSecond);
+        return new DateTimeV2Literal(dateType, year, month, day, 23, 59, 59, fractionalSecond);
     }
 
     /**

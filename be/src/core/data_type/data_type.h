@@ -201,6 +201,7 @@ public:
                 scalar_type.__set_precision(get_precision());
                 scalar_type.__set_scale(get_scale());
             } else if (get_primitive_type() == TYPE_DATETIMEV2 ||
+                       get_primitive_type() == TYPE_DATETIMEV2_NANO ||
                        get_primitive_type() == TYPE_TIMESTAMPTZ) {
                 scalar_type.__set_scale(get_scale());
             }

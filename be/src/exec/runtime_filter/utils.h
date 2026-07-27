@@ -26,6 +26,7 @@
 #include "core/types.h"
 #include "core/value/large_int_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/vdatetime_value.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/vexpr_fwd.h"
 
@@ -41,6 +42,8 @@ auto get_convertor() {
         return [](PColumnValue* value, const T& data) { value->set_intval(data); };
     } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, Decimal64>) {
         return [](PColumnValue* value, const T& data) { value->set_longval(data); };
+    } else if constexpr (std::is_same_v<T, DateTimeV2NanoValue>) {
+        return [](PColumnValue* value, const T& data) { value->set_longval(data.epoch_nanos()); };
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         return [](PColumnValue* value, const T& data) { value->set_doubleval(data); };
     } else if constexpr (std::is_same_v<T, int128_t> || std::is_same_v<T, uint128_t> ||

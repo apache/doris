@@ -1481,6 +1481,226 @@ static_assert(std::is_trivially_copyable_v<DateV2Value<DateV2ValueType>>,
 static_assert(std::is_trivially_copyable_v<DateV2Value<DateTimeV2ValueType>>,
               "DateV2Value<DateTimeV2ValueType> must be trivial copyable");
 
+// Physical value for DATETIMEV2(7..9). The signed Int64 stores nanoseconds from the Unix epoch,
+// so integer comparison is chronological comparison. DATETIMEV2 is timezone-naive: UTC is used
+// only as a stable, reversible mapping between civil fields and the epoch-nanosecond integer, not
+// as a timezone interpretation of the SQL value.
+class DateTimeV2NanoValue {
+public:
+    static constexpr int64_t NANOS_PER_SECOND = 1000000000;
+    static constexpr int64_t NANOS_PER_MILLISECOND = 1000000;
+    static constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+
+    constexpr DateTimeV2NanoValue() = default;
+    // The argument is a raw signed epoch-nanosecond value, not the packed bit layout used by
+    // DATETIMEV2(0..6).
+    explicit constexpr DateTimeV2NanoValue(int64_t epoch_nanos) : _epoch_nanos(epoch_nanos) {}
+
+    // Despite the legacy interface name, the scalar value is epoch nanoseconds rather than a
+    // YYYYMMDD-style or packed civil integer.
+    constexpr int64_t to_date_int_val() const { return _epoch_nanos; }
+    constexpr int64_t epoch_nanos() const { return _epoch_nanos; }
+
+    // Return the start of the Unix-second interval containing this value. This is floor division,
+    // not C++ signed integer division (which truncates toward zero). For example, -1 nanosecond is
+    // represented as second -1 plus 999,999,999 nanoseconds, rather than second 0 minus 1 nanosecond.
+    int64_t epoch_seconds() const {
+        int64_t seconds = _epoch_nanos / NANOS_PER_SECOND;
+        if (_epoch_nanos % NANOS_PER_SECOND < 0) {
+            --seconds;
+        }
+        return seconds;
+    }
+
+    // Return the normalized fractional part within epoch_seconds(), always in [0, 999,999,999].
+    // Together with epoch_seconds(), this preserves the invariant:
+    //   epoch_nanos() == epoch_seconds() * NANOS_PER_SECOND + nanosecond().
+    uint32_t nanosecond() const {
+        int64_t nanos = _epoch_nanos % NANOS_PER_SECOND;
+        if (nanos < 0) {
+            nanos += NANOS_PER_SECOND;
+        }
+        return static_cast<uint32_t>(nanos);
+    }
+
+    // Split the normalized fractional second into the part understood by the legacy
+    // DateTimeV2Value and the remaining sub-microsecond part.
+    uint32_t microsecond() const { return nanosecond() / 1000; }
+    uint16_t nanosecond_remainder() const { return static_cast<uint16_t>(nanosecond() % 1000); }
+
+    // Convert to the legacy packed civil representation. The returned value contains calendar
+    // fields and microseconds; callers that must preserve all nine digits must separately retain
+    // nanosecond_remainder(). UTC here is only the timezone-naive civil/epoch mapping.
+    DateV2Value<DateTimeV2ValueType> to_datetime() const;
+
+    // Build the epoch-nanosecond representation from a packed civil value and its optional
+    // sub-microsecond digits. Return false when the result is outside the signed Int64 range.
+    bool from_datetime(const DateV2Value<DateTimeV2ValueType>& value,
+                       uint16_t nanosecond_remainder = 0);
+
+    uint16_t year() const { return to_datetime().year(); }
+    uint8_t month() const { return to_datetime().month(); }
+    uint8_t day() const { return to_datetime().day(); }
+    uint8_t hour() const { return to_datetime().hour(); }
+    uint8_t minute() const { return to_datetime().minute(); }
+    uint8_t second() const { return to_datetime().second(); }
+    uint8_t quarter() const { return to_datetime().quarter(); }
+    int64_t daynr() const { return to_datetime().daynr(); }
+    uint16_t year_of_week() const { return to_datetime().year_of_week(); }
+    uint8_t week(uint8_t mode) const { return to_datetime().week(mode); }
+    uint32_t year_week(uint8_t mode) const { return to_datetime().year_week(mode); }
+    uint16_t day_of_year() const { return to_datetime().day_of_year(); }
+    uint8_t day_of_week() const { return to_datetime().day_of_week(); }
+    uint8_t weekday() const { return to_datetime().weekday(); }
+    int64_t time_part_to_seconds() const { return to_datetime().time_part_to_seconds(); }
+    // Return microseconds since civil midnight, intentionally dropping the sub-microsecond digits.
+    int64_t time_part_to_microsecond() const {
+        return time_part_to_seconds() * 1000000 + microsecond();
+    }
+
+    // The historical method name uses "ms", but the value and result are microseconds.
+    template <typename RHS>
+    int64_t time_part_diff_in_ms(const RHS& rhs) const {
+        return time_part_to_microsecond() - rhs.time_part_to_microsecond();
+    }
+
+    // Return the civil datetime difference before considering fractional seconds.
+    template <typename RHS>
+    int64_t datetime_diff_in_seconds(const RHS& rhs) const {
+        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_to_seconds() -
+               rhs.time_part_to_seconds();
+    }
+
+    // For two nano values, subtract in Int128 to avoid Int64 overflow, then truncate
+    // sub-microsecond digits toward zero. The generic path preserves legacy mixed-type behavior.
+    template <typename RHS>
+    int64_t datetime_diff_in_microseconds(const RHS& rhs) const {
+        if constexpr (std::is_same_v<std::remove_cvref_t<RHS>, DateTimeV2NanoValue>) {
+            return static_cast<int64_t>((static_cast<__int128>(_epoch_nanos) - rhs._epoch_nanos) /
+                                        1000);
+        }
+        return (daynr() - rhs.daynr()) * HOUR_PER_DAY * SECOND_PER_HOUR * MS_PER_SECOND +
+               time_part_diff_in_ms(rhs);
+    }
+
+    // Compare civil calendar dates only; time-of-day and fractional seconds do not affect the
+    // result.
+    template <typename RHS>
+    int32_t date_diff_in_days(const RHS& rhs) const {
+        return static_cast<int32_t>(daynr() - rhs.daynr());
+    }
+
+    // Convert a calendar-day difference to elapsed whole days, truncating toward zero when the
+    // time-of-day ordering shows that the final day is incomplete.
+    int32_t date_diff_in_days_round_to_zero_by_time(const auto& rhs) const {
+        int32_t days = date_diff_in_days(rhs);
+        const int64_t time_diff = time_part_diff_in_ms(rhs);
+        if (days > 0 && time_diff < 0) {
+            --days;
+        } else if (days < 0 && time_diff > 0) {
+            ++days;
+        }
+        return days;
+    }
+
+    // Convert the civil whole-second difference to elapsed whole seconds. Fractional seconds can
+    // make the final second incomplete, so adjust the result toward zero.
+    int64_t datetime_diff_in_seconds_round_to_zero_by_ms(const auto& rhs) const {
+        int64_t seconds = datetime_diff_in_seconds(rhs);
+        const int64_t fraction_diff = static_cast<int64_t>(nanosecond()) - rhs.nanosecond();
+        if (seconds > 0 && fraction_diff < 0) {
+            --seconds;
+        } else if (seconds < 0 && fraction_diff > 0) {
+            ++seconds;
+        }
+        return seconds;
+    }
+    const char* day_name_with_locale(const char* const* day_names) const {
+        return to_datetime().day_name_with_locale(day_names);
+    }
+    const char* month_name_with_locale(const char* const* month_names) const {
+        return to_datetime().month_name_with_locale(month_names);
+    }
+    // The MySQL-compatible formatter has microsecond semantics. Calendar fields are exact, but
+    // fractional directives such as %f intentionally see only the leading six digits.
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
+                                       size_t max_valid_length) const {
+        return to_datetime().to_format_string_conservative(format, len, to, max_valid_length);
+    }
+
+    // Every signed Int64 epoch-nanosecond value maps to a valid civil datetime in the supported
+    // 1677-09-21 through 2262-04-11 range.
+    bool is_valid_date() const { return true; }
+
+    // Perform calendar arithmetic through the packed civil implementation while preserving the
+    // three sub-microsecond digits. Conversion back also enforces the Int64 epoch-nanosecond range.
+    template <TimeUnit unit>
+    bool date_add_interval(const TimeInterval& interval) {
+        auto value = to_datetime();
+        const uint16_t remainder = nanosecond_remainder();
+        if (!value.date_add_interval<unit>(interval)) {
+            return false;
+        }
+        return from_datetime(value, remainder);
+    }
+
+    // Clear all fields below `unit` through the packed civil implementation. Fractional
+    // nanoseconds are intentionally discarded, and false reports that the truncated civil value
+    // lies outside the signed Int64 epoch-nanosecond range.
+    template <TimeUnit unit>
+    bool datetime_trunc() {
+        auto value = to_datetime();
+        if (!value.template datetime_trunc<unit>()) {
+            return false;
+        }
+        return from_datetime(value);
+    }
+
+    // Format exactly `scale` fractional digits. This selects the leading digits of the stored
+    // nanosecond fraction; it does not round. Values normally arrive pre-rounded to their type scale.
+    int32_t to_buffer(char* buffer, int scale = 9) const;
+    char* to_string(char* buffer, int scale = 9) const {
+        const int32_t length = to_buffer(buffer, scale);
+        buffer[length] = '\0';
+        return buffer + length + 1;
+    }
+    std::string to_string(int scale = 9) const {
+        char buffer[40];
+        const int32_t length = to_buffer(buffer, scale);
+        return {buffer, static_cast<size_t>(length)};
+    }
+
+    auto operator<=>(const DateTimeV2NanoValue&) const = default;
+
+    // Add whole seconds without changing the fractional nanoseconds. Overflow is a correctness
+    // violation because every valid result must remain representable by the signed Int64 storage.
+    DateTimeV2NanoValue& operator+=(int64_t seconds) {
+        int64_t delta = 0;
+        DORIS_CHECK(!__builtin_mul_overflow(seconds, NANOS_PER_SECOND, &delta));
+        DORIS_CHECK(!__builtin_add_overflow(_epoch_nanos, delta, &_epoch_nanos));
+        return *this;
+    }
+
+    // Subtract whole seconds through operator+=. INT64_MIN is outside this operator's contract
+    // because its additive inverse is not representable by int64_t.
+    DateTimeV2NanoValue& operator-=(int64_t seconds) {
+        DORIS_CHECK_NE(seconds, std::numeric_limits<int64_t>::min());
+        return *this += -seconds;
+    }
+
+    // Hash the canonical epoch-nanosecond representation, so equal values hash identically without
+    // converting to civil fields.
+    uint32_t hash(int seed) const {
+        return HashUtil::hash(&_epoch_nanos, sizeof(_epoch_nanos), seed);
+    }
+
+private:
+    int64_t _epoch_nanos = 0;
+};
+
+static_assert(sizeof(DateTimeV2NanoValue) == sizeof(int64_t));
+static_assert(std::is_trivially_copyable_v<DateTimeV2NanoValue>);
+
 template <typename T>
 inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
 template <typename T>
@@ -1560,6 +1780,66 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         return second;
     } else {
         static_assert(unit == YEAR, "Unsupported TimeUnit for datetime_diff");
+    }
+}
+
+template <TimeUnit UNIT>
+int64_t datetime_diff(const DateTimeV2NanoValue& ts_value1, const DateTimeV2NanoValue& ts_value2) {
+    const auto time_key = [](const DateTimeV2NanoValue& value, bool include_month) {
+        int64_t result = include_month ? value.month() : 0;
+        result = result * 32 + value.day();
+        result = result * 24 + value.hour();
+        result = result * 60 + value.minute();
+        result = result * 60 + value.second();
+        return result * DateTimeV2NanoValue::NANOS_PER_SECOND + value.nanosecond();
+    };
+    if constexpr (UNIT == YEAR) {
+        int year = ts_value2.year() - ts_value1.year();
+        const int64_t remainder1 = time_key(ts_value1, true);
+        const int64_t remainder2 = time_key(ts_value2, true);
+        if (year > 0) {
+            year -= remainder2 < remainder1;
+        } else if (year < 0) {
+            year += remainder2 > remainder1;
+        }
+        return year;
+    } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
+        int month = (ts_value2.year() - ts_value1.year()) * 12 +
+                    (ts_value2.month() - ts_value1.month());
+        const int64_t remainder1 = time_key(ts_value1, false);
+        const int64_t remainder2 = time_key(ts_value2, false);
+        if (month > 0) {
+            month -= remainder2 < remainder1;
+        } else if (month < 0) {
+            month += remainder2 > remainder1;
+        }
+        return UNIT == QUARTER ? month / 3 : month;
+    } else if constexpr (UNIT == WEEK || UNIT == DAY) {
+        int64_t day = ts_value2.daynr() - ts_value1.daynr();
+        const int64_t time1 =
+                ts_value1.time_part_to_seconds() * DateTimeV2NanoValue::NANOS_PER_SECOND +
+                ts_value1.nanosecond();
+        const int64_t time2 =
+                ts_value2.time_part_to_seconds() * DateTimeV2NanoValue::NANOS_PER_SECOND +
+                ts_value2.nanosecond();
+        if (day > 0) {
+            day -= time2 < time1;
+        } else if (day < 0) {
+            day += time2 > time1;
+        }
+        return UNIT == WEEK ? day / 7 : day;
+    } else {
+        constexpr int64_t divisor = UNIT == HOUR     ? 3600 * DateTimeV2NanoValue::NANOS_PER_SECOND
+                                    : UNIT == MINUTE ? 60 * DateTimeV2NanoValue::NANOS_PER_SECOND
+                                    : UNIT == SECOND ? DateTimeV2NanoValue::NANOS_PER_SECOND
+                                    : UNIT == MILLISECOND ? 1000000
+                                                          : 1000;
+        static_assert(UNIT == HOUR || UNIT == MINUTE || UNIT == SECOND || UNIT == MILLISECOND ||
+                              UNIT == MICROSECOND,
+                      "Unsupported TimeUnit for datetime_diff");
+        return static_cast<int64_t>(
+                (static_cast<__int128>(ts_value2.epoch_nanos()) - ts_value1.epoch_nanos()) /
+                divisor);
     }
 }
 
@@ -1820,5 +2100,12 @@ template <>
 struct std::hash<doris::DateV2Value<doris::DateTimeV2ValueType>> {
     size_t operator()(const doris::DateV2Value<doris::DateTimeV2ValueType>& v) const {
         return doris::hash_value(v);
+    }
+};
+
+template <>
+struct std::hash<doris::DateTimeV2NanoValue> {
+    size_t operator()(const doris::DateTimeV2NanoValue& value) const {
+        return std::hash<int64_t> {}(value.epoch_nanos());
     }
 };

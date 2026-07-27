@@ -337,6 +337,12 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
         }
         return true;
     };
+    // Keep nano dispatch local because the shared scalar dispatcher is also used by templates
+    // that assume arithmetic support.
+    if (argument_types[1]->get_primitive_type() == TYPE_DATETIMEV2_NANO) {
+        call(DispatchDataType<TYPE_DATETIMEV2_NANO>());
+        return result;
+    }
     if (dispatch_switch_scalar(argument_types[1]->get_primitive_type(), call)) {
         return result;
     }

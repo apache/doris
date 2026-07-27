@@ -878,6 +878,10 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
                                                  datetime_v2.minute(), datetime_v2.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
                 nanos = datetime_v2.microsecond() * 1000;
+            } else if (primitive_type == TYPE_DATETIMEV2_NANO) {
+                const auto datetime_v2 = *reinterpret_cast<const DateTimeV2NanoValue*>(value);
+                seconds = datetime_v2.epoch_seconds();
+                nanos = cast_set<int32_t>(datetime_v2.nanosecond());
             } else {
                 return std::make_tuple(false, orc::Literal(false));
             }
@@ -1620,7 +1624,7 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
         }
     case orc::TypeKind::TIMESTAMP:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
-                                                            6);
+                                                            9);
     case orc::TypeKind::DECIMAL:
         return DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_DECIMAL128I, true,
@@ -1644,7 +1648,7 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
                                                                 true, 0, 6);
         }
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
-                                                            6);
+                                                            9);
     case orc::TypeKind::LIST: {
         return make_nullable(
                 std::make_shared<DataTypeArray>(convert_to_doris_type(orc_type->getSubtype(0))));
@@ -1986,6 +1990,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                    is_filter>(col_name, data_column, cvb, num_values);
     case PrimitiveType::TYPE_DATETIMEV2:
         return _decode_time_column<DateV2Value<DateTimeV2ValueType>, TYPE_DATETIMEV2,
+                                   orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,
+                                                                         num_values);
+    case PrimitiveType::TYPE_DATETIMEV2_NANO:
+        return _decode_time_column<DateTimeV2NanoValue, TYPE_DATETIMEV2_NANO,
                                    orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,
                                                                          num_values);
     case PrimitiveType::TYPE_STRING:

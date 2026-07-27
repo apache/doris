@@ -254,14 +254,13 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             sb.append(":00");
         }
 
-        // parse MicroSecond
-        // Keep up to 7 digits at most, 7th digit is use for overflow.
+        // Parse fractional seconds. Java's NANO_OF_SECOND supports up to 9 digits.
         int j = i;
         if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
             sb.append(s.charAt(i));
             i += 1;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                if (i - j <= 7) {
+                if (i - j <= DateTimeV2Type.MAX_SCALE) {
                     sb.append(s.charAt(i));
                 }
                 i += 1;
@@ -472,10 +471,10 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return cmp;
             }
 
-            long thisMicrosecond = this instanceof DateTimeV2Literal ? ((DateTimeV2Literal) this).getMicroSecond() : 0L;
-            long otherMicrosecond = other instanceof DateTimeV2Literal
-                    ? ((DateTimeV2Literal) other).getMicroSecond() : 0L;
-            return Long.compare(thisMicrosecond, otherMicrosecond);
+            long thisNanosecond = this instanceof DateTimeV2Literal ? ((DateTimeV2Literal) this).getNanoSecond() : 0L;
+            long otherNanosecond = other instanceof DateTimeV2Literal
+                    ? ((DateTimeV2Literal) other).getNanoSecond() : 0L;
+            return Long.compare(thisNanosecond, otherNanosecond);
         }
         if (other instanceof NullLiteral) {
             return 1;

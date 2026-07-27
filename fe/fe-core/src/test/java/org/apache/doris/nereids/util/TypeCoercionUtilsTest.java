@@ -83,6 +83,16 @@ import java.math.BigDecimal;
 
 public class TypeCoercionUtilsTest {
     @Test
+    public void testReplaceTimesWithNanosecondPrecision() {
+        Assertions.assertEquals(DateTimeV2Type.of(9),
+                TypeCoercionUtils.replaceTimesWithTargetPrecision(DateTimeV2Type.SYSTEM_DEFAULT, 9));
+        Assertions.assertEquals(TimeV2Type.MAX,
+                TypeCoercionUtils.replaceTimesWithTargetPrecision(TimeV2Type.SYSTEM_DEFAULT, 9));
+        Assertions.assertEquals(TimeStampTzType.MAX,
+                TypeCoercionUtils.replaceTimesWithTargetPrecision(TimeStampTzType.SYSTEM_DEFAULT, 9));
+    }
+
+    @Test
     public void testImplicitCastAccept() {
         IntegerType integerType = IntegerType.INSTANCE;
         IntegralType integralType = IntegralType.INSTANCE;

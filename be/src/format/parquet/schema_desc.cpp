@@ -239,7 +239,7 @@ std::pair<DataTypePtr, bool> FieldDescriptor::get_doris_type(
             } else {
                 // in most cases, it's a nano timestamp
                 ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable,
-                                                                         0, 6);
+                                                                         0, 9);
             }
             break;
         case tparquet::Type::FLOAT:
@@ -317,7 +317,10 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
             }
         }
         ans.first = DataTypeFactory::instance().create_data_type(
-                TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
+                TYPE_DATETIMEV2, nullable, 0,
+                logicalType.TIMESTAMP.unit.__isset.MILLIS
+                        ? 3
+                        : (logicalType.TIMESTAMP.unit.__isset.MICROS ? 6 : 9));
     } else if (logicalType.__isset.JSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.UUID) {

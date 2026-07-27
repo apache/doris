@@ -316,7 +316,7 @@ public final class ExprToConnectorExpressionConverter {
             LocalDateTime ldt = LocalDateTime.of(
                     (int) dl.getYear(), (int) dl.getMonth(), (int) dl.getDay(),
                     (int) dl.getHour(), (int) dl.getMinute(), (int) dl.getSecond(),
-                    (int) (dl.getMicrosecond() * 1000));
+                    (int) dl.getNanosecond());
             return new ConnectorLiteral(ct, ldt);
         }
     }

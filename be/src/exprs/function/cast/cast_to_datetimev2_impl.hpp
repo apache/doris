@@ -1074,6 +1074,59 @@ inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
     return true;
 }
 
+inline bool round_datetime_nanos(UInt32 to_scale, UInt32 from_scale,
+                                 DateV2Value<DateTimeV2ValueType>& datetime, uint32_t& nanos) {
+    if (to_scale >= from_scale) {
+        return true;
+    }
+    const auto divisor = static_cast<uint32_t>(common::exp10_i64(9 - to_scale));
+    const uint32_t remainder = nanos % divisor;
+    nanos = nanos / divisor * divisor;
+    if (remainder >= divisor / 2) {
+        nanos += divisor;
+    }
+    if (nanos >= DateTimeV2NanoValue::NANOS_PER_SECOND) {
+        nanos = 0;
+        if (!datetime.date_add_interval<TimeUnit::SECOND>(
+                    TimeInterval {TimeUnit::SECOND, 1, false})) {
+            return false;
+        }
+    }
+    datetime.set_microsecond(nanos / 1000);
+    return true;
+}
+
+inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale, DateTimeV2NanoValue& to_value,
+                                 const DateTimeV2NanoValue& from_value) {
+    auto datetime = from_value.to_datetime();
+    uint32_t nanos = from_value.nanosecond();
+    if (!round_datetime_nanos(to_scale, from_scale, datetime, nanos)) {
+        return false;
+    }
+    return to_value.from_datetime(datetime, static_cast<uint16_t>(nanos % 1000));
+}
+
+inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale, DateTimeV2NanoValue& to_value,
+                                 const DateV2Value<DateTimeV2ValueType>& from_value) {
+    DateTimeV2NanoValue nano_value;
+    if (!nano_value.from_datetime(from_value)) {
+        return false;
+    }
+    return transform_date_scale(to_scale, from_scale, to_value, nano_value);
+}
+
+inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
+                                 DateV2Value<DateTimeV2ValueType>& to_value,
+                                 const DateTimeV2NanoValue& from_value) {
+    auto datetime = from_value.to_datetime();
+    uint32_t nanos = from_value.nanosecond();
+    if (!round_datetime_nanos(to_scale, from_scale, datetime, nanos)) {
+        return false;
+    }
+    to_value = datetime;
+    return true;
+}
+
 inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
                                  PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType& to_value,
                                  const PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType& from_value) {

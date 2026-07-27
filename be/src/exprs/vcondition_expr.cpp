@@ -577,6 +577,10 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     result_raw_data[row].to_date_int_val() +
                     column_raw_data[row].to_date_int_val() *
                             uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDateTimeV2Nano>) {
+            if (!(null_map_data[row] | filled_flag[row])) {
+                result_raw_data[row] = column_raw_data[row];
+            }
         } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampTz>) {
             result_raw_data[row] = binary_cast<uint64_t, TimestampTzValue>(
                     result_raw_data[row].to_date_int_val() +
@@ -634,6 +638,11 @@ Status filled_result_column(const DataTypePtr& data_type, MutableColumnPtr& resu
     if (data_type->get_primitive_type() == TYPE_BITMAP) {
         return insert_result_data_bitmap(result_column, argument_column, null_map_data, filled_flag,
                                          input_rows_count);
+    }
+    if (data_type->get_primitive_type() == TYPE_DATETIMEV2_NANO) {
+        insert_result_data<ColumnDateTimeV2Nano>(result_column, argument_column, null_map_data,
+                                                 filled_flag, input_rows_count);
+        return Status::OK();
     }
 
     auto call = [&](const auto& type) -> bool {

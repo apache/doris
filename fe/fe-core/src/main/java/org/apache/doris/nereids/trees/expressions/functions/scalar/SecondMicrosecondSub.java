@@ -46,6 +46,7 @@ public class SecondMicrosecondSub extends ScalarFunction
             FunctionSignature.ret(TimeStampTzType.MAX).args(TimeStampTzType.MAX,
             VarcharType.SYSTEM_DEFAULT)
     );
+    private static final int MICROSECOND_SCALE = 6;
 
     public SecondMicrosecondSub(Expression arg0, Expression arg1) {
         super("second_microsecond_sub", arg0, arg1);
@@ -80,9 +81,11 @@ public class SecondMicrosecondSub extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+        if (child(0).getDataType() instanceof TimeStampTzType) {
             return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
         }
-        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
+        DateTimeV2Type type =
+                DateTimeV2Type.forTypeWithMinimumScale(child(0).getDataType(), MICROSECOND_SCALE);
+        return signature.withArgumentType(0, type).withReturnType(type);
     }
 }

@@ -566,7 +566,9 @@ private:
             return true;
         };
 
-        if (!dispatch_switch_all(type, call)) {
+        if (type == TYPE_DATETIMEV2_NANO) {
+            call(DispatchDataType<TYPE_DATETIMEV2_NANO>());
+        } else if (!dispatch_switch_all(type, call)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "not support type {}",
                                    type_to_string(type));
         }
@@ -755,11 +757,11 @@ private:
                                          /*nan_direction_hint=*/1) == 0;
     }
 
-    // whether this function supports equality comparison for the given primitive type.
-    // Uses dispatch_switch_all as the single source of truth so any type supported
-    // by the dispatch layer is automatically accepted here.
+    // DATETIMEV2_NANO is dispatched locally because adding it to the shared scalar
+    // dispatcher would instantiate unrelated arithmetic-only templates for this type.
     bool is_equality_comparison_supported(PrimitiveType type) const {
-        return dispatch_switch_all(type, [](const auto&) { return true; });
+        return type == TYPE_DATETIMEV2_NANO ||
+               dispatch_switch_all(type, [](const auto&) { return true; });
     }
 };
 

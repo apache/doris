@@ -442,7 +442,8 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         return paimon::Literal(paimon::FieldType::DATE, days);
     }
     case TYPE_DATETIME:
-    case TYPE_DATETIMEV2: {
+    case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO: {
         if (!_is_datetime_type(literal_primitive)) {
             return std::nullopt;
         }
@@ -454,6 +455,12 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
             int64_t seconds = 0;
             dt.unix_timestamp(&seconds, _gmt_tz);
             return paimon::Literal(paimon::Timestamp::FromEpochMillis(seconds * 1000));
+        }
+        if (literal_primitive == TYPE_DATETIMEV2_NANO) {
+            const auto& dt = field.get<TYPE_DATETIMEV2_NANO>();
+            int64_t millis = dt.epoch_seconds() * 1000 +
+                             dt.nanosecond() / DateTimeV2NanoValue::NANOS_PER_MILLISECOND;
+            return paimon::Literal(paimon::Timestamp::FromEpochMillis(millis));
         }
         std::pair<int64_t, int64_t> ts;
         const auto& dt = field.get<TYPE_DATETIMEV2>();
@@ -611,7 +618,7 @@ bool PaimonPredicateConverter::_is_date_type(PrimitiveType type) {
 }
 
 bool PaimonPredicateConverter::_is_datetime_type(PrimitiveType type) {
-    return type == TYPE_DATETIME || type == TYPE_DATETIMEV2;
+    return type == TYPE_DATETIME || type == TYPE_DATETIMEV2 || type == TYPE_DATETIMEV2_NANO;
 }
 
 std::optional<paimon::FieldType> PaimonPredicateConverter::_to_paimon_field_type(
@@ -637,6 +644,7 @@ std::optional<paimon::FieldType> PaimonPredicateConverter::_to_paimon_field_type
         return paimon::FieldType::DATE;
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
         return paimon::FieldType::TIMESTAMP;
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:

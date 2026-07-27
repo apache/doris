@@ -170,6 +170,7 @@ private:
                  !std::is_same_v<COLUMN_TYPE, ColumnDateTime> &&
                  !std::is_same_v<COLUMN_TYPE, ColumnDateV2> &&
                  !std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> &&
+                 !std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2Nano> &&
                  !std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
@@ -205,13 +206,14 @@ private:
 
     template <typename COLUMN_TYPE, typename CPP_TYPE>
         requires(std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> ||
+                 std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2Nano> ||
                  std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
     static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
                                             size_t num_rows) {
         auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
         size_t origin_size = column_data.size();
         column_data.resize(origin_size + num_rows);
-        memcpy((uint64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
+        memcpy(column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
         return Status::OK();
     }
 

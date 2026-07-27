@@ -22,13 +22,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
-import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -59,18 +57,20 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public DateTimeV2Literal(DateTimeV2Type dateType,
-            long year, long month, long day, long hour, long minute, long second, long microSecond) {
-        super(dateType, year, month, day, hour, minute, second, microSecond);
+            long year, long month, long day, long hour, long minute, long second, long fractionalSecond) {
+        super(dateType, year, month, day, hour, minute, second,
+                dateType.getScale() > 6 ? fractionalSecond / 1000 : fractionalSecond);
+        nanoSecond = dateType.getScale() > 6 ? fractionalSecond : fractionalSecond * 1000;
         roundMicroSecond(dateType.getScale());
     }
 
     /** Date difference rounded toward zero by time part. */
     public static long dateDiffInDaysRoundToZeroByTime(DateLiteral lhs, DateLiteral rhs) {
         long days = DateV2Literal.dateDiffInDays(lhs, rhs);
-        long microSecondDiff = timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
-        if (days > 0 && microSecondDiff < 0) {
+        long nanoSecondDiff = timePartToNanoSecond(lhs) - timePartToNanoSecond(rhs);
+        if (days > 0 && nanoSecondDiff < 0) {
             days--;
-        } else if (days < 0 && microSecondDiff > 0) {
+        } else if (days < 0 && nanoSecondDiff > 0) {
             days++;
         }
         return days;
@@ -83,15 +83,36 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     /** Datetime difference in microseconds. */
     public static long datetimeDiffInMicroSeconds(DateLiteral lhs, DateLiteral rhs) {
-        return DateV2Literal.dateDiffInDays(lhs, rhs) * 24L * 60L * 60L * 1000L * 1000L
-                + timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
+        long secondDiff = DateV2Literal.dateDiffInDays(lhs, rhs) * 24L * 60L * 60L
+                + timePartToSecond(lhs) - timePartToSecond(rhs);
+        long nanoDiff = fractionalNanoSecond(lhs) - fractionalNanoSecond(rhs);
+        long result = secondDiff * 1000000L + nanoDiff / 1000L;
+        if (secondDiff > 0 && nanoDiff < 0 && nanoDiff % 1000 != 0) {
+            result--;
+        } else if (secondDiff < 0 && nanoDiff > 0 && nanoDiff % 1000 != 0) {
+            result++;
+        }
+        return result;
     }
 
-    private static long timePartToMicroSecond(DateLiteral date) {
+    private static long timePartToNanoSecond(DateLiteral date) {
         if (date instanceof DateTimeLiteral) {
-            return ((DateTimeLiteral) date).timePartToMicroSecond();
+            DateTimeLiteral dateTime = (DateTimeLiteral) date;
+            return timePartToSecond(date) * 1000000000L + dateTime.getNanoSecond();
         }
         return 0;
+    }
+
+    private static long timePartToSecond(DateLiteral date) {
+        if (date instanceof DateTimeLiteral) {
+            DateTimeLiteral dateTime = (DateTimeLiteral) date;
+            return (dateTime.getHour() * 60L + dateTime.getMinute()) * 60L + dateTime.getSecond();
+        }
+        return 0;
+    }
+
+    private static long fractionalNanoSecond(DateLiteral date) {
+        return date instanceof DateTimeLiteral ? ((DateTimeLiteral) date).getNanoSecond() : 0;
     }
 
     @Override
@@ -106,13 +127,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, microSecond,
+        long fractionalSecond = getDataType().getScale() > 6 ? nanoSecond : microSecond;
+        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, fractionalSecond,
                 getDataType().toCatalogDataType());
     }
 
     @Override
     public double getDouble() {
-        return super.getDouble() + microSecond / 1000000.0;
+        return super.getDouble() + nanoSecond / 1000000000.0;
     }
 
     @Override
@@ -129,10 +151,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
         if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99
                 && 0 <= hour && hour <= 99 && 0 <= minute && minute <= 99 && 0 <= second && second <= 99
-                && 0 <= microSecond && microSecond <= MAX_MICROSECOND) {
+                && 0 <= nanoSecond && nanoSecond <= MAX_NANOSECOND) {
             char[] format = new char[] {
                     '0', '0', '0', '0', '-', '0', '0', '-', '0', '0', ' ', '0', '0', ':', '0', '0', ':', '0', '0',
-                    '.', '0', '0', '0', '0', '0', '0'};
+                    '.', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
             int offset = 3;
             long year = this.year;
             while (year > 0) {
@@ -176,10 +198,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             }
 
             offset = 19 + scale;
-            long microSecond = (int) (this.microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale));
-            while (microSecond > 0) {
-                format[offset--] = (char) ('0' + (microSecond % 10));
-                microSecond /= 10;
+            long fractionalSecond = this.nanoSecond / (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - scale);
+            while (fractionalSecond > 0) {
+                format[offset--] = (char) ('0' + (fractionalSecond % 10));
+                fractionalSecond /= 10;
             }
             return String.valueOf(format, 0, 20 + scale);
         }
@@ -187,7 +209,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return String.format("%04d-%02d-%02d %02d:%02d:%02d"
                         + (scale > 0 ? ".%0" + scale + "d" : ""),
                 year, month, day, hour, minute, second,
-                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
+                nanoSecond / (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - scale));
     }
 
     @Override
@@ -200,13 +222,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                     year, month, day, hour, minute, second, microSecond);
         }
         if (targetType.isTimeStampTzType()) {
-            DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                    this,
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                    new StringLiteral("UTC")));
-            return new TimestampTzLiteral((TimeStampTzType) targetType,
-                    dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                    dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) targetType, this);
         }
         return super.uncheckedCastTo(targetType);
     }
@@ -410,7 +426,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public DateTimeV2Literal plusMicroSeconds(long microSeconds) {
-        return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
+        return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)),
+                Math.max(getScale(), 6));
     }
 
     public Expression plusMilliSeconds(long microSeconds) {
@@ -429,8 +446,9 @@ public class DateTimeV2Literal extends DateTimeLiteral {
      * roundCeiling
      */
     public DateTimeV2Literal roundCeiling(int newScale) {
-        long remain = Double.valueOf(microSecond % (Math.pow(10, 6 - newScale))).longValue();
-        long newMicroSecond = microSecond;
+        long factor = (long) Math.pow(10, 9 - newScale);
+        long remain = nanoSecond % factor;
+        long newNanoSecond = nanoSecond;
         long newSecond = second;
         long newMinute = minute;
         long newHour = hour;
@@ -438,13 +456,10 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         long newMonth = month;
         long newYear = year;
         if (remain != 0) {
-            newMicroSecond = Double
-                    .valueOf((microSecond + (int) (Math.pow(10, 6 - newScale)))
-                            / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale)))
-                    .longValue();
+            newNanoSecond = (nanoSecond + factor) / factor * factor;
         }
-        if (newMicroSecond > MAX_MICROSECOND) {
-            newMicroSecond %= newMicroSecond;
+        if (newNanoSecond > MAX_NANOSECOND) {
+            newNanoSecond = 0;
             Expression plus1Second = this.plusSeconds(1);
             if (plus1Second.isNullLiteral()) {
                 throw new AnalysisException("round ceil datetime literal (" + toString() + ", "
@@ -458,13 +473,16 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             newMonth = result.month;
             newYear = result.year;
         }
+        long fractionalSecond = newScale > 6 ? newNanoSecond : newNanoSecond / 1000;
         return new DateTimeV2Literal(DateTimeV2Type.of(newScale), newYear, newMonth, newDay,
-                newHour, newMinute, newSecond, newMicroSecond);
+                newHour, newMinute, newSecond, fractionalSecond);
     }
 
     public DateTimeV2Literal roundFloor(int newScale) {
+        long factor = (long) Math.pow(10, 9 - newScale);
+        long newNanoSecond = nanoSecond / factor * factor;
         return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second,
-                microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
+                newScale > 6 ? newNanoSecond : newNanoSecond / 1000);
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
@@ -475,14 +493,15 @@ public class DateTimeV2Literal extends DateTimeLiteral {
      * convert java LocalDateTime object to DateTimeV2Literal object.
      */
     public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
-        long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
+        long factor = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());
         }
+        long nanoSecond = dateTime.getNano() / factor * factor;
+        long fractionalSecond = precision > 6 ? nanoSecond : nanoSecond / 1000;
         return new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
-                        dateTime.getMinute(), dateTime.getSecond(),
-                        (dateTime.getNano() / 1000) / value * value);
+                        dateTime.getMinute(), dateTime.getSecond(), fractionalSecond);
     }
 
     @Override
@@ -497,6 +516,6 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             return false;
         }
         DateTimeV2Literal literal = (DateTimeV2Literal) o;
-        return Objects.equals(dataType, literal.dataType) && Objects.equals(microSecond, literal.microSecond);
+        return Objects.equals(dataType, literal.dataType) && Objects.equals(nanoSecond, literal.nanoSecond);
     }
 }

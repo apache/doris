@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.jdbc.client;
 
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.jdbc.JdbcDbType;
 
 import org.junit.jupiter.api.Assertions;
@@ -66,5 +67,15 @@ public class JdbcClickHouseConnectorClientTest {
         Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 createClient().getTableTypes());
+    }
+
+    @Test
+    void testDateTime64NanoPrecision() {
+        JdbcClickHouseConnectorClient client = createClient();
+        for (int scale = 7; scale <= 9; scale++) {
+            ConnectorType type = client.parseDateTimeType("DateTime64(" + scale + ")");
+            Assertions.assertEquals("DATETIMEV2", type.getTypeName());
+            Assertions.assertEquals(scale, type.getPrecision());
+        }
     }
 }

@@ -194,7 +194,11 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DATETIMEV2:
-        type = std::make_shared<DataTypeDateTimeV2>(input_types[index].scale_or(0));
+        type = create_datetimev2(input_types[index].scale_or(0));
+        desc = type;
+        return 1;
+    case PrimitiveType::TYPE_DATETIMEV2_NANO:
+        type = std::make_shared<DataTypeDateTimeV2Nano>(input_types[index].scale_or(9));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_TIMEV2:
@@ -318,7 +322,16 @@ bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, c
         auto datetime_str = any_cast<std::string>(cell);
 
         CastParameters params;
-        if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
+        if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2_NANO) {
+            StringRef value {datetime_str};
+            result = date_type_ptr->get_serde()
+                             ->from_string(value, *column, DataTypeSerDe::FormatOptions {})
+                             .ok();
+            if (!result) {
+                column->insert_default();
+            }
+            return result;
+        } else if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
             result = CastToDatetimeV2::from_string_non_strict_mode(
                     {datetime_str.c_str(), datetime_str.size()}, date_value, nullptr,
                     date_type_ptr->get_scale(), params);
@@ -526,6 +539,11 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         }
         case PrimitiveType::TYPE_DATETIMEV2: {
             RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_DATETIMEV2>(
+                    column, type_ptr, cell, datetime_is_string_format)));
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIMEV2_NANO: {
+            RETURN_IF_FALSE((insert_datetime_cell<PrimitiveType::TYPE_DATETIMEV2_NANO>(
                     column, type_ptr, cell, datetime_is_string_format)));
             break;
         }

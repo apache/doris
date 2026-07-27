@@ -268,7 +268,7 @@ public class MysqlSerializer {
      * @param type
      * @return
      */
-    private int getMysqlTypeLength(Type type) {
+    int getMysqlTypeLength(Type type) {
         switch (type.getPrimitiveType()) {
             // MySQL use Tinyint(1) to represent boolean
             case BOOLEAN:
@@ -296,7 +296,8 @@ public class MysqlSerializer {
                 if (type.getPrimitiveType().isTimeType()) {
                     return 10;
                 } else {
-                    return 19;
+                    int scale = type.isDatetimeV2() ? ((ScalarType) type).getScalarScale() : 0;
+                    return 19 + (scale > 0 ? scale + 1 : 0);
                 }
             }
             case DECIMALV2:

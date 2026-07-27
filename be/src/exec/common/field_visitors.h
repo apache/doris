@@ -47,6 +47,9 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_DATETIMEV2:
         return visitor.template apply<PrimitiveType::TYPE_DATETIMEV2>(
                 field.template get<TYPE_DATETIMEV2>());
+    case PrimitiveType::TYPE_DATETIMEV2_NANO:
+        return visitor.template apply<PrimitiveType::TYPE_DATETIMEV2_NANO>(
+                field.template get<TYPE_DATETIMEV2_NANO>());
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return visitor.template apply<PrimitiveType::TYPE_TIMESTAMPTZ>(
                 field.template get<TYPE_TIMESTAMPTZ>());

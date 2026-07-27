@@ -462,6 +462,58 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
     }
 }
 
+TEST_F(PartitionTransformersTest, test_datetimev2_nano_partition_transforms) {
+    auto column = ColumnDateTimeV2Nano::create();
+    auto& values = column->get_data();
+    values.push_back(DateTimeV2NanoValue(-1));
+    values.push_back(DateTimeV2NanoValue(0));
+    values.push_back(DateTimeV2NanoValue(999));
+
+    auto source_type = std::make_shared<DataTypeDateTimeV2Nano>(9);
+    Block block({ColumnWithTypeAndName(column->get_ptr(), source_type, "test_timestamp_nano")});
+
+    const auto check_ordinal = [&](PartitionColumnTransform& transform,
+                                   const std::vector<int32_t>& expected) {
+        auto result = transform.apply(block, 0);
+        const auto& result_data = assert_cast<const ColumnInt32*>(result.column.get())->get_data();
+        ASSERT_EQ(expected.size(), result_data.size());
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(expected[i], result_data[i]);
+        }
+    };
+
+    TimestampYearPartitionColumnTransform<TYPE_DATETIMEV2_NANO> year_transform(source_type);
+    check_ordinal(year_transform, {-1, 0, 0});
+
+    TimestampMonthPartitionColumnTransform<TYPE_DATETIMEV2_NANO> month_transform(source_type);
+    check_ordinal(month_transform, {-1, 0, 0});
+
+    TimestampDayPartitionColumnTransform<TYPE_DATETIMEV2_NANO> day_transform(source_type);
+    check_ordinal(day_transform, {-1, 0, 0});
+
+    TimestampHourPartitionColumnTransform<TYPE_DATETIMEV2_NANO> hour_transform(source_type);
+    check_ordinal(hour_transform, {-1, 0, 0});
+
+    TimestampBucketPartitionColumnTransform<TYPE_DATETIMEV2_NANO> bucket_transform(source_type, 16);
+    auto bucket_result = bucket_transform.apply(block, 0);
+    const auto& bucket_data =
+            assert_cast<const ColumnInt32*>(bucket_result.column.get())->get_data();
+    ASSERT_EQ(3, bucket_data.size());
+    const int64_t minus_one_microsecond = -1;
+    const int32_t expected_negative_bucket =
+            (HashUtil::murmur_hash3_32(&minus_one_microsecond, sizeof(minus_one_microsecond), 0) &
+             INT32_MAX) %
+            16;
+    EXPECT_EQ(expected_negative_bucket, bucket_data[0]);
+    EXPECT_EQ(bucket_data[1], bucket_data[2]);
+
+    IdentityPartitionColumnTransform identity_transform(source_type);
+    EXPECT_EQ("1969-12-31 23:59:59.999999999",
+              identity_transform.get_partition_value(source_type, DateTimeV2NanoValue(-1)));
+    EXPECT_EQ("1970-01-01 00:00:00.000000000",
+              identity_transform.get_partition_value(source_type, DateTimeV2NanoValue(0)));
+}
+
 TEST_F(PartitionTransformersTest, test_void_transform) {
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnInt32::create();

@@ -58,6 +58,9 @@ void dispatch(F&& f, const Field& field) {
     case PrimitiveType::TYPE_DATETIMEV2:
         f(field.template get<TYPE_DATETIMEV2>());
         return;
+    case PrimitiveType::TYPE_DATETIMEV2_NANO:
+        f(field.template get<TYPE_DATETIMEV2_NANO>());
+        return;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         f(field.template get<TYPE_TIMESTAMPTZ>());
         return;
@@ -179,6 +182,9 @@ public:
     void operator()(const Null& x, JsonbWriter* writer) const { writer->writeNull(); }
     void operator()(const DateV2Value<DateTimeV2ValueType>& x, JsonbWriter* writer) const {
         writer->writeInt64(*(UInt64*)&x);
+    }
+    void operator()(const DateTimeV2NanoValue& x, JsonbWriter* writer) const {
+        writer->writeInt64(x.epoch_nanos());
     }
     void operator()(const TimestampTzValue& x, JsonbWriter* writer) const {
         writer->writeInt64(*(UInt64*)&x);

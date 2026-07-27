@@ -101,7 +101,7 @@ public class TimeDiff extends ScalarFunction
             useTimev2 = true;
         }
         if (useTimev2) {
-            signature = signature.withReturnType(TimeV2Type.of(scale));
+            signature = signature.withReturnType(TimeV2Type.of(Math.min(scale, TimeV2Type.MAX_SCALE)));
         }
         return signature;
     }

@@ -189,6 +189,7 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
         return TPrimitiveType::DATEV2;
 
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
         return TPrimitiveType::DATETIMEV2;
 
     case TYPE_TIMEV2:
@@ -303,6 +304,7 @@ std::string type_to_string(PrimitiveType t) {
         return "DATEV2";
 
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
         return "DATETIMEV2";
 
     case TYPE_TIMEV2:

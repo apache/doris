@@ -299,6 +299,7 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
+    case PrimitiveType::TYPE_DATETIMEV2_NANO:
     case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper(context, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_TIMESTAMPTZ:

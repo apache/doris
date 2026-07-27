@@ -97,6 +97,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATEV2;
     } else if (0 == upper_type_str.compare("DATETIMEV2")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    } else if (0 == upper_type_str.compare("DATETIMEV2_NANO")) {
+        type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
@@ -240,6 +242,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO:
+        return "DATETIMEV2_NANO";
 
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
@@ -477,6 +481,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
     if (column.has_frac()) {
         _frac = column.frac();
+    }
+    if (_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 && _frac > 6) {
+        _type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO;
     }
     _length = column.length();
     _index_length = column.index_length();

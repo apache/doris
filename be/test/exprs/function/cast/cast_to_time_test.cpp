@@ -150,6 +150,19 @@ TEST_F(FunctionCastTest, test_from_datetime_to_time) {
             {{std::string("2012-02-05 12:12:12.123456")}, std::string("12:12:12.1235")}};
     check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 4);
 }
+
+TEST_F(FunctionCastTest, test_from_datetime_nano_to_time) {
+    InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2_NANO, 9}};
+    DataSet data_set = {
+            {{std::string("1677-09-21 00:12:43.145224192")}, std::string("00:12:43.145224")},
+            {{std::string("1970-01-01 00:00:00.000000000")}, std::string("0.0")},
+            {{std::string("2024-02-29 12:34:56.123456499")}, std::string("12:34:56.123456")},
+            {{std::string("2024-02-29 12:34:56.123456500")}, std::string("12:34:56.123457")},
+            {{std::string("2024-02-29 23:59:59.999999500")}, std::string("24:00:00.000000")},
+            {{std::string("2262-04-11 23:47:16.854775807")}, std::string("23:47:16.854776")},
+    };
+    check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
+}
 //FIXME: fix cast with different scale then add cases about time to time
 
 } // namespace doris

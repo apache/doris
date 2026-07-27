@@ -206,6 +206,97 @@ public class DateLiteralUtilsTest {
     }
 
     @Test
+    public void testDatetimeV2WithNanoseconds() throws AnalysisException {
+        DateLiteral dl7 = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 14:30:45.1234567", ScalarType.createDatetimeV2Type(7));
+        Assertions.assertEquals(7, ((ScalarType) dl7.getType()).getScalarScale());
+        Assertions.assertEquals(123456700, dl7.getNanosecond());
+        Assertions.assertEquals(123456, dl7.getMicrosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.1234567", dl7.getStringValue());
+
+        DateLiteral dl8 = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 14:30:45.12345678", ScalarType.createDatetimeV2Type(8));
+        Assertions.assertEquals(8, ((ScalarType) dl8.getType()).getScalarScale());
+        Assertions.assertEquals(123456780, dl8.getNanosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.12345678", dl8.getStringValue());
+
+        DateLiteral dl9 = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 14:30:45.123456789", ScalarType.createDatetimeV2Type(9));
+        Assertions.assertEquals(9, ((ScalarType) dl9.getType()).getScalarScale());
+        Assertions.assertEquals(123456789, dl9.getNanosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.123456789", dl9.getStringValue());
+    }
+
+    @Test
+    public void testDatetimeV2NanoTypeInference() throws AnalysisException {
+        DateLiteral upgraded = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 14:30:45.123456789", Type.DATETIME);
+        Assertions.assertTrue(upgraded.getType().isDatetimeV2());
+        Assertions.assertEquals(9, ((ScalarType) upgraded.getType()).getScalarScale());
+        Assertions.assertEquals(123456789, upgraded.getNanosecond());
+
+        DateLiteral inferredScale7 = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 14:30:45.123456700", null);
+        Assertions.assertTrue(inferredScale7.getType().isDatetimeV2());
+        Assertions.assertEquals(7, ((ScalarType) inferredScale7.getType()).getScalarScale());
+        Assertions.assertEquals(123456700, inferredScale7.getNanosecond());
+        Assertions.assertEquals("2023-06-15 14:30:45.1234567", inferredScale7.getStringValue());
+
+        DateLiteral inferredScale9 = DateLiteralUtils.createDateLiteral(
+                "1970-01-01 00:00:00.000000001", null);
+        Assertions.assertEquals(9, ((ScalarType) inferredScale9.getType()).getScalarScale());
+        Assertions.assertEquals(1, inferredScale9.getNanosecond());
+        Assertions.assertEquals(1L, inferredScale9.getRealValue());
+    }
+
+    @Test
+    public void testDatetimeV2NanoEpochAndBoundaries() throws AnalysisException {
+        DateLiteral beforeEpoch = DateLiteralUtils.createDateLiteral(
+                "1969-12-31 23:59:59.999999999", ScalarType.createDatetimeV2Type(9));
+        Assertions.assertEquals(-1L, beforeEpoch.getRealValue());
+
+        DateLiteral epoch = DateLiteralUtils.createDateLiteral(
+                "1970-01-01 00:00:00.000000000", ScalarType.createDatetimeV2Type(9));
+        Assertions.assertEquals(0L, epoch.getRealValue());
+
+        DateLiteral lowerBoundary = DateLiteralUtils.createDateLiteral(
+                "1677-09-21 00:12:43.145224192", ScalarType.createDatetimeV2Type(9));
+        Assertions.assertEquals(Long.MIN_VALUE, lowerBoundary.getRealValue());
+
+        DateLiteral upperBoundary = DateLiteralUtils.createDateLiteral(
+                "2262-04-11 23:47:16.854775807", ScalarType.createDatetimeV2Type(9));
+        Assertions.assertEquals(Long.MAX_VALUE, upperBoundary.getRealValue());
+    }
+
+    @Test
+    public void testDatetimeV2NanoTimezoneOffset() throws AnalysisException {
+        DateLiteral utc = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 12:00:00.123456789+00:00", ScalarType.createDatetimeV2Type(9));
+        DateLiteral plus8 = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 20:00:00.123456789+08:00", ScalarType.createDatetimeV2Type(9));
+        DateLiteral minus5 = DateLiteralUtils.createDateLiteral(
+                "2023-06-15 07:00:00.123456789-05:00", ScalarType.createDatetimeV2Type(9));
+
+        Assertions.assertEquals(utc.getStringValue(), plus8.getStringValue());
+        Assertions.assertEquals(utc.getStringValue(), minus5.getStringValue());
+        Assertions.assertEquals(123456789, utc.getNanosecond());
+        Assertions.assertEquals(123456789, plus8.getNanosecond());
+        Assertions.assertEquals(123456789, minus5.getNanosecond());
+    }
+
+    @Test
+    public void testInvalidDatetimeV2Nanoseconds() {
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                "2023-06-15 14:30:45.1234567890", ScalarType.createDatetimeV2Type(9)));
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                "2023-02-29 14:30:45.123456789", ScalarType.createDatetimeV2Type(9)));
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                "1677-09-21 00:12:43.145224191", ScalarType.createDatetimeV2Type(9)));
+        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
+                "2262-04-11 23:47:16.854775808", ScalarType.createDatetimeV2Type(9)));
+    }
+
+    @Test
     public void testCompactDateFormats() throws AnalysisException {
         // YYYYMMDD compact date
         DateLiteral dlDate = DateLiteralUtils.createDateLiteral("20230615", ScalarType.DATEV2);

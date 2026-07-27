@@ -702,6 +702,7 @@ bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO:
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32:

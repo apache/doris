@@ -32,6 +32,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number_base.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/data_type_datetimev2_nano_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -81,6 +82,8 @@ public:
     static void cast_to_date_time(const DateV2Value<DateV2ValueType> from, VecDateTimeValue& to);
     static void cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from,
                                      DateV2Value<DateTimeV2ValueType>& to);
+    static void cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from,
+                                     DateTimeV2NanoValue& to);
     static void cast_from_date(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to);
     static void cast_from_date_time(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to);
 };
@@ -115,7 +118,7 @@ public:
 
     bool equals(const IDataType& rhs) const override;
     bool equals_ignore_precision(const IDataType& rhs) const override {
-        return rhs.get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2;
+        return is_datetime_v2(rhs.get_primitive_type());
     }
 #ifdef BE_TEST
     /// TODO: remove this in the future
@@ -146,9 +149,56 @@ public:
                                   VecDateTimeValue& to);
     static void cast_to_date_v2(const DateV2Value<DateTimeV2ValueType> from,
                                 DateV2Value<DateV2ValueType>& to);
+    static void cast_to_date(const DateTimeV2NanoValue from, VecDateTimeValue& to);
+    static void cast_to_date_time(const DateTimeV2NanoValue from, VecDateTimeValue& to);
+    static void cast_to_date_v2(const DateTimeV2NanoValue from, DateV2Value<DateV2ValueType>& to);
     static void cast_from_date(const VecDateTimeValue from, DateV2Value<DateTimeV2ValueType>& to);
     static void cast_from_date_time(const VecDateTimeValue from,
                                     DateV2Value<DateTimeV2ValueType>& to);
+
+private:
+    UInt32 _scale;
+};
+
+class DataTypeDateTimeV2Nano final
+        : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2_NANO> {
+public:
+    static constexpr PrimitiveType PType = TYPE_DATETIMEV2_NANO;
+    static constexpr bool is_parametric = true;
+
+    explicit DataTypeDateTimeV2Nano(UInt32 scale = 9) : _scale(scale) {
+        DORIS_CHECK_GE(scale, 7);
+        DORIS_CHECK_LE(scale, 9);
+    }
+
+    PrimitiveType get_primitive_type() const override { return TYPE_DATETIMEV2_NANO; }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO;
+    }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        scalar_type->set_scale(_scale);
+    }
+
+    const std::string get_family_name() const override { return "DateTimeV2Nano"; }
+    std::string do_get_name() const override {
+        return "DateTimeV2(" + std::to_string(_scale) + ")";
+    }
+
+    bool equals(const IDataType& rhs) const override;
+    bool equals_ignore_precision(const IDataType& rhs) const override {
+        return is_datetime_v2(rhs.get_primitive_type());
+    }
+
+    using SerDeType = DataTypeDateTimeV2NanoSerDe;
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<SerDeType>(_scale, nesting_level);
+    }
+
+    Field get_field(const TExprNode& node) const override;
+    UInt32 get_scale() const override { return _scale; }
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
 private:
     UInt32 _scale;
@@ -160,4 +210,6 @@ template <typename DataType>
 constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
+template <>
+inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2Nano> = true;
 } // namespace doris

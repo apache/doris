@@ -68,8 +68,8 @@ public class UtcTimestamp extends ScalarFunction
         signature = super.computeSignature(signature);
         if (arity() == 1 && getArgument(0) instanceof IntegerLiteral) {
             int scale = ((IntegerLiteral) getArgument(0)).getValue();
-            if (scale < 0 || scale > 6) {
-                throw new AnalysisException("scale must be between 0 and 6");
+            if (scale < 0 || scale > DateTimeV2Type.MAX_SCALE) {
+                throw new AnalysisException("scale must be between 0 and " + DateTimeV2Type.MAX_SCALE);
             }
             return signature.withReturnType(DateTimeV2Type.of(scale));
         }

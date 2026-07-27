@@ -92,6 +92,7 @@ public:
     M(TYPE_DATETIME)          \
     M(TYPE_DATEV2)            \
     M(TYPE_DATETIMEV2)        \
+    M(TYPE_DATETIMEV2_NANO)   \
     M(TYPE_TIMESTAMPTZ)       \
     M(TYPE_TIMEV2)            \
     M(TYPE_CHAR)              \

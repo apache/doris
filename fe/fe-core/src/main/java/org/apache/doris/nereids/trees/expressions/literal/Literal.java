@@ -335,11 +335,14 @@ public abstract class Literal extends Expression implements LeafExpression {
             }
             case DATETIMEV2: {
                 org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) DateType.fromCatalogType(type);
+                long fractionalSecond = dateTimeV2Type.getScale() > 6
+                        ? dateLiteral.getNanosecond() : dateLiteral.getMicrosecond();
                 return new DateTimeV2Literal(
-                        (DateTimeV2Type) DateType.fromCatalogType(type),
+                        dateTimeV2Type,
                         dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
                         dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
-                        dateLiteral.getMicrosecond()
+                        fractionalSecond
                 );
             }
             case TIMESTAMPTZ: {

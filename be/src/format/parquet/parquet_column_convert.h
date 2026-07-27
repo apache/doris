@@ -850,6 +850,37 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
     }
 };
 
+struct Int64ToTimestampNano : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        const auto src_col = remove_nullable(src_physical_col);
+        auto* dst_col = get_mutable_inner_column(src_logical_column);
+        const auto rows = src_col->size();
+        const auto start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+
+        const auto& src_data = assert_cast<const ColumnInt64&>(*src_col).get_data();
+        auto& data = assert_cast<ColumnDateTimeV2Nano&>(*dst_col).get_data();
+        for (size_t i = 0; i < rows; ++i) {
+            const __int128 nanos =
+                    static_cast<__int128>(src_data[i]) * _convert_params->scale_to_nano_factor;
+            if (nanos < std::numeric_limits<int64_t>::min() ||
+                nanos > std::numeric_limits<int64_t>::max()) {
+                return Status::DataQualityError("Parquet timestamp is outside DATETIMEV2(9) range");
+            }
+            DateTimeV2NanoValue utc_value(static_cast<int64_t>(nanos));
+            auto local_value = utc_value.to_datetime();
+            if (_convert_params->ctz != nullptr && *_convert_params->ctz != cctz::utc_time_zone()) {
+                local_value.from_unixtime(utc_value.epoch_seconds(), *_convert_params->ctz);
+                local_value.set_microsecond(utc_value.microsecond());
+            }
+            if (!data[start_idx + i].from_datetime(local_value, utc_value.nanosecond_remainder())) {
+                return Status::DataQualityError("Parquet timestamp is outside DATETIMEV2(9) range");
+            }
+        }
+        return Status::OK();
+    }
+};
+
 struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -903,6 +934,40 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
                 dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
             }
             dst_value.set_microsecond(timestamp_with_micros % 1000000);
+        }
+        return Status::OK();
+    }
+};
+
+struct Int96toTimestampNano : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        const auto src_col = remove_nullable(src_physical_col);
+        auto* dst_col = get_mutable_inner_column(src_logical_column);
+        const auto rows = src_col->size() / sizeof(ParquetInt96);
+        const auto& src_data = assert_cast<const ColumnInt8&>(*src_col).get_data();
+        const auto* parquet_data = reinterpret_cast<const ParquetInt96*>(src_data.data());
+        const auto start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+        auto& data = assert_cast<ColumnDateTimeV2Nano&>(*dst_col).get_data();
+
+        for (size_t i = 0; i < rows; ++i) {
+            const __int128 nanos = static_cast<__int128>(parquet_data[i].hi -
+                                                         ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS) *
+                                           86400 * DateTimeV2NanoValue::NANOS_PER_SECOND +
+                                   parquet_data[i].lo;
+            if (nanos < std::numeric_limits<int64_t>::min() ||
+                nanos > std::numeric_limits<int64_t>::max()) {
+                return Status::DataQualityError("Parquet INT96 is outside DATETIMEV2(9) range");
+            }
+            const DateTimeV2NanoValue utc_value(static_cast<int64_t>(nanos));
+            auto local_value = utc_value.to_datetime();
+            if (_convert_params->ctz != nullptr && *_convert_params->ctz != cctz::utc_time_zone()) {
+                local_value.from_unixtime(utc_value.epoch_seconds(), *_convert_params->ctz);
+                local_value.set_microsecond(utc_value.microsecond());
+            }
+            if (!data[start_idx + i].from_datetime(local_value, utc_value.nanosecond_remainder())) {
+                return Status::DataQualityError("Parquet INT96 is outside DATETIMEV2(9) range");
+            }
         }
         return Status::OK();
     }

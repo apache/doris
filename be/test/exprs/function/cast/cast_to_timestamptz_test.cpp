@@ -28,6 +28,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_test.h"
 #include "exprs/function/cast/cast_to_date.h"
+#include "exprs/function/cast/cast_wrapper_decls.h"
 #include "testutil/column_helper.h"
 #include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -261,6 +262,47 @@ TEST_F(CastTimeStampTzTest, from_datetime_non_strict_mode_to_timestamptz) {
         EXPECT_EQ(TimestampTzValue {col_res.get_element(3)}.to_string(time_zone),
                   "2038-01-19 03:14:07.000000+08:00");
     }
+}
+
+TEST_F(CastTimeStampTzTest, datetime_nano_and_timestamptz_round_trip) {
+    auto nano_block = ColumnHelper::create_block<DataTypeDateTimeV2Nano>(
+            {make_datetime_nano(2024, 6, 20, 12, 12, 12, 123456789),
+             make_datetime_nano(1969, 12, 31, 23, 59, 59, 999999999)});
+    nano_block.get_by_position(0).type = std::make_shared<DataTypeDateTimeV2Nano>(9);
+    nano_block.insert(
+            ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeTimeStampTz>(6), "result"});
+
+    auto to_timestamptz =
+            CastWrapper::create_timestamptz_wrapper(&context, nano_block.get_by_position(0).type);
+    auto status =
+            to_timestamptz(&context, nano_block, arguments, result, nano_block.rows(), nullptr);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& nullable_timestamptz =
+            assert_cast<const ColumnNullable&>(*nano_block.get_by_position(result).column);
+    const auto& timestamptz_column =
+            assert_cast<const ColumnTimeStampTz&>(nullable_timestamptz.get_nested_column());
+    EXPECT_FALSE(nullable_timestamptz.is_null_at(0));
+    EXPECT_FALSE(nullable_timestamptz.is_null_at(1));
+    EXPECT_EQ(TimestampTzValue {timestamptz_column.get_element(0)}.to_string(time_zone),
+              "2024-06-20 12:12:12.123457+08:00");
+    EXPECT_EQ(TimestampTzValue {timestamptz_column.get_element(1)}.to_string(time_zone),
+              "1970-01-01 00:00:00.000000+08:00");
+
+    CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2Nano> to_nano;
+    auto timestamptz_block = ColumnHelper::create_block<DataTypeTimeStampTz>(
+            {make_timestamptz(2024, 6, 20, 4, 12, 12, 123456),
+             make_timestamptz(1969, 12, 31, 15, 59, 59, 999999)});
+    timestamptz_block.get_by_position(0).type = std::make_shared<DataTypeTimeStampTz>(6);
+    timestamptz_block.insert(
+            ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeDateTimeV2Nano>(9), "result"});
+
+    status = to_nano.execute_impl(&context, timestamptz_block, arguments, result,
+                                  timestamptz_block.rows());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& nano_column = assert_cast<const ColumnDateTimeV2Nano&>(
+            *timestamptz_block.get_by_position(result).column);
+    EXPECT_EQ(nano_column.get_element(0).to_string(9), "2024-06-20 12:12:12.123456000");
+    EXPECT_EQ(nano_column.get_element(1).to_string(9), "1969-12-31 23:59:59.999999000");
 }
 
 TEST_F(CastTimeStampTzTest, from_timestamptz_strict_mode_to_datetime) {

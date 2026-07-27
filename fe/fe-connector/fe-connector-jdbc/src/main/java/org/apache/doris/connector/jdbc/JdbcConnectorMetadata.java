@@ -178,7 +178,8 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
         for (JdbcFieldInfo field : fields) {
             String remoteName = field.getColumnName();
             String localName = mapper.fromRemoteColumnName(dbName, tableName, remoteName);
-            handles.put(localName, new JdbcColumnHandle(localName, remoteName));
+            ConnectorType connectorType = client.jdbcTypeToConnectorType(field);
+            handles.put(localName, new JdbcColumnHandle(localName, remoteName, connectorType));
         }
         return handles;
     }

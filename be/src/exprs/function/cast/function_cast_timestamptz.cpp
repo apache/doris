@@ -25,7 +25,7 @@ WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypeP
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
         if constexpr (CastUtil::IsBaseCastFromType<FromDataType> ||
-                      IsTimeStampTzType<FromDataType>) {
+                      IsDataTypeDateTimeV2<FromDataType> || IsTimeStampTzType<FromDataType>) {
             if (context->enable_strict_mode()) {
                 cast_to_timestamptz = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, DataTypeTimeStampTz>>();

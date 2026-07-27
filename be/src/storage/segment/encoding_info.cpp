@@ -306,6 +306,9 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO, FOR_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING>();
@@ -364,6 +367,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
@@ -397,6 +401,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();

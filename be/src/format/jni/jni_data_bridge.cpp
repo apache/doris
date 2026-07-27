@@ -41,25 +41,26 @@
 
 namespace doris {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                  \
-    M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
-    M(PrimitiveType::TYPE_BOOLEAN, ColumnUInt8, UInt8)             \
-    M(PrimitiveType::TYPE_SMALLINT, ColumnInt16, Int16)            \
-    M(PrimitiveType::TYPE_INT, ColumnInt32, Int32)                 \
-    M(PrimitiveType::TYPE_BIGINT, ColumnInt64, Int64)              \
-    M(PrimitiveType::TYPE_LARGEINT, ColumnInt128, Int128)          \
-    M(PrimitiveType::TYPE_FLOAT, ColumnFloat32, Float32)           \
-    M(PrimitiveType::TYPE_DOUBLE, ColumnFloat64, Float64)          \
-    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal128V2, Int128)   \
-    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal128V3, Int128) \
-    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal32, Int32)       \
-    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal64, Int64)       \
-    M(PrimitiveType::TYPE_DATE, ColumnDate, Int64)                 \
-    M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
-    M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
-    M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
-    M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
-    M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
+#define FOR_FIXED_LENGTH_TYPES(M)                                       \
+    M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)                    \
+    M(PrimitiveType::TYPE_BOOLEAN, ColumnUInt8, UInt8)                  \
+    M(PrimitiveType::TYPE_SMALLINT, ColumnInt16, Int16)                 \
+    M(PrimitiveType::TYPE_INT, ColumnInt32, Int32)                      \
+    M(PrimitiveType::TYPE_BIGINT, ColumnInt64, Int64)                   \
+    M(PrimitiveType::TYPE_LARGEINT, ColumnInt128, Int128)               \
+    M(PrimitiveType::TYPE_FLOAT, ColumnFloat32, Float32)                \
+    M(PrimitiveType::TYPE_DOUBLE, ColumnFloat64, Float64)               \
+    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal128V2, Int128)        \
+    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal128V3, Int128)      \
+    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal32, Int32)            \
+    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal64, Int64)            \
+    M(PrimitiveType::TYPE_DATE, ColumnDate, Int64)                      \
+    M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)                 \
+    M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)              \
+    M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)         \
+    M(PrimitiveType::TYPE_DATETIMEV2_NANO, ColumnDateTimeV2Nano, Int64) \
+    M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)       \
+    M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                       \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
 Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
@@ -303,6 +304,7 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     case TYPE_DATETIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
         [[fallthrough]];
     case TYPE_TIMEV2: {
         buffer << "datetimev2(" << type->get_scale() << ")";
@@ -407,6 +409,7 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
     case TYPE_DATETIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
         [[fallthrough]];
     case TYPE_TIMEV2: {
         buffer << "datetimev2(" << data_type->get_scale() << ")";

@@ -186,4 +186,17 @@ public class TimeV2LiteralTest {
         Assertions.assertEquals(59, dateTime.getSecond());
     }
 
+    @Test
+    public void testCastToDateTimeV2NanoKeepsTargetScale() {
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(6), "12:34:56.123456");
+
+        DateTimeV2Literal dateTime = (DateTimeV2Literal) literal.uncheckedCastTo(DateTimeV2Type.of(9));
+
+        Assertions.assertEquals(DateTimeV2Type.of(9), dateTime.getDataType());
+        Assertions.assertEquals(12, dateTime.getHour());
+        Assertions.assertEquals(34, dateTime.getMinute());
+        Assertions.assertEquals(56, dateTime.getSecond());
+        Assertions.assertEquals(123456000, dateTime.getNanoSecond());
+    }
+
 }

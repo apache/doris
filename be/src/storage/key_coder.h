@@ -451,26 +451,27 @@ class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
 // X-macro listing every (FieldType, PrimitiveType) pair that goes through KeyCoder
 // as a non-string scalar key. Strings are handled separately because they need
 // length / padding logic outside KeyCoder. Each entry: M(FT_suffix, PT_suffix).
-#define DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(M) \
-    M(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)                 \
-    M(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)              \
-    M(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)            \
-    M(OLAP_FIELD_TYPE_INT, TYPE_INT)                      \
-    M(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)                \
-    M(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)            \
-    M(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)                  \
-    M(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)                \
-    M(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)            \
-    M(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)          \
-    M(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)          \
-    M(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)      \
-    M(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)        \
-    M(OLAP_FIELD_TYPE_DATE, TYPE_DATE)                    \
-    M(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)            \
-    M(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)                \
-    M(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)        \
-    M(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)      \
-    M(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)                    \
+#define DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(M)    \
+    M(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)                    \
+    M(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)                 \
+    M(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)               \
+    M(OLAP_FIELD_TYPE_INT, TYPE_INT)                         \
+    M(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)                   \
+    M(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)               \
+    M(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)                     \
+    M(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)                   \
+    M(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)               \
+    M(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)             \
+    M(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)             \
+    M(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)         \
+    M(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)           \
+    M(OLAP_FIELD_TYPE_DATE, TYPE_DATE)                       \
+    M(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)               \
+    M(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)                   \
+    M(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)           \
+    M(OLAP_FIELD_TYPE_DATETIMEV2_NANO, TYPE_DATETIMEV2_NANO) \
+    M(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)         \
+    M(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)                       \
     M(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
 
 // True for exactly the PrimitiveTypes listed in

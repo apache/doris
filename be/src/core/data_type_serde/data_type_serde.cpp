@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <orc/Vector.hh>
@@ -44,6 +45,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_array_serde.h"
+#include "core/data_type_serde/data_type_datetimev2_nano_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
@@ -477,29 +479,39 @@ int64_t find_struct_child_index(const ::orc::Type& type, const std::string& fiel
     return -1;
 }
 
-Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
+Status decode_timestamp_orc_values(const DataTypeSerDe& serde, IColumn& nested_column,
+                                   const OrcDecodedColumnView& orc_view,
                                    const cctz::time_zone& timezone) {
     const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
         return Status::InternalError("Unexpected ORC timestamp batch type {}",
                                      orc_view.batch->toString());
     }
-    auto& data = assert_cast<ColumnDateTimeV2&>(nested_column).get_data();
-    const size_t old_data_size = data.size();
+    auto view = make_orc_decoded_view(orc_view, DecodedValueKind::INT64);
+    view.time_unit = DecodedTimeUnit::NANOS;
+    view.timestamp_is_adjusted_to_utc = true;
+    view.timezone = &timezone;
+    NullMap null_map;
+    fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows, orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
     const auto output_rows = orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
-    data.resize(old_data_size + output_rows);
+    std::vector<int64_t> timestamp_nanos(output_rows);
     for (size_t row = 0; row < output_rows; ++row) {
         const auto source_row = orc_source_row_at(row, orc_view.selected_rows);
         if (orc_row_is_null(*orc_view.batch, source_row)) {
-            data[old_data_size + row] = DateV2Value<DateTimeV2ValueType> {};
             continue;
         }
-        auto& value =
-                reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        const __int128 value = static_cast<__int128>(orc_batch->data[source_row]) *
+                                       DateTimeV2NanoValue::NANOS_PER_SECOND +
+                               orc_batch->nanoseconds[source_row];
+        if (value < std::numeric_limits<int64_t>::min() ||
+            value > std::numeric_limits<int64_t>::max()) {
+            return Status::DataQualityError("ORC timestamp at row {} overflows nanoseconds", row);
+        }
+        timestamp_nanos[row] = static_cast<int64_t>(value);
     }
-    return Status::OK();
+    view.values = reinterpret_cast<const uint8_t*>(timestamp_nanos.data());
+    return read_decoded_values(serde, nested_column, &view);
 }
 
 Status decode_timestamp_tz_orc_values(IColumn& nested_column,
@@ -847,7 +859,20 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
     if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
         return Status::OK();
     }
-    return decode_timestamp_orc_values(column, view, *view.timezone);
+    return decode_timestamp_orc_values(*this, column, view, *view.timezone);
+}
+
+Status DataTypeDateTimeV2NanoSerDe::read_column_from_orc(IColumn& column,
+                                                         const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    const auto kind = view.file_type->getKind();
+    DORIS_CHECK(kind == ::orc::TypeKind::TIMESTAMP || kind == ::orc::TypeKind::TIMESTAMP_INSTANT);
+    DORIS_CHECK(view.timezone != nullptr);
+    if (orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_timestamp_orc_values(*this, column, view, *view.timezone);
 }
 
 Status DataTypeTimeStampTzSerDe::read_column_from_orc(IColumn& column,
@@ -918,6 +943,8 @@ template Status DataTypeNumberSerDe<TYPE_DATEV2>::read_column_from_orc(
 template Status DataTypeNumberSerDe<TYPE_DATETIME>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const;
 template Status DataTypeNumberSerDe<TYPE_DATETIMEV2>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const;
+template Status DataTypeNumberSerDe<TYPE_DATETIMEV2_NANO>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const;
 template Status DataTypeNumberSerDe<TYPE_IPV4>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const;
@@ -1129,6 +1156,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2_NANO, TYPE_DATETIMEV2_NANO)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
@@ -1191,6 +1219,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2_NANO, TYPE_DATETIMEV2_NANO)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
         HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)

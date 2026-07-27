@@ -615,7 +615,7 @@ public class DateTimeExtractAndTransform {
     public static Expression unixTimestamp(DateTimeV2Literal date) {
         int scale = date.getDataType().getScale();
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(12 + scale, scale),
-                new BigDecimal(getTimestamp(date.toJavaDateType())));
+                new BigDecimal(getTimestamp(date.toJavaDateType(), scale)));
     }
 
     /**
@@ -637,6 +637,10 @@ public class DateTimeExtractAndTransform {
     }
 
     private static String getTimestamp(LocalDateTime dateTime) {
+        return getTimestamp(dateTime, 6);
+    }
+
+    private static String getTimestamp(LocalDateTime dateTime, int scale) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
         dateTime = dateTime.atZone(DateUtils.getTimeZone())
                         .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
@@ -648,10 +652,11 @@ public class DateTimeExtractAndTransform {
                 specialLowerBound,
                 dateTime
                 );
-        if (duration.getNano() == 0) {
+        if (duration.getNano() == 0 || scale == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
-            return duration.getSeconds() + "." + String.format("%06d", duration.getNano() / 1000);
+            long fraction = duration.getNano() / (long) Math.pow(10, 9 - scale);
+            return duration.getSeconds() + "." + String.format("%0" + scale + "d", fraction);
         }
     }
 

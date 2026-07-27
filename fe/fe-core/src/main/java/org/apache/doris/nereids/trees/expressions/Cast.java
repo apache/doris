@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -107,6 +108,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         DataType childDataType = srcType;
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
+            return true;
+        } else if ((childDataType.isDateType() || childDataType.isDateV2Type() || childDataType.isTimeType())
+                && targetType.isDateTimeV2Type()
+                && ((DateTimeV2Type) targetType).getScale() > 6) {
+            // DATE and TIME cover a wider civil-time range than Int64 epoch nanoseconds.
             return true;
         } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
                 || childDataType.isTimeStampTzType())

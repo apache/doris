@@ -542,9 +542,10 @@ using DORIS_NUMERIC_ARROW_BUILDER =
         TypeMap<UInt8, arrow::BooleanBuilder, Int8, arrow::Int8Builder, UInt16,
                 arrow::UInt16Builder, Int16, arrow::Int16Builder, UInt32, arrow::UInt32Builder,
                 Int32, arrow::Int32Builder, UInt64, arrow::UInt64Builder, Int64,
-                arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
-                arrow::FixedSizeBinaryBuilder, IPv6, arrow::FixedSizeBinaryBuilder, Float32,
-                arrow::FloatBuilder, Float64, arrow::DoubleBuilder, void,
+                arrow::Int64Builder, DateTimeV2NanoValue, arrow::Int64Builder, UInt128,
+                arrow::FixedSizeBinaryBuilder, Int128, arrow::FixedSizeBinaryBuilder, IPv6,
+                arrow::FixedSizeBinaryBuilder, Float32, arrow::FloatBuilder, Float64,
+                arrow::DoubleBuilder, void,
                 void // Add this line to represent the end of the TypeMap
                 >;
 
@@ -612,6 +613,13 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint64_t*)col_data.data() + start, end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                column, *array_builder));
+    } else if constexpr (T == TYPE_DATETIMEV2_NANO) {
+        auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+        RETURN_IF_ERROR(checkArrowStatus(
+                builder.AppendValues(reinterpret_cast<const int64_t*>(col_data.data()) + start,
+                                     end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column, *array_builder));
     } else {
@@ -959,8 +967,8 @@ template <PrimitiveType T>
 constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
            T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
-           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 ||
-           T == TYPE_IPV6 || T == TYPE_TIMEV2;
+           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_DATETIMEV2_NANO ||
+           T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 || T == TYPE_IPV6 || T == TYPE_TIMEV2;
 }
 
 template <PrimitiveType T>
@@ -998,6 +1006,8 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
         return jsonb_writer_string(writer, CastToString::from_datev2(data));
     } else if constexpr (T == TYPE_DATETIMEV2) {
         return jsonb_writer_string(writer, CastToString::from_datetimev2(data, scale));
+    } else if constexpr (T == TYPE_DATETIMEV2_NANO) {
+        return jsonb_writer_string(writer, DateTimeV2NanoValue(data).to_string(scale));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         return jsonb_writer_string(writer, CastToString::from_timestamptz(data, scale));
     } else if constexpr (T == TYPE_IPV4) {
@@ -1598,6 +1608,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
         col.insert_value(binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
                 unaligned_load<UInt64>(data)));
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_DATETIMEV2_NANO) {
+        data += sizeof(uint8_t);
+        col.insert_value(DateTimeV2NanoValue(unaligned_load<Int64>(data)));
+        data += sizeof(Int64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -1660,6 +1674,14 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         info.scale = static_cast<int>(scale);
         field = Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&v);
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_DATETIMEV2_NANO) {
+        const uint8_t scale = *data;
+        data += sizeof(uint8_t);
+        info.precision = -1;
+        info.scale = static_cast<int>(scale);
+        field = Field::create_field<TYPE_DATETIMEV2_NANO>(
+                DateTimeV2NanoValue(unaligned_load<Int64>(data)));
+        data += sizeof(Int64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -1678,6 +1700,9 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
         CastToString::push_datev2(value, bw);
     } else if constexpr (T == TYPE_DATETIMEV2) {
         CastToString::push_datetimev2(value, scale, bw);
+    } else if constexpr (T == TYPE_DATETIMEV2_NANO) {
+        const auto string_value = DateTimeV2NanoValue(value).to_string(scale);
+        bw.write(string_value.data(), string_value.size());
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         CastToString::push_timestamptz(value, scale, bw, options);
     } else if constexpr (T == TYPE_TIMEV2) {
@@ -1768,6 +1793,7 @@ template class DataTypeNumberSerDe<TYPE_DATE>;
 template class DataTypeNumberSerDe<TYPE_DATEV2>;
 template class DataTypeNumberSerDe<TYPE_DATETIME>;
 template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
+template class DataTypeNumberSerDe<TYPE_DATETIMEV2_NANO>;
 template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;

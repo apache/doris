@@ -377,8 +377,9 @@ public class TypeCoercionUtils {
                 replaceSpecifiedType(
                     replaceSpecifiedType(dataType, DateTimeV2Type.class,
                         DateTimeV2Type.of(targetScale)),
-                        TimeV2Type.class, TimeV2Type.of(targetScale)),
-                    TimeStampTzType.class, TimeStampTzType.of(targetScale));
+                        TimeV2Type.class, TimeV2Type.of(Math.min(targetScale, TimeV2Type.MAX_SCALE))),
+                    TimeStampTzType.class,
+                    TimeStampTzType.of(Math.min(targetScale, TimeStampTzType.MAX_SCALE)));
     }
 
     /**

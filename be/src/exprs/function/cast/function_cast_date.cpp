@@ -31,7 +31,7 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
         if constexpr (CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
-                      IsStringType<FromDataType> ||
+                      IsDataTypeDateTimeV2<FromDataType> || IsStringType<FromDataType> ||
                       std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
             if (context->enable_strict_mode()) {
                 cast_to_datelike = std::make_shared<
@@ -72,6 +72,8 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
         return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case TYPE_DATETIMEV2:
         return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+    case TYPE_DATETIMEV2_NANO:
+        return create_datelike_wrapper<DataTypeDateTimeV2Nano>(context, from_type);
     case TYPE_TIMEV2:
         return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     default:

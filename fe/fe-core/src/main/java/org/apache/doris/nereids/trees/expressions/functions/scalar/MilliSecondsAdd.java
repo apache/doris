@@ -39,6 +39,7 @@ import java.util.List;
 public class MilliSecondsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         PropagateNullable, DateAddSubMonotonic {
 
+    private static final int MICROSECOND_SCALE = 6;
     private static final List<FunctionSignature> SIGNATURES = ImmutableList
             .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE),
                 FunctionSignature.ret(TimeStampTzType.MAX).args(TimeStampTzType.MAX, BigIntType.INSTANCE)
@@ -67,10 +68,12 @@ public class MilliSecondsAdd extends ScalarFunction implements BinaryExpression,
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+        if (child(0).getDataType() instanceof TimeStampTzType) {
             return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
         }
-        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
+        DateTimeV2Type type =
+                DateTimeV2Type.forTypeWithMinimumScale(child(0).getDataType(), MICROSECOND_SCALE);
+        return signature.withArgumentType(0, type).withReturnType(type);
     }
 
     @Override

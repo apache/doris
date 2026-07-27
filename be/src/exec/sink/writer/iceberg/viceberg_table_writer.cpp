@@ -733,6 +733,9 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     case TYPE_DATETIMEV2: {
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
     }
+    case TYPE_DATETIMEV2_NANO: {
+        return DateTimeV2NanoValue(*reinterpret_cast<const int64_t*>(item));
+    }
     case TYPE_DECIMALV2: {
         return *(Decimal128V2*)(item);
     }

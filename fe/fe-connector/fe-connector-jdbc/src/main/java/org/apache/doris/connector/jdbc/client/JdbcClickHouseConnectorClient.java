@@ -42,6 +42,7 @@ import java.util.function.Consumer;
 public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
     private static final Logger LOG = LogManager.getLogger(JdbcClickHouseConnectorClient.class);
+    private static final int DORIS_DATETIMEV2_MAX_SCALE = 9;
 
     private Boolean isNewDriver;
     private Boolean databaseTermIsCatalog;
@@ -287,12 +288,12 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
         return createDecimalOrString(p, s);
     }
 
-    private ConnectorType parseDateTimeType(String chType) {
+    ConnectorType parseDateTimeType(String chType) {
         // DateTime64(precision) or DateTime64(precision, 'timezone')
         String inner = chType.substring(11, chType.indexOf(')'));
         String[] parts = inner.split(",");
         int scale = Integer.parseInt(parts[0].trim());
-        scale = Math.min(scale, JDBC_DATETIME_SCALE);
+        scale = Math.min(scale, DORIS_DATETIMEV2_MAX_SCALE);
         return ConnectorType.of("DATETIMEV2", scale, -1);
     }
 }

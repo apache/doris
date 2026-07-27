@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/data_type_datetimev2_nano_serde.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
@@ -529,6 +530,21 @@ struct SafeCastString<TYPE_DATETIMEV2, fileFormat> {
 };
 
 template <FileFormat fileFormat>
+struct SafeCastString<TYPE_DATETIMEV2_NANO, fileFormat> {
+    static bool safe_cast_string(
+            const StringRef& str_ref,
+            PrimitiveTypeTraits<TYPE_DATETIMEV2_NANO>::ColumnType::value_type* value, int scale,
+            CastParameters&) {
+        int64_t epoch_nanos = 0;
+        if (!parse_datetimev2_nano(str_ref, scale, &epoch_nanos).ok()) {
+            return false;
+        }
+        *value = DateTimeV2NanoValue(epoch_nanos);
+        return true;
+    }
+};
+
+template <FileFormat fileFormat>
 struct SafeCastString<TYPE_DATE, fileFormat> {
     static bool safe_cast_string(const StringRef& str_ref,
                                  PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value,
@@ -606,8 +622,9 @@ public:
                 can_cast = SafeCastDecimalString<DstPrimitiveType>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i],
                         _dst_type_desc->get_precision(), _dst_type_desc->get_scale(), params);
-            } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2) {
-                can_cast = SafeCastString<TYPE_DATETIMEV2>::safe_cast_string(
+            } else if constexpr (DstPrimitiveType == TYPE_DATETIMEV2 ||
+                                 DstPrimitiveType == TYPE_DATETIMEV2_NANO) {
+                can_cast = SafeCastString<DstPrimitiveType>::safe_cast_string(
                         string_col->get_data_at(i), &data[start_idx + i],
                         _dst_type_desc->get_scale(), params);
             } else if constexpr (DstPrimitiveType == TYPE_BOOLEAN && fileFormat == ORC) {
@@ -712,6 +729,46 @@ public:
 
         return Status::OK();
     }
+};
+
+template <PrimitiveType SrcPrimitiveType, PrimitiveType DstPrimitiveType>
+class DateTimeV2PrecisionConverter : public ColumnTypeConverter {
+public:
+    explicit DateTimeV2PrecisionConverter(int dst_scale) : _dst_scale(dst_scale) {}
+
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
+        using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
+        using SrcCppType = typename PrimitiveTypeTraits<SrcPrimitiveType>::CppType;
+        using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
+
+        const auto from_col = remove_nullable(src_col);
+        auto* to_col = get_mutable_inner_col(dst_col);
+        const auto& src_data = assert_cast<const SrcColumnType&>(*from_col).get_data();
+        const auto start_idx = to_col->size();
+        to_col->resize(start_idx + src_data.size());
+        auto& data = assert_cast<DstColumnType&>(*to_col).get_data();
+
+        for (size_t i = 0; i < src_data.size(); ++i) {
+            const auto& src_value = reinterpret_cast<const SrcCppType&>(src_data[i]);
+            auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
+            if constexpr (DstPrimitiveType == TYPE_DATETIMEV2_NANO) {
+                if (!dst_value.from_datetime(src_value)) {
+                    return Status::DataQualityError(
+                            "DATETIMEV2 value is outside DATETIMEV2({}) range", _dst_scale);
+                }
+            } else {
+                auto value = src_value.to_datetime();
+                const auto quantum = static_cast<uint32_t>(int_exp10(6 - _dst_scale));
+                value.set_microsecond(value.microsecond() / quantum * quantum);
+                dst_value = value;
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    int _dst_scale;
 };
 
 template <PrimitiveType SrcPrimitiveType, PrimitiveType DstPrimitiveType>

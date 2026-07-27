@@ -47,6 +47,47 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+
+DateV2Value<DateTimeV2ValueType> DateTimeV2NanoValue::to_datetime() const {
+    DateV2Value<DateTimeV2ValueType> value;
+    value.from_unixtime(epoch_seconds(), cctz::utc_time_zone());
+    value.set_microsecond(microsecond());
+    return value;
+}
+
+bool DateTimeV2NanoValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& value,
+                                        uint16_t nanosecond_remainder) {
+    DORIS_CHECK_LE(nanosecond_remainder, 999);
+    int64_t seconds = 0;
+    value.unix_timestamp(&seconds, cctz::utc_time_zone());
+    const __int128 epoch_nanos = static_cast<__int128>(seconds) * NANOS_PER_SECOND +
+                                 static_cast<__int128>(value.microsecond()) * 1000 +
+                                 nanosecond_remainder;
+    if (epoch_nanos < std::numeric_limits<int64_t>::min() ||
+        epoch_nanos > std::numeric_limits<int64_t>::max()) {
+        return false;
+    }
+    _epoch_nanos = static_cast<int64_t>(epoch_nanos);
+    return true;
+}
+
+int32_t DateTimeV2NanoValue::to_buffer(char* buffer, int scale) const {
+    DORIS_CHECK_GE(scale, 0);
+    DORIS_CHECK_LE(scale, 9);
+    const auto value = to_datetime();
+    const int32_t base_length = value.to_buffer(buffer, 0);
+    if (scale == 0) {
+        return base_length;
+    }
+    buffer[base_length] = '.';
+    uint32_t nanos = nanosecond();
+    for (int i = 0; i < scale; ++i) {
+        buffer[base_length + 1 + i] =
+                static_cast<char>('0' + nanos / static_cast<uint32_t>(int_exp10(8 - i)));
+        nanos %= static_cast<uint32_t>(int_exp10(8 - i));
+    }
+    return base_length + 1 + scale;
+}
 #include "common/compile_check_avoid_begin.h"
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};

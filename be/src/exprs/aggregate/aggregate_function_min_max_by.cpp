@@ -34,6 +34,10 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, i
         }
         return true;
     };
+    if (type->get_primitive_type() == TYPE_DATETIMEV2_NANO) {
+        call(DispatchDataType<TYPE_DATETIMEV2_NANO>());
+        return result;
+    }
     if (dispatch_switch_scalar(type->get_primitive_type(), call)) {
         return result;
     }

@@ -448,6 +448,20 @@ public class CastTest {
     }
 
     @Test
+    public void testCastFromDateAndTimeToDateTimeV2NanoIsNullable() {
+        SlotReference date = new SlotReference("date", DateType.INSTANCE, false);
+        SlotReference dateV2 = new SlotReference("date_v2", DateV2Type.INSTANCE, false);
+        SlotReference timeV2 = new SlotReference("time_v2", TimeV2Type.SYSTEM_DEFAULT, false);
+
+        Assertions.assertFalse(new Cast(date, DateTimeV2Type.of(6)).nullable());
+        Assertions.assertFalse(new Cast(dateV2, DateTimeV2Type.of(6)).nullable());
+        Assertions.assertFalse(new Cast(timeV2, DateTimeV2Type.of(6)).nullable());
+        Assertions.assertTrue(new Cast(date, DateTimeV2Type.of(7)).nullable());
+        Assertions.assertTrue(new Cast(dateV2, DateTimeV2Type.of(8)).nullable());
+        Assertions.assertTrue(new Cast(timeV2, DateTimeV2Type.of(9)).nullable());
+    }
+
+    @Test
     public void testCastFromTime() {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             // When strict mode is false

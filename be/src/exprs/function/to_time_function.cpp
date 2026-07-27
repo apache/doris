@@ -72,6 +72,39 @@ using FunctionCenturyV2 =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2Century =
         FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATETIMEV2>>;
+
+using FunctionDateTimeV2NanoYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoQuarter =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoMonth =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoDay =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoHour =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoMinute =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoToDays =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoMicroSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoToDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionTimeStampV2Nano =
+        FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2Nano,
+                                          TimeStampImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoCentury =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionToSecondsNano =
+        FunctionDateOrDateTimeToSomething<DataTypeInt64, ToSecondsImpl<TYPE_DATETIMEV2_NANO>>;
+
 void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeStampV2>();
     factory.register_function<FunctionSecondV2>();
@@ -100,6 +133,21 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCenturyV2>();
     factory.register_function<FunctionDateTimeV2Century>();
     factory.register_function<FunctionToSeconds>();
+    factory.register_function<FunctionTimeStampV2Nano>();
+    factory.register_function<FunctionDateTimeV2NanoMicroSecond>();
+    factory.register_function<FunctionDateTimeV2NanoSecond>();
+    factory.register_function<FunctionDateTimeV2NanoToDays>();
+    factory.register_function<FunctionDateTimeV2NanoMinute>();
+    factory.register_function<FunctionDateTimeV2NanoHour>();
+    factory.register_function<FunctionDateTimeV2NanoDay>();
+    factory.register_function<FunctionDateTimeV2NanoWeek>();
+    factory.register_function<FunctionDateTimeV2NanoMonth>();
+    factory.register_function<FunctionDateTimeV2NanoYear>();
+    factory.register_function<FunctionDateTimeV2NanoQuarter>();
+    factory.register_function<FunctionDateTimeV2NanoToDate>();
+    factory.register_function<FunctionDateTimeV2NanoDate>();
+    factory.register_function<FunctionDateTimeV2NanoCentury>();
+    factory.register_function<FunctionToSecondsNano>();
     factory.register_alias("date", "datev2");
     factory.register_alias("to_date", "to_datev2");
 }

@@ -60,18 +60,22 @@ struct FunctionAttr {
     bool new_version_bitmap_op_count {false};
 };
 
-#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                             \
-    bool is_nullable = false;                                                                  \
-    bool is_datev2 = false;                                                                    \
-    for (auto it : arguments) {                                                                \
-        is_nullable = is_nullable || it.type->is_nullable();                                   \
-        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 ||               \
-                    it.type->get_primitive_type() == TYPE_DATETIMEV2;                          \
-    }                                                                                          \
-    return is_nullable || !is_datev2                                                           \
-                   ? make_nullable(                                                            \
-                             std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>()) \
-                   : std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>();
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                    \
+    bool is_nullable = false;                                                         \
+    bool is_datev2 = false;                                                           \
+    for (auto it : arguments) {                                                       \
+        is_nullable = is_nullable || it.type->is_nullable();                          \
+        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 ||      \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2 ||               \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2_NANO;            \
+    }                                                                                 \
+    DataTypePtr real_type;                                                            \
+    if constexpr (TYPE == TYPE_DATETIMEV2_NANO) {                                     \
+        real_type = create_datetimev2(arguments[0].type->get_scale());                \
+    } else {                                                                          \
+        real_type = std::make_shared<typename PrimitiveTypeTraits<TYPE>::DataType>(); \
+    }                                                                                 \
+    return is_nullable || !is_datev2 ? make_nullable(real_type) : real_type;
 
 #define SET_NULLMAP_IF_FALSE(EXPR) \
     if (!EXPR) [[unlikely]] {      \

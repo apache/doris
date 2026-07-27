@@ -38,4 +38,11 @@ public class JdbcMySQLConnectorClientTest {
         Assertions.assertFalse(JdbcMySQLConnectorClient.isDorisCompatibleVersionComment(""));
         Assertions.assertFalse(JdbcMySQLConnectorClient.isDorisCompatibleVersionComment(null));
     }
+
+    @Test
+    void testDatetimeNanoScale() {
+        Assertions.assertEquals(7, JdbcMySQLConnectorClient.computeDatetimeScale(27));
+        Assertions.assertEquals(8, JdbcMySQLConnectorClient.computeDatetimeScale(28));
+        Assertions.assertEquals(9, JdbcMySQLConnectorClient.computeDatetimeScale(29));
+    }
 }

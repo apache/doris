@@ -33,6 +33,7 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1112,7 +1113,10 @@ public class VectorColumn {
         for (LocalDateTime v : batch) {
             if (v == null) {
                 putNull(appendIndex);
-                putDateTime(appendIndex, LocalDateTime.MIN);
+                // The value slot of a null row is ignored. Zero is valid for every
+                // DATETIME representation, while LocalDateTime.MIN cannot be encoded
+                // by the epoch-nanosecond representation.
+                OffHeap.putLong(null, data + appendIndex * 8L, 0L);
             } else {
                 putDateTime(appendIndex, v);
             }
@@ -1123,6 +1127,11 @@ public class VectorColumn {
     public LocalDateTime getDateTime(int rowId) {
         long time = OffHeap.getLong(null, data + rowId * 8L);
         if (columnType.isDateTimeV2()) {
+            if (columnType.getPrecision() > 6) {
+                long seconds = Math.floorDiv(time, 1000000000L);
+                int nanos = (int) Math.floorMod(time, 1000000000L);
+                return LocalDateTime.ofEpochSecond(seconds, nanos, ZoneOffset.UTC);
+            }
             return TypeNativeBytes.convertToJavaDateTimeV2(time);
         } else {
             return TypeNativeBytes.convertToJavaDateTimeV1(time);
@@ -1145,7 +1154,20 @@ public class VectorColumn {
             if (!isNullAt(i)) {
                 long time = OffHeap.getLong(null, data + i * 8L);
                 if (columnType.isDateTimeV2()) {
-                    result[i - start] = TypeNativeBytes.convertToJavaDateTimeV2(time, clz);
+                    LocalDateTime dateTime = getDateTime(i);
+                    if (clz == LocalDateTime.class) {
+                        result[i - start] = dateTime;
+                    } else if (clz == org.joda.time.DateTime.class) {
+                        result[i - start] = new org.joda.time.DateTime(
+                                dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                                dateTime.getNano() / 1000000);
+                    } else if (clz == org.joda.time.LocalDateTime.class) {
+                        result[i - start] = new org.joda.time.LocalDateTime(
+                                dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                                dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                                dateTime.getNano() / 1000000);
+                    }
                 } else {
                     result[i - start] = TypeNativeBytes.convertToJavaDateTimeV1(time, clz);
                 }
@@ -1157,13 +1179,31 @@ public class VectorColumn {
     private void putDateTime(int rowId, LocalDateTime v) {
         long time;
         if (columnType.isDateTimeV2()) {
-            time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                    v.getMinute(), v.getSecond(), v.getNano() / 1000);
+            if (columnType.getPrecision() > 6) {
+                time = toEpochNanos(v);
+            } else {
+                time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(),
+                        v.getHour(), v.getMinute(), v.getSecond(), v.getNano() / 1000);
+            }
         } else {
             time = TypeNativeBytes.convertToDateTime(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
                     v.getMinute(), v.getSecond(), false);
         }
         OffHeap.putLong(null, data + rowId * 8L, time);
+    }
+
+    static long toEpochNanos(LocalDateTime value) {
+        long seconds = value.toEpochSecond(ZoneOffset.UTC);
+        if (seconds < 0) {
+            // For values near Long.MIN_VALUE the final epoch-nanosecond value
+            // fits, but seconds * 1e9 alone does not. Move one second from the
+            // integral part into the fractional part to keep every intermediate
+            // result representable.
+            return Math.addExact(
+                    Math.multiplyExact(seconds + 1, 1000000000L),
+                    value.getNano() - 1000000000L);
+        }
+        return Math.addExact(Math.multiplyExact(seconds, 1000000000L), value.getNano());
     }
 
     public int appendTimeStampTz(LocalDateTime v) {

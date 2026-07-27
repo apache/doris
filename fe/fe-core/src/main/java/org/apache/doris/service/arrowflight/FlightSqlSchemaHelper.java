@@ -92,7 +92,7 @@ public class FlightSqlSchemaHelper {
      * Ref: `convert_to_arrow_type` in be/src/util/arrow/row_batch.cpp.
      * which is consistent with the type of Arrow data returned by Doris Arrow Flight Sql query.
      */
-    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale,
+    static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale,
             String timeZone) {
         switch (primitiveType) {
             case BOOLEAN:
@@ -123,7 +123,9 @@ public class FlightSqlSchemaHelper {
             case DATEV2:
                 return new ArrowType.Date(DateUnit.MILLISECOND);
             case DATETIMEV2:
-                if (scale > 3) {
+                if (scale > 6) {
+                    return new ArrowType.Timestamp(TimeUnit.NANOSECOND, timeZone);
+                } else if (scale > 3) {
                     return new ArrowType.Timestamp(TimeUnit.MICROSECOND, timeZone);
                 } else if (scale > 0) {
                     return new ArrowType.Timestamp(TimeUnit.MILLISECOND, timeZone);

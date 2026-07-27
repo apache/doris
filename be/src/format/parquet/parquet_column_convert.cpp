@@ -258,14 +258,23 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                               convert_params.get(), physical_converter);
     } else if (src_logical_primitive == TYPE_DATEV2) {
         physical_converter = std::make_unique<Int32ToDate>();
-    } else if (src_logical_primitive == TYPE_DATETIMEV2) {
+    } else if (src_logical_primitive == TYPE_DATETIMEV2 ||
+               src_logical_primitive == TYPE_DATETIMEV2_NANO) {
         if (src_physical_type == tparquet::Type::INT96) {
             // int96 only stores nanoseconds in standard parquet file
             convert_params->reset_time_scale_if_missing(9);
-            physical_converter = std::make_unique<Int96toTimestamp>();
+            if (src_logical_primitive == TYPE_DATETIMEV2_NANO) {
+                physical_converter = std::make_unique<Int96toTimestampNano>();
+            } else {
+                physical_converter = std::make_unique<Int96toTimestamp>();
+            }
         } else if (src_physical_type == tparquet::Type::INT64) {
             convert_params->reset_time_scale_if_missing(src_logical_type->get_scale());
-            physical_converter = std::make_unique<Int64ToTimestamp>();
+            if (src_logical_primitive == TYPE_DATETIMEV2_NANO) {
+                physical_converter = std::make_unique<Int64ToTimestampNano>();
+            } else {
+                physical_converter = std::make_unique<Int64ToTimestamp>();
+            }
         } else {
             physical_converter =
                     std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);

@@ -212,6 +212,10 @@ using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DA
 
 using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2NanoDayName =
+        FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2_NANO>>;
+using FunctionDateTimeV2NanoMonthName =
+        FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIMEV2_NANO>>;
 using FunctionYearMonth = FunctionDateOrDateTimeToString<YearMonthImpl>;
 using FunctionDayHour = FunctionDateOrDateTimeToString<DayHourImpl>;
 using FunctionDayMinute = FunctionDateOrDateTimeToString<DayMinuteImpl>;
@@ -226,6 +230,8 @@ using FunctionSecondMicrosecond = FunctionDateOrDateTimeToString<SecondMicroseco
 
 using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATEV2>>;
 using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeNanoIso8601 =
+        FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2_NANO>>;
 using FunctionTimestampTzIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMPTZ>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
@@ -233,6 +239,8 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMonthNameV2>();
     factory.register_function<FunctionDateTimeV2DayName>();
     factory.register_function<FunctionDateTimeV2MonthName>();
+    factory.register_function<FunctionDateTimeV2NanoDayName>();
+    factory.register_function<FunctionDateTimeV2NanoMonthName>();
     factory.register_function<FunctionYearMonth>();
     factory.register_function<FunctionDayHour>();
     factory.register_function<FunctionDayMinute>();
@@ -246,6 +254,7 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecondMicrosecond>();
     factory.register_function<FunctionDateIso8601>();
     factory.register_function<FunctionDateTimeIso8601>();
+    factory.register_function<FunctionDateTimeNanoIso8601>();
     factory.register_function<FunctionTimestampTzIso8601>();
 }
 

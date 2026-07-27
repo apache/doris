@@ -214,9 +214,9 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         DateTimeV2Type rightType = right.getDataType();
         if (toScale < rightType.getScale()) {
             if (comparisonPredicate instanceof EqualTo) {
-                long originValue = right.getMicroSecond();
+                long originValue = right.getNanoSecond();
                 right = right.roundFloor(toScale);
-                if (right.getMicroSecond() != originValue) {
+                if (right.getNanoSecond() != originValue) {
                     // TODO: the ideal way is to return an If expr like:
                     // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
                     // BooleanLiteral.of(false));
@@ -226,9 +226,9 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     return ExpressionUtils.falseOrNull(left);
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
-                long originValue = right.getMicroSecond();
+                long originValue = right.getNanoSecond();
                 right = right.roundFloor(toScale);
-                if (right.getMicroSecond() != originValue) {
+                if (right.getNanoSecond() != originValue) {
                     return BooleanLiteral.of(false);
                 }
             } else if (comparisonPredicate instanceof GreaterThan
@@ -290,15 +290,17 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             lowBound = new DateTimeLiteral(right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0);
             upBound = new DateTimeLiteral(right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59);
         } else {
-            long upMicroSecond = 0;
+            long upperFraction = 0;
             for (int i = 0; i < ((DateTimeV2Type) leftType).getScale(); i++) {
-                upMicroSecond = 10 * upMicroSecond + 9;
+                upperFraction = 10 * upperFraction + 9;
             }
-            upMicroSecond *= (int) Math.pow(10, 6 - ((DateTimeV2Type) leftType).getScale());
+            int scale = ((DateTimeV2Type) leftType).getScale();
+            int fractionalWidth = scale > 6 ? 9 : 6;
+            upperFraction *= (long) Math.pow(10, fractionalWidth - scale);
             lowBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
                     right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0, 0);
             upBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
-                    right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59, upMicroSecond);
+                    right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59, upperFraction);
         }
 
         if (comparisonPredicate instanceof GreaterThanEqual || comparisonPredicate instanceof LessThan) {

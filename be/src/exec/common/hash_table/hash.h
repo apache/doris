@@ -112,6 +112,13 @@ struct DefaultHash<doris::DateV2Value<doris::DateV2ValueType>> {
 };
 
 template <>
+struct DefaultHash<doris::DateTimeV2NanoValue> {
+    size_t operator()(doris::DateTimeV2NanoValue key) const {
+        return int_hash64(key.epoch_nanos());
+    }
+};
+
+template <>
 struct DefaultHash<doris::TimestampTzValue> {
     size_t operator()(doris::TimestampTzValue key) const {
         return int_hash64(key.to_date_int_val());
@@ -169,6 +176,11 @@ inline size_t hash_crc32(doris::DateV2Value<doris::DateV2ValueType> u) {
 }
 
 template <>
+inline size_t hash_crc32(doris::DateTimeV2NanoValue u) {
+    return hash_crc32(u.epoch_nanos());
+}
+
+template <>
 inline size_t hash_crc32(doris::TimestampTzValue u) {
     return hash_crc32(u.to_date_int_val());
 }
@@ -196,6 +208,7 @@ DEFINE_HASH(doris::Float64)
 DEFINE_HASH(doris::VecDateTimeValue)
 DEFINE_HASH(doris::DateV2Value<doris::DateTimeV2ValueType>)
 DEFINE_HASH(doris::DateV2Value<doris::DateV2ValueType>)
+DEFINE_HASH(doris::DateTimeV2NanoValue)
 DEFINE_HASH(doris::TimestampTzValue)
 DEFINE_HASH(unsigned __int128)
 

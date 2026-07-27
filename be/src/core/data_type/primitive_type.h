@@ -75,6 +75,7 @@ class DataTypeTimeV2;
 class DataTypeDateTime;
 class DataTypeDate;
 class DataTypeDateTimeV2;
+class DataTypeDateTimeV2Nano;
 class DataTypeDateV2;
 class DataTypeTimeStampTz;
 template <PrimitiveType T>
@@ -112,6 +113,7 @@ using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
 using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
+using ColumnDateTimeV2Nano = ColumnVector<TYPE_DATETIMEV2_NANO>;
 using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
@@ -140,6 +142,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
     case TYPE_TIMESTAMPTZ:
     case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
@@ -175,7 +178,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
 
 constexpr bool is_date_type(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
-           type == TYPE_DATEV2;
+           type == TYPE_DATETIMEV2_NANO || type == TYPE_DATEV2;
 }
 
 constexpr bool is_time_type(PrimitiveType type) {
@@ -191,7 +194,11 @@ constexpr bool is_date_or_datetime(PrimitiveType type) {
 }
 
 constexpr bool is_date_v2_or_datetime_v2(PrimitiveType type) {
-    return type == TYPE_DATETIMEV2 || type == TYPE_DATEV2;
+    return type == TYPE_DATETIMEV2 || type == TYPE_DATETIMEV2_NANO || type == TYPE_DATEV2;
+}
+
+constexpr bool is_datetime_v2(PrimitiveType type) {
+    return type == TYPE_DATETIMEV2 || type == TYPE_DATETIMEV2_NANO;
 }
 
 constexpr bool is_ip(PrimitiveType type) {
@@ -364,6 +371,13 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using StorageFieldType = uint64_t;
     using DataType = DataTypeDateTimeV2;
     using ColumnType = ColumnDateTimeV2;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DATETIMEV2_NANO> {
+    using CppType = DateTimeV2NanoValue;
+    using StorageFieldType = int64_t;
+    using DataType = DataTypeDateTimeV2Nano;
+    using ColumnType = ColumnDateTimeV2Nano;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {

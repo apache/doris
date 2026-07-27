@@ -102,6 +102,10 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(const uint32_t cid,
         return ComparisonPredicateBase<TYPE_DATETIMEV2, PT>::create_shared(cid, col_name, value,
                                                                            opposite);
     }
+    case TYPE_DATETIMEV2_NANO: {
+        return ComparisonPredicateBase<TYPE_DATETIMEV2_NANO, PT>::create_shared(cid, col_name,
+                                                                                value, opposite);
+    }
     case TYPE_TIMESTAMPTZ: {
         return ComparisonPredicateBase<TYPE_TIMESTAMPTZ, PT>::create_shared(cid, col_name, value,
                                                                             opposite);

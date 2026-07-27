@@ -157,6 +157,11 @@ struct ut_input_type<DataTypeDateTimeV2> {
     inline static type default_value = "1970-01-01";
 };
 template <>
+struct ut_input_type<DataTypeDateTimeV2Nano> {
+    using type = std::string;
+    inline static type default_value = "1970-01-01";
+};
+template <>
 struct ut_input_type<DataTypeTimeV2> {
     using type = std::string;
     inline static type default_value = "01:02:03";
@@ -268,7 +273,8 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if (std::is_same_v<ReturnType, DataTypeDateV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATEV2,
                                                             false);
-    } else if (std::is_same_v<ReturnType, DataTypeDateTimeV2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDateTimeV2> ||
+               std::is_same_v<ReturnType, DataTypeDateTimeV2Nano>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
                                                             false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimalV2>) {

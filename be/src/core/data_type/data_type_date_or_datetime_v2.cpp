@@ -79,6 +79,18 @@ Field DataTypeDateTimeV2::get_field(const TExprNode& node) const {
     }
 }
 
+Field DataTypeDateTimeV2Nano::get_field(const TExprNode& node) const {
+    int64_t value = 0;
+    const StringRef string_value(node.date_literal.value.data(), node.date_literal.value.size());
+    const auto status = parse_datetimev2_nano(string_value, _scale, &value);
+    if (!status.ok()) {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Invalid value: {} for type DateTimeV2({}): {}",
+                               node.date_literal.value, _scale, status.to_string());
+    }
+    return Field::create_field<TYPE_DATETIMEV2_NANO>(DateTimeV2NanoValue(value));
+}
+
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -106,6 +118,13 @@ void DataTypeDateV2::cast_to_date_time_v2(const DateV2Value<DateV2ValueType> fro
                                                                << TIME_PART_LENGTH);
 }
 
+void DataTypeDateV2::cast_to_date_time_v2(const DateV2Value<DateV2ValueType> from,
+                                          DateTimeV2NanoValue& to) {
+    DateV2Value<DateTimeV2ValueType> value;
+    cast_to_date_time_v2(from, value);
+    DORIS_CHECK(to.from_datetime(value));
+}
+
 void DataTypeDateV2::cast_from_date(const VecDateTimeValue from, DateV2Value<DateV2ValueType>& to) {
     auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
@@ -126,7 +145,17 @@ bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
            _scale == static_cast<const DataTypeDateTimeV2&>(rhs)._scale;
 }
 
+bool DataTypeDateTimeV2Nano::equals(const IDataType& rhs) const {
+    const auto* nano_type = typeid_cast<const DataTypeDateTimeV2Nano*>(&rhs);
+    return nano_type != nullptr && _scale == nano_type->_scale;
+}
+
 void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->mutable_decimal_param()->set_scale(_scale);
+}
+
+void DataTypeDateTimeV2Nano::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     col_meta->mutable_decimal_param()->set_scale(_scale);
 }
@@ -177,16 +206,44 @@ FieldWithDataType DataTypeDateTimeV2::get_field_with_data_type(const IColumn& co
                               .scale = static_cast<int>(get_scale())};
 }
 
+FieldWithDataType DataTypeDateTimeV2Nano::get_field_with_data_type(const IColumn& column,
+                                                                   size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnDateTimeV2Nano&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type(),
+                              .precision = -1,
+                              .scale = static_cast<int>(get_scale())};
+}
+
 void DataTypeDateTimeV2::cast_to_date_v2(const DateV2Value<DateTimeV2ValueType> from,
                                          DateV2Value<DateV2ValueType>& to) {
     to = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
             UInt32(from.to_date_int_val() >> TIME_PART_LENGTH));
 }
 
+void DataTypeDateTimeV2::cast_to_date(const DateTimeV2NanoValue from, VecDateTimeValue& to) {
+    cast_to_date(from.to_datetime(), to);
+}
+
+void DataTypeDateTimeV2::cast_to_date_time(const DateTimeV2NanoValue from, VecDateTimeValue& to) {
+    cast_to_date_time(from.to_datetime(), to);
+}
+
+void DataTypeDateTimeV2::cast_to_date_v2(const DateTimeV2NanoValue from,
+                                         DateV2Value<DateV2ValueType>& to) {
+    cast_to_date_v2(from.to_datetime(), to);
+}
+
 DataTypePtr create_datetimev2(UInt64 scale_value) {
-    if (scale_value > 6) {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "scale_value {} > 6",
+    if (scale_value > 9) {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "scale_value {} > 9",
                                scale_value);
+    }
+    if (scale_value > 6) {
+        return std::make_shared<DataTypeDateTimeV2Nano>(scale_value);
     }
     return std::make_shared<DataTypeDateTimeV2>(scale_value);
 }

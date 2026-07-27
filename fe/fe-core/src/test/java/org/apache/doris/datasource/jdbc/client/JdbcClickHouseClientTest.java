@@ -50,6 +50,13 @@ public class JdbcClickHouseClientTest {
     }
 
     @Test
+    public void testDateTime64NanoPrecision() {
+        Assert.assertEquals(7, JdbcClickHouseClient.normalizeDateTime64Precision(7));
+        Assert.assertEquals(8, JdbcClickHouseClient.normalizeDateTime64Precision(8));
+        Assert.assertEquals(9, JdbcClickHouseClient.normalizeDateTime64Precision(9));
+    }
+
+    @Test
     public void testIsNewClickHouseDriver() {
         try {
             Method method = JdbcClickHouseClient.class.getDeclaredMethod("isNewClickHouseDriver", String.class);

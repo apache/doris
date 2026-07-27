@@ -295,9 +295,6 @@ public class JdbcMySQLClient extends JdbcClient {
             case "TIMESTAMP": {
                 int columnSize = fieldSchema.requiredColumnSize();
                 int scale = columnSize > 19 ? columnSize - 20 : 0;
-                if (scale > 6) {
-                    scale = 6;
-                }
                 if (convertDateToNull) {
                     fieldSchema.setAllowNull(true);
                 }
@@ -305,13 +302,9 @@ public class JdbcMySQLClient extends JdbcClient {
                         : ScalarType.createDatetimeV2Type(scale);
             }
             case "DATETIME": {
-                // mysql can support microsecond
                 // use columnSize to calculate the precision of timestamp/datetime
                 int columnSize = fieldSchema.requiredColumnSize();
                 int scale = columnSize > 19 ? columnSize - 20 : 0;
-                if (scale > 6) {
-                    scale = 6;
-                }
                 if (convertDateToNull) {
                     fieldSchema.setAllowNull(true);
                 }
@@ -450,9 +443,6 @@ public class JdbcMySQLClient extends JdbcClient {
             case "DATETIMEV2": {
                 int scale = (openParen == -1) ? 0
                         : Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
-                if (scale > 6) {
-                    scale = 6;
-                }
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "CHAR":

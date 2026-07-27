@@ -295,6 +295,17 @@ class JdbcQueryBuilderTest {
                 "Second call must not see first call's column mapping. SQL: " + sql2);
     }
 
+    @Test
+    void testMysqlDatetimeV2NanoColumnIsReadAsText() {
+        JdbcQueryBuilder builder = mysqlBuilder();
+        JdbcColumnHandle nanoColumn = new JdbcColumnHandle(
+                "event_time", "event_time", ConnectorType.of("DATETIMEV2", 9, -1));
+        String sql = builder.buildQuery(DB, TABLE,
+                Collections.singletonList(nanoColumn), Optional.empty(), -1);
+        Assertions.assertTrue(sql.contains(
+                "CAST(`event_time` AS CHAR) AS `event_time`"), "SQL: " + sql);
+    }
+
     // --- Oracle/OceanBase timestamp microsecond formatting tests ---
 
     private static final ConnectorType DATETIME_TYPE = ConnectorType.of("DATETIMEV2");
@@ -392,6 +403,20 @@ class JdbcQueryBuilderTest {
                 Optional.of(filter), -1);
         Assertions.assertTrue(sql.contains("10:30:45.123456"),
                 "MySQL must preserve fractional seconds. SQL: " + sql);
+    }
+
+    @Test
+    void testMysqlDatetimeNanoseconds() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.MYSQL);
+        LocalDateTime dt = LocalDateTime.of(2024, 1, 15, 10, 30, 45, 123456789);
+        ConnectorExpression filter = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("ts", ConnectorType.of("DATETIMEV2", 9, -1)),
+                ConnectorLiteral.ofDatetime(dt));
+        String sql = builder.buildQuery(DB, TABLE, columns("ts"),
+                Optional.of(filter), -1);
+        Assertions.assertTrue(sql.contains("10:30:45.123456789"),
+                "MySQL must preserve nanoseconds in pushed predicates. SQL: " + sql);
     }
 
     @Test

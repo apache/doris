@@ -139,6 +139,10 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::NOT_IN_
         return create_in_list_predicate_impl<TYPE_DATETIMEV2, PredicateType::NOT_IN_LIST>(
                 cid, col_name, set, is_opposite);
     }
+    case TYPE_DATETIMEV2_NANO: {
+        return create_in_list_predicate_impl<TYPE_DATETIMEV2_NANO, PredicateType::NOT_IN_LIST>(
+                cid, col_name, set, is_opposite);
+    }
     case TYPE_TIMESTAMPTZ: {
         return create_in_list_predicate_impl<TYPE_TIMESTAMPTZ, PredicateType::NOT_IN_LIST>(
                 cid, col_name, set, is_opposite);

@@ -202,6 +202,14 @@ static void set_default_create_tablet_request(TCreateTabletReq* request) {
     ktz.column_type.type = TPrimitiveType::TIMESTAMPTZ;
     v.__set_aggregation_type(TAggregationType::MAX);
     request->tablet_schema.columns.push_back(ktz);
+
+    TColumn knano;
+    knano.column_name = "k_nano";
+    knano.__set_is_key(false);
+    knano.column_type.type = TPrimitiveType::DATETIMEV2;
+    knano.column_type.__set_scale(9);
+    knano.__set_aggregation_type(TAggregationType::MAX);
+    request->tablet_schema.columns.push_back(knano);
 }
 
 static void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
@@ -713,6 +721,21 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_9);
     EXPECT_EQ(Status::OK(), res);
+
+    // DATETIMEV2(9) delete conditions must use the full signed Int64 epoch-nanosecond range.
+    conditions.clear();
+    condition.column_name = "k_nano";
+    condition.condition_op = "*=";
+    condition.condition_values = {"1677-09-21 00:12:43.145224192", "1970-01-01 00:00:00.000000000",
+                                  "2262-04-11 23:47:16.854775807"};
+    conditions.push_back(condition);
+
+    DeletePredicatePB nano_del_pred;
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &nano_del_pred);
+    EXPECT_EQ(Status::OK(), res);
+    ASSERT_EQ(1, nano_del_pred.in_predicates_size());
+    EXPECT_EQ(3, nano_del_pred.in_predicates(0).values_size());
 }
 
 TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
@@ -955,6 +978,13 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.emplace_back("::HHHH:192.168.1.aa");
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_26);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
+
+    conditions[0].column_name = "k_nano";
+    conditions[0].condition_values = {"2262-04-11 23:47:16.854775808"};
+    DeletePredicatePB nano_del_pred;
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &nano_del_pred);
     EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 }
 

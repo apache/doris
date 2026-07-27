@@ -80,7 +80,7 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL128_PRECISION = 38;
     public static final int MAX_DECIMAL256_PRECISION = 76;
     public static final int DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
-    public static final int MAX_DATETIMEV2_SCALE = 6;
+    public static final int MAX_DATETIMEV2_SCALE = 9;
     public static final int MAX_PRECISION = MAX_DECIMAL256_PRECISION;
 
     private long byteSize = -1;

@@ -1098,20 +1098,32 @@ public abstract class DataType {
                             + precision + " in not supported.");
                 }
             }
+            case DATETIMEV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                if (precision != ScalarType.DATETIME_PRECISION) {
+                    throw new AnalysisException(
+                            "Precision of Datetime must be " + ScalarType.DATETIME_PRECISION
+                                    + "." + " Precision was set to: " + precision + ".");
+                }
+                if (scale < 0 || scale > ScalarType.MAX_DATETIMEV2_SCALE) {
+                    throw new AnalysisException("Scale of Datetime must between 0 and "
+                            + ScalarType.MAX_DATETIMEV2_SCALE + "."
+                            + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
             case TIMEV2:
-            case DATETIMEV2:
             case TIMESTAMPTZ: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
-                // precision: 18
                 if (precision != ScalarType.DATETIME_PRECISION) {
                     throw new AnalysisException(
-                            "Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
+                            "Precision of Time must be " + ScalarType.DATETIME_PRECISION
                                     + "." + " Precision was set to: " + precision + ".");
                 }
-                // scale: [0, 6]
                 if (scale < 0 || scale > 6) {
-                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
+                    throw new AnalysisException("Scale of Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");
                 }
                 break;

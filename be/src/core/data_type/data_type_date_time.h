@@ -111,6 +111,8 @@ template <typename DataType>
 constexpr bool IsDateTimeV2Type = false;
 template <>
 inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
+template <>
+inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2Nano> = true;
 
 template <typename DataType>
 constexpr bool IsTimeV2Type = false;

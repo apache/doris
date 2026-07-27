@@ -150,6 +150,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<DataTypeDateV2>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2_NANO:
         result = create_datetimev2(scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
@@ -256,7 +257,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeDateV2>();
         break;
     case PGenericType::DATETIMEV2:
-        nested = std::make_shared<DataTypeDateTimeV2>(pcolumn.decimal_param().scale());
+        nested = create_datetimev2(pcolumn.decimal_param().scale());
         break;
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
@@ -434,6 +435,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<DataTypeDateV2>();
         break;
     case TYPE_DATETIMEV2:
+    case TYPE_DATETIMEV2_NANO:
         nested = create_datetimev2(scale);
         break;
     case TYPE_DATETIME:
