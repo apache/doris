@@ -458,7 +458,7 @@ public class PartitionIncrementMaintainer {
                 return super.visitLogicalPartitionTopN(partitionTopN, context);
             }
             if (!checkPartitionKeysContainPartitionToCheck(partitionTopN.getPartitionKeys(), context)) {
-                context.addFailReason("window partition sets doesn't contain the target partition");
+                context.addFailReason("partition topN partition keys doesn't contain the target partition");
                 context.collectFailedTableSet(partitionTopN);
                 context.setFailFast(true);
             }
@@ -507,18 +507,23 @@ public class PartitionIncrementMaintainer {
 
         private boolean checkPartitionKeysContainPartitionToCheck(List<Expression> partitionKeys,
                 PartitionIncrementCheckContext context) {
-            Set<Column> originalPartitionByExprSet = new HashSet<>();
+            // Match partition keys by slot identity (exprId) instead of the bare catalog Column,
+            // because Column.equals compares column attributes but not the owning table: an unrelated
+            // input column with the same definition (e.g. l.p vs r.p) would otherwise be accepted as
+            // the tracked partition key. The context already carries every slot equal to the MV
+            // partition column via join equal-set propagation, so a slot-level containment check keeps
+            // genuinely unrelated partition keys (no equality to the tracked column) rejected.
+            Set<SlotReference> partitionKeySlotSet = new HashSet<>();
             partitionKeys.forEach(partitionKey -> {
                 if (partitionKey instanceof SlotReference && partitionKey.isColumnFromTable()) {
-                    originalPartitionByExprSet.add(((SlotReference) partitionKey).getOriginalColumn().get());
+                    partitionKeySlotSet.add((SlotReference) partitionKey);
                 }
             });
             Set<SlotReference> contextPartitionColumnSet = getPartitionColumnsToCheck(context);
             if (contextPartitionColumnSet.isEmpty()) {
                 return false;
             }
-            return contextPartitionColumnSet.stream().anyMatch(
-                    partition -> originalPartitionByExprSet.contains(partition.getOriginalColumn().get()));
+            return contextPartitionColumnSet.stream().anyMatch(partitionKeySlotSet::contains);
         }
 
         private boolean planOutputContainsPartitionColumnToCheck(Plan plan, PartitionIncrementCheckContext context) {
