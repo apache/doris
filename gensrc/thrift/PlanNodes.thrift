@@ -111,7 +111,11 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    // Reserve the master wire IDs so branch-4.1 can explicitly keep these unsupported formats
+    // off FileScannerV2 without renumbering later TFileFormatType values.
+    FORMAT_LANCE = 19,
+    FORMAT_ES_HTTP = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
