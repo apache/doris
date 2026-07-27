@@ -56,8 +56,19 @@ merge_pr_to_target_branch_latest() {
     git reset --hard
     git fetch origin "${target_branch}"
     git checkout "${target_branch}"
-    git reset --hard origin/"${target_branch}"
-    git pull origin "${target_branch}"
+    if [[ -n "${PARQUET_BENCHMARK_BASE_SHA:-}" ]]; then
+        if [[ ! "${PARQUET_BENCHMARK_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]] ||
+                ! git merge-base --is-ancestor "${PARQUET_BENCHMARK_BASE_SHA}" \
+                    origin/"${target_branch}"; then
+            echo "ERROR: invalid pinned Parquet benchmark base SHA: ${PARQUET_BENCHMARK_BASE_SHA}"
+            return 1
+        fi
+        echo "INFO: pin Parquet benchmark base to ${PARQUET_BENCHMARK_BASE_SHA}"
+        git reset --hard "${PARQUET_BENCHMARK_BASE_SHA}"
+    else
+        git reset --hard origin/"${target_branch}"
+        git pull origin "${target_branch}"
+    fi
     git submodule update --init --recursive --depth 1
     parquet_benchmark_base_sha=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"
@@ -106,7 +117,13 @@ else
     echo "INFO: skip merge_pr_to_target_branch_latest"
 fi
 if [[ -z "${parquet_benchmark_base_sha:-}" ]]; then
-    parquet_benchmark_base_sha=$(git -C "${teamcity_build_checkoutDir}" rev-parse "origin/${target_branch}")
+    if [[ -n "${PARQUET_BENCHMARK_BASE_SHA:-}" ]]; then
+        parquet_benchmark_base_sha="${PARQUET_BENCHMARK_BASE_SHA}"
+    else
+        parquet_benchmark_base_sha=$(
+            git -C "${teamcity_build_checkoutDir}" rev-parse "origin/${target_branch}"
+        )
+    fi
 fi
 if [[ ! "${parquet_benchmark_base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
     echo "ERROR: invalid Parquet benchmark base SHA: ${parquet_benchmark_base_sha}"
