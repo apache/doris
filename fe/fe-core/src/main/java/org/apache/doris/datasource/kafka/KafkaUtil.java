@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.kafka;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
@@ -26,9 +27,11 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,7 +51,7 @@ public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-            Map<String, String> convertedCustomProperties) throws UserException {
+            Map<String, String> convertedCustomProperties, String cloudCluster) throws UserException {
         try {
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     InternalService.PKafkaMetaProxyRequest.newBuilder()
@@ -61,7 +64,7 @@ public class KafkaUtil {
                                     )
                             )
             ).build();
-            return getInfoRequest(request, Config.max_get_kafka_meta_timeout_second)
+            return getInfoRequest(request, Config.max_get_kafka_meta_timeout_second, cloudCluster)
                     .getKafkaMetaResult().getPartitionIdsList();
         } catch (Exception e) {
             throw new LoadException(
@@ -73,7 +76,8 @@ public class KafkaUtil {
     // The input parameter "timestampOffsets" is <partition, timestamp>
     // Tne return value is <partition, offset>
     public static List<Pair<Integer, Long>> getOffsetsForTimes(String brokerList, String topic,
-            Map<String, String> convertedCustomProperties, List<Pair<Integer, Long>> timestampOffsets)
+            Map<String, String> convertedCustomProperties, List<Pair<Integer, Long>> timestampOffsets,
+            String cloudCluster)
             throws LoadException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
@@ -100,7 +104,8 @@ public class KafkaUtil {
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
+            InternalService.PProxyResult result = getInfoRequest(
+                    request, Config.max_get_kafka_meta_timeout_second, cloudCluster);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -120,7 +125,8 @@ public class KafkaUtil {
 
     public static List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
                                                              Map<String, String> convertedCustomProperties,
-                                                             List<Integer> partitionIds) throws LoadException {
+                                                             List<Integer> partitionIds, String cloudCluster)
+                                                             throws LoadException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
                     partitionIds, topic, taskId, jobId);
@@ -145,7 +151,8 @@ public class KafkaUtil {
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
+            InternalService.PProxyResult result = getInfoRequest(
+                    request, Config.max_get_kafka_meta_timeout_second, cloudCluster);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -166,7 +173,7 @@ public class KafkaUtil {
 
     public static List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
                                                              Map<String, String> convertedCustomProperties,
-                                                             List<Pair<Integer, Long>> offsets)
+                                                             List<Pair<Integer, Long>> offsets, String cloudCluster)
                                                              throws LoadException {
         // filter values greater than 0 as these offsets is real offset
         // only update offset like OFFSET_BEGINNING or OFFSET_END
@@ -205,7 +212,8 @@ public class KafkaUtil {
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
+            InternalService.PProxyResult result = getInfoRequest(
+                    request, Config.max_get_kafka_meta_timeout_second, cloudCluster);
 
             List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
             List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
@@ -222,8 +230,8 @@ public class KafkaUtil {
         }
     }
 
-    private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout)
-                                                        throws LoadException {
+    private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout,
+            String cloudCluster) throws LoadException {
         long startTime = System.currentTimeMillis();
         int retryTimes = 0;
         TNetworkAddress address = null;
@@ -236,7 +244,8 @@ public class KafkaUtil {
         try {
             while (retryTimes < 3) {
                 List<Long> backendIds = new ArrayList<>();
-                for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
+                List<Long> candidateBackendIds = getBackendIdsForMetaRequest(cloudCluster);
+                for (Long beId : candidateBackendIds) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
                     if (isBackendAvailableForMetaRequest(backend)
                             && !failedBeIds.contains(beId)
@@ -252,9 +261,11 @@ public class KafkaUtil {
                 // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
                 if (backendIds.isEmpty()) {
                     Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
-                    for (Long beId : blacklist.keySet()) {
+                    for (Long beId : new ArrayList<>(blacklist.keySet())) {
                         Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                        if (isBackendAvailableForMetaRequest(backend) && !failedBeIds.contains(beId)) {
+                        if (candidateBackendIds.contains(beId)
+                                && isBackendAvailableForMetaRequest(backend)
+                                && !failedBeIds.contains(beId)) {
                             backendIds.add(beId);
                         } else if (backend == null) {
                             blacklist.remove(beId);
@@ -327,6 +338,19 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
+    }
+
+    static List<Long> getBackendIdsForMetaRequest(String cloudCluster) throws LoadException {
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        if (!Config.isCloudMode()) {
+            return systemInfoService.getAllBackendIds(true);
+        }
+        if (Strings.isNullOrEmpty(cloudCluster)) {
+            throw new LoadException("compute group is empty when getting kafka meta");
+        }
+        return ((CloudSystemInfoService) systemInfoService).getBackendsByClusterName(cloudCluster).stream()
+                .map(Backend::getId)
+                .collect(Collectors.toList());
     }
 
     private static boolean isBackendAvailableForMetaRequest(Backend backend) {

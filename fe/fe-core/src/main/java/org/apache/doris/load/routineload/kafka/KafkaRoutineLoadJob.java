@@ -552,7 +552,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties(false);
-        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
+        return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties, getCloudCluster());
     }
 
     public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
@@ -655,10 +655,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         try {
             if (isOffsetForTimes()) {
                 partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList,
-                        this.topic, convertedCustomProperties, partitionOffsets);
+                        this.topic, convertedCustomProperties, partitionOffsets, getCloudCluster());
             } else {
                 partitionOffsets = KafkaUtil.getRealOffsets(this.brokerList,
-                        this.topic, convertedCustomProperties, partitionOffsets);
+                        this.topic, convertedCustomProperties, partitionOffsets, getCloudCluster());
             }
         } catch (LoadException e) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -694,11 +694,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // the offset is set by date time, we need to get the real offset by time
             kafkaPartitionOffsets = KafkaUtil.getOffsetsForTimes(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
-                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets(),
+                    getCloudCluster());
         } else {
             kafkaPartitionOffsets = KafkaUtil.getRealOffsets(kafkaDataSourceProperties.getBrokerList(),
                     kafkaDataSourceProperties.getTopic(),
-                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets());
+                    convertedCustomProperties, kafkaDataSourceProperties.getKafkaPartitionOffsets(),
+                    getCloudCluster());
         }
 
         for (Pair<Integer, Long> partitionOffset : kafkaPartitionOffsets) {
@@ -798,9 +800,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
-            newOffsets = KafkaUtil.getOffsetsForTimes(brokerList, topic, convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getOffsetsForTimes(
+                    brokerList, topic, convertedCustomProperties, partitionOffsets, getCloudCluster());
         } else {
-            newOffsets = KafkaUtil.getRealOffsets(brokerList, topic, convertedCustomProperties, partitionOffsets);
+            newOffsets = KafkaUtil.getRealOffsets(
+                    brokerList, topic, convertedCustomProperties, partitionOffsets, getCloudCluster());
         }
         dataSourceProperties.setKafkaPartitionOffsets(newOffsets);
     }
@@ -957,7 +961,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 writeUnlock();
             }
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
-                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()));
+                    topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()),
+                    getCloudCluster());
             updateLatestOffsetsCache(tmp, taskId);
         } catch (Exception e) {
             // It needs to pause job when can not get partition meta.
@@ -1021,7 +1026,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         UUID taskId = UUID.randomUUID();
         List<Pair<Integer, Long>> latestOffsets = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
-                topicSnapshot, customPropertiesSnapshot, partitionIds);
+                topicSnapshot, customPropertiesSnapshot, partitionIds, getCloudCluster());
         updateLatestOffsetsCache(latestOffsets, taskId);
     }
 

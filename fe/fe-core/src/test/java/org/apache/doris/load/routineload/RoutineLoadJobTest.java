@@ -263,11 +263,12 @@ public class RoutineLoadJobTest {
             Mockito.doReturn(table).when(database).getTableNullable(Mockito.anyLong());
 
             kafkaUtilStatic.when(() -> KafkaUtil.getAllKafkaPartitions(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.nullable(String.class)))
                     .thenReturn(Lists.newArrayList(1, 2, 3));
 
             kafkaUtilStatic.when(() -> KafkaUtil.getRealOffsets(
-                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList()))
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyMap(), Mockito.anyList(),
+                    Mockito.nullable(String.class)))
                     .thenAnswer(inv -> {
                         List<Pair<Integer, Long>> pairList = new ArrayList<>();
                         pairList.add(Pair.of(1, 0L));
