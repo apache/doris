@@ -497,11 +497,10 @@ void process_submap_emplace(Submap& submap, const uint32_t* indices, size_t coun
         pre_handler(row);
         if constexpr (is_nullable) {
             if (state.key_column->is_null_at(row)) {
-                bool has_null_key = hash_table.has_null_key_data();
-                hash_table.has_null_key_data() = true;
-                if (!has_null_key) {
+                if (!hash_table.has_null_key_data()) {
                     std::forward<FF>(creator_for_null_key)(
                             hash_table.template get_null_key_data<Mapped>());
+                    hash_table.has_null_key_data() = true;
                 }
                 result_handler(row, hash_table.template get_null_key_data<Mapped>());
                 continue;
@@ -543,10 +542,9 @@ void process_submap_emplace_void(Submap& submap, const uint32_t* indices, size_t
         pre_handler(row);
         if constexpr (is_nullable) {
             if (state.key_column->is_null_at(row)) {
-                bool has_null_key = hash_table.has_null_key_data();
-                hash_table.has_null_key_data() = true;
-                if (!has_null_key) {
+                if (!hash_table.has_null_key_data()) {
                     std::forward<FF>(creator_for_null_key)();
+                    hash_table.has_null_key_data() = true;
                 }
                 continue;
             }
@@ -1150,7 +1148,7 @@ struct DataWithNullKey : public Base {
 
 protected:
     bool has_null_key = false;
-    Base::Value null_key_data;
+    Base::Value null_key_data {};
 };
 
 /// Single low cardinality column.
