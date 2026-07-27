@@ -29,6 +29,7 @@ public final class IvmFailureClassifier {
             "IVM: deleted row affects BITMAP aggregate, requires COMPLETE";
     public static final String NON_DETERMINISTIC_ROW_ID_MSG_PREFIX =
             "IVM fallback: delete on non-deterministic row_id";
+    public static final String MV_PARTITION_NOT_FOUND_MSG = "no partition for this tuple";
 
     private IvmFailureClassifier() {
     }
@@ -43,6 +44,9 @@ public final class IvmFailureClassifier {
         }
         if (detail.contains(NON_DETERMINISTIC_ROW_ID_MSG_PREFIX)) {
             return Optional.of(IvmFailureReason.NON_DETERMINISTIC_ROW_ID);
+        }
+        if (detail.contains(MV_PARTITION_NOT_FOUND_MSG)) {
+            return Optional.of(IvmFailureReason.MV_PARTITION_NOT_FOUND);
         }
         return Optional.empty();
     }
