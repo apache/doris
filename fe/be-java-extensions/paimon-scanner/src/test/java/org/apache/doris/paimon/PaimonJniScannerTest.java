@@ -89,16 +89,13 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testConstructorRejectsMissingTableCacheKey() {
+    public void testConstructorAcceptsMissingOrEmptyTableCacheKey() {
         Map<String, String> params = createBaseParams();
         params.remove(SERIALIZED_TABLE_CACHE_KEY);
+        new PaimonJniScanner(128, params);
 
-        try {
-            new PaimonJniScanner(128, params);
-            Assert.fail("expected constructor to reject a missing table cache key");
-        } catch (IllegalStateException e) {
-            Assert.assertTrue(e.getMessage().contains(SERIALIZED_TABLE_CACHE_KEY));
-        }
+        params.put(SERIALIZED_TABLE_CACHE_KEY, "");
+        new PaimonJniScanner(128, params);
     }
 
     @Test
@@ -659,7 +656,7 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testFailedCloseRetainsResourcesForRetry() throws Exception {
+    public void testFailedCloseReleasesCacheAndRetainsResourcesForRetry() throws Exception {
         String cacheKey = "retryable-close";
         Map<String, String> params = createBaseParams();
         params.put(SERIALIZED_TABLE_CACHE_KEY, cacheKey);

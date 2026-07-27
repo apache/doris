@@ -137,8 +137,6 @@ public class PaimonJniScanner extends JniScanner {
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         tableCacheKey = params.get("serialized_table_cache_key");
-        Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
-                "Missing required Paimon scanner parameter: serialized_table_cache_key");
         String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
@@ -873,6 +871,12 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTableAndReader() throws IOException {
+        // Old FE Version maybe not contains serialized_table_cache_key, maybe need delete now is 4.x
+        if (tableCacheKey == null || tableCacheKey.isEmpty()) {
+            initTable();
+            initReader();
+            return;
+        }
         PaimonTableCache.TableCacheEntry cachedEntry = PaimonTableCache.acquire(tableCacheKey);
         if (cachedEntry != null) {
             tableCacheEntry = cachedEntry;
