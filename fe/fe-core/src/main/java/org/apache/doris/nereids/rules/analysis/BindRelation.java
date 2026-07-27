@@ -242,6 +242,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
+        List<Long> bucketIds = unboundRelation.getBucketIds();
+        if (!bucketIds.isEmpty() && !tabletIds.isEmpty()) {
+            throw new AnalysisException("bucket and tablet cannot be specified at the same time.");
+        }
+        OlapTable olapTable = (OlapTable) table;
         StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
         if (changeScanType != null) {
             table = new RowBinlogTableWrapper((OlapTable) table);
@@ -249,6 +254,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
             unboundRelation.getScanParams().validateOlapTable();
         }
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
+            if (!bucketIds.isEmpty()) {
+                tabletIds = olapTable.getTabletIds(partIds, bucketIds);
+            }
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, partIds,
                     tabletIds, unboundRelation.getHints(),
@@ -258,7 +266,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
             Optional<String> indexName = unboundRelation.getIndexName();
             // For direct mv scan.
             if (indexName.isPresent()) {
-                OlapTable olapTable = (OlapTable) table;
                 Long indexId = olapTable.getIndexIdByName(indexName.get());
                 if (indexId == null) {
                     throw new AnalysisException("Table " + olapTable.getName()
@@ -270,6 +277,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 if (unboundRelation.getTableSnapshot().isPresent() && olapTable.getBaseIndexId() != indexId) {
                     throw new AnalysisException("Time travel is not supported on non-base index " + indexName.get());
                 }
+                if (!bucketIds.isEmpty()) {
+                    if (CollectionUtils.isEmpty(partIds)) {
+                        tabletIds = olapTable.getTabletIds(indexId, bucketIds);
+                    } else {
+                        tabletIds = olapTable.getTabletIds(partIds, indexId, bucketIds);
+                    }
+                }
                 PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
@@ -280,6 +294,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of(),
                         Optional.ofNullable(unboundRelation.getScanParams()));
             } else {
+                if (!bucketIds.isEmpty()) {
+                    tabletIds = olapTable.getTabletIds(bucketIds);
+                }
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(), ImmutableList.of(),
@@ -329,6 +346,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!tabletIds.isEmpty()) {
             throw new AnalysisException("select tabletIds is not supported on olap table stream scan.");
+        }
+        if (!unboundRelation.getBucketIds().isEmpty()) {
+            throw new AnalysisException("select bucketIds is not supported on olap table stream scan.");
         }
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapTableStreamScan(unboundRelation.getRelationId(),

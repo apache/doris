@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -177,6 +180,57 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                                 }
                             }
                         });
+    }
+
+    @Test
+    void bindOlapScanWithBucketHint() {
+        connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT * FROM db1.t BUCKET(0, 2)")
+                .getPlan();
+        Optional<LogicalOlapScan> scanOpt = plan.collectFirst(LogicalOlapScan.class::isInstance);
+        Assertions.assertTrue(scanOpt.isPresent());
+        LogicalOlapScan scan = scanOpt.get();
+        OlapTable table = scan.getTable();
+        List<Tablet> tablets = table.getPartitions().iterator().next().getBaseIndex().getTablets();
+        Assertions.assertEquals(3, tablets.size());
+        List<Long> expected = ImmutableList.of(tablets.get(0).getId(), tablets.get(2).getId());
+        Assertions.assertEquals(expected, scan.getManuallySpecifiedTabletIds());
+        Assertions.assertEquals(expected, scan.getSelectedTabletIds());
+    }
+
+    @Test
+    void bindOlapScanWithSingleBucketHint() {
+        connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT * FROM db1.t BUCKET(1)")
+                .getPlan();
+        LogicalOlapScan scan = plan.<LogicalOlapScan>collectFirst(LogicalOlapScan.class::isInstance).get();
+        OlapTable table = scan.getTable();
+        List<Tablet> tablets = table.getPartitions().iterator().next().getBaseIndex().getTablets();
+        Assertions.assertEquals(ImmutableList.of(tablets.get(1).getId()), scan.getManuallySpecifiedTabletIds());
+    }
+
+    @Test
+    void bindOlapScanWithOutOfRangeBucketHint() {
+        // bucket id out of range -> empty selection, but sentinel -1 is added to force an empty scan
+        connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT * FROM db1.t BUCKET(100)")
+                .getPlan();
+        LogicalOlapScan scan = plan.<LogicalOlapScan>collectFirst(LogicalOlapScan.class::isInstance).get();
+        Assertions.assertEquals(ImmutableList.of(-1L), scan.getManuallySpecifiedTabletIds());
+    }
+
+    @Test
+    void bindOlapScanRejectBucketAndTabletTogether() {
+        connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB1);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT * FROM db1.t BUCKET(0) TABLET(1)"));
+        Assertions.assertTrue(exception.getMessage()
+                        .contains("bucket and tablet cannot be specified at the same time"),
+                "unexpected message: " + exception.getMessage());
     }
 
     @Override
