@@ -1214,7 +1214,7 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
     }
 }
 
-TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
+TEST(TxnLazyCommitTest, LegacyClientGetsErrorForFailedLazyCommitTaskTest) {
     auto txn_kv = get_mem_txn_kv();
 
     int64_t db_id = 67935421;
@@ -1273,11 +1273,11 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     commit_req.set_db_id(db_id);
     commit_req.set_txn_id(txn_id);
     commit_req.set_is_2pc(false);
-    enable_lazy_commit_for_capable_client(commit_req);
+    commit_req.set_enable_txn_lazy_commit(true);
     CommitTxnResponse commit_res;
     meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                              &commit_req, &commit_res, nullptr);
-    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     ASSERT_TRUE(failure_injected.load());
     ASSERT_TRUE(commit_res.has_is_lazy_commit_incomplete());
     ASSERT_TRUE(commit_res.is_lazy_commit_incomplete());
@@ -1289,7 +1289,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     check_rowset_meta_not_exist(txn, tablet_id, 2);
 }
 
-TEST(TxnLazyCommitTest, LegacyClientDoesNotFallThroughCommitTxnEventuallyTest) {
+TEST(TxnLazyCommitTest, LegacyClientStillUsesLazyCommitTest) {
     auto txn_kv = get_mem_txn_kv();
     int64_t db_id = 415413556;
     int64_t table_id = 34184234;
@@ -1298,7 +1298,7 @@ TEST(TxnLazyCommitTest, LegacyClientDoesNotFallThroughCommitTxnEventuallyTest) {
     bool commit_txn_immediatelly_hit = false;
     bool commit_txn_eventually_finish_hit = false;
     int32_t original_fuzzy_possibility = config::cloud_txn_lazy_commit_fuzzy_possibility;
-    config::cloud_txn_lazy_commit_fuzzy_possibility = 100;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 0;
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("commit_txn_immediately::before_commit", [&](auto&& args) {
@@ -1332,7 +1332,7 @@ TEST(TxnLazyCommitTest, LegacyClientDoesNotFallThroughCommitTxnEventuallyTest) {
     req.set_cloud_unique_id("test_cloud_unique_id");
     TxnInfoPB txn_info_pb;
     txn_info_pb.set_db_id(db_id);
-    txn_info_pb.set_label("test_label_not_fallthrough_commit_txn_eventually");
+    txn_info_pb.set_label("test_label_legacy_client_still_uses_lazy_commit");
     txn_info_pb.add_table_ids(table_id);
     txn_info_pb.set_timeout_ms(36000);
     req.mutable_txn_info()->CopyFrom(txn_info_pb);
@@ -1344,7 +1344,7 @@ TEST(TxnLazyCommitTest, LegacyClientDoesNotFallThroughCommitTxnEventuallyTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 783426908;
-    for (int i = 0; i < config::txn_lazy_commit_rowsets_thresold; ++i) {
+    for (int i = 0; i <= config::txn_lazy_commit_rowsets_thresold; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -1366,19 +1366,21 @@ TEST(TxnLazyCommitTest, LegacyClientDoesNotFallThroughCommitTxnEventuallyTest) {
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_TRUE(commit_txn_immediatelly_hit);
-        ASSERT_FALSE(commit_txn_eventually_finish_hit);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_FALSE(commit_txn_immediatelly_hit);
+        ASSERT_TRUE(commit_txn_eventually_finish_hit);
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < config::txn_lazy_commit_rowsets_thresold; ++i) {
+        for (int i = 0; i <= config::txn_lazy_commit_rowsets_thresold; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
-            check_tmp_rowset_exist(txn, tablet_id, txn_id);
-            check_rowset_meta_not_exist(txn, tablet_id, 2);
+            check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
+            check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
 }

@@ -3327,14 +3327,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     const bool supports_incomplete_lazy_commit_response =
             request->has_supports_incomplete_lazy_commit_response() &&
             request->supports_incomplete_lazy_commit_response();
-    const bool enable_txn_lazy_commit_feature =
+    bool enable_txn_lazy_commit_feature =
             (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
-             request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit &&
-             supports_incomplete_lazy_commit_response);
+             request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
 
     while ((!enable_txn_lazy_commit_feature ||
             (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
-        if (enable_txn_lazy_commit_feature && force_txn_lazy_commit()) {
+        if (force_txn_lazy_commit()) {
             LOG(INFO) << "fuzzy test force_txn_lazy_commit, txn_id=" << txn_id
                       << " force_posibility=" << config::cloud_txn_lazy_commit_fuzzy_possibility;
             break;
@@ -3372,6 +3371,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     msg.clear();
     commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
                           stats);
+    if (!supports_incomplete_lazy_commit_response && response->is_lazy_commit_incomplete()) {
+        code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+        msg = fmt::format(
+                "lazy commit is incomplete, txn_id={}, "
+                "caller does not support incomplete lazy commit responses",
+                txn_id);
+    }
 }
 
 void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request, Transaction* txn,
