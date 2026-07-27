@@ -5140,7 +5140,33 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 11: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 11: urgent load can force take compaction lock but not schema change lock
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(100);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    req.set_lock_id(888);
+    req.set_initiator(-1);
+    req.set_expiration(60);
+    req.set_urgent(true);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID
+                                           ? MetaServiceCode::LOCK_CONFLICT
+                                           : MetaServiceCode::OK);
+    req.set_urgent(false);
+    remove_req.set_lock_id(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? job_lock_id : 888);
+    remove_req.set_initiator(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? 100 : -1);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // case 12: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
     sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
         auto lock_id = (try_any_cast<const GetDeleteBitmapUpdateLockRequest*>(args[1]))->lock_id();
@@ -5164,7 +5190,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 12: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 13: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
     req.set_lock_id(300);
     req.set_initiator(-1);
     req.set_expiration(1);
@@ -5181,7 +5207,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
-    // case 13: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    // case 14: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
