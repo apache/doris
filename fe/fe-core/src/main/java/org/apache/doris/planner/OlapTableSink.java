@@ -1169,7 +1169,18 @@ public class OlapTableSink extends DataSink {
 
         final long fakeTabletId = 0;
         SystemInfoService clusterInfo = Env.getCurrentSystemInfo();
-        List<Long> availableBeIds = clusterInfo.getBackendsByCurrentCluster().values().stream()
+        List<Backend> currentClusterBackends;
+        if (Config.isCloudMode()) {
+            ConnectContext context = ConnectContext.get();
+            if (context == null) {
+                throw new UserException("connect context is null when creating dummy location");
+            }
+            currentClusterBackends = ((CloudSystemInfoService) clusterInfo)
+                    .getBackendsByClusterName(context.getCloudCluster());
+        } else {
+            currentClusterBackends = new ArrayList<>(clusterInfo.getBackendsByCurrentCluster().values());
+        }
+        List<Long> availableBeIds = currentClusterBackends.stream()
                 .filter(Backend::isLoadAvailable)
                 .filter(backend -> !backend.isDecommissioned() && !backend.isDecommissioning())
                 .map(Backend::getId)
@@ -1183,7 +1194,7 @@ public class OlapTableSink extends DataSink {
             Random random = new SecureRandom();
             int nodeIndex = random.nextInt(nodes.length);
             if (singleReplicaLoad) {
-                List<Long> slaveBe = availableBeIds;
+                List<Long> slaveBe = new ArrayList<>(availableBeIds);
                 locationParam.addToTablets(new TTabletLocation(fakeTabletId,
                         Arrays.asList(nodes[nodeIndex])));
 
