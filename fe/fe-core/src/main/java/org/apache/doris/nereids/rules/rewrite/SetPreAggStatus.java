@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -447,13 +448,13 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                         Expression valueChild = aggFunc.child(0);
                         // Unwrap safe numeric casts that commute with MAX/MIN
                         // (e.g. max(cast(v9 as double)) → storage MAX + cast).
-                        // Only do this for MAX/MIN: sum(cast(x)) and
-                        // sum(x) are not interchangeable due to overflow/
-                        // precision, so SUM must stay OFF.
-                        while (valueChild instanceof Cast
-                                && ((Cast) valueChild).getDataType().isNumericType()
-                                && (aggFunc instanceof Max || aggFunc instanceof Min)) {
-                            valueChild = valueChild.child(0);
+                        // Only peel casts that are proven order-preserving for MAX/MIN:
+                        // 1. Injective numeric→numeric casts (widening integral/decimal)
+                        // 2. Numeric→float casts (nondecreasing, e.g. BIGINT→DOUBLE)
+                        // sum(cast(x)) and sum(x) are not interchangeable
+                        // due to overflow/precision, so SUM must stay OFF.
+                        if (aggFunc instanceof Max || aggFunc instanceof Min) {
+                            valueChild = peelCastForMaxMin(valueChild);
                         }
                         if (aggFunc.children().size() == 1 && valueChild instanceof SlotReference) {
                             SlotReference slotRef = (SlotReference) valueChild;
@@ -518,13 +519,13 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             List<Expression> conditionExps = new ArrayList<>();
             List<Expression> returnExps = new ArrayList<>();
 
-            // ignore cast — only safe for MAX/MIN: sum(cast(x)) and
-            // sum(x) are not interchangeable due to overflow/precision,
-            // so SUM must stay OFF.
-            while (child instanceof Cast
-                    && ((Cast) child).getDataType().isNumericType()
-                    && (aggFunc instanceof Max || aggFunc instanceof Min)) {
-                child = child.child(0);
+            // Only peel casts that are proven order-preserving for MAX/MIN:
+            // 1. Injective numeric→numeric casts (widening integral/decimal)
+            // 2. Numeric→float casts (nondecreasing, e.g. BIGINT→DOUBLE)
+            // sum(cast(x)) and sum(x) are not interchangeable
+            // due to overflow/precision, so SUM must stay OFF.
+            if (aggFunc instanceof Max || aggFunc instanceof Min) {
+                child = peelCastForMaxMin(child);
             }
             // Reject remaining cast.
             if (child instanceof Cast) {
@@ -538,24 +539,26 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             if (child instanceof If) {
                 conditionExps.add(child.child(0));
                 returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? removeCast(child.child(1)) : child.child(1));
+                        ? peelCastForMaxMin(child.child(1)) : child.child(1));
                 returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? removeCast(child.child(2)) : child.child(2));
+                        ? peelCastForMaxMin(child.child(2)) : child.child(2));
             } else if (child instanceof CaseWhen) {
                 CaseWhen caseWhen = (CaseWhen) child;
                 // WHEN THEN
                 for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                     conditionExps.add(whenClause.getOperand());
                     returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                            ? removeCast(whenClause.getResult()) : whenClause.getResult());
+                            ? peelCastForMaxMin(whenClause.getResult())
+                            : whenClause.getResult());
                 }
                 // ELSE
                 returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? removeCast(caseWhen.getDefaultValue().orElse(new NullLiteral()))
+                        ? peelCastForMaxMin(
+                                caseWhen.getDefaultValue().orElse(new NullLiteral()))
                         : caseWhen.getDefaultValue().orElse(new NullLiteral()));
             } else {
                 // Non-IF/CASE — conditionExps stays empty and returns OFF below.
-                returnExps.add(removeCast(child));
+                returnExps.add(peelCastForMaxMin(child));
             }
             if (conditionExps.isEmpty()) {
                 return PreAggStatus.off(
@@ -578,9 +581,36 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             return KeyAndValueSlotsAggChecker.INSTANCE.check(aggFunc, returnExps);
         }
 
-        private static Expression removeCast(Expression expression) {
+        /**
+         * Peel casts that are safe for MAX/MIN (order-preserving / nondecreasing).
+         * This is a stronger check than {@link ExpressionUtils#getExpressionCoveredBySafetyCast}
+         * because `isInjectiveCastTo` also returns true for IntegralType→CharacterType
+         * (e.g. BIGINT→STRING), which preserves distinctness but NOT ordering
+         * (string comparison differs from numeric comparison). For MAX/MIN we
+         * must reject such casts.
+         * <p>
+         * Safe categories:
+         * <ol>
+         *   <li>Injective numeric→numeric casts (widening integral or wider-range decimal)
+         *   <li>Numeric→float casts (nondecreasing even if not injective, e.g. BIGINT→DOUBLE)
+         * </ol>
+         */
+        private static Expression peelCastForMaxMin(Expression expression) {
             while (expression instanceof Cast) {
-                expression = ((Cast) expression).child();
+                Cast cast = (Cast) expression;
+                DataType sourceType = cast.child().getDataType();
+                DataType targetType = cast.getDataType();
+                // Injective + numeric → safe (widening, order-preserving).
+                if (sourceType.isInjectiveCastTo(targetType) && targetType.isNumericType()) {
+                    expression = cast.child();
+                    continue;
+                }
+                // Numeric→float → nondecreasing for MAX/MIN.
+                if (sourceType.isNumericType() && targetType.isFloatLikeType()) {
+                    expression = cast.child();
+                    continue;
+                }
+                break;
             }
             return expression;
         }

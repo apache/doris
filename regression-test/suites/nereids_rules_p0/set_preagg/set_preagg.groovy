@@ -542,4 +542,71 @@ suite("set_preagg") {
         """)
         notContains "(preagg_t1), PREAGGREGATION: ON"
     }
+
+    // --- SAFE vs UNSAFE cast regression tests ---
+    // peelCastForMaxMin peels casts that are order-preserving for MAX/MIN:
+    //   - Injective numeric→numeric casts (widening integral/decimal)
+    //   - Numeric→float casts (nondecreasing, e.g. BIGINT→DOUBLE)
+    // It rejects:
+    //   - Non-injective narrowing casts (e.g. BIGINT→TINYINT, overflow)
+    //   - Injective but order-changing casts (e.g. BIGINT→STRING)
+
+    // Positive: BIGINT→DECIMAL(20,0) is injective (wider range), numeric → ON.
+    explain {
+        sql("""select max(cast(v9 as decimal(20,0))) from preagg_t1;""")
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Positive: BIGINT→LARGEINT is a widening integral cast (injective) → ON.
+    explain {
+        sql("""select max(cast(v9 as largeint)) from preagg_t1;""")
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: BIGINT→INT is narrowing (not injective, not float) → OFF.
+    explain {
+        sql("""select max(cast(v9 as int)) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: BIGINT→TINYINT is narrowing (not injective, not float) → OFF.
+    explain {
+        sql("""select max(cast(v9 as tinyint)) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Mixed-path IF with safe cast: max(if(..., cast(v9 as decimal(20,0)), 0))
+    // return cast is injective numeric → peeled → matches MAX → ON.
+    explain {
+        sql("""
+            select max(if(k6 > 0, cast(v9 as decimal(20,0)), 0)) from preagg_t1;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Mixed-path IF with unsafe cast: max(if(..., cast(v9 as tinyint), 0))
+    // return cast is narrowing non-injective → not peeled → checker OFF.
+    explain {
+        sql("""
+            select max(if(k6 > 0, cast(v9 as tinyint), 0)) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // CASE WHEN with safe widening cast → ON.
+    explain {
+        sql("""
+            select max(case when k6 > 0 then cast(v9 as decimal(20,0)) else 0 end) from preagg_t1;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // CASE WHEN with unsafe narrowing cast → OFF.
+    explain {
+        sql("""
+            select max(case when k6 > 0 then cast(v9 as tinyint) else 0 end) from preagg_t1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
 }
