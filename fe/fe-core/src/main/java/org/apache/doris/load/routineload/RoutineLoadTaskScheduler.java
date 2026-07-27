@@ -244,41 +244,28 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
     }
 
-    private void handleSubmitTaskFailure(RoutineLoadTaskInfo routineLoadTaskInfo, String errorMsg) {
+    private void handleSubmitTaskFailure(RoutineLoadTaskInfo routineLoadTaskInfo, String errorMsg)
+            throws UserException {
         LOG.warn("failed to submit routine load task {} to BE: {}, error: {}",
                 DebugUtil.printId(routineLoadTaskInfo.getId()),
                 routineLoadTaskInfo.getBeId(), errorMsg);
         routineLoadTaskInfo.setBeId(-1);
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
-        RoutineLoadTaskInfo newTask;
 
         routineLoadJob.writeLock();
         try {
-            routineLoadJob.setOtherMsg(errorMsg);
-
-            // Check if this is a resource pressure error that should not be immediately rescheduled
-            if (errorMsg.contains("TOO_MANY_TASKS") || errorMsg.contains("MEM_LIMIT_EXCEEDED")) {
-                // submit task failed (such as TOO_MANY_TASKS/MEM_LIMIT_EXCEEDED error),
-                // but txn has already begun. Here we will still set the ExecuteStartTime of
-                // this task, which means we "assume" that this task has been successfully submitted.
-                // And this task will then be aborted because of a timeout.
-                // In this way, we can prevent the entire job from being paused due to submit errors,
-                // and we can also relieve the pressure on BE by waiting for the timeout period.
-                routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
-                return;
-            }
-
             if (routineLoadJob.getState() != JobState.RUNNING
                     || !routineLoadJob.containsTask(routineLoadTaskInfo.getId())) {
                 return;
             }
 
-            // for other errors (network issues, BE restart, etc.), reschedule immediately
-            newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo, false);
+            routineLoadJob.unprotectUpdateState(JobState.PAUSED,
+                    new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
+                            "failed to submit task: " + errorMsg),
+                    false);
         } finally {
             routineLoadJob.writeUnlock();
         }
-        addTaskInQueue(newTask);
     }
 
     private void updateBackendSlotIfNecessary() {
