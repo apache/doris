@@ -28,6 +28,7 @@ import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -50,6 +51,8 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -109,6 +112,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     // on teardown -- connectors only borrow that FS and must not close it. Null until the real connector is built
     // (the lightweight CatalogFactory context is not tracked here; its FS is never built).
     private transient volatile DefaultConnectorContext connectorContext;
+
+    // The displayed engine name, resolved from the provider on first use (see getDisplayEngineName).
+    private transient volatile String displayEngineName;
 
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalCatalog() {
@@ -201,7 +207,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 () -> catalogProperty.getStoragePropertiesMap(),
                 catalogProperty::getEffectiveRawStorageProperties);
         this.connectorContext = context;
-        return ConnectorFactory.createConnector(catalogType, catalogProperty.getProperties(), context);
+        // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
+        // lazy build after image deserialization), and both doors must agree on what may become a catalog.
+        return ConnectorFactory.createStandaloneCatalogConnector(
+                catalogType, catalogProperty.getProperties(), context);
     }
 
     @Override
@@ -313,6 +322,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildCrossStatementSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         List<String> tableNames = metadata.listTableNames(session, dbName);
+        // Deliberately the raw field, NOT hasConnectorCapability(): this already runs inside an initialized
+        // catalog, so re-entering makeSureInitialized() here would be pointless work on a listing path.
         if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
             return tableNames;
         }
@@ -343,10 +354,77 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(CatalogMgr.CATALOG_TYPE_PROP, super.getType());
     }
 
+    /**
+     * The engine name this catalog's tables display, asked of the connector's <em>provider</em> so that the
+     * engine holds no mapping from data source to displayed name. Falls back to the catalog type when no
+     * provider claims it, which is also the provider's own default — a catalog whose plugin is not installed
+     * therefore still displays what it displayed before.
+     *
+     * <p>Resolved once and remembered. Both callers ({@code PluginDrivenExternalTable.getEngine} and
+     * {@code getEngineTableTypeName}) sit in a per-table loop — {@code FrontendServiceImpl.listTableStatus}
+     * calls this for every table of a database — and {@link #getProperties()} copies the whole property map on
+     * every call, so resolving per table would copy that map per table. Remembering is safe because the
+     * provider set is fixed for the life of the FE: {@code Env.initConnectorPluginManager} runs once at
+     * startup, before any catalog is touched, and nothing re-registers afterwards. The field is transient, so
+     * after a restart the first caller recomputes it — a local lookup among loaded plugins that touches
+     * nothing remote and cannot force this catalog to initialize.</p>
+     */
+    public String getDisplayEngineName() {
+        String name = displayEngineName;
+        if (name == null) {
+            String type = getType();
+            name = ConnectorFactory.findProvider(type, getProperties())
+                    .map(ConnectorProvider::displayEngineName)
+                    .orElse(type);
+            displayEngineName = name;
+        }
+        return name;
+    }
+
     /** Returns the underlying SPI connector. Ensures the catalog is initialized first. */
     public Connector getConnector() {
         makeSureInitialized();
         return connector;
+    }
+
+    /**
+     * Whether the backing connector declares {@code capability} catalog-wide. The single entry point for the
+     * capability checks that do NOT have a table in hand — the alternative is each caller repeating
+     * {@code getConnector() != null && getConnector().getCapabilities().contains(...)}, which is how one of
+     * them ended up without the null check and throwing instead of rejecting cleanly.
+     *
+     * <p><b>Forces initialization</b> (via {@link #getConnector()}), so it is for callers OUTSIDE this class,
+     * which already paid that cost. Code inside this catalog that runs before or during initialization must
+     * keep reading the {@code connector} field directly: routing it here would make a capability check
+     * initialize the catalog, which is exactly what those sites avoid.</p>
+     *
+     * <p>Only the capabilities {@link ConnectorCapability} documents as catalog-scoped belong here; a
+     * table-scoped one is resolved by {@code PluginDrivenExternalTable} instead, as the union of this set and
+     * the table's own.</p>
+     */
+    public boolean hasConnectorCapability(ConnectorCapability capability) {
+        Connector conn = getConnector();
+        return conn != null && conn.getCapabilities().contains(capability);
+    }
+
+    /**
+     * Answers from the connector's <em>provider</em>, not the connector: this runs while a statement is being
+     * analyzed, and {@link #getConnector()} would force the catalog to initialize, turning a mistyped engine
+     * name into a metastore connection error. Provider lookup is a lookup among already-registered plugins,
+     * keyed on the persisted catalog type, and touches nothing remote.
+     *
+     * <p>A catalog whose plugin is not installed has no provider, so every explicit engine is rejected with
+     * the same mismatch message the base interface produces — the missing-plugin diagnosis still comes later,
+     * from initialization, exactly as it does today.</p>
+     */
+    @Override
+    public void validateCreateTableEngine(String engineName) throws AnalysisException {
+        boolean accepted = ConnectorFactory.findProvider(getType(), getProperties())
+                .map(provider -> provider.acceptedCreateTableEngineNames().contains(engineName))
+                .orElse(false);
+        if (!accepted) {
+            throw new AnalysisException(CatalogIf.engineMismatchError(engineName, getName()));
+        }
     }
 
     /**
@@ -484,11 +562,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * {@code ConnectorSchemaOps.createDatabase(session, dbName, properties)}.
      *
      * <p>The SPI signature carries no {@code ifNotExists}; this override honors it
-     * FE-side. It short-circuits on the local FE cache, and — for connectors that
-     * support CREATE DATABASE ({@code supportsCreateDatabase()}) — also consults the
-     * remote {@code databaseExists} so {@code CREATE DATABASE IF NOT EXISTS} on a
-     * database that exists remotely but is not yet in this FE's cache cleanly no-ops
-     * instead of surfacing a remote "already exists" error (mirroring legacy
+     * FE-side. It short-circuits on the local FE cache and then on the remote
+     * {@code databaseExists}, so {@code CREATE DATABASE IF NOT EXISTS} on a database
+     * that exists remotely but is not yet in this FE's cache cleanly no-ops instead of
+     * surfacing a remote "already exists" error (mirroring legacy
      * {@code MaxComputeMetadataOps.createDbImpl}, which checked both). On success it
      * writes the edit log and invalidates the cached db-name list (mirroring the
      * legacy {@code metadataOps.afterCreateDb()} the plugin path no longer has).</p>
@@ -505,10 +582,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // FE-cache miss but the db may already exist REMOTELY (created on another FE / before this
         // FE's db-name cache was populated). Legacy MaxComputeMetadataOps.createDbImpl consulted
         // BOTH getDbNullable AND the remote databaseExist, and IF NOT EXISTS then no-oped. Mirror
-        // that remote check. Gated on supportsCreateDatabase() so connectors that cannot create
-        // databases (jdbc/es/trino) keep their prior behavior (fall through to createDatabase ->
-        // "not supported"); the && short-circuit means they never even issue the remote query.
-        if (ifNotExists && metadata.supportsCreateDatabase() && metadata.databaseExists(session, dbName)) {
+        // that remote check. Asked of EVERY connector, mirroring Trino's CreateSchemaTask: IF NOT
+        // EXISTS means "ensure it is there", so a connector that cannot create databases but reports
+        // this one as existing has already satisfied the request and must not be made to fail.
+        // A connector that answers neither question keeps the default databaseExists() == false and
+        // falls through to createDatabase() -> "CREATE DATABASE not supported", as before.
+        if (ifNotExists && metadata.databaseExists(session, dbName)) {
             LOG.info("create database[{}] which already exists remotely, skip", dbName);
             return;
         }
@@ -1285,6 +1364,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * injection above and the shared-cache bypass ({@link #shouldBypassTableNameCache}).
      */
     private boolean supportsUserSession() {
+        // Deliberately the raw field, NOT hasConnectorCapability(): this runs while building a session and on
+        // the cache-bypass path, where forcing initialization would be an init-order inversion.
         return connector != null
                 && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_USER_SESSION);
     }

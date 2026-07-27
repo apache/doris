@@ -67,6 +67,15 @@ public class ConnectorProcedureOpsDefaultsTest {
     }
 
     @Test
+    public void getRestPassthroughDefaultsToNull() {
+        // The HTTP passthrough is one source's escape hatch. It used to be a method on Connector itself whose
+        // default threw, i.e. every connector inherited an entry point it could not serve; now absence is
+        // declared the same way every other optional subsystem is, and the endpoints probe for null.
+        Assertions.assertNull(new BareConnector().getRestPassthrough(),
+                "a connector that fronts no HTTP source must inherit a null getRestPassthrough()");
+    }
+
+    @Test
     public void getProcedureOpsDefaultsToNull() {
         Assertions.assertNull(new BareConnector().getProcedureOps(),
                 "a connector that declares no table procedures must inherit a null getProcedureOps() so "
@@ -165,6 +174,30 @@ public class ConnectorProcedureOpsDefaultsTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> ops.planRewrite(null, null, "rewrite_data_files",
                         Collections.emptyMap(), null, Collections.emptyList()));
+    }
+
+    @Test
+    public void buildRewriteResultDefaultsToUnsupported() {
+        ConnectorProcedureOps ops = new BareProcedureOps();
+        // Same reasoning as planRewrite, and the failure mode is worse if it is softened: a default that
+        // returned an empty result would turn a misrouted distributed procedure into an empty result set the
+        // user cannot distinguish from "nothing to do". MUTATION: defaulting to an empty
+        // ConnectorProcedureResult -> no throw -> red.
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> ops.buildRewriteResult("rewrite_data_files",
+                        new ConnectorRewriteStatistics(0, 0, 0L, 0)));
+    }
+
+    @Test
+    public void rewriteStatisticsCarriesEachFieldVerbatim() {
+        // Four DISTINCT values: the engine fills this from three group sums plus one post-commit count, and the
+        // connector reads it back by name to render its row. A transposed getter is exactly the failure this
+        // object exists to make visible. MUTATION: any getter returning a neighbouring field -> red.
+        ConnectorRewriteStatistics stats = new ConnectorRewriteStatistics(3, 2, 4096L, 1);
+        Assertions.assertEquals(3, stats.getDataFileCount());
+        Assertions.assertEquals(2, stats.getAddedDataFileCount());
+        Assertions.assertEquals(4096L, stats.getTotalSizeBytes());
+        Assertions.assertEquals(1, stats.getDeleteFileCount());
     }
 
     @Test

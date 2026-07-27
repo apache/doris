@@ -296,24 +296,6 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
         return result;
     }
 
-    @Override
-    public List<List<String>> listPartitionValues(ConnectorSession session,
-            ConnectorTableHandle handle, List<String> partitionColumns) {
-        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
-        List<Partition> partitions = partitionCache.getPartitions(
-                mcHandle.getDbName(), mcHandle.getTableName());
-        List<List<String>> result = new ArrayList<>(partitions.size());
-        for (Partition partition : partitions) {
-            PartitionSpec spec = partition.getPartitionSpec();
-            List<String> values = new ArrayList<>(partitionColumns.size());
-            for (String column : partitionColumns) {
-                values.add(spec.get(column));
-            }
-            result.add(values);
-        }
-        return result;
-    }
-
     // ==================== Write / Transaction (P4-T03 / P4-T04) ====================
 
     /**
@@ -451,11 +433,6 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     }
 
     // ==================== DDL: Create/Drop Database ====================
-
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
 
     @Override
     public void createDatabase(ConnectorSession session, String dbName,

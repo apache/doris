@@ -33,6 +33,7 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -95,8 +96,8 @@ import java.util.function.Function;
  * per-statement {@link IcebergStatementScope} carried across the scan&rarr;write seam (commit-bridge S4 part 2),
  * replacing the legacy fe-resident rewritable-delete planner.</p>
  *
- * <p><b>Live since the iceberg SPI cutover.</b> {@code iceberg} is in {@code SPI_READY_TYPES}, so a
- * plugin-driven iceberg write routes through this provider; {@link #planWrite} requires the executor-bound
+ * <p><b>Live since the iceberg SPI cutover.</b> An {@code iceberg} catalog is served by this connector
+ * plugin, so a plugin-driven iceberg write routes through this provider; {@link #planWrite} requires the executor-bound
  * connector transaction and fails loud if absent.</p>
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
@@ -372,7 +373,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
         // command context onto the write handle; beginWrite validates it against the table refs and points
         // the commit at the branch. Empty for a default-ref write.
-        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getWriteContext(),
+        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
                 handle.getBranchName(), readSnapshotId);
     }
 
@@ -420,8 +421,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
         tSink.setOverwrite(handle.isOverwrite());
-        if (handle.isOverwrite() && handle.getWriteContext() != null && !handle.getWriteContext().isEmpty()) {
-            tSink.setStaticPartitionValues(handle.getWriteContext());
+        Map<String, String> staticPartitionSpec = handle.getStaticPartitionSpec();
+        if (handle.isOverwrite() && staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
+            tSink.setStaticPartitionValues(staticPartitionSpec);
         }
         return tSink;
     }
@@ -611,7 +613,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Map<String, String> vendedToken = IcebergScanPlanProvider.extractVendedToken(
                 table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
         if (context != null) {
-            TFileType fileType = TFileType.valueOf(context.getBackendFileType(rawLocation, vendedToken));
+            TFileType fileType = TFileType.valueOf(storage().getBackendFileType(rawLocation, vendedToken));
             // A broker backend (ofs://, gfs:// -> FILE_BROKER) must also carry the broker addresses, or BE
             // gets a broker sink with an empty broker list and the write fails. Mirrors legacy
             // IcebergTableSink: resolve broker addresses only when fileType == FILE_BROKER (S3/HDFS/local
@@ -619,7 +621,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             List<TNetworkAddress> brokerAddresses = fileType == TFileType.FILE_BROKER
                     ? resolveBrokerAddresses() : Collections.emptyList();
             return new LocationFields(rawLocation,
-                    context.normalizeStorageUri(rawLocation, vendedToken), fileType, brokerAddresses);
+                    storage().normalizeStorageUri(rawLocation, vendedToken), fileType, brokerAddresses);
         }
         return new LocationFields(rawLocation, rawLocation, TFileType.FILE_S3, Collections.emptyList());
     }
@@ -632,7 +634,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * ships an empty broker list to BE.
      */
     private List<TNetworkAddress> resolveBrokerAddresses() {
-        List<ConnectorBrokerAddress> addresses = context.getBrokerAddresses();
+        List<ConnectorBrokerAddress> addresses = storage().getBrokerAddresses();
         if (addresses.isEmpty()) {
             throw new DorisConnectorException("No alive broker.");
         }
@@ -665,18 +667,18 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (context != null) {
             // Static catalog credentials in BE-canonical form (AWS_* for object stores, dfs/hadoop for HDFS),
             // sourced from the typed fe-filesystem StorageProperties bound by the catalog and handed over via
-            // ctx.getStorageProperties(): each backend's toBackendProperties().toMap() yields the canonical map
+            // storage().getStorageProperties(): each backend's toBackendProperties().toMap() yields the canonical map
             // (design S3 — the write derives its BE creds from the SAME typed fe-filesystem source as the scan
             // path IcebergScanPlanProvider.getScanNodeProperties, retiring the redundant fe-core
             // getBackendStorageProperties() second parse). The BE S3 sink (s3_util.cpp
             // convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop form (correct for the FE
             // iceberg-catalog Configuration) would leave the BE writer with no creds.
-            for (StorageProperties sp : context.getStorageProperties()) {
+            for (StorageProperties sp : storage().getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
             }
             // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a
             // vending catalog's static storage map is empty by design, so the vended creds are the only ones.
-            merged.putAll(context.vendStorageCredentials(
+            merged.putAll(storage().vendStorageCredentials(
                     IcebergScanPlanProvider.extractVendedToken(
                             table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties))));
         }
@@ -788,5 +790,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             }
         }
         return dataLocation;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

@@ -75,8 +75,8 @@ import java.util.Optional;
  * unchecked {@link DorisConnectorException}; this adapter converts it to a {@code UserException} so
  * {@code ExecuteActionCommand.run()} re-wraps it with the legacy {@code "Failed to execute action:"} prefix.</p>
  *
- * <p><b>Live for the flipped SPI catalogs; per-handle for a gateway.</b> Iceberg and paimon are already in
- * {@code SPI_READY_TYPES}, so their tables are {@code PluginDrivenExternalTable}s and {@code ALTER TABLE EXECUTE}
+ * <p><b>Live for the flipped SPI catalogs; per-handle for a gateway.</b> Iceberg and paimon are served by
+ * their connector plugins, so their tables are {@code PluginDrivenExternalTable}s and {@code ALTER TABLE EXECUTE}
  * on them routes through this adapter today. Procedure ops are selected {@link Connector#getProcedureOps(
  * org.apache.doris.connector.api.handle.ConnectorTableHandle) per-handle}: a single-format connector just returns
  * its connector-level ops, but a flipped {@code hms} gateway

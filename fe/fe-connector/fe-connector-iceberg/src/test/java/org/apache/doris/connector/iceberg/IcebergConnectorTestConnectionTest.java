@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -130,17 +131,7 @@ public class IcebergConnectorTestConnectionTest {
     @Test
     public void backendProbeCarriesTestLocationAndBackendCredentials() throws Exception {
         Map<String, String> captured = new HashMap<>();
-        ConnectorContext ctx = new ConnectorContext() {
-            @Override
-            public String getCatalogName() {
-                return "test_iceberg";
-            }
-
-            @Override
-            public long getCatalogId() {
-                return 1L;
-            }
-
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
             @Override
             public Map<String, String> getBackendStorageProperties() {
                 Map<String, String> beProps = new HashMap<>();
@@ -153,16 +144,6 @@ public class IcebergConnectorTestConnectionTest {
                 captured.putAll(props);
             }
         };
-        try (IcebergConnector connector = new IcebergConnector(new HashMap<>(), ctx)) {
-            Assertions.assertNull(connector.probeStorageFromBackend("s3://bucket/warehouse"));
-        }
-        Assertions.assertEquals("s3://bucket/warehouse", captured.get("test_location"));
-        Assertions.assertEquals("ak", captured.get("AWS_ACCESS_KEY"));
-    }
-
-    /** A backend that rejects the location must fail the DDL, tagged so the operator knows it is BE-side. */
-    @Test
-    public void backendProbeFailureIsTaggedAsComputeNode() throws Exception {
         ConnectorContext ctx = new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -175,6 +156,22 @@ public class IcebergConnectorTestConnectionTest {
             }
 
             @Override
+            public ConnectorStorageContext getStorageContext() {
+                return storage;
+            }
+        };
+        try (IcebergConnector connector = new IcebergConnector(new HashMap<>(), ctx)) {
+            Assertions.assertNull(connector.probeStorageFromBackend("s3://bucket/warehouse"));
+        }
+        Assertions.assertEquals("s3://bucket/warehouse", captured.get("test_location"));
+        Assertions.assertEquals("ak", captured.get("AWS_ACCESS_KEY"));
+    }
+
+    /** A backend that rejects the location must fail the DDL, tagged so the operator knows it is BE-side. */
+    @Test
+    public void backendProbeFailureIsTaggedAsComputeNode() throws Exception {
+        ConnectorStorageContext storage = new ConnectorStorageContext() {
+            @Override
             public Map<String, String> getBackendStorageProperties() {
                 Map<String, String> beProps = new HashMap<>();
                 beProps.put("AWS_ACCESS_KEY", "ak");
@@ -184,6 +181,22 @@ public class IcebergConnectorTestConnectionTest {
             @Override
             public void testBackendStorageConnectivity(int type, Map<String, String> props) throws Exception {
                 throw new Exception("Access Denied");
+            }
+        };
+        ConnectorContext ctx = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test_iceberg";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                return storage;
             }
         };
         try (IcebergConnector connector = new IcebergConnector(new HashMap<>(), ctx)) {

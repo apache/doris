@@ -36,7 +36,6 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
@@ -342,12 +341,9 @@ public class ShowPartitionsCommand extends ShowCommand {
      * column headers and the row width never disagree.
      */
     private boolean hasPartitionStatsCapability() {
-        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
-            return false;
-        }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARTITION_STATS);
+        return catalog instanceof PluginDrivenExternalCatalog
+                && ((PluginDrivenExternalCatalog) catalog)
+                        .hasConnectorCapability(ConnectorCapability.SUPPORTS_PARTITION_STATS);
     }
 
     protected ShowResultSet handleShowPartitions(ConnectContext ctx, StmtExecutor executor) throws UserException {

@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -37,31 +39,27 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 /**
- * Tests engine-padding / catalog-engine-consistency in {@link CreateTableInfo} for a
- * {@link PluginDrivenExternalCatalog}, the form a {@code max_compute} catalog takes after the
- * SPI cutover (T06b). FIX-DDL-ENGINE (P4-T06d).
+ * Tests how {@link CreateTableInfo} settles the {@code ENGINE=} clause now that the engine holds no table of
+ * which engine name belongs to which data source.
  *
- * <p><b>Why these tests matter:</b> {@code paddingEngineName} and {@code checkEngineWithCatalog}
- * key on {@code instanceof MaxComputeExternalCatalog}; after cutover the catalog is a
- * {@code PluginDrivenExternalCatalog} (type {@code "max_compute"}), so a no-ENGINE CREATE TABLE
- * (the most common MC form) threw "Current catalog does not support create table" at analysis
- * time and never reached the working {@code createTable} override. These tests lock in that the
- * engine is padded to {@code maxcompute} (plain CREATE and CTAS), that the catalog-engine
- * consistency check still rejects a wrong explicit ENGINE, and that the non-CREATE-TABLE SPI
- * types (jdbc/es/trino) keep their legacy behavior.</p>
+ * <p><b>What changed and why these tests matter.</b> Analysis used to run four engine-name gates: it padded a
+ * missing {@code ENGINE=} from a hardcoded catalog-type switch, checked the name against a nine-name
+ * whitelist, checked it against the same switch again, and gated {@code PARTITION BY} / {@code DISTRIBUTED BY}
+ * on per-engine allow-lists. All four are gone. What remains is one question asked of the resolved target
+ * catalog ({@link CatalogIf#validateCreateTableEngine}) and one boolean derived from it — is the target the
+ * internal catalog. A missing {@code ENGINE=} is padded only for the internal catalog, which still dispatches
+ * on it; for every other target the statement now carries no engine name at all, because nothing past analysis
+ * reads one.</p>
  *
- * <p>Both gate methods re-fetch the catalog <em>by name</em> via
- * {@code Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName)}, so the test catalog must be
- * registered into a mocked {@link CatalogMgr} — a directly-constructed catalog would be ignored.
- * The gate methods are private, so they are invoked reflectively.</p>
+ * <p>The gate re-fetches the catalog <em>by name</em> through
+ * {@code Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName)}, so a test catalog must be registered into a
+ * mocked {@link CatalogMgr} — a directly-constructed one would be ignored. The gate is private, so it is
+ * invoked reflectively.</p>
  */
 public class CreateTableInfoEngineCatalogTest {
 
-    // Mirror of CreateTableInfo.ENGINE_MAXCOMPUTE (private constant).
-    private static final String ENGINE_MAXCOMPUTE = "maxcompute";
-    // Mirror of CreateTableInfo.ENGINE_HIVE (private constant) — the CREATE-TABLE engine a flipped
-    // hms catalog pads to.
-    private static final String ENGINE_HIVE = "hive";
+    // Mirror of CreateTableInfo.ENGINE_OLAP, the one name the engine still resolves for itself.
+    private static final String ENGINE_OLAP = "olap";
 
     private MockedStatic<Env> mockedEnv;
     private CatalogMgr catalogMgr;
@@ -82,32 +80,49 @@ public class CreateTableInfoEngineCatalogTest {
         }
     }
 
-    /** Registers a PluginDriven catalog of the given connector type under the given name. */
-    private void registerPluginCatalog(String ctlName, String type) {
+    /**
+     * Registers an external (plugin-driven) catalog that accepts exactly {@code acceptedEngine}, standing in
+     * for whatever its connector's provider declares.
+     */
+    private PluginDrivenExternalCatalog registerExternalCatalog(String ctlName, String acceptedEngine) {
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Mockito.doReturn(type).when(catalog).getType();
+        Mockito.doReturn(ctlName).when(catalog).getName();
+        Mockito.doReturn(false).when(catalog).isInternalCatalog();
+        try {
+            Mockito.doAnswer(invocation -> {
+                String written = invocation.getArgument(0);
+                if (!written.equals(acceptedEngine)) {
+                    throw new org.apache.doris.common.AnalysisException(
+                            CatalogIf.engineMismatchError(written, ctlName));
+                }
+                return null;
+            }).when(catalog).validateCreateTableEngine(Mockito.anyString());
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        Mockito.when(catalogMgr.getCatalog(ctlName)).thenReturn(catalog);
+        return catalog;
+    }
+
+    private void registerInternalCatalog(String ctlName) {
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(ctlName).when(catalog).getName();
         Mockito.when(catalogMgr.getCatalog(ctlName)).thenReturn(catalog);
     }
 
     private static CreateTableInfo newInfo(String ctlName, String engineName) {
-        return new CreateTableInfo(false, false, false, ctlName, "db", "tbl",
+        return newInfo(ctlName, engineName, false, false);
+    }
+
+    private static CreateTableInfo newInfo(String ctlName, String engineName, boolean isExternal, boolean isTemp) {
+        return new CreateTableInfo(false, isExternal, isTemp, ctlName, "db", "tbl",
                 new ArrayList<>(), new ArrayList<>(), engineName, null,
                 new ArrayList<>(), null, null, null,
                 new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
     }
 
-    private static void invokePadding(CreateTableInfo info, String ctlName) throws Throwable {
-        Method m = CreateTableInfo.class.getDeclaredMethod("paddingEngineName", String.class, ConnectContext.class);
-        m.setAccessible(true);
-        try {
-            m.invoke(info, ctlName, null);
-        } catch (InvocationTargetException e) {
-            throw e.getCause();
-        }
-    }
-
-    private static void invokeCheck(CreateTableInfo info) throws Throwable {
-        Method m = CreateTableInfo.class.getDeclaredMethod("checkEngineWithCatalog");
+    private static void resolve(CreateTableInfo info) throws Throwable {
+        Method m = CreateTableInfo.class.getDeclaredMethod("resolveTargetCatalog");
         m.setAccessible(true);
         try {
             m.invoke(info);
@@ -117,148 +132,141 @@ public class CreateTableInfoEngineCatalogTest {
     }
 
     @Test
-    public void noEnginePaddedToMaxcomputeForPluginDriven() throws Throwable {
-        registerPluginCatalog("mc_ctl", "max_compute");
-        CreateTableInfo info = newInfo("mc_ctl", null);
+    public void noEngineOnExternalCatalogLeavesNoEngineName() throws Throwable {
+        registerExternalCatalog("ice_ctl", "iceberg");
+        CreateTableInfo info = newInfo("ice_ctl", null);
 
-        invokePadding(info, "mc_ctl");
+        resolve(info);
 
-        // Why: a no-ENGINE CREATE TABLE under a cutover max_compute catalog must auto-pad the
-        // legacy engine name, exactly as legacy MaxComputeExternalCatalog did, instead of throwing
-        // "Current catalog does not support create table".
-        Assertions.assertEquals(ENGINE_MAXCOMPUTE, info.getEngineName(),
-                "no-ENGINE CREATE TABLE on a PluginDriven max_compute catalog must pad engine=maxcompute");
+        // The engine used to invent a name here from a catalog-type switch. Nothing past analysis reads one
+        // for an external target -- the connector request carries columns, partitioning, bucketing and
+        // properties -- so inventing one only created a table fe-core had to keep in sync with the connectors.
+        Assertions.assertNull(info.getEngineName(),
+                "a no-ENGINE CREATE TABLE on an external catalog must not have an engine name invented for it");
     }
 
     @Test
-    public void ctasNoEnginePaddedToMaxcompute() {
-        registerPluginCatalog("mc_ctl", "max_compute");
-        CreateTableInfo info = newInfo("mc_ctl", null);
+    public void noEngineOnTheInternalCatalogStillPadsOlap() throws Throwable {
+        registerInternalCatalog("internal");
+        CreateTableInfo info = newInfo("internal", null);
 
-        // CTAS routes through validateCreateTableAsSelect, whose first action is paddingEngineName.
-        // The downstream validate(ctx) is heavy and not exercised here; we assert only the padding
-        // side effect (set before validate runs). Pre-fix, paddingEngineName throws "does not support
-        // create table" before setting engineName, so getEngineName() would not be maxcompute.
+        resolve(info);
+
+        // The internal catalog is the one target that still consumes the name: InternalCatalog.createTable
+        // dispatches on it.
+        Assertions.assertEquals(ENGINE_OLAP, info.getEngineName(),
+                "a no-ENGINE CREATE TABLE on the internal catalog must still be padded to olap");
+    }
+
+    @Test
+    public void explicitEngineIsJudgedByTheTargetCatalogAndItsWordingReachesTheUser() {
+        registerExternalCatalog("ice_ctl", "iceberg");
+        CreateTableInfo info = newInfo("ice_ctl", "jdbc");
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> resolve(info),
+                "an engine name the target catalog does not answer to must be rejected during analysis");
+        // The catalog owns the wording; analysis only adapts the exception type. If it wrapped or reworded,
+        // every catalog would need fe-core's permission to phrase its own rejection.
+        Assertions.assertEquals(CatalogIf.engineMismatchError("jdbc", "ice_ctl"), ex.getMessage(),
+                "the target catalog's wording must reach the user verbatim");
+    }
+
+    @Test
+    public void acceptedExplicitEngineIsKept() throws Throwable {
+        registerExternalCatalog("ice_ctl", "iceberg");
+        CreateTableInfo info = newInfo("ice_ctl", "iceberg");
+
+        resolve(info);
+
+        Assertions.assertEquals("iceberg", info.getEngineName(),
+                "an engine name the catalog accepts must survive analysis unchanged");
+    }
+
+    @Test
+    public void theInternalCatalogRejectsAnExternalEngineName() {
+        registerInternalCatalog("internal");
+        CreateTableInfo info = newInfo("internal", "hive");
+
+        // This used to survive the whole of analysis and fail only at execution, because the nine-name
+        // whitelist accepted hive regardless of where the statement was aimed.
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> resolve(info));
+        Assertions.assertEquals(CatalogIf.engineMismatchError("hive", "internal"), ex.getMessage());
+    }
+
+    @Test
+    public void theInternalCatalogKeepsAnsweringForItsOwnRetiredEngines() {
+        registerInternalCatalog("internal");
+        for (String retired : new String[] {"odbc", "mysql", "broker"}) {
+            CreateTableInfo info = newInfo("internal", retired);
+            AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> resolve(info),
+                    retired + " is retired and must still be rejected");
+            // Those three were the internal catalog's own table types, so it still owes the user the specific
+            // "use X instead" message rather than the generic mismatch.
+            Assertions.assertTrue(ex.getMessage().contains("no longer supported"),
+                    "a retired internal engine must keep its own message, got: " + ex.getMessage());
+        }
+    }
+
+    @Test
+    public void ctasResolvesTheTargetCatalogTheSameWay() {
+        registerInternalCatalog("internal");
+        CreateTableInfo info = newInfo("internal", null);
+
+        // CTAS has its own prologue but must settle the engine through the same path; the heavy validate(ctx)
+        // that follows is not exercised here.
         try {
-            info.validateCreateTableAsSelect(Lists.newArrayList("mc_ctl"), new ArrayList<>(),
+            info.validateCreateTableAsSelect(Lists.newArrayList("internal"), new ArrayList<>(),
                     Mockito.mock(ConnectContext.class));
         } catch (Exception ignored) {
-            // Only the engine-padding side effect is under test here.
+            // Only the engine-resolution side effect is under test here.
         }
 
-        Assertions.assertEquals(ENGINE_MAXCOMPUTE, info.getEngineName(),
-                "CTAS into a PluginDriven max_compute catalog must pad engine=maxcompute via "
-                        + "validateCreateTableAsSelect");
+        Assertions.assertEquals(ENGINE_OLAP, info.getEngineName(),
+                "CTAS into the internal catalog must resolve the engine the same way a plain CREATE does");
     }
 
     @Test
-    public void wrongExplicitEngineRejectedForPluginDriven() {
-        registerPluginCatalog("mc_ctl", "max_compute");
-        CreateTableInfo info = newInfo("mc_ctl", "hive");
+    public void theExternalKeywordIsRejectedAgainstTheInternalCatalog() {
+        registerInternalCatalog("internal");
+        CreateTableInfo info = newInfo("internal", null, true, false);
 
-        // Why: the catalog-engine consistency check must still reject a mismatched explicit ENGINE
-        // under PluginDriven (legacy MaxComputeExternalCatalog rejected ENGINE != maxcompute). This
-        // fails with no exception if the checkEngineWithCatalog PluginDriven branch is absent.
-        Assertions.assertThrows(AnalysisException.class, () -> invokeCheck(info),
-                "explicit ENGINE=hive on a PluginDriven max_compute catalog must be rejected");
+        // EXTERNAL used to be forced on by the engine-name whitelist and rejected only in the olap arm. It is
+        // now derived from the target, so the contradiction has to be caught explicitly or it would be
+        // silently overwritten -- and EXTERNAL is not cosmetic: it relaxes partition validation.
+        Assertions.assertThrows(AnalysisException.class, () -> resolve(info),
+                "CREATE EXTERNAL TABLE aimed at the internal catalog must still be rejected");
     }
 
     @Test
-    public void correctExplicitEnginePassesForPluginDriven() {
-        registerPluginCatalog("mc_ctl", "max_compute");
-        CreateTableInfo info = newInfo("mc_ctl", ENGINE_MAXCOMPUTE);
+    public void externalTargetMakesTheStatementExternal() throws Throwable {
+        registerExternalCatalog("ice_ctl", "iceberg");
+        CreateTableInfo info = newInfo("ice_ctl", null);
 
-        Assertions.assertDoesNotThrow(() -> invokeCheck(info),
-                "explicit ENGINE=maxcompute on a PluginDriven max_compute catalog must pass the check");
+        resolve(info);
+
+        // isExternal reaches PartitionTableInfo.convertToPartitionDesc, where it turns on auto-partitioning.
+        // Deriving it from the target rather than from the engine name is what keeps transform partitioning
+        // working for a statement that never wrote ENGINE=.
+        Assertions.assertTrue(info.isExternal(),
+                "a statement aimed at an external catalog must be external even without the EXTERNAL keyword");
     }
 
     @Test
-    public void jdbcPluginDrivenStillUnsupported() {
-        registerPluginCatalog("jdbc_ctl", "jdbc");
+    public void temporaryTableIsRejectedOnAnExternalCatalog() {
+        registerExternalCatalog("ice_ctl", "iceberg");
+        CreateTableInfo info = newInfo("ice_ctl", null, false, true);
 
-        // paddingEngineName: jdbc (helper returns null) falls through to the existing else-throw,
-        // byte-identical to legacy behavior for an SPI type that does not support CREATE TABLE.
-        CreateTableInfo padInfo = newInfo("jdbc_ctl", null);
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> invokePadding(padInfo, "jdbc_ctl"),
-                "no-ENGINE CREATE TABLE on a jdbc PluginDriven catalog must still be unsupported");
-        Assertions.assertTrue(ex.getMessage() != null && ex.getMessage().contains("does not support create table"),
-                "jdbc PluginDriven catalog must reuse the existing 'does not support create table' message");
-
-        // checkEngineWithCatalog: jdbc (helper returns null) must NOT throw — legacy lets jdbc/es/trino
-        // pass the consistency check unconditionally (they are not in the legacy instanceof chain).
-        CreateTableInfo checkInfo = newInfo("jdbc_ctl", "jdbc");
-        Assertions.assertDoesNotThrow(() -> invokeCheck(checkInfo),
-                "jdbc PluginDriven catalog must pass checkEngineWithCatalog (legacy pass-through parity)");
-    }
-
-    // ---------------------------------------------------------------------------------------------
-    // HMS cutover: a flipped hms external catalog is a PluginDrivenExternalCatalog (type "hms").
-    // pluginCatalogTypeToEngine must map "hms" -> ENGINE_HIVE so a no-ENGINE CREATE pads engine=hive
-    // (legacy hms catalogs always create hive-engine tables) and the catalog-engine consistency check
-    // still rejects a non-hive explicit ENGINE. Class A (unreachable until "hms" enters
-    // SPI_READY_TYPES); getType() is mocked to "hms" to prove the switch entry without an actual flip.
-    // ---------------------------------------------------------------------------------------------
-
-    @Test
-    public void noEnginePaddedToHiveForPluginDrivenHms() throws Throwable {
-        registerPluginCatalog("hms_ctl", "hms");
-        CreateTableInfo info = newInfo("hms_ctl", null);
-
-        invokePadding(info, "hms_ctl");
-
-        // Why: a no-ENGINE CREATE TABLE under a flipped hms catalog must auto-pad the hive engine,
-        // exactly as legacy HMSExternalCatalog did (paddingEngineName :913-914), instead of throwing
-        // "Current catalog does not support create table". MUTATION: dropping the "hms" case ->
-        // pluginCatalogTypeToEngine returns null -> throw -> this test fails.
-        Assertions.assertEquals(ENGINE_HIVE, info.getEngineName(),
-                "no-ENGINE CREATE TABLE on a PluginDriven hms catalog must pad engine=hive");
+        Assertions.assertThrows(AnalysisException.class, () -> resolve(info),
+                "temporary tables exist only in the internal catalog");
     }
 
     @Test
-    public void ctasNoEnginePaddedToHiveForHms() {
-        registerPluginCatalog("hms_ctl", "hms");
-        CreateTableInfo info = newInfo("hms_ctl", null);
+    public void unknownCatalogIsReportedBeforeAnythingElse() {
+        Mockito.when(catalogMgr.getCatalog("nope")).thenReturn(null);
+        CreateTableInfo info = newInfo("nope", "iceberg");
 
-        // CTAS routes through validateCreateTableAsSelect, whose first action is paddingEngineName.
-        // The downstream validate(ctx) is heavy and not exercised here; assert only the padding side
-        // effect. Pre-fix, paddingEngineName throws before setting engineName.
-        try {
-            info.validateCreateTableAsSelect(Lists.newArrayList("hms_ctl"), new ArrayList<>(),
-                    Mockito.mock(ConnectContext.class));
-        } catch (Exception ignored) {
-            // Only the engine-padding side effect is under test here.
-        }
-
-        Assertions.assertEquals(ENGINE_HIVE, info.getEngineName(),
-                "CTAS into a PluginDriven hms catalog must pad engine=hive via validateCreateTableAsSelect");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> resolve(info));
+        Assertions.assertTrue(ex.getMessage().contains("Unknown catalog"),
+                "an unknown catalog must be named as such, not answered with an engine complaint");
     }
-
-    @Test
-    public void wrongExplicitEngineRejectedForPluginDrivenHms() {
-        registerPluginCatalog("hms_ctl", "hms");
-        // Legacy HMSExternalCatalog rejected any ENGINE != hive ("Hms type catalog can only use `hive`
-        // engine."); the flipped PluginDriven path mirrors that via checkEngineWithCatalog + the "hms"
-        // switch entry. An explicit iceberg engine on an hms catalog must be rejected.
-        CreateTableInfo info = newInfo("hms_ctl", "iceberg");
-
-        Assertions.assertThrows(AnalysisException.class, () -> invokeCheck(info),
-                "explicit ENGINE=iceberg on a PluginDriven hms catalog must be rejected");
-    }
-
-    @Test
-    public void correctExplicitEngineHivePassesForPluginDrivenHms() {
-        registerPluginCatalog("hms_ctl", "hms");
-        CreateTableInfo info = newInfo("hms_ctl", ENGINE_HIVE);
-
-        Assertions.assertDoesNotThrow(() -> invokeCheck(info),
-                "explicit ENGINE=hive on a PluginDriven hms catalog must pass the check");
-    }
-
-    // NOTE: the iceberg v3 effective-format-version derivation + reserved-row-lineage-column rejection moved
-    // off fe-core CreateTableInfo into the iceberg connector (IcebergSchemaBuilder.getEffectiveFormatVersion +
-    // IcebergConnectorMetadata.createTable). The catalog-level table-default/override.format-version precedence
-    // is now covered by IcebergConnectorMetadataDdlTest; the former reflective tests that drove the deleted
-    // CreateTableInfo.getEffectiveIcebergFormatVersion / validateIcebergRowLineageColumns were removed with
-    // those methods.
 }

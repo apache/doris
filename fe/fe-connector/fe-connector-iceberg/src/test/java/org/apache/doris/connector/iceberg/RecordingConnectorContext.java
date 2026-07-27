@@ -18,9 +18,11 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -42,7 +44,15 @@ import java.util.function.UnaryOperator;
  * {@link #executeAuthenticated} throws WITHOUT invoking the task, which proves the seam call sits INSIDE
  * the authenticator.
  */
-final class RecordingConnectorContext implements ConnectorContext {
+final class RecordingConnectorContext implements ConnectorContext, ConnectorStorageContext {
+
+    // Storage services moved onto ConnectorStorageContext; this double implements both halves and hands
+    // itself back, so its overrides below are the ones the connector reaches. Forgetting this getter would
+    // silently give the connector NOOP and make those overrides dead code.
+    @Override
+    public ConnectorStorageContext getStorageContext() {
+        return this;
+    }
 
     int authCount;
     boolean failAuth;
@@ -75,19 +85,6 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** Broker addresses the fake returns from {@link #getBrokerAddresses()} (broker write sink). Default none,
      * so a FILE_BROKER write fails loud ("No alive broker.") unless a test populates it. */
     List<ConnectorBrokerAddress> brokerAddresses = Collections.emptyList();
-
-    /** "db.table" keys the connector invalidated via {@link #getMetaInvalidator()} (P6.4 procedure dispatch). */
-    final List<String> invalidatedTables = new ArrayList<>();
-
-    @Override
-    public ConnectorMetaInvalidator getMetaInvalidator() {
-        return new ConnectorMetaInvalidator() {
-            @Override
-            public void invalidateTable(String dbName, String tableName) {
-                invalidatedTables.add(dbName + "." + tableName);
-            }
-        };
-    }
 
     @Override
     public String getCatalogName() {
@@ -184,4 +181,16 @@ final class RecordingConnectorContext implements ConnectorContext {
         cleanedLocations.add(location);
         cleanedChildDirs.add(tableChildDirs);
     }
+
+    // A distinguishable, non-null engine filesystem. The SPI default for getFileSystem is null, so a
+    // decorator that forgets to forward it hands the connector null instead of this instance.
+    final FileSystem engineFileSystem = (FileSystem) java.lang.reflect.Proxy.newProxyInstance(
+            RecordingConnectorContext.class.getClassLoader(), new Class<?>[] {FileSystem.class},
+            (proxy, method, args) -> null);
+
+    @Override
+    public FileSystem getFileSystem(ConnectorSession session) {
+        return engineFileSystem;
+    }
+
 }

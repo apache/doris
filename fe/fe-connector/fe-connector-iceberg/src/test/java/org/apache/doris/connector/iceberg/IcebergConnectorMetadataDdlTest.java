@@ -61,12 +61,6 @@ public class IcebergConnectorMetadataDdlTest {
         return new IcebergConnectorMetadata(ops, props(catalogType), ctx);
     }
 
-    @Test
-    public void testSupportsCreateDatabase() {
-        Assertions.assertTrue(metadata(new RecordingIcebergCatalogOps(),
-                new RecordingConnectorContext(), IcebergConnectorProperties.TYPE_REST).supportsCreateDatabase());
-    }
-
     // ---------- createDatabase ----------
 
     @Test
@@ -231,8 +225,7 @@ public class IcebergConnectorMetadataDdlTest {
                         new ConnectorColumn("name", ConnectorType.of("VARCHAR", 50, 0), "", true, null, false)))
                 .partitionSpec(new ConnectorPartitionSpec(ConnectorPartitionSpec.Style.TRANSFORM,
                         Collections.singletonList(
-                                new ConnectorPartitionField("id", "bucket", Collections.singletonList(8))),
-                        Collections.emptyList()))
+                                new ConnectorPartitionField("id", "bucket", Collections.singletonList(8)))))
                 .sortOrder(Collections.singletonList(new ConnectorSortField("id", true, true)))
                 .build();
         metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request);

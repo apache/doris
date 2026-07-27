@@ -439,7 +439,7 @@ suite("test_hive_ddl", "p0,external") {
                             'replication_num' = '1'
                         );
                     """
-                exception "Cannot create olap table out of internal catalog. Make sure 'engine' type is specified when use the catalog: test_hive_ddl"
+                exception "Engine 'olap' does not match catalog 'test_hive_ddl'."
             }
 
             // test default engine is hive in hive catalog
@@ -475,7 +475,7 @@ suite("test_hive_ddl", "p0,external") {
                           `col` STRING COMMENT 'col'
                         )  ENGINE=hive 
                     """
-                exception "Cannot create hive table in internal catalog, should switch to hive catalog."
+                exception "Engine 'hive' does not match catalog 'internal'."
             }
 
             sql """ DROP DATABASE IF EXISTS test_olap_cross_catalog """
@@ -724,12 +724,12 @@ suite("test_hive_ddl", "p0,external") {
 
             test {
                 sql """ create table err_tb (id int) engine = iceberg """
-                exception "This catalog can only use `hive` engine"
+                exception "Engine 'iceberg' does not match catalog '${catalog_name}'."
             }
 
             test {
                 sql """ create table err_tb (id int) engine = jdbc """
-                exception "This catalog can only use `hive` engine"
+                exception "Engine 'jdbc' does not match catalog '${catalog_name}'."
             }
 
             sql """ drop database test_hive_db_error_tbl """

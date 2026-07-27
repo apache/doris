@@ -115,8 +115,8 @@ public class PaimonPartitionValueRenderTest {
 
     @Test
     public void nullValueRendersNull() {
-        // WHY: every case null-guards (returns null), preserved from legacy; PaimonScanRange /
-        // ConnectorPartitionValues.normalize handle null entries. MUTATION: NPE or "null" string -> red.
+        // WHY: every case null-guards (returns null), preserved from legacy; PaimonScanRange handles the
+        // null entries downstream. MUTATION: NPE or "null" string -> red.
         Assertions.assertNull(
                 PaimonScanPlanProvider.serializePartitionValue(DataTypes.INT(), null, "UTC"));
         Assertions.assertNull(

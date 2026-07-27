@@ -20,6 +20,7 @@ package org.apache.doris.connector;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -32,8 +33,9 @@ import java.util.EnumSet;
  * ({@link IllegalStateException}) when a connector's own delegators are internally inconsistent, and it
  * must pass silently when they are not. These are the primary enforcement of the two structural invariants
  * (static per-connector properties, checked here and in each connector's own contract test rather than at
- * catalog registration). Fake {@link Connector}s (plain Mockito mocks, stubbing only the argless delegators
- * the two invariants read) stand in for a real connector.
+ * catalog registration). The traits are stubbed on a fake {@link ConnectorWritePlanProvider} — the interface
+ * that owns them — behind a fake {@link Connector} that hands it out, which is exactly how the validator and
+ * the engine reach them.
  */
 public class ConnectorContractValidatorTest {
 
@@ -44,9 +46,10 @@ public class ConnectorContractValidatorTest {
         // branch support with no declared INSERT is self-contradictory -> must fail loud at registration
         // instead of surfacing as a confusing failure the first time someone writes to a branch.
         // MUTATION: dropping the `!` in the validator's #2 check makes this test go red (see task report).
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.supportsWriteBranch()).thenReturn(true);
-        Mockito.when(fake.supportedWriteOperations()).thenReturn(EnumSet.noneOf(WriteOperation.class));
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.supportsWriteBranch()).thenReturn(true);
+        Mockito.when(provider.supportedOperations()).thenReturn(EnumSet.noneOf(WriteOperation.class));
 
         IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
                 () -> ConnectorContractValidator.validate(fake, "fake_branch_no_insert"));
@@ -61,10 +64,11 @@ public class ConnectorContractValidatorTest {
         // columns and depends on full-schema positional output, so declaring local-sort without the
         // other two is self-contradictory and must fail loud rather than silently mis-plan the sink
         // distribution (PhysicalConnectorTableSink.getRequirePhysicalProperties reads these).
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.requiresPartitionLocalSort()).thenReturn(true);
-        Mockito.when(fake.requiresParallelWrite()).thenReturn(false);
-        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(provider.requiresParallelWrite()).thenReturn(false);
+        Mockito.when(provider.requiresFullSchemaWriteOrder()).thenReturn(true);
 
         IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
                 () -> ConnectorContractValidator.validate(fake, "fake_localsort_no_parallel"));
@@ -79,10 +83,11 @@ public class ConnectorContractValidatorTest {
         // that validatorRejectsLocalSortWithoutParallelAndFullSchema cannot exercise (it fixes parallel=F). A
         // mutant dropping the `&& requiresFullSchemaWriteOrder()` conjunct still throws on that other case but
         // NOT here, so this test is what actually kills that mutation — both conjuncts of #3 are now covered.
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.requiresPartitionLocalSort()).thenReturn(true);
-        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
-        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(false);
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(provider.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(provider.requiresFullSchemaWriteOrder()).thenReturn(false);
 
         IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
                 () -> ConnectorContractValidator.validate(fake, "fake_localsort_no_fullschema"));
@@ -96,10 +101,11 @@ public class ConnectorContractValidatorTest {
         // implies BOTH requiresParallelWrite() AND requiresFullSchemaWriteOrder() — the hash arm in
         // PhysicalConnectorTableSink indexes partition columns by full-schema position and distributes in
         // parallel, so declaring hash-write without the other two must fail loud, not silently mis-plan.
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.requiresPartitionHashWrite()).thenReturn(true);
-        Mockito.when(fake.requiresParallelWrite()).thenReturn(false);
-        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.requiresPartitionHashWrite()).thenReturn(true);
+        Mockito.when(provider.requiresParallelWrite()).thenReturn(false);
+        Mockito.when(provider.requiresFullSchemaWriteOrder()).thenReturn(true);
 
         IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
                 () -> ConnectorContractValidator.validate(fake, "fake_hash_no_parallel"));
@@ -114,11 +120,12 @@ public class ConnectorContractValidatorTest {
         // both would silently get the local-sort arm and never the hash-without-sort it asked for. That is a
         // misconfiguration, so it must fail loud at registration. Both are otherwise internally consistent
         // (parallel + full-schema) to isolate the mutual-exclusion check as the sole reason for the throw.
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
-        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
-        Mockito.when(fake.requiresPartitionLocalSort()).thenReturn(true);
-        Mockito.when(fake.requiresPartitionHashWrite()).thenReturn(true);
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(provider.requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(provider.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(provider.requiresPartitionHashWrite()).thenReturn(true);
 
         IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
                 () -> ConnectorContractValidator.validate(fake, "fake_both_arms"));
@@ -130,13 +137,14 @@ public class ConnectorContractValidatorTest {
     void validatorPassesForAHashWriteConnector() {
         // Positive control (Rule 9) for the hive-shaped connector: parallel write + full-schema write order +
         // hash-write (no local sort), INSERT/OVERWRITE, no branch — internally consistent, must NOT throw.
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.supportedWriteOperations())
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.supportedOperations())
                 .thenReturn(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE));
-        Mockito.when(fake.supportsWriteBranch()).thenReturn(false);
-        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
-        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
-        Mockito.when(fake.requiresPartitionHashWrite()).thenReturn(true);
+        Mockito.when(provider.supportsWriteBranch()).thenReturn(false);
+        Mockito.when(provider.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(provider.requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(provider.requiresPartitionHashWrite()).thenReturn(true);
 
         Assertions.assertDoesNotThrow(() -> ConnectorContractValidator.validate(fake, "fake_hash_consistent"));
     }
@@ -147,14 +155,39 @@ public class ConnectorContractValidatorTest {
         // partition-local sort, INSERT/OVERWRITE, no branch) satisfies both invariants and must NOT throw.
         // Without this, a validator bug that always throws would make the two negative tests above pass
         // for the wrong reason.
-        Connector fake = Mockito.mock(Connector.class);
-        Mockito.when(fake.supportedWriteOperations())
+        ConnectorWritePlanProvider provider = writeProvider();
+        Connector fake = connectorWith(provider);
+        Mockito.when(provider.supportedOperations())
                 .thenReturn(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE));
-        Mockito.when(fake.supportsWriteBranch()).thenReturn(false);
-        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
-        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(true);
-        Mockito.when(fake.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(provider.supportsWriteBranch()).thenReturn(false);
+        Mockito.when(provider.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(provider.requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(provider.requiresPartitionLocalSort()).thenReturn(true);
 
         Assertions.assertDoesNotThrow(() -> ConnectorContractValidator.validate(fake, "fake_consistent"));
+    }
+
+    /**
+     * A write plan provider with every trait at its default (false / no operations). supportedOperations is
+     * stubbed explicitly because a bare Mockito mock would answer null and the validator reads the set.
+     */
+    private static ConnectorWritePlanProvider writeProvider() {
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        Mockito.when(provider.supportedOperations()).thenReturn(EnumSet.noneOf(WriteOperation.class));
+        return provider;
+    }
+
+    private static Connector connectorWith(ConnectorWritePlanProvider provider) {
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
+        return connector;
+    }
+
+    @Test
+    void validatorPassesForAConnectorWithoutWriteSupport() {
+        // A connector exposing NO write plan provider declares no write capability at all, so no invariant
+        // can be violated. MUTATION: dropping the null guard makes this throw NullPointerException.
+        Connector fake = connectorWith(null);
+        Assertions.assertDoesNotThrow(() -> ConnectorContractValidator.validate(fake, "fake_read_only"));
     }
 }

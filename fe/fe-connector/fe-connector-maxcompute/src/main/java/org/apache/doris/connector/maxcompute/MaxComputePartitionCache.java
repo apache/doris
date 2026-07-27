@@ -38,8 +38,8 @@ import java.util.concurrent.ForkJoinPool;
  * <p><b>Why this exists.</b> Legacy fe-core kept partition listings in the engine-side external meta cache; once
  * a MaxCompute catalog becomes plugin-driven that cache stops routing to it, so without this connector-owned
  * cache every {@code SHOW PARTITIONS} / partition-pruning / partition-values call would re-list every partition
- * from ODPS. The three metadata consumers ({@code listPartitions}, {@code listPartitionNames},
- * {@code listPartitionValues}) share ONE instance, held as a {@code final} field on the per-catalog
+ * from ODPS. Both metadata consumers ({@code listPartitions}, {@code listPartitionNames}) share ONE
+ * instance, held as a {@code final} field on the per-catalog
  * {@link MaxComputeDorisConnector} (the only object that outlives a single query; the metadata is rebuilt per
  * call), so a partition read warms the others.
  *

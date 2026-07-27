@@ -231,7 +231,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         }
 
         @Override
-        public Map<String, String> getWriteContext() {
+        public Map<String, String> getStaticPartitionSpec() {
             return writeContext;
         }
 

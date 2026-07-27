@@ -84,7 +84,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
 
     @Test
     public void insertGateRejectsConnectorNotDeclaringInsert() {
-        // {} mirrors the null-write-provider connector's delegator view: Connector.supportedWriteOperations()
+        // {} mirrors the null-write-provider connector's view: the resolved provider's supportedOperations()
         // is empty whenever getWritePlanProvider() returns null. The gate must reject before ever resolving a
         // write plan provider / calling planWrite.
         PlanTranslatorContext context = new PlanTranslatorContext();
@@ -150,9 +150,9 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
         // Production selects the write provider per-handle; a plain mock does not run the interface default.
         Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
-        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
-        // The admission gate now resolves the handle first and consults the per-handle overload.
-        Mockito.when(connector.supportedWriteOperations(Mockito.any())).thenReturn(ops);
+        // The admission gate resolves the handle, fetches the per-handle provider and asks IT which
+        // operations are supported -- the provider is the only place a write trait is declared.
+        Mockito.when(provider.supportedOperations()).thenReturn(ops);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(Optional.of(handle));

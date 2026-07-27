@@ -175,9 +175,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
-    public void testCreateDbIfNotExistsSkipsWhenRemoteExistsAndConnectorSupportsCreate() throws Exception {
+    public void testCreateDbIfNotExistsSkipsWhenRemoteExists() throws Exception {
         catalog.dbNullableResult = null; // FE-cache miss
-        Mockito.when(metadata.supportsCreateDatabase()).thenReturn(true);
         Mockito.when(metadata.databaseExists(session, "db1")).thenReturn(true);
 
         catalog.createDb("db1", true, new HashMap<>());
@@ -195,7 +194,6 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     @Test
     public void testCreateDbIfNotExistsCreatesWhenRemoteAbsent() throws Exception {
         catalog.dbNullableResult = null; // FE-cache miss
-        Mockito.when(metadata.supportsCreateDatabase()).thenReturn(true);
         Mockito.when(metadata.databaseExists(session, "db1")).thenReturn(false); // absent remotely
         Map<String, String> props = new HashMap<>();
 
@@ -211,23 +209,41 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
-    public void testCreateDbIfNotExistsBypassesPrecheckWhenConnectorLacksCreateSupport() throws Exception {
+    public void testCreateDbIfNotExistsSucceedsWhenConnectorCannotCreateButDbExists() throws Exception {
         catalog.dbNullableResult = null; // FE-cache miss
-        // supportsCreateDatabase() defaults to false on the mock -- the connector cannot create
-        // databases (jdbc/es/trino). databaseExists is intentionally NOT stubbed: it must never
-        // be consulted (the && short-circuits on the capability gate).
-        Map<String, String> props = new HashMap<>();
+        // A connector that cannot create databases (jdbc/es/trino): createDatabase throws the SPI
+        // default, but the db is already there remotely.
+        Mockito.when(metadata.databaseExists(session, "db1")).thenReturn(true);
+        Mockito.doThrow(new DorisConnectorException("CREATE DATABASE not supported"))
+                .when(metadata).createDatabase(Mockito.any(), Mockito.any(), Mockito.any());
 
-        catalog.createDb("db1", true, props);
+        catalog.createDb("db1", true, new HashMap<>());
 
-        // WHY (Rule 9): the capability gate keeps jdbc/es/trino byte-identical -- a connector that
-        // cannot create databases must fall through to createDatabase ("not supported" in
-        // production), and the && must short-circuit so the remote databaseExists query is never
-        // even issued. MUTATION: dropping the `supportsCreateDatabase() &&` gate makes databaseExists
-        // get consulted here -> the never().databaseExists verify goes red (createDatabase still runs
-        // because databaseExists defaults to false; the gate's job is to skip the remote probe).
-        Mockito.verify(metadata, Mockito.never()).databaseExists(Mockito.any(), Mockito.any());
-        Mockito.verify(metadata).createDatabase(session, "db1", props);
+        // WHY (Rule 9): the existence precheck is asked of EVERY connector, not only those that can
+        // create -- IF NOT EXISTS means "ensure it is there", and it is, so the statement must
+        // succeed instead of reporting "CREATE DATABASE not supported" (this is Trino's
+        // CreateSchemaTask behavior; it replaced a supportsCreateDatabase() gate that could only
+        // restate whether createDatabase was overridden). MUTATION: re-gating the precheck on any
+        // capability sends this through createDatabase -> the stubbed throw fails the test.
+        Mockito.verify(metadata).databaseExists(session, "db1");
+        Mockito.verify(metadata, Mockito.never()).createDatabase(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateDb(Mockito.any());
+    }
+
+    @Test
+    public void testCreateDbIfNotExistsStillReachesConnectorWhenDbAbsent() throws Exception {
+        catalog.dbNullableResult = null; // FE-cache miss
+        // databaseExists defaults to false on the mock: a connector that answers neither question is
+        // byte-identical to before -- it falls through to createDatabase ("not supported").
+        Mockito.doThrow(new DorisConnectorException("CREATE DATABASE not supported"))
+                .when(metadata).createDatabase(Mockito.any(), Mockito.any(), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.createDb("db1", true, new HashMap<>()));
+
+        // WHY: the precheck must not degrade IF NOT EXISTS into "never fail" -- an absent db on a
+        // connector that cannot create one still surfaces the connector's refusal.
+        Assertions.assertTrue(ex.getMessage().contains("CREATE DATABASE not supported"));
     }
 
     // ==================== DROP DATABASE ====================

@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
@@ -37,7 +38,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Tests {@link HiveFileListingCache}: the connector-owned directory-listing cache (D2's second layer, separate
@@ -455,9 +455,9 @@ public class HiveFileListingCacheTest {
                 new FakeConnectorContext(), new HiveReadTransactionManager(),
                 new HiveFileListingCache(Collections.emptyMap(), lister));
 
-        List<ConnectorScanRange> ranges = provider.planScan(
-                new FakeSession(), twoPartitionHandle(), Collections.<ConnectorColumnHandle>emptyList(),
-                Optional.empty());
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(twoPartitionHandle(), Collections.<ConnectorColumnHandle>emptyList())
+                .build());
 
         // Both partitions were attempted; only the healthy one produced its (one-file, one-range) split.
         Assertions.assertEquals(1, (int) lister.callsPerLocation.get("loc/dt=1"));
@@ -478,9 +478,9 @@ public class HiveFileListingCacheTest {
                 new FakeConnectorContext(), new HiveReadTransactionManager(),
                 new HiveFileListingCache(Collections.emptyMap(), lister));
 
-        Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(
-                new FakeSession(), singlePartitionHandle(), Collections.<ConnectorColumnHandle>emptyList(),
-                Optional.empty()));
+        Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(singlePartitionHandle(), Collections.<ConnectorColumnHandle>emptyList())
+                .build()));
     }
 
     private static HiveTableHandle singlePartitionHandle() {
@@ -523,10 +523,12 @@ public class HiveFileListingCacheTest {
                         new HmsPartitionInfo(Collections.singletonList("2"), "loc/dt=2", null, null, null, null)))
                 .build();
 
-        List<ConnectorScanRange> first = provider.planScan(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
-        List<ConnectorScanRange> second = provider.planScan(
-                new FakeSession(), handle, Collections.<ConnectorColumnHandle>emptyList(), Optional.empty());
+        List<ConnectorScanRange> first = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                .build());
+        List<ConnectorScanRange> second = provider.planScan(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList())
+                .build());
 
         // WHY: each partition directory is listed exactly once across the two scans — the second scan is served
         // from the cache. Without the cache the file listing would be an uncached RPC/FS call on every scan.

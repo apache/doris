@@ -72,7 +72,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -544,27 +543,18 @@ public class Alter {
             processRename(db, externalTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             schemaChangeHandler.processExternalTable(alterOps, db, externalTable);
-        } else if (currentAlterOps.contains(AlterOpType.MODIFY_ENGINE)) {
-            ModifyEngineOp modifyEngineOp = (ModifyEngineOp) alterOps.get(0);
-            processModifyEngine(db, externalTable, modifyEngineOp);
         }
     }
 
-    public void processModifyEngine(Database db, Table externalTable, ModifyEngineOp op) throws DdlException {
-        throw new DdlException("Modify engine from MySQL to ODBC is no longer supported. "
-                + "ODBC tables have been deprecated. Please use JDBC Catalog instead.");
-    }
-
+    /**
+     * {@code ALTER TABLE ... MODIFY ENGINE} was removed from the grammar together with the ODBC table type it
+     * existed to serve, so nothing produces this log any more. The replay arm stays because an old journal may
+     * still carry {@code OP_MODIFY_TABLE_ENGINE}: dropping the operation type would make such an image
+     * unreadable.
+     */
     public void replayProcessModifyEngine(ModifyTableEngineOperationLog log) {
         // ODBC tables have been deprecated, skip replay.
         LOG.warn("Skip replaying ModifyEngine for table {} — ODBC tables are deprecated.", log.getTableId());
-    }
-
-    private void processModifyEngineInternal(Database db, Table externalTable,
-                                             Map<String, String> prop, boolean isReplay) {
-        // ODBC tables have been deprecated. This method is preserved only for
-        // deserialization compatibility of the edit log. No-op.
-        LOG.warn("processModifyEngineInternal called for deprecated ODBC engine conversion. Ignoring.");
     }
 
     /*

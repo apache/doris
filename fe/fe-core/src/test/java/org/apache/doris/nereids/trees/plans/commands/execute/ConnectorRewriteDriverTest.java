@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
@@ -41,14 +42,17 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Guards the engine-neutral parts of {@link ConnectorRewriteDriver} that are unit-testable without a live
- * cluster: the empty-plan early return (no transaction opened, all-zero row) and the connector-failure
- * mapping. The full distributed write path (N INSERT-SELECTs against BE) is exercised at the flip rehearsal.
+ * cluster: the empty-plan early return (no transaction opened), what the driver reports to the connector, and
+ * the connector-failure mapping. The full distributed write path (N INSERT-SELECTs against BE) is exercised at
+ * the flip rehearsal.
+ *
+ * <p>The RESULT SHAPE is deliberately not asserted here any more: the columns belong to the connector that
+ * declares the procedure, and are pinned by {@code IcebergProcedureOpsTest}. What the engine owes is asserted
+ * below — it reports the right numbers and returns the connector's result untouched.</p>
  */
 public class ConnectorRewriteDriverTest {
 
@@ -73,24 +77,30 @@ public class ConnectorRewriteDriverTest {
     }
 
     @Test
-    public void emptyPlanReturnsZeroRowWithoutOpeningTransaction() throws Exception {
+    public void emptyPlanReportsAllZerosWithoutOpeningTransaction() throws Exception {
         ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any())).thenReturn(Collections.emptyList());
+        ConnectorProcedureResult rendered = new ConnectorProcedureResult(
+                Collections.singletonList(new ConnectorColumn("c", ConnectorType.of("INT"), "", false, null)),
+                Collections.singletonList(Collections.singletonList("0")));
+        Mockito.when(procedureOps.buildRewriteResult(Mockito.any(), Mockito.any())).thenReturn(rendered);
 
         ConnectorProcedureResult result = driverWith(procedureOps, metadata).run();
 
-        // Four-column schema in the exact legacy order and types.
-        List<ConnectorColumn> schema = result.getResultSchema();
-        Assertions.assertEquals(Arrays.asList(
-                "rewritten_data_files_count", "added_data_files_count",
-                "rewritten_bytes_count", "removed_delete_files_count"),
-                schema.stream().map(ConnectorColumn::getName).collect(Collectors.toList()));
-        Assertions.assertEquals(Arrays.asList("INT", "INT", "INT", "BIGINT"),
-                schema.stream().map(c -> c.getType().getTypeName()).collect(Collectors.toList()));
-        // Single all-zero row: nothing to rewrite.
-        Assertions.assertEquals(Collections.singletonList(Arrays.asList("0", "0", "0", "0")), result.getRows());
+        // Nothing to rewrite: the connector is still asked to render, and it is told so with four zeros.
+        ArgumentCaptor<ConnectorRewriteStatistics> captor =
+                ArgumentCaptor.forClass(ConnectorRewriteStatistics.class);
+        Mockito.verify(procedureOps).buildRewriteResult(Mockito.eq("rewrite_data_files"), captor.capture());
+        ConnectorRewriteStatistics stats = captor.getValue();
+        Assertions.assertEquals(0, stats.getDataFileCount());
+        Assertions.assertEquals(0, stats.getAddedDataFileCount());
+        Assertions.assertEquals(0L, stats.getTotalSizeBytes());
+        Assertions.assertEquals(0, stats.getDeleteFileCount());
+        // The engine returns what the connector rendered, unmodified. MUTATION: any engine-side post-processing
+        // of the result (re-wrapping, re-typing, substituting a default) is killed here.
+        Assertions.assertSame(rendered, result);
         // MUTATION: dropping the empty-groups early return is killed — no transaction may be opened, and no
         // group work scheduled, when there is nothing to rewrite. The driver opens the txn via the per-handle
         // beginTransaction(session, handle) overload, so watch that one (the single-arg matcher would go
@@ -106,6 +116,10 @@ public class ConnectorRewriteDriverTest {
         Mockito.when(procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any())).thenReturn(Collections.emptyList());
         ConnectorPredicate where = new ConnectorPredicate(new ConnectorColumnRef("a", ConnectorType.of("INT")));
+        // Stubbed only so run() does not return a null from the unstubbed mock; this test asserts nothing
+        // about the result.
+        Mockito.when(procedureOps.buildRewriteResult(Mockito.any(), Mockito.any())).thenReturn(
+                new ConnectorProcedureResult(Collections.emptyList(), Collections.emptyList()));
 
         driverWith(procedureOps, Mockito.mock(ConnectorMetadata.class), where).run();
 

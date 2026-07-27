@@ -32,6 +32,7 @@ import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
@@ -67,6 +68,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -84,10 +86,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -116,6 +118,12 @@ import java.util.stream.Collectors;
 public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
+
+    /**
+     * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
+     * of the same name on every commit).
+     */
+    private static final String ICEBERG_TABLE_COMMENT_PARAM = "comment";
 
     // FE-internal schema-control property key: a CSV of the RAW remote partition-column names. The generic
     // fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) reads it to derive which of the emitted
@@ -201,7 +209,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     };
 
     private final HmsClient hmsClient;
-    private final Map<String, String> properties;
     // Carries the fe-core-injected environment (getEnvironment()) with the FE-global CREATE TABLE defaults
     // (hive_default_file_format / enable_create_hive_bucket_table / doris_version) that the plugin cannot
     // read from FE Config. The default getEnvironment() is an empty map, so direct-construction tests that
@@ -275,7 +282,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             HiveFileListingCache fileListingCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
         this.hmsClient = hmsClient;
-        this.properties = properties;
         this.context = context;
         this.icebergSiblingSupplier = icebergSiblingSupplier;
         this.hudiSiblingSupplier = hudiSiblingSupplier;
@@ -473,18 +479,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         if (!(handle instanceof HiveTableHandle)) {
             // An iceberg/hudi-on-HMS table's schema is built by the embedded sibling connector, but fe-core's
-            // PluginDrivenExternalTable.hasScanCapability only ever reads the CATALOG connector (this HIVE
-            // connector), never the sibling — so a per-table scan capability the sibling declares connector-wide
+            // PluginDrivenExternalTable.hasCapability only ever reads the CATALOG connector (this HIVE
+            // connector), never the sibling — so a per-table capability the sibling declares connector-wide
             // (auto-analyze / Top-N lazy / nested-column prune) would be lost for the embedded table. Reflect the
-            // owning sibling's connector-wide capability set onto the delegated schema as a per-table marker so it
-            // survives delegation (mirrors Trino table-redirection, where the redirected-to connector's
-            // capabilities govern the table). Only hasScanCapability consumers read the marker, so a capability
-            // that is not per-table-refinable (view / show-create / mvcc) is inert here. Resolve the owner ONCE
-            // (getMetadata is not free) and reuse it for the schema build and the capability read.
+            // SIBLING_INHERITABLE_CAPABILITIES subset of the owning sibling's connector-wide set onto the
+            // delegated schema as a per-table marker so it survives delegation (mirrors Trino table-redirection,
+            // where the redirected-to connector's capabilities govern the table). Only the subset fe-core
+            // actually resolves per-table is reflected; a catalog-wide capability (view / show-create / mvcc)
+            // would be discarded by the reader, so emitting it would only record an unhonoured intent. Resolve
+            // the owner ONCE (getMetadata is not free) and reuse it for the schema build and the capability read.
             SiblingOwner owner = siblingOwnerResolver.apply(handle);
             ConnectorTableSchema siblingSchema = memoizedSiblingMetadata(session, owner.connector(), owner.label())
                     .getTableSchema(session, handle);
-            return reflectSiblingScanCapabilities(owner.connector(), siblingSchema);
+            return reflectSiblingCapabilities(owner.connector(), siblingSchema);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
         String dbName = hiveHandle.getDbName();
@@ -519,25 +526,21 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // HMSExternalTable.supportedHiveTopNLazyTable), which the connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE
         // cannot express for a heterogeneous hive catalog; emit it per-table so fe-core enables the optimization
         // only for eligible tables and never for text/csv/json/view/hudi.
-        List<String> perTableCapabilities = new ArrayList<>();
+        Set<ConnectorCapability> perTableCapabilities = EnumSet.noneOf(ConnectorCapability.class);
         // Legacy StatisticsUtil.supportAutoAnalyze admitted EVERY plain-hive (dlaType==HIVE) table into background
         // per-column auto-analyze regardless of file format. Emit it per-table for every plain-hive data table (any
-        // format, view excluded) so fe-core's hasScanCapability admits them WITHOUT a connector-wide flag (which
+        // format, view excluded) so fe-core's hasCapability admits them WITHOUT a connector-wide flag (which
         // would also admit hudi-on-HMS, which legacy excluded). This branch is reached only for a HiveTableHandle;
         // an iceberg-on-HMS table is served by the delegation branch above (which reflects the iceberg sibling's
         // own auto-analyze capability), and a hudi-on-HMS table's connector declares neither.
         if (supportsHiveColumnAutoAnalyze(tableInfo)) {
-            perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name());
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
         }
         if (supportsHiveSampleAnalyze(tableInfo)) {
-            perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE.name());
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
         }
         if (supportsHiveTopNLazyMaterialize(tableInfo)) {
-            perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name());
-        }
-        if (!perTableCapabilities.isEmpty()) {
-            tableProperties.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY,
-                    String.join(",", perTableCapabilities));
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
         }
 
         // Distribution (bucketing) columns for the flipped table's getDistributionColumnNames() — legacy
@@ -549,47 +552,51 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             tableProperties.put(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, String.join(",", bucketCols));
         }
 
-        return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties);
+        return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties,
+                perTableCapabilities);
     }
 
     /**
-     * Reflects the owning sibling connector's connector-wide capability set onto a delegated (iceberg/hudi-on-HMS)
-     * table's schema as a per-table {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} marker, merged with any
-     * marker the sibling already emitted. fe-core's {@code PluginDrivenExternalTable.hasScanCapability} resolves a
-     * per-table scan capability from the CATALOG (hive) connector-wide set OR this marker and NEVER consults the
-     * sibling connector directly, so without this reflection an iceberg-on-HMS table would silently lose every scan
-     * capability the iceberg sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune).
-     * Returns the sibling schema unchanged when the sibling declares no capabilities (e.g. a hudi sibling that
-     * declares none). Only per-table-refinable capabilities are ever consulted from the marker, so reflecting the
-     * whole set (including non-scan capabilities) is inert for the rest.
+     * The capabilities a delegated (iceberg/hudi-on-HMS) table INHERITS from its owning sibling connector —
+     * exactly the set fe-core resolves per-table ({@code PluginDrivenExternalTable.hasCapability}). Every
+     * other capability is resolved catalog-wide, so reflecting it would record an intent the engine never
+     * honours. Listing the subset here (rather than reflecting whatever the sibling happens to declare) is what
+     * keeps a delegated table's behaviour independent of the sibling's declaration: an iceberg-on-HMS table's
+     * SHOW CREATE TABLE / view / metadata-preload behaviour cannot start differing from a plain-hive table's
+     * without an edit to this constant. Listed by capability rather than by "what iceberg declares today" so a
+     * sibling later declaring sampled analyze inherits it exactly like the others.
      */
-    private ConnectorTableSchema reflectSiblingScanCapabilities(Connector owner, ConnectorTableSchema siblingSchema) {
-        Set<ConnectorCapability> ownerCaps = owner.getCapabilities();
-        if (ownerCaps.isEmpty()) {
-            return siblingSchema;
-        }
-        LinkedHashSet<String> caps = new LinkedHashSet<>();
-        String existing = siblingSchema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        if (existing != null && !existing.isEmpty()) {
-            for (String name : existing.split(",")) {
-                String trimmed = name.trim();
-                if (!trimmed.isEmpty()) {
-                    caps.add(trimmed);
-                }
+    private static final Set<ConnectorCapability> SIBLING_INHERITABLE_CAPABILITIES = Collections.unmodifiableSet(
+            EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                    ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
+                    ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
+                    ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
+
+    /**
+     * Reflects the {@link #SIBLING_INHERITABLE_CAPABILITIES} subset of the owning sibling connector's
+     * connector-wide capability set onto a delegated (iceberg/hudi-on-HMS) table's schema as per-table
+     * capabilities, merged with whatever the sibling already declared for that table. fe-core's
+     * {@code PluginDrivenExternalTable.hasCapability} resolves a table-scoped capability from the CATALOG
+     * (hive) connector-wide set OR the table's own set, and NEVER consults the sibling connector directly, so
+     * without this reflection an iceberg-on-HMS table would silently lose every such capability the iceberg
+     * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / nested column DDL).
+     * Returns the sibling schema unchanged when nothing is inherited and the sibling declared nothing itself
+     * (e.g. a hudi sibling, which declares no capabilities at all).
+     */
+    private ConnectorTableSchema reflectSiblingCapabilities(Connector owner, ConnectorTableSchema siblingSchema) {
+        Set<ConnectorCapability> inherited = EnumSet.noneOf(ConnectorCapability.class);
+        for (ConnectorCapability cap : owner.getCapabilities()) {
+            if (SIBLING_INHERITABLE_CAPABILITIES.contains(cap)) {
+                inherited.add(cap);
             }
         }
-        for (ConnectorCapability cap : ownerCaps) {
-            caps.add(cap.name());
+        if (inherited.isEmpty()) {
+            return siblingSchema;
         }
-        Map<String, String> props = new HashMap<>(siblingSchema.getProperties());
-        props.put(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY, String.join(",", caps));
+        inherited.addAll(siblingSchema.getTableCapabilities());
         return new ConnectorTableSchema(siblingSchema.getTableName(), siblingSchema.getColumns(),
-                siblingSchema.getTableFormatType(), props);
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
+                siblingSchema.getTableFormatType(), siblingSchema.getProperties(), inherited);
     }
 
     // ========== ConnectorTableOps: Column Handles ==========
@@ -708,6 +715,41 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         } catch (HmsClientException e) {
             throw new DorisConnectorException("Failed to drop Hive view "
                     + dbName + "." + viewName + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Returns the table comment. Overridden here for one reason: an iceberg-on-HMS table would otherwise report
+     * no comment at all.
+     *
+     * <p>Every other foreign-table operation is diverted to the embedded iceberg sibling by the concrete handle
+     * type, but this method addresses a table by NAME and never receives a handle, so there is nothing to
+     * discriminate on. It is answered directly instead: iceberg's HMS catalog mirrors the table's iceberg
+     * properties into the HMS table parameters on every commit, {@code comment} included &mdash; the same
+     * parameter {@code HiveShowCreateTableRenderer} lifts into the {@code COMMENT} clause &mdash; so the single
+     * (cached) {@code getTable} this connector already performs carries it, with no sibling build and no
+     * iceberg metadata load. Without this, the same table shows its comment through a dedicated iceberg catalog
+     * and shows nothing through an HMS gateway catalog, in {@code SHOW CREATE TABLE},
+     * {@code information_schema.tables.TABLE_COMMENT} and {@code SHOW TABLE STATUS}.</p>
+     *
+     * <p>Deliberately restricted to iceberg tables: a plain hive table keeps the empty comment that legacy
+     * {@code HMSExternalTable.getComment} returned, so nothing about plain hive changes. A missing or
+     * unreadable table degrades to the empty comment rather than failing the caller, matching
+     * {@link #viewExists} &mdash; this is an opportunistic display value, not a user-requested operation.</p>
+     */
+    @Override
+    public String getTableComment(ConnectorSession session, String dbName, String tableName) {
+        try {
+            HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
+            if (HiveTableFormatDetector.detect(tableInfo) != HiveTableType.ICEBERG) {
+                return "";
+            }
+            Map<String, String> params = tableInfo.getParameters();
+            String comment = params == null ? null : params.get(ICEBERG_TABLE_COMMENT_PARAM);
+            return comment == null ? "" : comment;
+        } catch (HmsClientException e) {
+            LOG.debug("Table comment lookup: '{}.{}' not readable: {}", dbName, tableName, e.getMessage());
+            return "";
         }
     }
 
@@ -907,7 +949,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // calls are cheap.)
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
                     (location, values) -> sumCachedFileSizes(
-                            hiveHandle, location, values, context.getFileSystem(session)));
+                            hiveHandle, location, values, storage().getFileSystem(session)));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -939,7 +981,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            FileSystem fs = context.getFileSystem(session);
+            FileSystem fs = storage().getFileSystem(session);
             List<Long> sizes = new ArrayList<>();
             for (PartitionRef ref : resolvePartitionRefs(hiveHandle)) {
                 for (HiveFileStatus file : fileListingCache.listDataFiles(
@@ -1197,13 +1239,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * regardless of column casing/order (do NOT derive the order from the value map / partition-key names).
      * A value equal to the HMS default-partition sentinel {@code __HIVE_DEFAULT_PARTITION__} is a genuine
      * SQL NULL — byte-parity with legacy {@code HiveExternalMetaCache.toListPartitionItem}, which marks the
-     * sentinel (and only the sentinel) null; the broader {@code isNullPartitionValue} (which also treats
-     * {@code \N}/null as null) is deliberately not used (HMS partition names never carry {@code \N}).
+     * sentinel (and only the sentinel) null; hudi's broader directory-name rule (which also treats
+     * {@code \N}/null as null) is deliberately not reused (HMS partition names never carry {@code \N}).
      */
     private static List<Boolean> toPartitionValueNullFlags(List<String> values) {
         List<Boolean> flags = new ArrayList<>(values.size());
         for (String value : values) {
-            flags.add(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value));
+            flags.add(ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value));
         }
         return flags;
     }
@@ -1497,15 +1539,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     // ========== ConnectorSchemaOps: DDL writes (create/drop database) ==========
-
-    /**
-     * Hive supports CREATE DATABASE. Declaring it lets {@code PluginDrivenExternalCatalog.createDb} consult
-     * the remote database existence for IF NOT EXISTS (the SPI default {@code false} would skip that check).
-     */
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
 
     /**
      * Creates a Hive database, mirroring legacy {@code HiveMetadataOps.createDbImpl}: the {@code location}
@@ -1867,6 +1900,60 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         throw new DorisConnectorException("REORDER COLUMNS not supported");
     }
 
+    // The five path-addressed (nested) column ops need the same divert as the six flat ones above: fe-core
+    // routes a dotted-path ALTER straight at the catalog's own metadata, so without these an iceberg-on-HMS
+    // table rejects nested column DDL that the very same table accepts through a dedicated iceberg catalog.
+    // modifyColumnComment is the entry point for MODIFY COLUMN ... COMMENT on flat columns too, not only nested.
+
+    @Override
+    public void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).addNestedColumn(session, handle, path, column, position);
+            return;
+        }
+        throw new DorisConnectorException("nested ADD COLUMN not supported");
+    }
+
+    @Override
+    public void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).dropNestedColumn(session, handle, path);
+            return;
+        }
+        throw new DorisConnectorException("nested DROP COLUMN not supported");
+    }
+
+    @Override
+    public void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            String newName) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).renameNestedColumn(session, handle, path, newName);
+            return;
+        }
+        throw new DorisConnectorException("nested RENAME COLUMN not supported");
+    }
+
+    @Override
+    public void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).modifyNestedColumn(session, handle, path, column, position);
+            return;
+        }
+        throw new DorisConnectorException("nested MODIFY COLUMN not supported");
+    }
+
+    @Override
+    public void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+            String comment) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).modifyColumnComment(session, handle, path, comment);
+            return;
+        }
+        throw new DorisConnectorException("MODIFY COLUMN COMMENT not supported");
+    }
+
     @Override
     public void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle, BranchChange branch) {
         if (!(handle instanceof HiveTableHandle)) {
@@ -2223,7 +2310,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * Unlike {@link #supportsHiveTopNLazyMaterialize} there is NO orc/parquet restriction (legacy analyzed any hive
      * format); a view is excluded (nothing to analyze) and an iceberg/hudi-on-HMS table is excluded here
      * ({@code detect() != HIVE}) — iceberg-on-HMS instead inherits the capability from its sibling via
-     * {@link #reflectSiblingScanCapabilities}, and hudi-on-HMS is withheld.
+     * {@link #reflectSiblingCapabilities}, and hudi-on-HMS is withheld.
      */
     private boolean supportsHiveColumnAutoAnalyze(HmsTableInfo tableInfo) {
         return !isView(tableInfo) && HiveTableFormatDetector.detect(tableInfo) == HiveTableType.HIVE;
@@ -2425,5 +2512,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
         }
         return true;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

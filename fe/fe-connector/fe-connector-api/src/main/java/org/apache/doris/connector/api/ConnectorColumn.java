@@ -58,7 +58,7 @@ public final class ConnectorColumn {
     // engine consumers then ask Column.isReservedPassthrough() instead of string-matching source column names.
     // Defaults false; set via reservedPassthrough().
     private final boolean reservedPassthrough;
-    // #65329 "omit-preserves-metadata" markers for MODIFY COLUMN: whether the DDL explicitly stated a
+    // "Omit preserves metadata" markers for MODIFY COLUMN: whether the DDL explicitly stated a
     // nullability / a comment (as opposed to omitting it). fe-core's ConnectorColumnConverter.toConnectorColumn
     // populates these from the fe-catalog Column.isNullableSpecified()/isCommentSpecified(); the iceberg nested
     // MODIFY path reads them so an omitted nullability never widens a field and an omitted comment keeps the
@@ -144,7 +144,7 @@ public final class ConnectorColumn {
     }
 
     /**
-     * Returns a copy of this column carrying the #65329 nullability/comment "specified" markers. See
+     * Returns a copy of this column carrying the nullability/comment "specified" markers. See
      * {@link #isNullableSpecified()} / {@link #isCommentSpecified()}; used by
      * {@code ConnectorColumnConverter.toConnectorColumn} to thread the fe-catalog Column flags across the SPI.
      */
@@ -214,12 +214,12 @@ public final class ConnectorColumn {
         return reservedPassthrough;
     }
 
-    /** Whether the DDL explicitly stated a nullability (#65329 MODIFY COLUMN omit-preserves). */
+    /** Whether the DDL explicitly stated a nullability (MODIFY COLUMN: omitting it preserves the current one). */
     public boolean isNullableSpecified() {
         return nullableSpecified;
     }
 
-    /** Whether the DDL explicitly stated a comment (#65329 MODIFY COLUMN omit-preserves). */
+    /** Whether the DDL explicitly stated a comment (MODIFY COLUMN: omitting it preserves the current one). */
     public boolean isCommentSpecified() {
         return commentSpecified;
     }

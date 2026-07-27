@@ -23,6 +23,36 @@ import java.util.Objects;
 
 /**
  * A LIKE/REGEXP predicate: {@code value LIKE pattern}.
+ *
+ * <p>{@code pattern} is normally a {@link ConnectorLiteral} holding a {@code String}, but the engine does not
+ * guarantee it — a non-literal pattern must be dropped, not guessed at (see the package javadoc, Rule 1).</p>
+ *
+ * <p><b>{@code LIKE} dialect (Doris semantics — translate to these, not to your remote system's defaults):</b></p>
+ * <ul>
+ *   <li>{@code %} matches any run of characters, including the empty run.</li>
+ *   <li>{@code _} matches exactly one character.</li>
+ *   <li>Backslash is the escape character, so {@code \%} and {@code \_} are literal {@code %} / {@code _}.
+ *       The three-argument {@code LIKE ... ESCAPE '!'} form never reaches this node (it arrives as a
+ *       {@code ConnectorFunctionCall} named {@code like} with three arguments — see the package javadoc,
+ *       Rule 6), so a connector handling this node may assume the fixed backslash escape.</li>
+ * </ul>
+ *
+ * <p><b>{@code REGEXP} is UNANCHORED</b> (Doris/MySQL semantics): the pattern may match anywhere inside the
+ * value. A remote engine whose regex is whole-string anchored — Lucene's {@code regexp} query, for example —
+ * is <b>not</b> a valid target for a verbatim hand-off: {@code REGEXP 'bc'} matches {@code 'abcd'} in Doris
+ * and matches nothing when anchored. Anchoring narrows the predicate, which Rule 1 forbids; either rewrite
+ * the pattern into the remote form or drop the conjunct.</p>
+ *
+ * <p><b>Do not turn a pattern into a prefix/suffix/contains match unless it is provably equivalent.</b>
+ * {@code 'abc%'} is a prefix match. {@code 'a_c%'} is not — {@code _} is a wildcard, so {@code 'abc'} must
+ * match the pattern but does not start with {@code a_c}. Neither is {@code 'a\%%'} (that is "starts with
+ * {@code a%}"), nor anything with a {@code %} left in the body. A pushed prefix that is stricter than the
+ * user's pattern makes the connector skip files, and rows skipped at planning time can never be recovered by
+ * BE.</p>
+ *
+ * <p><b>Case folding: do not introduce it.</b> Neither operator carries a collation here, so translate
+ * case-sensitively. A remote form that matches a case-insensitive SUPERSET is permitted by Rule 1 (BE
+ * re-checks the original predicate); one that matches fewer rows is not.</p>
  */
 public final class ConnectorLike implements ConnectorExpression {
 

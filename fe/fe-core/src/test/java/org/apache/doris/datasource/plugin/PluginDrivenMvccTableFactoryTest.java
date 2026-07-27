@@ -78,13 +78,14 @@ public class PluginDrivenMvccTableFactoryTest {
     @Test
     public void testBuildsBaseTableWhenConnectorIsNull() {
         PluginDrivenExternalDatabase db = new PluginDrivenExternalDatabase();
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Mockito.when(catalog.getConnector()).thenReturn(null);
+        PluginDrivenExternalCatalog catalog = catalogReturning(null);
 
         ExternalTable table = db.buildTableInternal("rt", "lt", 1L, catalog, db);
 
         // MUTATION: a missing null-guard (NPE on getCapabilities) makes this red. Lazy-init catalogs
-        // whose connector is not yet built must fall back to the base class, not crash.
+        // whose connector is not yet built must fall back to the base class, not crash. This now also
+        // covers PluginDrivenExternalCatalog.hasConnectorCapability's own null degradation, which is the
+        // single place every catalog-scope capability check gets it from.
         Assertions.assertSame(PluginDrivenExternalTable.class, table.getClass(),
                 "a not-yet-built connector must degrade to the base table, never NPE");
     }
@@ -128,12 +129,23 @@ public class PluginDrivenMvccTableFactoryTest {
         }
     }
 
+    /**
+     * CALLS_REAL_METHODS so the catalog's real {@code hasConnectorCapability} runs over a stubbed connector:
+     * the factory asks the catalog, and the catalog's null-safe capability lookup is part of what is under
+     * test here. {@code doReturn} (not {@code when}) because the real {@code getConnector()} would force
+     * catalog initialization during stubbing.
+     */
     private static PluginDrivenExternalCatalog catalogWithCapabilities(ConnectorCapability... caps) {
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getCapabilities()).thenReturn(
                 caps.length == 0 ? Collections.emptySet() : Sets.newHashSet(caps));
-        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
-        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        return catalogReturning(connector);
+    }
+
+    private static PluginDrivenExternalCatalog catalogReturning(Connector connector) {
+        PluginDrivenExternalCatalog catalog =
+                Mockito.mock(PluginDrivenExternalCatalog.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(connector).when(catalog).getConnector();
         return catalog;
     }
 }

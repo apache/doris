@@ -242,7 +242,7 @@ public class PluginDrivenExternalTablePartitionTest {
         rawProps.put("path", "s3://wh/db/t");
         rawProps.put("file.format", "orc");
         rawProps.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "dt");
-        rawProps.put(ConnectorTableSchema.PRIMARY_KEYS_KEY, "id");
+        rawProps.put(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY, "id");
         PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
                 Collections.singletonList(new Column("id", PrimitiveType.INT)),
                 Collections.emptyList(), Collections.emptyList(), rawProps);
@@ -258,8 +258,8 @@ public class PluginDrivenExternalTablePartitionTest {
         Assertions.assertEquals("orc", props.get("file.format"));
         Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PARTITION_COLUMNS_KEY),
                 "the reserved partition-columns key must not appear in SHOW CREATE PROPERTIES");
-        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.PRIMARY_KEYS_KEY),
-                "the reserved primary-keys key must not appear in SHOW CREATE PROPERTIES");
+        Assertions.assertFalse(props.containsKey(ConnectorTableSchema.DISTRIBUTION_COLUMNS_KEY),
+                "the reserved distribution-columns key must not appear in SHOW CREATE PROPERTIES");
     }
 
     @Test

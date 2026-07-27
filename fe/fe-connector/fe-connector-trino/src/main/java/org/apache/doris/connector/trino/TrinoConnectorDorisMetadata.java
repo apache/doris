@@ -251,6 +251,21 @@ public class TrinoConnectorDorisMetadata implements ConnectorMetadata {
         return result;
     }
 
+    /**
+     * The trino-connector bridge accepts CAST-bearing predicates ({@code true}, the SPI default, stated here
+     * rather than inherited).
+     *
+     * <p>This is a conscious acceptance of the risk the SPI documents, not a claim of safety: the residual
+     * predicate becomes a trino {@code Constraint} and is handed to the embedded trino connector's own
+     * {@code applyFilter}, which may turn it into source-side filtering with that system's coercion rules. It
+     * stays {@code true} because the bridge cannot tell which embedded connector will do so, and dropping all
+     * CAST-bearing conjuncts would silently de-optimize every trino catalog.</p>
+     */
+    @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        return true;
+    }
+
     @Override
     public Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             ConnectorSession session,

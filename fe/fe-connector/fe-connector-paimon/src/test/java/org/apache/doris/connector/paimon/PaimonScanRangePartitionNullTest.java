@@ -32,7 +32,7 @@ import java.util.Map;
  * P5-fix FIX-PARTITION-NULL-SENTINEL (review §5 sentinel data-edge) — pins that
  * {@link PaimonScanRange#populateRangeParams} derives a partition column's {@code isNull} from the
  * Java null ONLY (legacy {@code PaimonScanNode.setScanParams:323-326} parity), and does NOT apply
- * the Hive-directory sentinel coercion of {@code ConnectorPartitionValues.normalize}.
+ * the Hive-directory sentinel coercion hudi applies in {@code HudiScanRange#populateRangeParams}.
  *
  * <p>Paimon partition values are typed: the per-type serializer returns a Java null for a genuine
  * null, never a directory sentinel. So a literal {@code "\N"} or {@code "__HIVE_DEFAULT_PARTITION__"}
@@ -71,8 +71,8 @@ public class PaimonScanRangePartitionNullTest {
         // WHY: paimon partition values are typed — a genuine null is a Java null, never a Hive
         // directory sentinel. isNull must derive from the Java null ONLY (legacy
         // PaimonScanNode:323-326). A literal "\N" / "__HIVE_DEFAULT_PARTITION__" is real data and
-        // must be kept verbatim, not coerced to NULL. MUTATION: routing through
-        // ConnectorPartitionValues.normalize (Hive-aware coercion) flips both literal rows to
+        // must be kept verbatim, not coerced to NULL. MUTATION: applying hudi's directory-name rule
+        // (HudiScanRange, Hive-aware coercion) flips both literal rows to
         // isNull=true (and the genuine null renders "\N" not "") -> red.
 
         // ordinary value -> kept, not null

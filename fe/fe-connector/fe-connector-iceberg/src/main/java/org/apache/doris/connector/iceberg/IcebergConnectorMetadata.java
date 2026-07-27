@@ -46,6 +46,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -811,11 +812,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return Long.parseLong(totalRecords) - Long.parseLong(positionDeletes);
     }
 
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     /**
      * Builds the read-path Thrift descriptor for an iceberg plugin table, forking on the catalog type
      * exactly as legacy {@code IcebergExternalTable.toThrift} / {@code IcebergSysExternalTable.toThrift}:
@@ -856,16 +852,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     // ========== DDL writes (B1): create/drop database + table ==========
-
-    /**
-     * Iceberg supports CREATE DATABASE (namespace). Declaring it lets {@code PluginDrivenExternalCatalog.createDb}
-     * consult the remote namespace existence for IF NOT EXISTS (the SPI default {@code false} would skip that
-     * check). Mirrors paimon.
-     */
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
 
     /**
      * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. Namespace
@@ -944,7 +930,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Cleanup runs OUTSIDE the iceberg auth scope: it is engine-side (its own storage creds) and
         // best-effort (failures are swallowed by the engine), so it must never fail the completed drop.
         namespaceLocation.ifPresent(location ->
-                context.cleanupEmptyManagedLocation(location, Collections.emptyList()));
+                storage().cleanupEmptyManagedLocation(location, Collections.emptyList()));
     }
 
     /**
@@ -1093,7 +1079,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
         }
         tableLocation.ifPresent(location ->
-                context.cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
+                storage().cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
     }
 
     /**
@@ -1796,6 +1782,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    // ========== Predicate pushdown ==========
+
+    /**
+     * Iceberg accepts CAST-bearing predicates ({@code true}, the SPI default, stated here rather than
+     * inherited).
+     *
+     * <p>This is a conscious acceptance of the risk the SPI documents, not a claim of safety: the residual
+     * predicate is converted by {@code IcebergPredicateConverter} and handed to the {@code TableScan}, so it
+     * prunes manifests and data files AT THE SOURCE, and the engine has already unwrapped the CAST — a
+     * comparison whose literal iceberg binds differently than Doris coerced it can skip files that hold
+     * matching rows, which BE cannot recover. It stays {@code true} for parity with the legacy
+     * {@code IcebergScanNode}, which pushed the same converted predicate; no defect has been observed. A
+     * connector added later should default to {@code false} instead (see the SPI javadoc).</p>
+     */
+    @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        return true;
+    }
+
     // ========== B-2: partition enumeration (MTMV RANGE view + SHOW PARTITIONS) ==========
 
     /**
@@ -2217,5 +2222,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
         }
         return formatVersion;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

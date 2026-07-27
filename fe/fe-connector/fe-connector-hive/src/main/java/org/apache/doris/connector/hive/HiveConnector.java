@@ -70,12 +70,13 @@ public class HiveConnector implements Connector {
 
     // The sibling connector type a flipped hms gateway delegates iceberg-on-HMS tables to. A string literal
     // (not the iceberg plugin's own type constant, which is child-first and invisible from the hive loader);
-    // matches the "iceberg" entry in CatalogFactory.SPI_READY_TYPES.
+    // matches the type name IcebergConnectorProvider registers.
     private static final String ICEBERG_CONNECTOR_TYPE = "iceberg";
 
     // The sibling connector type a flipped hms gateway delegates hudi-on-HMS tables to. A string literal (hudi
     // has NO user-facing catalog type — it is served only via createSiblingConnector); matches the "hudi" type
-    // string HudiConnectorProvider registers. NEVER add "hudi" to CatalogFactory.SPI_READY_TYPES.
+    // string HudiConnectorProvider registers, which declares isStandaloneCatalogType() == false so that the
+    // engine can never build a hudi catalog. Sibling lookup does not consult that flag, so this stays valid.
     private static final String HUDI_CONNECTOR_TYPE = "hudi";
 
     private final Map<String, String> properties;
@@ -319,8 +320,8 @@ public class HiveConnector implements Connector {
         // Deliberately NOT declared here:
         //  - SUPPORTS_SHOW_CREATE_DDL: the connector must first emit the table location (show.location) and a
         //    generic-vs-hive-specific SHOW CREATE rendering must be decided — its own substep.
-        //  - SUPPORTS_PASSTHROUGH_QUERY / SUPPORTS_PARTITION_STATS: hive exposes no query() TVF, and legacy SHOW
-        //    PARTITIONS lists names only.
+        //  - SUPPORTS_PARTITION_STATS: legacy SHOW PARTITIONS lists names only. (Passthrough SQL is not a
+        //    capability at all: hive simply does not implement ConnectorPassthroughSqlOps.)
         //  - SUPPORTS_TOPN_LAZY_MATERIALIZE: a per-table marker emitted in getTableSchema (orc/parquet only),
         //    never a connector-wide flag.
         //  - SUPPORTS_COLUMN_AUTO_ANALYZE: legacy StatisticsUtil.supportAutoAnalyze admitted HMS tables of dlaType

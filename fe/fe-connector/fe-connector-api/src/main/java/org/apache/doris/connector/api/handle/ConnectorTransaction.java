@@ -28,11 +28,8 @@ import java.io.Closeable;
  * {@link #rollback()} on failure, then always calls {@link #close()} to
  * release resources. {@code rollback()} and {@code close()} are safe to
  * call multiple times.</p>
- *
- * <p>Extends the marker {@link ConnectorTransactionHandle} so that existing
- * APIs that traffic in opaque handles continue to work without change.</p>
  */
-public interface ConnectorTransaction extends ConnectorTransactionHandle, Closeable {
+public interface ConnectorTransaction extends Closeable {
 
     /** Stable transaction ID assigned by the connector. */
     long getTransactionId();
@@ -76,7 +73,7 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
 
     /**
      * Applies an optional engine-extracted, target-only write constraint used for write-time optimistic
-     * conflict detection (O5-2). The engine extracts, from the analyzed DELETE/UPDATE/MERGE plan, the
+     * conflict detection. The engine extracts, from the analyzed DELETE/UPDATE/MERGE plan, the
      * conjuncts that reference only the target table's own columns (slot origin-table == target, excluding
      * synthetic {@code $row_id} / metadata / join columns) and hands the connector a neutral
      * {@link ConnectorPredicate} at plan time, before {@code begin}/{@code commit}.

@@ -45,7 +45,7 @@ import java.util.function.BiConsumer;
  * storage {@code Configuration} from the pre-computed canonical object-store config) and
  * {@link #assembleHiveConf} (layers the shared-parser HiveConf overrides over an optional hive-site.xml
  * base for the hms flavor). The {@code storageHadoopConfig} arg is assembled by
- * {@code PaimonConnector} from {@code ConnectorContext.getStorageProperties()} (fe-filesystem's
+ * {@code PaimonConnector} from {@code ConnectorStorageContext.getStorageProperties()} (fe-filesystem's
  * {@code toHadoopProperties().toHadoopConfigurationMap()}), so the helpers stay pure (Maps in, conf out)
  * and unit-testable offline; only the {@code CatalogFactory.createCatalog} call in
  * {@code PaimonConnector} needs a live metastore.
@@ -228,7 +228,7 @@ public final class PaimonCatalogFactory {
      *   <li>{@code storageHadoopConfig} carries the canonical object-store translation
      *       ({@code s3.*}/{@code oss.*}/{@code cos.*}/{@code obs.*}/{@code AWS_*} -&gt; {@code fs.s3a.*} /
      *       Jindo {@code fs.oss.*} / etc.), computed upstream by the connector from
-     *       {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
+     *       {@code ConnectorStorageContext.getStorageProperties()} via fe-filesystem's
      *       {@code toHadoopProperties().toHadoopConfigurationMap()} (P1-T03; replaces the legacy
      *       {@code StorageProperties.buildObjectStorageHadoopConfig(props)} call);</li>
      *   <li>{@code paimon.s3.*} / {@code paimon.s3a.*} / {@code paimon.fs.s3.*} / {@code paimon.fs.oss.*}
@@ -265,7 +265,7 @@ public final class PaimonCatalogFactory {
      *
      * <ol>
      *   <li>the pre-computed {@code storageHadoopConfig} (canonical object-store translation, produced
-     *       upstream from {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
+     *       upstream from {@code ConnectorStorageContext.getStorageProperties()} via fe-filesystem's
      *       {@code toHadoopConfigurationMap()}; replaces the legacy
      *       {@code StorageProperties.buildObjectStorageHadoopConfig(props)} call);</li>
      *   <li>the original {@code paimon.s3./s3a./fs.s3./fs.oss.} re-key + raw {@code fs./dfs./hadoop.}
@@ -276,7 +276,7 @@ public final class PaimonCatalogFactory {
     private static void applyStorageConfig(Map<String, String> storageHadoopConfig,
             Map<String, String> props, BiConsumer<String, String> setter) {
         // Pre-computed canonical storage config, assembled by PaimonConnector from
-        // ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap() (fe-filesystem is the
+        // getStorageProperties().toHadoopProperties().toHadoopConfigurationMap() (fe-filesystem is the
         // single source of truth; P1-T03): object stores contribute fs.s3a.*/fs.oss.*/fs.cosn.*/fs.obs.*,
         // and an HDFS catalog contributes its hadoop.config.resources XML + HA + auth keys (C2; the
         // fe-filesystem HDFS map is defaults-free so it cannot clobber the object-store keys above). Inline

@@ -163,7 +163,7 @@ public class HiveConnectorTransactionTest {
     }
 
     // Builds a transaction whose engine FileSystem is the injected fake, borrowed via the context — mirroring
-    // production, where context.getFileSystem(session) hands back the per-catalog SpiSwitchingFileSystem. The
+    // production, where storage().getFileSystem(session) hands back the per-catalog SpiSwitchingFileSystem. The
     // concrete fake is wrapped in a non-ObjFileSystem routing facade so the connector MUST call forLocation(...)
     // to narrow to the ObjFileSystem: a regression that casts getFileSystem() directly then fails instanceof.
     private HiveConnectorTransaction newTxnWithFs(HmsClient client, FileSystem concreteFs) {

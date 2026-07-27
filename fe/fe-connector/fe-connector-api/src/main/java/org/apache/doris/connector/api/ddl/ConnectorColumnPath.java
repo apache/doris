@@ -25,7 +25,7 @@ import java.util.Objects;
 /**
  * The dotted column path targeted by an {@code ALTER TABLE ADD/DROP/RENAME/MODIFY COLUMN} clause,
  * carried neutrally across the SPI by the {@code ConnectorColumnPath} column-DDL overloads on
- * {@link org.apache.doris.connector.api.ConnectorTableOps}.
+ * {@link org.apache.doris.connector.api.ConnectorColumnEvolutionOps}.
  *
  * <p>Faithful, lossless neutralization of the fe-core {@code org.apache.doris.analysis.ColumnPath}
  * (an ordered, non-empty list of identifier parts). A single-part path targets a top-level column;

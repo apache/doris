@@ -30,7 +30,7 @@ import java.util.Optional;
  *
  * <p>Carries the engine-resolved facts about a single DML write: the target
  * table handle, the column list, whether it is an OVERWRITE, and the static
- * partition spec ({@link #getWriteContext}). The connector reads these to build
+ * partition spec ({@link #getStaticPartitionSpec}). The connector reads these to build
  * its Thrift data sink.</p>
  */
 public interface ConnectorWriteHandle {
@@ -47,13 +47,14 @@ public interface ConnectorWriteHandle {
     /**
      * The static partition spec (partition column name -&gt; value) for a statically partitioned write,
      * carried from the bound sink to {@code planWrite}; an EMPTY map when the write is not statically
-     * partitioned. Despite the "write context" name (once envisioned as a free-form bag), the only content
-     * the sole producer ({@code PluginDrivenTableSink.bindDataSink} -&gt;
-     * {@code PluginDrivenInsertCommandContext.getStaticPartitionSpec}) ever populates is the static
-     * partition spec, and the write providers (hive/iceberg/maxcompute) all consume it as such (iceberg
-     * ships it verbatim as {@code TDataSink.static_partition_values}).
+     * partitioned. Both sides now spell it the same way: the sole producer is
+     * {@code PluginDrivenTableSink.bindDataSink} -&gt; {@code PluginDrivenInsertCommandContext
+     * .getStaticPartitionSpec}, and the write providers (hive/iceberg/maxcompute) consume it as such
+     * (iceberg ships it verbatim as {@code TDataSink.static_partition_values}). It was once called
+     * {@code getWriteContext} and envisioned as a free-form bag; nothing ever put anything else in it, so the
+     * name was corrected rather than the contract widened. A future free-form channel would be a new method.
      */
-    Map<String, String> getWriteContext();
+    Map<String, String> getStaticPartitionSpec();
 
     /**
      * The kind of DML write (INSERT / OVERWRITE / DELETE / UPDATE / MERGE). A single

@@ -41,19 +41,6 @@ import java.util.OptionalLong;
 public interface ConnectorScanPlanProvider {
 
     /**
-     * Returns the scan range type this provider produces.
-     *
-     * <p>The engine uses this to determine which Thrift scan range structure
-     * to generate. For example, {@link ConnectorScanRangeType#FILE_SCAN}
-     * produces TFileScanRange.</p>
-     *
-     * @return the scan range type (default: FILE_SCAN)
-     */
-    default ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
-    }
-
-    /**
      * Whether this connector is PREDICATE-DRIVEN and therefore opts out of the FE prune-to-zero
      * short-circuit.
      *
@@ -127,111 +114,19 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
-     * Plans the scan for the given table, returning a list of scan ranges.
+     * Plans the scan described by {@code request}, returning the ranges that cover the requested data.
+     *
+     * <p>This is the one method a scanning connector must implement. Everything the engine can tell it about
+     * the scan — columns, remaining filter, row limit, pruned partitions, {@code COUNT(*)} pushdown — arrives
+     * on {@link ConnectorScanRequest}, and a connector consumes what it can serve and ignores the rest. It
+     * replaced a chain of four overloads in which only the shortest was abstract, so implementing the obvious
+     * one silently discarded the limit, the partition pruning and the count signal.</p>
      *
      * @param session the current session
-     * @param handle  the table handle to scan (may have been updated by applyFilter/applyProjection)
-     * @param columns the columns to read
-     * @param filter  an optional filter expression (remaining after pushdown)
-     * @return a list of scan ranges that cover the requested data
+     * @param request what to scan and what the engine has already pushed down
+     * @return the scan ranges covering the requested data
      */
-    List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter);
-
-    /**
-     * Plans the scan with an optional row limit.
-     *
-     * <p>Some connectors (e.g., JDBC) can push the limit into the remote query
-     * to reduce data transfer. The default delegates to the 4-arg planScan,
-     * ignoring the limit.</p>
-     *
-     * @param session the current session
-     * @param handle  the table handle
-     * @param columns the columns to read
-     * @param filter  an optional remaining filter expression
-     * @param limit   the maximum number of rows to return, or -1 for no limit
-     * @return a list of scan ranges
-     */
-    default List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit) {
-        return planScan(session, handle, columns, filter);
-    }
-
-    /**
-     * Plans the scan restricted to a pruned set of partitions.
-     *
-     * <p>The engine computes partition pruning (Nereids {@code SelectedPartitions}) and
-     * threads the surviving partitions here so partition-aware connectors can build a read
-     * session over only those partitions instead of the whole table. The default ignores
-     * {@code requiredPartitions} and delegates to the 5-arg variant, so connectors that do
-     * not support partition pushdown are unaffected.</p>
-     *
-     * <p>Contract for {@code requiredPartitions}:</p>
-     * <ul>
-     *   <li>{@code null} or empty &rarr; not pruned; scan ALL partitions (default behavior).</li>
-     *   <li>non-empty &rarr; scan ONLY these partitions. Each entry is a partition spec string
-     *       (e.g. {@code "pt=1,region=cn"}), i.e. the keys of the pruned partition map.</li>
-     * </ul>
-     *
-     * <p>The "pruned to zero partitions" case (a partition predicate that matches nothing) is
-     * short-circuited by the engine before this method is called, so an empty list here always
-     * means "not pruned / scan all", never "scan nothing".</p>
-     *
-     * @param session           the current session
-     * @param handle            the table handle
-     * @param columns           the columns to read
-     * @param filter            an optional remaining filter expression
-     * @param limit             the maximum number of rows to return, or -1 for no limit
-     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
-     * @return a list of scan ranges
-     */
-    default List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions) {
-        return planScan(session, handle, columns, filter, limit);
-    }
-
-    /**
-     * Plans the scan, signalling whether a no-grouping {@code COUNT(*)} is being pushed down here.
-     *
-     * <p>When {@code countPushdown} is true, the engine has determined the query is a no-grouping
-     * {@code COUNT(*)} (Nereids {@code getPushDownAggNoGroupingOp()==COUNT}) and BE is already in
-     * count mode. A connector that can produce a precomputed row count for (some of) its splits
-     * should emit it so BE serves the count from metadata instead of materializing rows
-     * (e.g. Paimon's {@code DataSplit.mergedRowCount()}). The default ignores the flag and delegates
-     * to the 6-arg variant, so connectors without a metadata row count are unaffected and keep the
-     * normal scan.</p>
-     *
-     * @param session            the current session
-     * @param handle             the table handle
-     * @param columns            the columns to read
-     * @param filter             an optional remaining filter expression
-     * @param limit              the maximum number of rows to return, or -1 for no limit
-     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
-     * @param countPushdown      whether a no-grouping {@code COUNT(*)} is being pushed down to this scan
-     * @return a list of scan ranges
-     */
-    default List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions,
-            boolean countPushdown) {
-        return planScan(session, handle, columns, filter, limit, requiredPartitions);
-    }
+    List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request);
 
     /**
      * Whether this connector supports batched / streaming split generation for a partitioned scan.
@@ -266,6 +161,23 @@ public interface ConnectorScanPlanProvider {
      * @return whether split-size TABLESAMPLE is valid for this connector (default: false)
      */
     default boolean supportsTableSample() {
+        return false;
+    }
+
+    /**
+     * Whether the ranges this connector plans are read by BE's NATIVE file readers, so BE's file cache
+     * applies to them and the engine should run its file-cache admission governance for these tables.
+     *
+     * <p>{@code false} (the default) keeps a connector out of that governance, which is right for anything
+     * read through JNI or over a remote protocol: it never populates the BE file cache, so evaluating an
+     * admission rule for it only spends the lookup. A connector whose ranges BE reads natively (the lake
+     * formats reading parquet/orc off object storage) returns {@code true}, and does so regardless of which
+     * catalog type its tables live under — that is the point of asking the connector rather than matching a
+     * catalog type name. Mirrors {@link #supportsTableSample}'s opt-in shape.</p>
+     *
+     * @return whether BE file-cache admission governance applies to this connector's scans (default: false)
+     */
+    default boolean supportsFileCache() {
         return false;
     }
 
@@ -317,28 +229,23 @@ public interface ConnectorScanPlanProvider {
      *
      * <p>Called once per partition batch when the engine drives batch-mode split generation
      * (see {@link #supportsBatchScan}). Each call should build a read session over exactly the
-     * given {@code partitionBatch} and return that batch's scan ranges. The default delegates to
-     * the 6-arg {@link #planScan} with {@code partitionBatch} as the required partitions, which is
-     * correct for connectors whose {@code planScan} builds one read session per partition set
-     * (e.g. MaxCompute). A connector whose {@code planScan} is not partition-set-scoped must
-     * override this method (and {@link #supportsBatchScan}) before enabling batch mode.</p>
+     * given {@code partitionBatch} and return that batch's scan ranges. The default re-scopes the
+     * request to {@code partitionBatch} and calls {@link #planScan}, which is correct for connectors
+     * whose {@code planScan} builds one read session per partition set (e.g. MaxCompute). A connector
+     * whose {@code planScan} is not partition-set-scoped must override this method (and
+     * {@link #supportsBatchScan}) before enabling batch mode — inheriting the default would re-plan the
+     * WHOLE pruned set once per batch and emit every partition's files repeatedly.</p>
      *
      * @param session        the current session
-     * @param handle         the table handle
-     * @param columns        the columns to read
-     * @param filter         an optional remaining filter expression
-     * @param limit          the maximum number of rows to return, or -1 for no limit
+     * @param request        the scan request; its partition set is replaced by this batch
      * @param partitionBatch the partition spec strings for this batch (non-empty)
      * @return the scan ranges for this partition batch
      */
     default List<ConnectorScanRange> planScanForPartitionBatch(
             ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
+            ConnectorScanRequest request,
             List<String> partitionBatch) {
-        return planScan(session, handle, columns, filter, limit, partitionBatch);
+        return planScan(session, request.withRequiredPartitions(partitionBatch));
     }
 
     /**
@@ -408,6 +315,15 @@ public interface ConnectorScanPlanProvider {
      * return the query DSL, authentication info, and field context mappings here,
      * since they are shared across all shard scan ranges.</p>
      *
+     * <p>The keys the engine reads are declared in {@link ScanNodePropertyKeys}; use those constants rather
+     * than string literals. Any other key is connector-private (the engine passes the map back to
+     * {@link #populateScanLevelParams} and {@link #appendExplainInfo}, so a connector can carry its own
+     * information through it) and should be namespaced with the connector's own name.</p>
+     *
+     * <p><b>Override this face OR {@link #getScanNodePropertiesResult}, not both.</b> The engine only ever
+     * calls the result face, whose default implementation delegates here; a connector that overrides both
+     * with different content has the map returned by this method silently discarded.</p>
+     *
      * @param session the current session
      * @param handle  the table handle (may have been updated by applyFilter)
      * @param columns the columns to read
@@ -423,18 +339,6 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
-     * Estimates the number of scan ranges for parallelism planning.
-     * Returns -1 if the estimate is unknown.
-     *
-     * <p>The engine may use this to pre-allocate resources or decide
-     * scan parallelism before calling {@link #planScan}.</p>
-     */
-    default long estimateScanRangeCount(ConnectorSession session,
-            ConnectorTableHandle handle) {
-        return -1;
-    }
-
-    /**
      * Returns scan-node-level properties along with filter pushdown results.
      *
      * <p>Override this when the connector performs fine-grained conjunct pushdown
@@ -443,8 +347,22 @@ public interface ConnectorScanPlanProvider {
      * refer to the AND children of the filter expression, in the same order as
      * the conjuncts list.</p>
      *
-     * <p>The default wraps {@link #getScanNodeProperties} with an empty not-pushed set,
-     * meaning all conjuncts are assumed to have been pushed.</p>
+     * <p>The indices are into the conjunct list AS RECEIVED, i.e. after
+     * {@code PluginDrivenScanNode.buildRemainingFilter} has dropped CAST-wrapped conjuncts when
+     * {@link org.apache.doris.connector.api.ConnectorPushdownOps#supportsCastPredicatePushdown} is false; the
+     * engine maps them back to the original positions itself and always keeps the conjuncts it never sent.
+     * When {@code filter} is a single non-AND node (the engine does not wrap a lone conjunct in an AND),
+     * index 0 refers to that whole expression.</p>
+     *
+     * <p>The default wraps {@link #getScanNodeProperties} in a result WITHOUT conjunct tracking, which makes
+     * {@code PluginDrivenScanNode.pruneConjunctsFromNodeProperties} remove nothing: every conjunct is still
+     * evaluated on BE. That is the safe default — it is NOT "all conjuncts are assumed pushed". Reporting an
+     * empty not-pushed set through {@link ScanNodePropertiesResult#withPushdownTracking} is the opposite
+     * claim (everything was pushed, prune them all), so use it only when the pushdown was exact.</p>
+     *
+     * <p><b>This is the face the engine calls.</b> A connector that needs conjunct tracking overrides this
+     * one and leaves {@link #getScanNodeProperties} alone — overriding both is how the {@code Map} face's
+     * result gets silently discarded.</p>
      *
      * @param session the current session
      * @param handle  the table handle (may have been updated by applyFilter)
@@ -457,7 +375,7 @@ public interface ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        return new ScanNodePropertiesResult(
+        return ScanNodePropertiesResult.of(
                 getScanNodeProperties(session, handle, columns, filter));
     }
 
@@ -508,20 +426,6 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
-     * Returns the serialized table representation for this connector,
-     * or {@code null} if not applicable.
-     *
-     * <p>Currently used by Paimon to pass the serialized Paimon Table
-     * object to BE for JNI-based reading.</p>
-     *
-     * @param nodeProperties the scan node properties
-     * @return serialized table string, or null
-     */
-    default String getSerializedTable(Map<String, String> nodeProperties) {
-        return null;
-    }
-
-    /**
      * Releases any per-query read transaction this provider opened, called by the engine when the query
      * finishes (via the generic query-finish callback registry). The default is a no-op: connectors that do
      * not open a per-query read transaction (every connector except transactional/ACID hive) need not override
@@ -533,6 +437,15 @@ public interface ConnectorScanPlanProvider {
      * swallow a commit failure rather than propagate (the callback registry isolates exceptions anyway).
      * {@code queryId} is the engine query id string ({@link ConnectorSession#getQueryId()}), the same key the
      * provider registered the transaction under.</p>
+     *
+     * <p><b>Where that transaction may be kept.</b> This method releases state opened by a DIFFERENT call, yet
+     * a provider instance cannot carry it: providers are built fresh per acquisition ({@code
+     * Connector.getScanPlanProvider}), so the instance that opened the transaction is generally not the one
+     * asked to release it. The state therefore belongs to the CONNECTOR — a connector-scoped, query-id-keyed
+     * registry that both the opening {@code planScan} and this callback reach through the connector instance
+     * they were built from (this is what hive does). A provider that stashes the transaction in its own field
+     * leaks it, and no test will say so. The same rule applies to any other cross-call state a provider
+     * appears to need: put it on the connector, keyed by query id, and clean it up here.</p>
      *
      * @param queryId the finishing query's id (== {@link ConnectorSession#getQueryId()})
      */

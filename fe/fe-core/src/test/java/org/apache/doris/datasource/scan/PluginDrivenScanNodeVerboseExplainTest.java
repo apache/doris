@@ -53,7 +53,7 @@ import java.util.Collections;
  * cut-over MaxCompute VERBOSE EXPLAIN (legacy {@code MaxComputeScanNode extends FileQueryScanNode} inherited
  * the unconditional block) and (b) violated the project rule that the generic SPI node must not branch on a
  * connector source name. After cut-over, jdbc/es/trino-connector/max_compute/paimon all route through this
- * node ({@code SPI_READY_TYPES}); the block must appear for all of them.</p>
+ * node; the block must appear for all of them.</p>
  *
  * <p><b>MUTATION killed:</b> re-introducing {@code && "paimon".equals(desc.getTable().getDatabase()
  * .getCatalog().getType())} makes a non-paimon catalog (here {@code max_compute}) skip the block, so

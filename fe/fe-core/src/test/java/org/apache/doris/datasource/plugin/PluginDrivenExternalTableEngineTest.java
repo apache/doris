@@ -20,6 +20,8 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
@@ -27,13 +29,17 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -46,12 +52,27 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Tests that {@link PluginDrivenExternalTable} returns the correct legacy engine
- * names and table type names for migrated JDBC/ES catalogs, preserving
- * user-visible compatibility across metadata surfaces (SHOW TABLE STATUS,
- * information_schema.tables, REST API, etc.).
+ * What a plugin-driven table answers when asked for its engine name — the {@code ENGINE} column of
+ * {@code SHOW TABLE STATUS} and {@code information_schema.tables}, and the string {@code SHOW CREATE TABLE}
+ * prints after {@code ENGINE=}.
+ *
+ * <p>The engine holds no mapping from data source to displayed name: the name comes from the connector's
+ * provider, which defaults it to the catalog type. These tests pin that — a catalog type the engine has never
+ * heard of gets its own name, and a connector that spells its name differently from its type is obeyed.
  */
 public class PluginDrivenExternalTableEngineTest {
+
+    @BeforeEach
+    void setUp() {
+        // The plugin manager is a static singleton shared with every other test in the fork: start from a known
+        // empty one rather than inheriting whatever the previous test class registered.
+        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
+    }
+
+    @AfterEach
+    void tearDown() {
+        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
+    }
 
     @Test
     public void testJdbcCatalogReturnsJdbcEngineName() {
@@ -68,92 +89,110 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
-    public void testMaxComputeCatalogReturnsLegacyEngineName() {
+    public void testMaxComputeCatalogReturnsTheNameItsConnectorDeclares() {
+        // The one connector whose displayed name is not its catalog type: the type a user writes is
+        // "max_compute", the product is spelled "maxcompute". Only the provider knows that, which is the whole
+        // point — the engine cannot special-case it. MUTATION: dropping the provider's displayEngineName()
+        // override -> "max_compute" -> red.
+        registerProvider("max_compute", "maxcompute");
         PluginDrivenExternalTable table = createTableWithCatalogType("max_compute");
-        // Legacy MaxComputeExternalTable did not override getEngine(); its type
-        // MAX_COMPUTE_EXTERNAL_TABLE has no case in TableType.toEngineName(), so the
-        // engine name was null. The migrated table must reproduce that exactly,
-        // otherwise SHOW TABLE STATUS / information_schema.tables would regress.
-        Assertions.assertNull(table.getEngine(),
-                "MaxCompute catalog tables should report the legacy null engine name");
+        Assertions.assertEquals("maxcompute", table.getEngine(),
+                "MaxCompute catalog tables should report the name its connector declares");
     }
 
     @Test
-    public void testUnknownCatalogReturnsPluginEngineName() {
+    public void testUnknownCatalogReturnsItsCatalogType() {
+        // No provider registered for this type at all, which is also what a catalog whose plugin was uninstalled
+        // looks like: the name falls back to the catalog type rather than becoming a generic placeholder or
+        // throwing. It must NOT be a fixed string — that would mean the engine still owns the mapping.
         PluginDrivenExternalTable table = createTableWithCatalogType("custom_type");
-        Assertions.assertEquals("Plugin", table.getEngine(),
-                "Unknown catalog types should report engine='Plugin'");
+        Assertions.assertEquals("custom_type", table.getEngine(),
+                "A catalog type with no registered provider should report its own type as the engine");
     }
 
     @Test
     public void testJdbcCatalogReturnsJdbcEngineTableTypeName() {
         PluginDrivenExternalTable table = createTableWithCatalogType("jdbc");
-        Assertions.assertEquals(TableType.JDBC_EXTERNAL_TABLE.name(),
-                table.getEngineTableTypeName(),
-                "JDBC catalog tables should report JDBC_EXTERNAL_TABLE type name");
+        Assertions.assertEquals("jdbc", table.getEngineTableTypeName(),
+                "SHOW CREATE TABLE on a JDBC catalog table should print ENGINE=jdbc");
     }
 
     @Test
     public void testEsCatalogReturnsEsEngineTableTypeName() {
         PluginDrivenExternalTable table = createTableWithCatalogType("es");
-        Assertions.assertEquals(TableType.ES_EXTERNAL_TABLE.name(),
-                table.getEngineTableTypeName(),
-                "ES catalog tables should report ES_EXTERNAL_TABLE type name");
+        Assertions.assertEquals("es", table.getEngineTableTypeName(),
+                "SHOW CREATE TABLE on an ES catalog table should print ENGINE=es");
     }
 
     @Test
     public void testMaxComputeCatalogReturnsMaxComputeEngineTableTypeName() {
+        registerProvider("max_compute", "maxcompute");
         PluginDrivenExternalTable table = createTableWithCatalogType("max_compute");
-        Assertions.assertEquals(TableType.MAX_COMPUTE_EXTERNAL_TABLE.name(),
-                table.getEngineTableTypeName(),
-                "MaxCompute catalog tables should report MAX_COMPUTE_EXTERNAL_TABLE type name");
+        Assertions.assertEquals("maxcompute", table.getEngineTableTypeName(),
+                "SHOW CREATE TABLE on a MaxCompute catalog table should print ENGINE=maxcompute");
     }
 
     @Test
-    public void testUnknownCatalogReturnsPluginEngineTableTypeName() {
+    public void testUnknownCatalogReturnsItsCatalogTypeAsEngineTableTypeName() {
         PluginDrivenExternalTable table = createTableWithCatalogType("custom_type");
-        Assertions.assertEquals(TableType.PLUGIN_EXTERNAL_TABLE.name(),
-                table.getEngineTableTypeName(),
-                "Unknown catalog types should report PLUGIN_EXTERNAL_TABLE type name");
+        Assertions.assertEquals("custom_type", table.getEngineTableTypeName(),
+                "SHOW CREATE TABLE on a catalog with no provider should print its catalog type");
     }
 
     @Test
     public void testIcebergCatalogReturnsIcebergEngineName() {
-        // P6.5-T06: after the iceberg cutover (P6.6) a base/sys iceberg table is a PluginDrivenExternalTable;
-        // legacy IcebergExternalTable reported engine "iceberg" (TableType.ICEBERG_EXTERNAL_TABLE.toEngineName()).
-        // Without an iceberg case it would fall through to "Plugin", regressing SHOW TABLE STATUS /
-        // information_schema.tables. MUTATION: dropping the iceberg case -> "Plugin" -> red.
         PluginDrivenExternalTable table = createTableWithCatalogType("iceberg");
         Assertions.assertEquals("iceberg", table.getEngine(),
-                "Iceberg catalog tables should report engine='iceberg' (legacy parity), not 'Plugin'");
+                "Iceberg catalog tables should report engine='iceberg'");
     }
 
     @Test
     public void testIcebergCatalogReturnsIcebergEngineTableTypeName() {
         PluginDrivenExternalTable table = createTableWithCatalogType("iceberg");
-        Assertions.assertEquals(TableType.ICEBERG_EXTERNAL_TABLE.name(),
-                table.getEngineTableTypeName(),
-                "Iceberg catalog tables should report ICEBERG_EXTERNAL_TABLE type name");
+        Assertions.assertEquals("iceberg", table.getEngineTableTypeName(),
+                "SHOW CREATE TABLE on an iceberg catalog table should print ENGINE=iceberg");
     }
 
     @Test
     public void testHmsCatalogReturnsHmsEngineName() {
-        // HMS cutover: after the flip an HMS external catalog is a PluginDrivenExternalCatalog (type
-        // "hms"); legacy HMSExternalTable displayed engine "hms" (TableType.HMS_EXTERNAL_TABLE.toEngineName()),
-        // NOT "hive" (that is the CREATE-TABLE engine, a separate concern). Without an "hms" case it would
-        // fall through to "Plugin", regressing SHOW TABLE STATUS / information_schema.tables.
-        // MUTATION: dropping the hms case -> "Plugin" -> red; returning "hive" -> red.
+        // An HMS catalog displays "hms", NOT the "hive" its connector accepts in CREATE TABLE ... ENGINE=.
+        // Displaying and accepting are answered by two different provider methods precisely because a
+        // connector may need them to differ; this is the one that does.
+        registerProvider("hms", "hms");
         PluginDrivenExternalTable table = createTableWithCatalogType("hms");
         Assertions.assertEquals("hms", table.getEngine(),
-                "Hms catalog tables should report engine='hms' (legacy parity), not 'Plugin' or 'hive'");
+                "Hms catalog tables should report engine='hms', not the accepted CREATE TABLE engine 'hive'");
     }
 
     @Test
     public void testHmsCatalogReturnsHmsEngineTableTypeName() {
+        registerProvider("hms", "hms");
         PluginDrivenExternalTable table = createTableWithCatalogType("hms");
-        Assertions.assertEquals(TableType.HMS_EXTERNAL_TABLE.name(),
-                table.getEngineTableTypeName(),
-                "Hms catalog tables should report HMS_EXTERNAL_TABLE type name");
+        Assertions.assertEquals("hms", table.getEngineTableTypeName(),
+                "SHOW CREATE TABLE on an HMS catalog table should print ENGINE=hms");
+    }
+
+    @Test
+    public void testEngineNameComesFromTheConnectorNotFromAnyEngineSideTable() {
+        // The regression guard for the whole change: a catalog type fe-core has never heard of, whose connector
+        // spells its displayed name differently again. Nothing in the engine could produce this answer from a
+        // hardcoded list. MUTATION: resolving the name from the catalog type instead of the provider -> red.
+        registerProvider("acme-lake", "AcmeLake");
+        PluginDrivenExternalTable table = createTableWithCatalogType("acme-lake");
+        Assertions.assertEquals("AcmeLake", table.getEngine(),
+                "the displayed engine name must be whatever the connector's provider says it is");
+    }
+
+    @Test
+    public void testBothEngineNamesAlwaysAgree() {
+        // One connector, one engine name, however the user reaches it: SHOW TABLE STATUS and SHOW CREATE TABLE
+        // must never disagree. MUTATION: giving getEngineTableTypeName() its own derivation -> red.
+        registerProvider("max_compute", "maxcompute");
+        for (String catalogType : new String[] {"jdbc", "iceberg", "max_compute", "custom_type"}) {
+            PluginDrivenExternalTable table = createTableWithCatalogType(catalogType);
+            Assertions.assertEquals(table.getEngine(), table.getEngineTableTypeName(),
+                    "the ENGINE column and the ENGINE= clause must show the same name for " + catalogType);
+        }
     }
 
     @Test
@@ -263,6 +302,29 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     // -------- Helpers --------
+
+    /** Registers a single fake provider claiming {@code type} and displaying {@code displayName}. */
+    private static void registerProvider(String type, String displayName) {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return type;
+            }
+
+            @Override
+            public String displayEngineName() {
+                return displayName;
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                throw new UnsupportedOperationException(
+                        "the displayed engine name must be answered without building a connector");
+            }
+        });
+        ConnectorFactory.initPluginManager(manager);
+    }
 
     private PluginDrivenExternalTable createTableWithCatalogType(String catalogType) {
         return createTableWithCatalogType(catalogType, createMockConnector(true, false));

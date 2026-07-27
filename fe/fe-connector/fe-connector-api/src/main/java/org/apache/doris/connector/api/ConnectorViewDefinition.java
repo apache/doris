@@ -24,7 +24,7 @@ import java.util.Objects;
 
 /**
  * The neutral definition of a connector view: its stored SQL text, the SQL dialect that text is
- * written in, and the view's column schema. Returned by {@code ConnectorTableOps.getViewDefinition} so
+ * written in, and the view's column schema. Returned by {@code ConnectorViewOps.getViewDefinition} so
  * fe-core can parse and analyze an external view (e.g. iceberg) AND surface its columns
  * (DESC / SHOW COLUMNS / information_schema.columns) without knowing the connector's native view types.
  * Trino-aligned ({@code ConnectorViewDefinition} carries the SQL + dialect + columns as first-class

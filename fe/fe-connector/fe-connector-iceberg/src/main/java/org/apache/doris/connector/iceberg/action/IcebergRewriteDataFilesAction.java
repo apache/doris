@@ -17,12 +17,17 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.foundation.util.ArgumentParsers;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.Table;
 
 import java.util.List;
@@ -173,5 +178,50 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         throw new DorisConnectorException(
                 "rewrite_data_files is a distributed procedure and has no single-call body; "
                         + "plan it via IcebergProcedureOps.planRewrite");
+    }
+
+    /**
+     * The columns this procedure reports, moved here verbatim from the engine rewrite driver so the
+     * result shape lives with the procedure that produces it (the eight single-call siblings already
+     * declare theirs the same way).
+     *
+     * <p>TWO TYPES LOOK WRONG AND ARE KEPT ON PURPOSE: {@code rewritten_bytes_count} is {@code INT}
+     * although it carries a {@code long} byte sum, and {@code removed_delete_files_count} is
+     * {@code BIGINT} although it carries an {@code int}. Both are the historical shape of this
+     * procedure's result set; changing either changes the column metadata every existing client sees,
+     * so it is a separate, deliberate decision and not a cleanup to make in passing.</p>
+     *
+     * <p>Static because {@link BaseIcebergAction} captures the schema from its constructor: an instance
+     * field would still be null at that point and the action would silently report no columns.</p>
+     */
+    private static final List<ConnectorColumn> RESULT_SCHEMA = ImmutableList.of(
+            new ConnectorColumn("rewritten_data_files_count", ConnectorType.of("INT"),
+                    "Number of data which were re-written by this command", false, null),
+            new ConnectorColumn("added_data_files_count", ConnectorType.of("INT"),
+                    "Number of new data files which were written by this command", false, null),
+            new ConnectorColumn("rewritten_bytes_count", ConnectorType.of("INT"),
+                    "Number of bytes which were written by this command", false, null),
+            new ConnectorColumn("removed_delete_files_count", ConnectorType.of("BIGINT"),
+                    "Number of delete files removed by this command", false, null));
+
+    @Override
+    protected List<ConnectorColumn> getResultSchema() {
+        // Unreachable today (this action has no single-call body), but it keeps the action
+        // self-describing like its siblings instead of declaring its columns only in buildResult.
+        return RESULT_SCHEMA;
+    }
+
+    /**
+     * Renders what the engine-orchestrated rewrite did into this procedure's one result row. Pure local
+     * formatting: no table load, no remote call — the engine also calls this when it planned zero
+     * groups and therefore never opened a transaction.
+     */
+    public static ConnectorProcedureResult buildResult(ConnectorRewriteStatistics statistics) {
+        List<String> row = ImmutableList.of(
+                String.valueOf(statistics.getDataFileCount()),
+                String.valueOf(statistics.getAddedDataFileCount()),
+                String.valueOf(statistics.getTotalSizeBytes()),
+                String.valueOf(statistics.getDeleteFileCount()));
+        return new ConnectorProcedureResult(RESULT_SCHEMA, ImmutableList.of(row));
     }
 }

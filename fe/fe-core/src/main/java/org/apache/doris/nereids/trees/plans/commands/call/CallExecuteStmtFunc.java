@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.call;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -96,14 +97,18 @@ public class CallExecuteStmtFunc extends CallFunc {
             throw new AnalysisException("user " + user + " has no privilege to execute stmt in catalog " + catalogName);
         }
 
+        // Passthrough SQL is an optional SPI interface, not a capability flag: a connector that implements
+        // ConnectorPassthroughSqlOps offers it, one that does not is refused here.
         if (catalogIf instanceof PluginDrivenExternalCatalog) {
             PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
             ConnectorSession session = pluginCatalog.buildConnectorSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
-            metadata.executeStmt(session, stmt);
-        } else {
-            throw new AnalysisException("executeStmt not supported for catalog type: "
-                    + catalogIf.getType());
+            if (metadata instanceof ConnectorPassthroughSqlOps) {
+                ((ConnectorPassthroughSqlOps) metadata).executeStmt(session, stmt);
+                return;
+            }
         }
+        throw new AnalysisException("executeStmt not supported for catalog type: "
+                + catalogIf.getType());
     }
 }

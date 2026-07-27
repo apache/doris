@@ -20,13 +20,13 @@ package org.apache.doris.connector.api.handle;
 import java.util.Set;
 
 /**
- * Narrow opt-in capability for a {@link ConnectorTransaction} that supports the compaction
- * {@code rewrite_data_files} procedure (only iceberg today).
+ * Narrow opt-in capability for a {@link ConnectorTransaction} that supports a distributed compaction
+ * rewrite procedure (one connector implements one today).
  *
- * <p>Kept OFF {@link ConnectorTransaction} so the shared transaction contract carries no source-specific
- * methods: the engine rewrite driver ({@code ConnectorRewriteDriver}) checks {@code instanceof
- * RewriteCapableTransaction} before it calls, turning "unsupported" from a runtime throw into a type
- * mismatch. A connector whose transaction is not rewrite-capable simply does not implement this.</p>
+ * <p>Kept OFF {@link ConnectorTransaction} so the shared transaction contract carries no methods only some
+ * connectors can honor: the engine rewrite driver probes for this capability before it calls, turning
+ * "unsupported" from a runtime throw into a type mismatch. A connector whose transaction is not
+ * rewrite-capable simply does not implement this.</p>
  */
 public interface RewriteCapableTransaction {
 
@@ -45,8 +45,8 @@ public interface RewriteCapableTransaction {
     /**
      * Compaction rewrite: the number of new compacted data files this transaction added, available only
      * AFTER {@code ConnectorTransaction#commit()} (the count is materialized from the BE-reported commit
-     * fragments during commit). Feeds the procedure's {@code added_data_files_count} result column — the one
-     * rewrite-result statistic the engine driver cannot compute from its planning groups.
+     * fragments during commit). This is the one rewrite statistic the engine cannot compute from the planning
+     * groups, which is why it has to be reported back rather than summed.
      */
     int getRewriteAddedDataFilesCount();
 }

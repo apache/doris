@@ -26,9 +26,12 @@ import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
@@ -112,17 +115,14 @@ import java.util.function.UnaryOperator;
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
  * {@code PaimonScanPlanProvider}. The generic, engine-neutral {@code PluginDrivenScanNode} drives split
- * generation through this provider once iceberg is in {@code SPI_READY_TYPES} (P6.6 cutover).
+ * generation through this provider.
  *
  * <p>P6.2-T01 (this task) is the skeleton: it wires the collaborators ({@code properties} /
  * {@link IcebergCatalogOps} seam / {@link ConnectorContext}) and pins the predicate-driven semantics
  * ({@link #ignorePartitionPruneShortCircuit()} = {@code true}). The real split planning — self-contained
  * predicate pushdown, {@code FileScanTask} enumeration, native-vs-JNI classification, merge-on-read
  * delete files (T04), COUNT(*) pushdown (T05; batch mode deferred, mirrors paimon), the field-id
- * history-schema dictionary (T06), and vended credentials (T09) — lands across P6.2-T02..T09. Iceberg is NOT
- * yet in {@code SPI_READY_TYPES}, so {@link #planScan} is not exercised at
- * runtime this phase (iceberg queries still route to the legacy {@code IcebergScanNode}); the parity is
- * verified by offline unit tests until the P6.6 cutover.</p>
+ * history-schema dictionary (T06), and vended credentials (T09) — lands across P6.2-T02..T09.</p>
  */
 public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -399,30 +399,20 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return planScanInternal(session, handle, columns, filter, false);
+    public boolean supportsFileCache() {
+        // iceberg data files are read by BE's native parquet/orc readers, so the BE file cache applies.
+        return true;
     }
 
     /**
-     * COUNT(*)-pushdown-aware scan entry (FIX-COUNT-PUSHDOWN). The generic {@code PluginDrivenScanNode}
-     * forwards the no-grouping {@code COUNT(*)} signal here. {@code limit}/{@code requiredPartitions} are not
-     * consumed by the iceberg read path (it is predicate-driven; mirrors paimon, whose other overloads fold
-     * down to the 4-arg planScan).
+     * The scan entry. Of everything on the request, iceberg consumes the handle, the columns, the filter and
+     * the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN); the row limit and the pruned partition set
+     * are not consumed by the iceberg read path — it is predicate-driven (mirrors paimon).
      */
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
-            List<String> requiredPartitions,
-            boolean countPushdown) {
-        return planScanInternal(session, handle, columns, filter, countPushdown);
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
+                request.getFilter(), request.isCountPushdown());
     }
 
     /**
@@ -1461,7 +1451,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * normalizer that preserves the raw path (paimon parity).
      */
     UnaryOperator<String> newUriNormalizer(Map<String, String> vendedToken) {
-        return context != null ? context.newStorageUriNormalizer(vendedToken) : UnaryOperator.identity();
+        return context != null ? storage().newStorageUriNormalizer(vendedToken) : UnaryOperator.identity();
     }
 
     /**
@@ -1551,7 +1541,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // PERF-03: the non-system format resolution falls back to an unfiltered whole-table planFiles() when the
         // table sets neither write-format nor write.format.default; memoize that inference per (table, snapshot)
         // across queries via formatCache (pure metadata, no credential gate). Null cache (offline) resolves live.
-        props.put("file_format_type",
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE,
                 systemTable ? "jni"
                         : IcebergWriterHelper.getFileFormat(table,
                                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), formatCache)
@@ -1569,7 +1559,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!systemTable) {
             List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
             if (!partitionKeys.isEmpty()) {
-                props.put("path_partition_keys", String.join(",", partitionKeys));
+                props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
             }
         }
         // Static storage credentials (T09, all flavors): the catalog's bound fe-filesystem StorageProperties,
@@ -1582,10 +1572,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // overlay, just the vended one below.
         if (context != null) {
             Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : context.getStorageProperties()) {
+            for (StorageProperties sp : storage().getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
-            backendStorageProps.forEach((k, v) -> props.put("location." + k, v));
+            backendStorageProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Vended-credential overlay (T09, REST per-table token): the raw token is extracted from the live,
         // snapshot-pinned table's FileIO (gated on the catalog flag iceberg.rest.vended-credentials-enabled,
@@ -1595,8 +1585,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // table yields no vended token (flag off / non-REST -> empty -> no-op).
         if (context != null) {
             Map<String, String> vendedBeProps =
-                    context.vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
-            vendedBeProps.forEach((k, v) -> props.put("location." + k, v));
+                    storage().vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
+            vendedBeProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the
         // PINNED schema's names, but the generic node builds the column handles from the LATEST schema (the pin
@@ -2432,5 +2422,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return MetadataTableUtils.createMetadataTableInstance(
                 catalogOpsResolver.apply(session).loadTable(handle.getDbName(), handle.getTableName()),
                 MetadataTableType.from(handle.getSysTableName()));
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

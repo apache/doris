@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
@@ -242,6 +243,11 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.renameColumn(session, foreignHandle, "a", "b");
         md.modifyColumn(session, foreignHandle, null, null);
         md.reorderColumns(session, foreignHandle, Collections.emptyList());
+        md.addNestedColumn(session, foreignHandle, null, null, null);
+        md.dropNestedColumn(session, foreignHandle, null);
+        md.renameNestedColumn(session, foreignHandle, null, "b");
+        md.modifyNestedColumn(session, foreignHandle, null, null, null);
+        md.modifyColumnComment(session, foreignHandle, null, "c");
         md.createOrReplaceBranch(session, foreignHandle, null);
         md.createOrReplaceTag(session, foreignHandle, null);
         md.dropBranch(session, foreignHandle, null);
@@ -295,6 +301,15 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         assertThrowsMessage(() -> md.modifyColumn(session, hive, null, null), "MODIFY COLUMN not supported");
         assertThrowsMessage(() -> md.reorderColumns(session, hive, Collections.emptyList()),
                 "REORDER COLUMNS not supported");
+        assertThrowsMessage(() -> md.addNestedColumn(session, hive, null, null, null),
+                "nested ADD COLUMN not supported");
+        assertThrowsMessage(() -> md.dropNestedColumn(session, hive, null), "nested DROP COLUMN not supported");
+        assertThrowsMessage(() -> md.renameNestedColumn(session, hive, null, "b"),
+                "nested RENAME COLUMN not supported");
+        assertThrowsMessage(() -> md.modifyNestedColumn(session, hive, null, null, null),
+                "nested MODIFY COLUMN not supported");
+        assertThrowsMessage(() -> md.modifyColumnComment(session, hive, null, "c"),
+                "MODIFY COLUMN COMMENT not supported");
         assertThrowsMessage(() -> md.createOrReplaceBranch(session, hive, null), "CREATE/REPLACE BRANCH not supported");
         assertThrowsMessage(() -> md.createOrReplaceTag(session, hive, null), "CREATE/REPLACE TAG not supported");
         assertThrowsMessage(() -> md.dropBranch(session, hive, null), "DROP BRANCH not supported");
@@ -354,7 +369,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
     @Test
     public void foreignHandleSchemaReflectsSiblingScanCapabilitiesAsPerTableMarker() {
-        // Option C: fe-core's PluginDrivenExternalTable.hasScanCapability reads only the CATALOG (hive) connector,
+        // Option C: fe-core's PluginDrivenExternalTable.hasCapability reads only the CATALOG (hive) connector,
         // never the embedded sibling — so the hive gateway must reflect the sibling's connector-wide scan
         // capabilities onto the delegated schema as a per-table marker, or an iceberg-on-HMS table silently loses
         // auto-analyze / Top-N lazy / nested-column prune (all of which the iceberg sibling declares connector-wide).
@@ -370,28 +385,60 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                         SiblingOwner.ICEBERG_LABEL));
 
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        String csv = schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        Assertions.assertNotNull(csv, "the delegated schema must carry the reflected per-table capability marker");
-        List<String> names = Arrays.asList(csv.split(","));
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE.name()),
-                "auto-analyze must survive the delegation as a per-table marker");
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE.name()),
-                "Top-N lazy must survive the delegation as a per-table marker");
-        Assertions.assertTrue(names.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE.name()),
-                "nested-column prune must survive the delegation as a per-table marker");
+        Set<ConnectorCapability> reflected = schema.getTableCapabilities();
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                "auto-analyze must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                "Top-N lazy must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                "nested-column prune must survive the delegation as a per-table capability");
     }
 
     @Test
-    public void foreignHandleSchemaUnchangedWhenSiblingDeclaresNoCapabilities() {
-        // A sibling declaring an EMPTY capability set hits the ownerCaps.isEmpty() early-return in
-        // reflectSiblingScanCapabilities -> the sibling schema is returned untouched -> no marker is stamped. This
-        // guards the empty-owner branch specifically; the real hudi-on-HMS withholding (a NON-empty sibling that
-        // lacks auto-analyze) is pinned by foreignHandleSchemaWithholdsAutoAnalyzeFromRealHudiSibling below.
-        // MUTATION: dropping the isEmpty() early-return and stamping an (empty) marker unconditionally -> red here.
+    public void foreignHandleSchemaReflectsOnlyThePerTableResolvedCapabilitySubset() {
+        // WHY: fe-core resolves only a FIXED subset of capabilities per-table; every other one is answered
+        // catalog-wide and a marker entry for it is discarded unread. Reflecting the sibling's WHOLE set would
+        // therefore leave an iceberg-on-HMS table's SHOW CREATE TABLE / view / sort-order behaviour hanging on an
+        // implementation detail (how narrowly the engine happens to read the marker) instead of on an explicit
+        // decision here. The gateway reflects SIBLING_INHERITABLE_CAPABILITIES and nothing else.
+        // MUTATION: widening the reflection back to owner.getCapabilities() -> the marker gains SHOW_CREATE_DDL /
+        // SORT_ORDER -> red here, and an engine-side widening would silently change delegated-table behaviour.
+        Set<ConnectorCapability> siblingCaps = EnumSet.of(
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
+                ConnectorCapability.SUPPORTS_SORT_ORDER,
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext(),
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
+                        SiblingOwner.ICEBERG_LABEL));
+
+        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
+        Assertions.assertEquals(EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                schema.getTableCapabilities(),
+                "only the per-table-resolved subset may be reflected onto a delegated table");
+
+        // A NON-empty sibling declaring none of the subset must inherit nothing.
+        HiveConnectorMetadata noneInheritable = new HiveConnectorMetadata(null, Collections.emptyMap(),
+                new FakeConnectorContext(), SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
+                        EnumSet.of(ConnectorCapability.SUPPORTS_VIEW, ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)),
+                        SiblingOwner.ICEBERG_LABEL));
+        Assertions.assertTrue(noneInheritable.getTableSchema(session, foreignHandle)
+                        .getTableCapabilities().isEmpty(),
+                "a sibling declaring only catalog-wide capabilities must contribute no per-table capability");
+    }
+
+    @Test
+    public void foreignHandleSchemaUnchangedWhenSiblingDeclaresNoInheritableCapability() {
+        // A sibling declaring an EMPTY capability set leaves the inherited subset empty -> the sibling schema is
+        // returned untouched -> no marker is stamped. The sibling-declares-only-catalog-wide-capabilities case
+        // takes the same branch and is pinned in
+        // foreignHandleSchemaReflectsOnlyThePerTableResolvedCapabilitySubset above.
+        // MUTATION: dropping the isEmpty() early-return and rebuilding the schema unconditionally -> red here.
         HiveConnectorMetadata md = withSibling(); // RecordingSiblingConnector declares no capabilities
         ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        Assertions.assertNull(schema.getProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY),
-                "no marker when the sibling declares no capabilities");
+        Assertions.assertTrue(schema.getTableCapabilities().isEmpty(),
+                "nothing inherited when the sibling declares no capabilities");
     }
 
     // ============== per-statement sibling-metadata funnel (HMS heterogeneous gateway) ==============
@@ -555,7 +602,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
         static final List<String> EXPECTED_WRITE_METHODS = Collections.unmodifiableList(Arrays.asList(
                 "renameTable", "addColumn", "addColumns", "dropColumn", "renameColumn", "modifyColumn",
-                "reorderColumns", "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
+                "reorderColumns", "addNestedColumn", "dropNestedColumn", "renameNestedColumn",
+                "modifyNestedColumn", "modifyColumnComment",
+                "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
                 "addPartitionField", "dropPartitionField", "replacePartitionField",
                 "validateRowLevelDmlMode", "validateStaticPartitionColumns", "validateWritePartitionNames"));
 
@@ -762,6 +811,36 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle, List<String> newOrder) {
             calls.add("reorderColumns");
+        }
+
+        @Override
+        public void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle, ConnectorColumnPath path,
+                ConnectorColumn column, ConnectorColumnPosition position) {
+            calls.add("addNestedColumn");
+        }
+
+        @Override
+        public void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path) {
+            calls.add("dropNestedColumn");
+        }
+
+        @Override
+        public void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path, String newName) {
+            calls.add("renameNestedColumn");
+        }
+
+        @Override
+        public void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+            calls.add("modifyNestedColumn");
+        }
+
+        @Override
+        public void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorColumnPath path, String comment) {
+            calls.add("modifyColumnComment");
         }
 
         @Override

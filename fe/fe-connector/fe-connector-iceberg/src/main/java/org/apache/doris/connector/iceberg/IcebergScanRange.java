@@ -18,7 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -46,8 +45,7 @@ import java.util.Optional;
  * props), iceberg's carriers are strongly typed fields (its params are numeric), so {@link #getProperties()}
  * stays empty. T04 adds the typed merge-on-read {@link DeleteFile} carriers (position / equality / deletion
  * vector); T05 adds the COUNT(*)-pushdown row count ({@code pushDownRowCount} → {@code table_level_row_count}).
- * The field-id history dictionary (T06, scan-level) lands later. Iceberg is not yet in
- * {@code SPI_READY_TYPES}, so no range reaches BE.</p>
+ * The field-id history dictionary (T06, scan-level) lands later.</p>
  */
 public class IcebergScanRange implements ConnectorScanRange {
 
@@ -148,11 +146,6 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.positionDeleteReferencedDataFilePath = builder.positionDeleteReferencedDataFilePath;
         this.positionDeleteContentOffset = builder.positionDeleteContentOffset;
         this.positionDeleteContentSizeInBytes = builder.positionDeleteContentSizeInBytes;
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override

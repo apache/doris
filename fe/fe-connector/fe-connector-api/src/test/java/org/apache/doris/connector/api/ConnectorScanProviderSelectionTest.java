@@ -17,18 +17,16 @@
 
 package org.apache.doris.connector.api;
 
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Pins the per-table scan-provider selection seam
@@ -53,8 +51,7 @@ public class ConnectorScanProviderSelectionTest {
         }
 
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             return Collections.emptyList();
         }
 

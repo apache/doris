@@ -21,8 +21,8 @@ import java.util.Objects;
 
 /**
  * The position of a column in an {@code ALTER TABLE ADD/MODIFY COLUMN} clause, carried neutrally
- * across the SPI by {@link org.apache.doris.connector.api.ConnectorTableOps#addColumn} /
- * {@link org.apache.doris.connector.api.ConnectorTableOps#modifyColumn}.
+ * across the SPI by {@link org.apache.doris.connector.api.ConnectorColumnEvolutionOps#addColumn} /
+ * {@link org.apache.doris.connector.api.ConnectorColumnEvolutionOps#modifyColumn}.
  *
  * <p>Faithful, lossless neutralization of the fe-catalog {@code ColumnPosition}, which is exactly
  * {@code FIRST | AFTER <column>} (there is no {@code BEFORE} variant). The connector taking a

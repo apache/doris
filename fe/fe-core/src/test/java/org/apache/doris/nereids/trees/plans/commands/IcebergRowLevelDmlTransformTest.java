@@ -91,7 +91,7 @@ public class IcebergRowLevelDmlTransformTest {
     /**
      * A {@link PluginDrivenExternalTable} whose connector reports the given row-level DML capabilities.
      * Mirrors {@code InsertOverwriteTableCommandTest.pluginTable} — the established way to exercise the
-     * {@code getConnector().supportedWriteOperations()} probe.
+     * {@code getConnector().getWritePlanProvider(handle).supportedOperations()} probe.
      */
     private static PluginDrivenExternalTable pluginTable(boolean supportsDelete, boolean supportsMerge) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);

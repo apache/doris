@@ -74,9 +74,10 @@ public class PaimonScanMetricsTest {
     }
 
     @Test
-    public void groupNameMatchesFeCoreConstant() {
-        // Mirror of the fe-core SummaryProfile.PAIMON_SCAN_METRICS constant (stringly-typed coupling; the two
-        // modules cannot cross-import, so each asserts the shared literal).
+    public void groupNameIsTheUserVisibleProfileSection() {
+        // The group name is user-visible in the query profile, so it is pinned here. It is NOT coupled to any
+        // fe-core constant: the engine get-or-creates the profile child under whatever name the connector
+        // returns.
         Assertions.assertEquals("Paimon Scan Metrics", PaimonScanMetrics.GROUP_NAME);
     }
 }

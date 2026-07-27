@@ -29,6 +29,7 @@ import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
@@ -333,9 +334,9 @@ public class PaimonConnector implements Connector {
                 ConnectorCapability.SUPPORTS_PARTITION_STATS,
                 // Paimon tables are queryable via the generic SQL-driven ExternalAnalysisTask FULL path, so
                 // they opt into background per-column auto-analyze (paimon was never wired into the legacy
-                // instanceof-based whitelist; this is the parity-neutral mechanism wiring it in). Unlike the
-                // iceberg capabilities this is NOT inert pre-cutover: paimon is already in SPI_READY_TYPES, so
-                // paimon background auto-analyze activates on merge (parity-safe — manual ANALYZE already uses
+                // instanceof-based whitelist; this is the parity-neutral mechanism wiring it in). Paimon is
+                // already served by its connector plugin, so this is not inert: paimon background
+                // auto-analyze activates on merge (parity-safe — manual ANALYZE already uses
                 // the same doFull SQL path). NOT SUPPORTS_TOPN_LAZY_MATERIALIZE: paimon was never eligible for
                 // Top-N lazy materialization.
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
@@ -426,7 +427,7 @@ public class PaimonConnector implements Connector {
     /**
      * Assembles the canonical storage Hadoop config from the FE-bound storage properties (P1-T03).
      * fe-core binds the catalog's raw property map to fe-filesystem {@link StorageProperties} and hands
-     * them over via {@link ConnectorContext#getStorageProperties()}; here we merge each one's
+     * them over via {@link ConnectorStorageContext#getStorageProperties()}; here we merge each one's
      * {@code toHadoopProperties().toHadoopConfigurationMap()}: object stores contribute their
      * fs.s3a.* / Jindo fs.oss.* / fs.cosn.* / fs.obs.* translation, and an HDFS-backed catalog contributes
      * its hadoop.config.resources XML + HA + auth keys (C2; the fe-filesystem HDFS Hadoop map is
@@ -436,11 +437,11 @@ public class PaimonConnector implements Connector {
      * used to make. Empty for REST (the server owns storage) and for a catalog with no typed storage (it
      * reaches the conf via the raw fs./dfs./hadoop. passthrough).
      */
-    // Package-private (not private) so PaimonCatalogFactoryTest can drive the ctx.getStorageProperties()
+    // Package-private (not private) so PaimonCatalogFactoryTest can drive the storage().getStorageProperties()
     // -> toHadoopProperties() -> Configuration wiring end-to-end (visible for testing).
     Map<String, String> buildStorageHadoopConfig() {
         Map<String, String> merged = new HashMap<>();
-        for (StorageProperties sp : context.getStorageProperties()) {
+        for (StorageProperties sp : storage().getStorageProperties()) {
             sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
         }
         return merged;
@@ -621,5 +622,10 @@ public class PaimonConnector implements Connector {
                 LOG.warn("Failed to close Paimon catalog", e);
             }
         }
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

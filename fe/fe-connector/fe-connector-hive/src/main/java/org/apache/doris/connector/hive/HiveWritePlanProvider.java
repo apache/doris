@@ -30,6 +30,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -71,7 +72,8 @@ import java.util.UUID;
  * {@link #requiresPartitionHashWrite()} (hash-by-partition, no local sort) matches the legacy
  * {@code PhysicalHiveTableSink}.</p>
  *
- * <p><b>Live since the hms flip.</b> {@code hms} is in {@code SPI_READY_TYPES}, so a type=hms INSERT routes
+ * <p><b>Live since the hms flip.</b> An {@code hms} catalog is served by this connector plugin, so a
+ * type=hms INSERT routes
  * here via {@code PhysicalPlanTranslator} &rarr; {@code getWritePlanProvider} &rarr; {@link #planWrite};
  * {@link #planWrite} requires the executor-bound connector transaction and fails loud if absent.</p>
  */
@@ -150,15 +152,15 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     HiveWriteContext buildWriteContext(ConnectorSession session, HiveTableHandle tableHandle,
             HmsTableInfo table, ConnectorWriteHandle handle) {
         String rawLocation = table.getLocation();
-        TFileType fileType = TFileType.valueOf(context.getBackendFileType(rawLocation, Collections.emptyMap()));
+        TFileType fileType = TFileType.valueOf(storage().getBackendFileType(rawLocation, Collections.emptyMap()));
         String writePath = fileType == TFileType.FILE_S3
-                ? context.normalizeStorageUri(rawLocation, Collections.emptyMap())
+                ? storage().normalizeStorageUri(rawLocation, Collections.emptyMap())
                 : createTempPath(session, rawLocation);
         WriteOperation op = handle.getWriteOperation();
         if (op == WriteOperation.INSERT && handle.isOverwrite()) {
             op = WriteOperation.OVERWRITE;
         }
-        return new HiveWriteContext(op, handle.isOverwrite(), handle.getWriteContext(),
+        return new HiveWriteContext(op, handle.isOverwrite(), handle.getStaticPartitionSpec(),
                 session.getQueryId(), fileType, writePath);
     }
 
@@ -266,7 +268,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
             locationParams.setWritePath(location);
             locationParams.setTargetPath(location);
             locationParams.setFileType(TFileType.valueOf(
-                    context.getBackendFileType(location, Collections.emptyMap())));
+                    storage().getBackendFileType(location, Collections.emptyMap())));
             hivePartition.setLocation(locationParams);
             partitions.add(hivePartition);
         }
@@ -324,8 +326,8 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
             // the BE writer a config with no fs.jfs.impl and libhdfs fails "No FileSystem for scheme jfs". Emitted
             // first so the typed getStorageProperties() overlay still wins wherever it produces a value (object
             // stores / HDFS), keeping their behavior byte-identical.
-            merged.putAll(context.getBackendStorageProperties());
-            for (StorageProperties sp : context.getStorageProperties()) {
+            merged.putAll(storage().getBackendStorageProperties());
+            for (StorageProperties sp : storage().getStorageProperties()) {
                 sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
             }
         }
@@ -336,7 +338,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     // message legacy BaseExternalTableDataSink.getBrokerAddresses threw), so a broker write never ships BE an
     // empty broker list.
     private List<TNetworkAddress> resolveBrokerAddresses() {
-        List<ConnectorBrokerAddress> addresses = context.getBrokerAddresses();
+        List<ConnectorBrokerAddress> addresses = storage().getBrokerAddresses();
         if (addresses.isEmpty()) {
             throw new DorisConnectorException("No alive broker.");
         }
@@ -366,5 +368,10 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
                             + "session (wired at the hive cutover).");
         }
         return (HiveConnectorTransaction) transaction.get();
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

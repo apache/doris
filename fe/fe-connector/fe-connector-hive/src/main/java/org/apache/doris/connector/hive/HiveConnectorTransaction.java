@@ -33,6 +33,7 @@ import org.apache.doris.connector.hms.HmsPartitionWithStatistics;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemUtil;
@@ -91,12 +92,13 @@ import java.util.stream.Collectors;
  * <p>fe-core couplings broken per design: query profiling dropped (D4); metastore access via the plugin
  * {@link HmsClient} SPI instead of {@code HiveMetadataOps} (D10); staging renames/deletes and object-store
  * multipart-upload complete/abort go through the engine-owned {@link FileSystem} borrowed via
- * {@code context.getFileSystem(session)} (a per-catalog {@code SpiSwitchingFileSystem}, all schemes), with the
+ * {@code storage().getFileSystem(session)} (a per-catalog {@code SpiSwitchingFileSystem}, all schemes), with the
  * concrete {@link ObjFileSystem} resolved per object-store location via {@link FileSystem#forLocation} for the
  * MPU narrowing (D6); plugin-owned async pool threads each auth-wrapped (D5); full-ACID writes hard-rejected at
  * begin (D7); {@code rollback()} deletes staging + aborts MPUs (D9).
  *
- * <p>Live since the HMS cutover: {@code hms} is in {@code SPI_READY_TYPES}, so a {@code type=hms} table INSERT
+ * <p>Live since the HMS cutover: an {@code hms} catalog is served by this connector plugin, so a
+ * {@code type=hms} table INSERT
  * routes through {@code HiveWritePlanProvider.planWrite} &rarr; {@link #beginWrite} &rarr; this class. The engine
  * {@link FileSystem} is borrowed (never closed here — the catalog owns its lifecycle).
  */
@@ -114,7 +116,7 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     private final ExecutorService fileSystemExecutor;
     private final Executor authWrappingExecutor;
 
-    // Captured at beginWrite (D6). Threaded to context.getFileSystem(session) so the engine hands back the
+    // Captured at beginWrite (D6). Threaded to storage().getFileSystem(session) so the engine hands back the
     // per-catalog borrowed FileSystem; the session reserves per-user identity (getUser()) — the current engine
     // impl resolves the FS at catalog level and ignores it, so a null session (rollback-before-begin) is safe.
     private ConnectorSession session;
@@ -747,13 +749,13 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     /**
      * Returns the engine-owned {@link FileSystem} for this write, borrowed via
-     * {@code context.getFileSystem(session)} (a per-catalog {@code SpiSwitchingFileSystem} that routes every
+     * {@code storage().getFileSystem(session)} (a per-catalog {@code SpiSwitchingFileSystem} that routes every
      * scheme — HDFS and object stores alike). The engine lazily builds and caches it per catalog, so this is a
      * cheap lookup; the connector borrows and must never close it (D6). MPU sites narrow to the concrete
      * {@link ObjFileSystem} via {@link FileSystem#forLocation}.
      */
     private FileSystem getFileSystem() {
-        FileSystem engineFs = context.getFileSystem(session);
+        FileSystem engineFs = storage().getFileSystem(session);
         if (engineFs == null) {
             throw new DorisConnectorException("No engine FileSystem available for hive write transaction "
                     + transactionId + " (catalog has no storage properties)");
@@ -1690,5 +1692,10 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
         THivePartitionUpdate getHivePartitionUpdate() {
             return hivePartitionUpdate;
         }
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

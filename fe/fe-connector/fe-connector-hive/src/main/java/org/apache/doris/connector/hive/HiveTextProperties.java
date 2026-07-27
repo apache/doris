@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,8 +29,9 @@ import java.util.Map;
  * <p>These properties are passed to BE via scan node properties so that
  * the text/CSV/JSON file reader can parse the data correctly.</p>
  *
- * <p>The property keys mirror the constants used in fe-core's
- * {@code HiveProperties} and {@code HiveMetaStoreClientHelper}.</p>
+ * <p>The output keys are the text-family keys declared in {@link ScanNodePropertyKeys} — they are shared
+ * with the engine rather than mirrored, so a mistyped suffix (which would silently disable that one
+ * attribute, e.g. leaving the whole row in the first column) is a compile error.</p>
  */
 public final class HiveTextProperties {
 
@@ -83,15 +86,13 @@ public final class HiveTextProperties {
     private static final String QUOTE_CHAR = "quoteChar";
     private static final String ESCAPE_CHAR = "escapeChar";
 
-    // Output property key prefix for scan node properties
-    public static final String PROP_PREFIX = "hive.text.";
-
     private HiveTextProperties() {
     }
 
     /**
      * Extracts text format properties from the SerDe parameters of a table or partition.
-     * Returns properties prefixed with {@link #PROP_PREFIX} for use in scan node properties.
+     * Returns properties keyed by the text-family scan node property keys declared in
+     * {@link ScanNodePropertyKeys} (all of them share {@link ScanNodePropertyKeys#TEXT_PROPERTY_PREFIX}).
      *
      * @param serDeLib  the SerDe library class name
      * @param sdParams  the StorageDescriptor / SerDeInfo parameters
@@ -119,8 +120,8 @@ public final class HiveTextProperties {
 
         // Skip header count from table parameters
         int skipLines = getSkipHeaderCount(tableParams);
-        result.put(PROP_PREFIX + "skip_lines", String.valueOf(skipLines));
-        result.put(PROP_PREFIX + "serde_lib", serDeLib);
+        result.put(ScanNodePropertyKeys.TEXT_SKIP_LINES, String.valueOf(skipLines));
+        result.put(ScanNodePropertyKeys.TEXT_SERDE_LIB, serDeLib);
         return result;
     }
 
@@ -129,58 +130,58 @@ public final class HiveTextProperties {
         // Column separator. Hive stores single-char delimiters as their numeric byte value (the default
         // LazySimpleSerDe field delimiter is serialization.format="1" == byte 0x01, NOT the character
         // '1'), so they must be decoded via getByte(). MultiDelimitSerDe keeps its raw multi-char value.
-        result.put(PROP_PREFIX + "column_separator",
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR,
                 getFieldDelimiter(sdParams, tableParams, supportMultiChar));
         // Line delimiter
-        result.put(PROP_PREFIX + "line_delimiter",
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER,
                 getByte(serdeVal(sdParams, tableParams, LINE_DELIM), DEFAULT_LINE_DELIM));
         // MapKV delimiter
-        result.put(PROP_PREFIX + "mapkv_delimiter",
+        result.put(ScanNodePropertyKeys.TEXT_MAPKV_DELIMITER,
                 getByte(serdeVal(sdParams, tableParams, MAPKEY_DELIM), DEFAULT_MAPKV_DELIM));
         // Collection delimiter (Hive2 "colelction.delim" typo first, then Hive3 "collection.delim")
-        result.put(PROP_PREFIX + "collection_delimiter",
+        result.put(ScanNodePropertyKeys.TEXT_COLLECTION_DELIMITER,
                 getByte(serdeVal(sdParams, tableParams, COLLECTION_DELIM_HIVE2, COLLECTION_DELIM),
                         DEFAULT_COLLECTION_DELIM));
         // Escape delimiter: emitted only when the SerDe sets it, decoded via getByte
         String escape = serdeVal(sdParams, tableParams, ESCAPE_DELIM);
         if (escape != null) {
-            result.put(PROP_PREFIX + "escape", getByte(escape, DEFAULT_ESCAPE_DELIM));
+            result.put(ScanNodePropertyKeys.TEXT_ESCAPE, getByte(escape, DEFAULT_ESCAPE_DELIM));
         }
         // Null format (raw string; NOT byte-decoded)
         String nullFormat = serdeVal(sdParams, tableParams, SERIALIZATION_NULL_FORMAT);
-        result.put(PROP_PREFIX + "null_format", nullFormat != null ? nullFormat : DEFAULT_NULL_FORMAT);
+        result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, nullFormat != null ? nullFormat : DEFAULT_NULL_FORMAT);
     }
 
     private static void extractCsvSerDeProps(Map<String, String> params,
             Map<String, String> result) {
-        result.put(PROP_PREFIX + "column_separator",
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR,
                 getParamOrDefault(params, SEPARATOR_CHAR, ","));
-        result.put(PROP_PREFIX + "line_delimiter", getLineDelimiter(params));
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, getLineDelimiter(params));
         String quoteChar = getParamOrDefault(params, QUOTE_CHAR, "\"");
-        result.put(PROP_PREFIX + "enclose", quoteChar);
+        result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
         // #65501: BE strips the wrapping quotes only when the enclose char is exactly the double-quote '"'.
         // The connector owns this CSV serde semantics, so decide here and pass an explicit flag; the generic
         // PluginDrivenScanNode then just applies it instead of trimming for any enclose char. Compare the
         // first byte, matching how the node sets enclose (enclose.getBytes()[0]) and BE's getEnclose() == '"'.
         boolean trimDoubleQuotes = !quoteChar.isEmpty() && quoteChar.getBytes()[0] == (byte) '"';
-        result.put(PROP_PREFIX + "trim_double_quotes", String.valueOf(trimDoubleQuotes));
+        result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf(trimDoubleQuotes));
         String escapeChar = getParamOrDefault(params, ESCAPE_CHAR, "\\");
-        result.put(PROP_PREFIX + "escape", escapeChar);
-        result.put(PROP_PREFIX + "null_format", "");
+        result.put(ScanNodePropertyKeys.TEXT_ESCAPE, escapeChar);
+        result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, "");
     }
 
     private static void extractJsonSerDeProps(String serDeLib, Map<String, String> sdParams,
             Map<String, String> tableParams, Map<String, String> result) {
-        result.put(PROP_PREFIX + "column_separator", "\t");
-        result.put(PROP_PREFIX + "line_delimiter", "\n");
-        result.put(PROP_PREFIX + "is_json", "true");
-        result.put(PROP_PREFIX + "json_serde_lib", serDeLib);
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR, "\t");
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, "\n");
+        result.put(ScanNodePropertyKeys.TEXT_IS_JSON, "true");
+        result.put(ScanNodePropertyKeys.TEXT_PROPERTY_PREFIX + "json_serde_lib", serDeLib);
         // OpenX-only: skip malformed rows when the serde/table sets ignore.malformed.json (table-param over
         // sd-param, default false). Mirrors legacy HiveScanNode's OPENX_JSON_SERDE branch — the hcatalog/hive2
         // JSON serdes never carried this flag, so scope it to OpenX to keep exact legacy branch parity.
         if (OPENX_JSON_SERDE.equals(serDeLib)) {
             String ignoreMalformed = serdeVal(sdParams, tableParams, IGNORE_MALFORMED_JSON);
-            result.put(PROP_PREFIX + "openx_ignore_malformed",
+            result.put(ScanNodePropertyKeys.TEXT_OPENX_IGNORE_MALFORMED,
                     ignoreMalformed != null ? ignoreMalformed : DEFAULT_IGNORE_MALFORMED_JSON);
         }
     }

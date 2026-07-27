@@ -19,12 +19,12 @@ package org.apache.doris.connector.spi;
 
 /**
  * A neutral, immutable broker backend address (host + port) returned by
- * {@link ConnectorContext#getBrokerAddresses()} for a {@code FILE_BROKER} write target.
+ * {@link ConnectorStorageContext#getBrokerAddresses()} for a {@code FILE_BROKER} write target.
  *
  * <p>This is a Thrift-free SPI carrier: the engine resolves the catalog's bound broker (a fe-core concern
  * the connector must not import) and hands back these neutral host/port pairs; the connector — which has
  * the Thrift types — maps each to its own {@code TNetworkAddress}. Exactly the same pattern as
- * {@link ConnectorContext#getBackendFileType}, which returns a {@code TFileType} enum name as a String the
+ * {@link ConnectorStorageContext#getBackendFileType}, which returns a {@code TFileType} enum name as a String the
  * connector maps back, keeping this SPI free of Thrift dependencies.
  */
 public final class ConnectorBrokerAddress {

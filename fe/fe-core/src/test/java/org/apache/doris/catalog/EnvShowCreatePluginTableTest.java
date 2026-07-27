@@ -53,7 +53,10 @@ public class EnvShowCreatePluginTableTest {
         Mockito.doReturn("t").when(table).getName();
         Mockito.doReturn("").when(table).getComment();
         Mockito.doReturn(COLUMNS).when(table).getBaseSchema(false);
-        Mockito.doReturn(TableType.ICEBERG_EXTERNAL_TABLE.name()).when(table).getEngineTableTypeName();
+        // The engine name a connector declares (here: an iceberg catalog's). Stubbed because this test is about
+        // the Env render arm, not about where the name comes from — that is pinned by
+        // PluginDrivenExternalTableEngineTest.
+        Mockito.doReturn("iceberg").when(table).getEngineTableTypeName();
     }
 
     private static String renderDdl(PluginDrivenExternalTable table) {
@@ -115,7 +118,7 @@ public class EnvShowCreatePluginTableTest {
         Assertions.assertFalse(ddl.contains("PARTITION BY"), ddl);
         Assertions.assertFalse(ddl.contains("ORDER BY"), ddl);
         // The engine line is still rendered (this is a real table DDL, just without the connector specifics).
-        Assertions.assertTrue(ddl.contains("ENGINE=" + TableType.ICEBERG_EXTERNAL_TABLE.name()), ddl);
+        Assertions.assertTrue(ddl.contains("ENGINE=iceberg"), ddl);
     }
 
     @Test

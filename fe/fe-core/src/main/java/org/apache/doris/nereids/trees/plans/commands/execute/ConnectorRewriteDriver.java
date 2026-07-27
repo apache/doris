@@ -19,10 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -30,6 +28,7 @@ import org.apache.doris.connector.api.handle.RewriteCapableTransaction;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -38,7 +37,6 @@ import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,15 +51,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Engine-neutral driver for a distributed {@code rewrite_data_files} (compaction), the post-flip
- * counterpart of the legacy {@code RewriteDataFileExecutor} + {@code IcebergRewriteDataFilesAction}. It
- * orchestrates the read/write distribution; the connector owns the file-selection / bin-pack / commit
- * decisions behind neutral SPIs (no {@code instanceof Iceberg}, no iceberg types).
+ * counterpart of the legacy per-source rewrite executor. It orchestrates the read/write distribution; the
+ * connector owns the file-selection / bin-pack / commit decisions AND the shape of the result row, behind
+ * neutral SPIs (no {@code instanceof} on a connector type, no source-specific types).
  *
  * <p>Flow: (0) ask the connector to plan N bin-packed groups ({@link ConnectorProcedureOps#planRewrite}); (1)
  * open ONE shared connector transaction; (2) run one {@code INSERT-SELECT} per group concurrently, each
  * scoped to its files and bound to the shared transaction; (3) register the union of source files to remove
  * (AFTER the groups began the transaction so the table + OCC snapshot are loaded); (4) commit once; (5) read
- * the added-files count post-commit and emit the four-column result row.</p>
+ * the added-files count post-commit and ask the connector to render the result row.</p>
  *
  * <p><b>R6 scope.</b> No-WHERE rewrite only (WHERE lowering is a later step). Output file SIZING — the
  * per-group {@code target-file-size}/parallelism that the legacy task threaded via an iceberg session var —
@@ -120,8 +118,11 @@ public class ConnectorRewriteDriver {
             throw new UserException(e.getMessage(), e);
         }
         if (groups == null || groups.isEmpty()) {
-            // Nothing to rewrite: skip the transaction entirely and return the all-zero row (legacy parity).
-            return buildResult(0, 0, 0, 0);
+            // Nothing to rewrite: skip the transaction entirely and let the connector render its all-zero
+            // row (legacy parity). There is no transaction on this path, which is why buildRewriteResult
+            // must render locally.
+            return procedureOps.buildRewriteResult(procedureName,
+                    new ConnectorRewriteStatistics(0, 0, 0L, 0));
         }
 
         // STEP 1: open ONE shared connector transaction for all groups.
@@ -179,8 +180,9 @@ public class ConnectorRewriteDriver {
         long rewrittenBytesCount = groups.stream().mapToLong(ConnectorRewriteGroup::getTotalSizeBytes).sum();
         int removedDeleteFilesCount = groups.stream().mapToInt(ConnectorRewriteGroup::getDeleteFileCount).sum();
 
-        return buildResult(rewrittenDataFilesCount, addedDataFilesCount, rewrittenBytesCount,
-                removedDeleteFilesCount);
+        // The connector names and types its own result columns; the engine only reports what it ran.
+        return procedureOps.buildRewriteResult(procedureName, new ConnectorRewriteStatistics(
+                rewrittenDataFilesCount, addedDataFilesCount, rewrittenBytesCount, removedDeleteFilesCount));
     }
 
     /**
@@ -242,30 +244,9 @@ public class ConnectorRewriteDriver {
         }
     }
 
-    private ConnectorProcedureResult buildResult(int rewrittenDataFilesCount, int addedDataFilesCount,
-            long rewrittenBytesCount, int removedDeleteFilesCount) {
-        // Four-column schema in the exact legacy order/types (IcebergRewriteDataFilesAction.getResultSchema);
-        // rewritten_bytes_count is INT for byte-parity with legacy (a latent quirk kept on purpose).
-        List<ConnectorColumn> schema = ImmutableList.of(
-                new ConnectorColumn("rewritten_data_files_count", ConnectorType.of("INT"),
-                        "Number of data which were re-written by this command", false, null),
-                new ConnectorColumn("added_data_files_count", ConnectorType.of("INT"),
-                        "Number of new data files which were written by this command", false, null),
-                new ConnectorColumn("rewritten_bytes_count", ConnectorType.of("INT"),
-                        "Number of bytes which were written by this command", false, null),
-                new ConnectorColumn("removed_delete_files_count", ConnectorType.of("BIGINT"),
-                        "Number of delete files removed by this command", false, null));
-        List<String> row = ImmutableList.of(
-                String.valueOf(rewrittenDataFilesCount),
-                String.valueOf(addedDataFilesCount),
-                String.valueOf(rewrittenBytesCount),
-                String.valueOf(removedDeleteFilesCount));
-        return new ConnectorProcedureResult(schema, ImmutableList.of(row));
-    }
-
     /**
-     * Collects concurrent group-task completions and cancels the rest on the first failure (copied from the
-     * legacy {@code RewriteDataFileExecutor.RewriteResultCollector}).
+     * Collects concurrent group-task completions and cancels the rest on the first failure (ported verbatim
+     * from the result collector of the pre-SPI rewrite executor, which no longer exists in the tree).
      */
     private static class RewriteResultCollector {
         private final int expectedTasks;

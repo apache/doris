@@ -27,12 +27,12 @@ import java.util.Objects;
 
 /**
  * Full {@code CREATE TABLE} payload passed to
- * {@code ConnectorTableOps.createTable(session, request)}.
+ * {@code ConnectorTableDdlOps.createTable(session, request)}.
  *
- * <p>Carries partition / bucket / external / {@code IF NOT EXISTS} information
- * absent from the legacy
- * {@code createTable(session, ConnectorTableSchema, Map<String,String>)}
- * signature.</p>
+ * <p>Carries everything the statement said: the columns, the partition and bucket specs,
+ * {@code IF NOT EXISTS} and the user properties. A connector that cannot honor one of them must reject it
+ * rather than ignore it — reporting success after dropping the partition spec produces a table the user did
+ * not ask for, with no error to go on.</p>
  *
  * <p>{@code partitionSpec} and {@code bucketSpec} are nullable when the
  * underlying DDL omits them.</p>
@@ -48,7 +48,6 @@ public final class ConnectorCreateTableRequest {
     private final String comment;
     private final Map<String, String> properties;
     private final boolean ifNotExists;
-    private final boolean external;
 
     private ConnectorCreateTableRequest(Builder b) {
         this.dbName = Objects.requireNonNull(b.dbName, "dbName");
@@ -66,7 +65,6 @@ public final class ConnectorCreateTableRequest {
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(b.properties);
         this.ifNotExists = b.ifNotExists;
-        this.external = b.external;
     }
 
     public String getDbName() {
@@ -112,10 +110,6 @@ public final class ConnectorCreateTableRequest {
         return ifNotExists;
     }
 
-    public boolean isExternal() {
-        return external;
-    }
-
     public static Builder builder() {
         return new Builder();
     }
@@ -126,7 +120,6 @@ public final class ConnectorCreateTableRequest {
                 + ", cols=" + columns.size()
                 + ", partition=" + partitionSpec
                 + ", bucket=" + bucketSpec
-                + ", external=" + external
                 + ", ifNotExists=" + ifNotExists + "}";
     }
 
@@ -140,7 +133,6 @@ public final class ConnectorCreateTableRequest {
         private String comment;
         private Map<String, String> properties;
         private boolean ifNotExists;
-        private boolean external;
 
         public Builder dbName(String dbName) {
             this.dbName = dbName;
@@ -190,10 +182,6 @@ public final class ConnectorCreateTableRequest {
             return this;
         }
 
-        public Builder external(boolean external) {
-            this.external = external;
-            return this;
-        }
 
         public ConnectorCreateTableRequest build() {
             return new ConnectorCreateTableRequest(this);

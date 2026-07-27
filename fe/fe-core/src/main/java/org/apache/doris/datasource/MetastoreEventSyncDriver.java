@@ -22,10 +22,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.event.EventPollRequest;
 import org.apache.doris.connector.api.event.EventPollResult;
 import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -96,6 +98,42 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         isRunning = false;
     }
 
+    /**
+     * One-shot force-initialization of a catalog nobody has queried on this FE, so it can obtain its event
+     * source and seed its cursor.
+     *
+     * <p>Flip-time force-init parity: the legacy {@code MetastoreEventsProcessor} force-initialized EVERY hms
+     * catalog every cycle on every FE (via {@code getHmsProperties() -> makeSureInitialized()}), so a flipped
+     * hms catalog seeds its cursor even if it is never queried on this FE. That is required on followers too
+     * (each FE runs its own driver with its own cursor, and a follower must have the catalog initialized to
+     * obtain its event source, seed its cursor and forward {@code REFRESH CATALOG}) — hence no isMaster gate.
+     *
+     * <p>Only types that DECLARE an event source get this, so idle paimon/iceberg/jdbc catalogs stay
+     * byte-inert. The declaration is read off the connector PROVIDER, keyed on the pre-init type string:
+     * {@code getType()} reads catalogProperty and does NOT force-init, whereas asking the connector itself
+     * would force-initialize exactly the idle catalogs this check exists to leave alone. The caller guards on
+     * {@code !isInitialized()}, so this is one-shot per catalog — later cycles take the initialized path.
+     *
+     * @return whether the catalog is now initialized and can be polled this cycle
+     */
+    boolean seedCursorOfUninitializedCatalog(PluginDrivenExternalCatalog pluginCatalog) {
+        boolean declaresEventSource = ConnectorFactory
+                .findProvider(pluginCatalog.getType(), pluginCatalog.getProperties())
+                .map(ConnectorProvider::providesEventSource)
+                .orElse(false);
+        if (!declaresEventSource) {
+            return false;
+        }
+        try {
+            pluginCatalog.makeSureInitialized();
+        } catch (Exception e) {
+            // Missing/invalid params this cycle -> skip (mirrors the legacy skip-on-throw around
+            // getHmsProperties()); retried next cycle, the error is already surfaced via SHOW CATALOGS.
+            return false;
+        }
+        return true;
+    }
+
     private void realRun() {
         List<Long> catalogIds = Env.getCurrentEnv().getCatalogMgr().getCatalogIds();
         for (Long catalogId : catalogIds) {
@@ -104,28 +142,8 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 continue;
             }
             PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
-            if (!pluginCatalog.isInitialized()) {
-                // Flip-time force-init parity: the legacy MetastoreEventsProcessor force-initialized EVERY hms
-                // catalog every cycle on every FE (via getHmsProperties() -> makeSureInitialized()), so a flipped
-                // hms catalog seeds its cursor even if it is never queried on this FE. This is required on
-                // followers too (each FE runs its own driver with its own cursor, and a follower must have the
-                // catalog initialized to obtain its event source, seed its cursor and forward REFRESH CATALOG) —
-                // hence no isMaster gate. Mirror that ONLY for the event-source type ("hms", the sole connector
-                // exposing a ConnectorEventSource), keyed on the pre-init type string so idle paimon/iceberg/
-                // jdbc/hudi PluginDriven catalogs stay byte-inert: getType() reads catalogProperty and does NOT
-                // force-init. Guarded by !isInitialized(), so it is a one-shot per catalog (subsequent cycles
-                // take the initialized fast path). Pre-flip there is no hms-typed PluginDriven catalog, so this
-                // block matches nothing and the driver stays dormant.
-                if (!"hms".equalsIgnoreCase(pluginCatalog.getType())) {
-                    continue;
-                }
-                try {
-                    pluginCatalog.makeSureInitialized();
-                } catch (Exception e) {
-                    // Missing/invalid params this cycle -> skip (mirrors the legacy skip-on-throw around
-                    // getHmsProperties()); retried next cycle, the error is already surfaced via SHOW CATALOGS.
-                    continue;
-                }
+            if (!pluginCatalog.isInitialized() && !seedCursorOfUninitializedCatalog(pluginCatalog)) {
+                continue;
             }
             ConnectorEventSource eventSource;
             try {

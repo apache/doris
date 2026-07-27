@@ -30,7 +30,7 @@ import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.credentials.CredentialUtils;
@@ -74,8 +74,14 @@ import java.util.stream.Collectors;
  *
  * <p>Provides the minimal catalog-level context that connector providers need
  * during creation. Additional context fields can be added here as the SPI evolves.
+ *
+ * <p>It implements {@link ConnectorStorageContext} as well and hands itself back from
+ * {@link #getStorageContext()}. The split exists so a connector reads only the services that apply to it;
+ * on the engine side the two halves share the catalog's parsed storage properties, the cached filesystem
+ * and its {@link #close()} lifecycle, so separating them into two objects would buy nothing and move code
+ * that has a lock and a shutdown flag in it.
  */
-public class DefaultConnectorContext implements ConnectorContext, Closeable {
+public class DefaultConnectorContext implements ConnectorContext, ConnectorStorageContext, Closeable {
 
     private static final Logger LOG = LogManager.getLogger(DefaultConnectorContext.class);
 
@@ -97,7 +103,7 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
 
     // Engine-owned, per-catalog Doris FileSystem (a scheme-routing SpiSwitchingFileSystem over the catalog's
     // storage properties), lazily built on the first getFileSystem() and closed on catalog teardown (close()).
-    // Connectors BORROW it and must not close it (see ConnectorContext.getFileSystem javadoc); siblings built
+    // Connectors BORROW it and must not close it (see ConnectorStorageContext.getFileSystem javadoc); siblings built
     // via createSiblingConnector share this same context, so there is exactly one cached FS per catalog. Guarded
     // by fsLock; the field is dropped to null on close so a post-teardown getFileSystem() returns null.
     private final Object fsLock = new Object();
@@ -166,11 +172,6 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
     }
 
     @Override
-    public ConnectorMetaInvalidator getMetaInvalidator() {
-        return new ExternalMetaCacheInvalidator(catalogId);
-    }
-
-    @Override
     public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
         // Build the sibling through the SAME factory the engine uses for a top-level catalog, so the sibling's
         // concrete class is loaded by that type's own plugin classloader (child-first) — never co-packaged into
@@ -183,12 +184,17 @@ public class DefaultConnectorContext implements ConnectorContext, Closeable {
     }
 
     @Override
-    public String sanitizeJdbcUrl(String jdbcUrl) {
+    public String sanitizeOutboundUrl(String url) {
         try {
-            return SecurityChecker.getInstance().getSafeJdbcUrl(jdbcUrl);
+            return SecurityChecker.getInstance().getSafeJdbcUrl(url);
         } catch (Exception e) {
             throw new RuntimeException("JDBC URL security check failed: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public ConnectorStorageContext getStorageContext() {
+        return this;
     }
 
     @Override

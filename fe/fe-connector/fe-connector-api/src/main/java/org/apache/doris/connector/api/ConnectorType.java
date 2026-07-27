@@ -20,6 +20,7 @@ package org.apache.doris.connector.api;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -50,6 +51,26 @@ import java.util.Objects;
  * from {@link #equals(Object)}/{@link #hashCode()}. A connector that tracks a stable per-field id (iceberg
  * field-ids) carries them here so fe-core can stamp the Doris child column tree's {@code uniqueId}, which the
  * engine's nested access-path rewrite and the BE field-id scan path match nested leaves by.</p>
+ *
+ * <p><b>Shape contract for complex types</b> (enforced in the canonical constructor, so every factory
+ * and convenience constructor is covered):</p>
+ * <ul>
+ *   <li>{@code ARRAY} carries exactly one child; {@code MAP} exactly two (key, value).</li>
+ *   <li>{@code STRUCT} carries at least one child, and {@link #getFieldNames()} is a parallel list —
+ *       same length, same order, no null entries. A STRUCT may not omit or partially supply its
+ *       field names.</li>
+ *   <li>No optional per-child list (nullability, comment, field id, comment-specified) may be
+ *       <em>longer</em> than {@link #getChildren()}. Shorter stays legal — those four are read
+ *       index-tolerantly, so a missing entry means "not carried" and falls back to its default.</li>
+ *   <li>The type name is matched case-insensitively, so {@code "Struct"} cannot dodge the check. Any
+ *       other type name is left alone: {@code typeName} is a free-form string with no vocabulary, so
+ *       "this is not a complex type" cannot be inferred from it.</li>
+ * </ul>
+ *
+ * <p>This is checked eagerly because a violation is invisible downstream: fe-core's converter fills a
+ * missing STRUCT field name with {@code "col" + index} and turns a childless ARRAY/MAP into
+ * {@code ARRAY<NULL>}/{@code MAP<NULL,NULL>} without any error, so the mistake surfaces much later as
+ * "field name not found" at query analysis, far from the connector that made it.</p>
  */
 public final class ConnectorType {
 
@@ -78,8 +99,8 @@ public final class ConnectorType {
     // This is the one bit {@link #childrenComments} cannot encode: a Doris STRUCT field stores an omitted
     // COMMENT as a non-null empty string, so "COMMENT omitted" and "COMMENT ''" collapse to the same comment
     // value and are distinguishable ONLY by this flag. A connector's nested complex {@code MODIFY COLUMN} diff
-    // reads it to keep the field's CURRENT doc when the COMMENT was omitted vs clear it when it was "" (#65329
-    // omit-preserves-metadata). Unused by CREATE / ADD (a new field has no prior doc), so those paths are
+    // reads it to keep the field's CURRENT doc when the COMMENT was omitted vs clear it when it was ""
+    // (omitting preserves, explicit empty clears). Unused by CREATE / ADD (a new field has no prior doc), so those
     // unaffected.
     private final List<Boolean> childrenCommentSpecified;
 
@@ -145,6 +166,60 @@ public final class ConnectorType {
         this.childrenCommentSpecified = childrenCommentSpecified == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(childrenCommentSpecified);
+        validateShape();
+    }
+
+    /**
+     * Fails loud on a malformed complex type: see the shape contract in the class javadoc. Runs on the
+     * already-normalized fields, so every constructor and factory funnels through it.
+     */
+    private void validateShape() {
+        switch (typeName.toUpperCase(Locale.ROOT)) {
+            case "ARRAY":
+                requireChildCount("ARRAY", 1);
+                break;
+            case "MAP":
+                requireChildCount("MAP", 2);
+                break;
+            case "STRUCT":
+                if (children.isEmpty()) {
+                    throw new IllegalArgumentException("STRUCT requires at least one child type");
+                }
+                if (fieldNames.size() != children.size()) {
+                    throw new IllegalArgumentException("STRUCT field name count (" + fieldNames.size()
+                            + ") must match child type count (" + children.size() + ")");
+                }
+                if (fieldNames.contains(null)) {
+                    throw new IllegalArgumentException("STRUCT field names must not contain null: " + fieldNames);
+                }
+                break;
+            default:
+                // Unknown type name: nothing to assert. Not a complex-type tag as far as we can tell, and
+                // typeName is free-form, so we must not conclude "then it has no children".
+                return;
+        }
+        requireParallel("children nullability", childrenNullable.size());
+        requireParallel("children comments", childrenComments.size());
+        requireParallel("children field ids", childrenFieldIds.size());
+        requireParallel("children comment-specified flags", childrenCommentSpecified.size());
+    }
+
+    private void requireChildCount(String tag, int expected) {
+        if (children.size() != expected) {
+            throw new IllegalArgumentException(
+                    tag + " requires exactly " + expected + " child type(s), got " + children.size());
+        }
+    }
+
+    private void requireParallel(String what, int size) {
+        // Deliberately only rejects "longer than children". A SHORTER list is a documented, supported
+        // state for these four: every accessor (isChildNullable / getChildComment / getChildFieldId /
+        // isChildCommentSpecified) reads out of range as "not carried for that index" and falls back to
+        // its default. Only an entry with no child to belong to is unambiguously a caller bug.
+        if (size > children.size()) {
+            throw new IllegalArgumentException(typeName.toUpperCase(Locale.ROOT) + " " + what + " count ("
+                    + size + ") must not exceed child type count (" + children.size() + ")");
+        }
     }
 
     /** Factory: simple type with no parameters. */
@@ -242,28 +317,12 @@ public final class ConnectorType {
         return children;
     }
 
+    /**
+     * The STRUCT field names, parallel to {@link #getChildren()} — same length, same order, no nulls
+     * (see the shape contract in the class javadoc). Empty for non-STRUCT types.
+     */
     public List<String> getFieldNames() {
         return fieldNames;
-    }
-
-    /** The full per-child nullability list (may be empty / shorter than children when unset). */
-    public List<Boolean> getChildrenNullable() {
-        return childrenNullable;
-    }
-
-    /** The full per-child comment list (may be empty / shorter than children when unset). */
-    public List<String> getChildrenComments() {
-        return childrenComments;
-    }
-
-    /** The full per-child field-id list (may be empty / shorter than children when unset). */
-    public List<Integer> getChildrenFieldIds() {
-        return childrenFieldIds;
-    }
-
-    /** The full per-child comment-specified list (may be empty / shorter than children when unset). */
-    public List<Boolean> getChildrenCommentSpecified() {
-        return childrenCommentSpecified;
     }
 
     /**

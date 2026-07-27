@@ -101,8 +101,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // owning PaimonConnector; null = no cross-query derived layer (the convenience/test ctors used by ~15
     // existing direct-construction tests pass null). Layered ABOVE the raw remote catalogOps.listPartitions
     // call: a hit skips both the derived-view BUILD (collectPartitions) and the remote round-trip, keyed by
-    // (db, table, snapshotId, schemaId). Consumed by all three partition-enumeration hooks (listPartitions,
-    // listPartitionNames, listPartitionValues) via the shared cachedPartitions collector -- paimon does not
+    // (db, table, snapshotId, schemaId). Consumed by both partition-enumeration hooks (listPartitions,
+    // listPartitionNames) via the shared cachedPartitions collector -- paimon does not
     // override getMvccPartitionView (see ConnectorMetadata's default), so the generic MTMV model already uses
     // listPartitions for its LIST/timestamp partition view.
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
@@ -353,10 +353,6 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // treated as non-partitioned).
             schemaProps.put(ConnectorTableSchema.PARTITION_COLUMNS_KEY, String.join(",", partitionKeys));
         }
-        if (primaryKeys != null && !primaryKeys.isEmpty()) {
-            schemaProps.put(ConnectorTableSchema.PRIMARY_KEYS_KEY, String.join(",", primaryKeys));
-        }
-
         return new ConnectorTableSchema(tableName, columns, "PAIMON", schemaProps);
     }
 
@@ -446,11 +442,6 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             }
         }
         return false;
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return Collections.emptyMap();
     }
 
     // ==================== E5: MVCC Snapshots / Time Travel ====================
@@ -887,16 +878,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     // ==================== DDL: Create/Drop Database ====================
 
-    @Override
-    public boolean supportsCreateDatabase() {
-        return true;
-    }
-
     /**
      * Creates a Paimon database.
      *
-     * <p>fe-core already does the {@code IF NOT EXISTS} short-circuit before reaching here: since
-     * {@link #supportsCreateDatabase()} is true, {@code PluginDrivenExternalCatalog.createDb}
+     * <p>fe-core already does the {@code IF NOT EXISTS} short-circuit before reaching here:
+     * {@code PluginDrivenExternalCatalog.createDb}
      * consults BOTH the FE db-name cache AND the remote {@code databaseExists} and no-ops when the
      * db already exists, so this body passes {@code ignoreIfExists = false} to the seam (mirrors
      * {@code MaxComputeConnectorMetadata.createDatabase}). If the db somehow exists, paimon throws
@@ -1076,8 +1062,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      *
      * <p>A present {@code filter} BYPASSES the derived cache (computes directly, never populates) — it is
      * not the pruning path and not keyed by filter. Every other case routes through {@link #cachedPartitions},
-     * the shared cache-aware collector this hook shares with {@link #listPartitionNames} and
-     * {@link #listPartitionValues}.
+     * the shared cache-aware collector this hook shares with {@link #listPartitionNames}.
      */
     @Override
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
@@ -1090,8 +1075,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Shared cache-aware partition collector backing the no-filter path of {@link #listPartitions},
-     * plus {@link #listPartitionNames} and {@link #listPartitionValues}. Returns the BUILT
+     * Shared cache-aware partition collector backing the no-filter path of {@link #listPartitions} plus
+     * {@link #listPartitionNames}. Returns the BUILT
      * {@code List<ConnectorPartitionInfo>} from {@link #partitionViewCache} (PERF-06 cache A), keyed by
      * {@code (db, table, snapshotId, schemaId)} (see {@link #partitionViewCacheKey}) — a hit skips both
      * {@link #collectPartitions} and the remote {@code catalogOps.listPartitions} round-trip, so repeated
@@ -1142,28 +1127,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName(), snapshotId, -1L);
     }
 
-    @Override
-    public List<List<String>> listPartitionValues(ConnectorSession session,
-            ConnectorTableHandle handle, List<String> partitionColumns) {
-        List<ConnectorPartitionInfo> partitions = cachedPartitions((PaimonTableHandle) handle);
-        List<List<String>> result = new ArrayList<>(partitions.size());
-        for (ConnectorPartitionInfo partition : partitions) {
-            Map<String, String> rawValues = partition.getPartitionValues();
-            // Preserve the requested partitionColumns order (NOT Paimon's native spec order):
-            // this feeds the partition_values() TVF whose inner-list order must match the input.
-            List<String> values = new ArrayList<>(partitionColumns.size());
-            for (String column : partitionColumns) {
-                values.add(rawValues.get(column));
-            }
-            result.add(values);
-        }
-        return result;
-    }
-
     /**
      * Shared (uncached) partition collector behind {@link #cachedPartitions} — the underlying compute for
-     * {@link #listPartitionNames}, {@link #listPartitions} and {@link #listPartitionValues}, also reached
-     * directly on the filter / unpartitioned / null-cache bypass. Replicates the fe-core display-name logic
+     * {@link #listPartitionNames} and {@link #listPartitions}, also reached directly on the filter /
+     * unpartitioned / null-cache bypass. Replicates the fe-core display-name logic
      * ({@code PaimonUtil.generatePartitionInfo} + {@code isLegacyPartitionName}) so the rendered
      * partition names stay byte-identical to fe-core — including #65904, which drives value order from
      * the partition columns and escapes path-special characters in the name via the Paimon SDK.
@@ -1242,7 +1209,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // collide (one partition item silently lost). Parity with fe-core #65904. This same rendered map
             // is also handed to ConnectorPartitionInfo as the partition VALUE map (below), so the active
             // partition_values() TVF feeder (PluginDrivenExternalTable.getNameToPartitionValues) reads the
-            // Hive-canonical rendered form (DATE formatted, genuine-null → HIVE_DEFAULT_PARTITION) instead of
+            // Hive-canonical rendered form (DATE formatted, genuine-null → NULL_PARTITION_NAME) instead of
             // paimon's raw spec (DATE=epoch-day, null=__DEFAULT_PARTITION__), which would fail the TVF
             // (convertStringToDateV2 throws) and mis-render null. Mirrors hive/iceberg, whose value maps
             // already hold decoded canonical strings.
@@ -1260,7 +1227,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     // The name is still normalized to the Doris-canonical sentinel (partition-name identity is
                     // preserved; the value string is ignored once the flag marks it null). Handled before the
                     // DATE branch so a null DATE partition does not crash on Integer.parseInt("__DEFAULT_PARTITION__").
-                    rendered = ConnectorPartitionValues.HIVE_DEFAULT_PARTITION;
+                    rendered = ConnectorPartitionValues.NULL_PARTITION_NAME;
                 } else if (legacyName && dateColumns.contains(partitionColumnName)) {
                     // When partition.legacy-name = true (default), Paimon stores DATE as days since
                     // 1970-01-01 (epoch integer), so render it via the Paimon SDK formatDate; when

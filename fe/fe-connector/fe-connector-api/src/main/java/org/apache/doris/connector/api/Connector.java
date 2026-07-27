@@ -19,15 +19,14 @@ package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.event.ConnectorEventSource;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.api.rest.ConnectorRestPassthrough;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -38,10 +37,28 @@ import java.util.Set;
  *
  * <p>A {@code Connector} instance is created once per catalog and provides
  * access to metadata, scan planning, and optional write operations.</p>
+ *
+ * <p><b>This interface does not mirror any provider's switches, and must not start.</b> A subsystem trait
+ * (write operations, parallel write, partition-hash write, ...) is declared on the provider that owns it and
+ * read from there; a forwarding copy here would be a second overridable answer to one question, and a
+ * connector overriding the copy while leaving the provider at its default would produce two divergent
+ * answers with no compile error and no failing test. The engine reaches a trait by fetching the provider
+ * ({@link #getWritePlanProvider(ConnectorTableHandle)} for a per-table answer, {@link #getWritePlanProvider()}
+ * for a connector-wide one) and asking it, treating a {@code null} provider as "not supported".</p>
+ *
+ * <p>The getters that return {@code null} ({@code getScanPlanProvider}, {@code getWritePlanProvider},
+ * {@code getProcedureOps}, {@code getEventSource}, {@code getRestPassthrough}) are the opposite case: those
+ * ARE the declaration points for "this subsystem exists". See the {@code org.apache.doris.connector.api}
+ * package documentation for the full rule.</p>
  */
 public interface Connector extends Closeable {
 
-    /** Returns the metadata interface for the given session. */
+    /**
+     * Returns the metadata interface for the given session. The engine calls this exactly once per catalog per
+     * statement through its own single entry point and closes the result when the statement ends, so an
+     * implementation may return a fresh, statement-scoped object; see {@link ConnectorMetadata} for the
+     * lifecycle contract.
+     */
     ConnectorMetadata getMetadata(ConnectorSession session);
 
     /**
@@ -108,84 +125,6 @@ public interface Connector extends Closeable {
     }
 
     /**
-     * The write operations the engine may perform on this connector — the single admission source. Reads the
-     * write provider's {@link ConnectorWritePlanProvider#supportedOperations()}; no provider ⇒ empty set ⇒ all
-     * writes rejected. The engine consults this instead of {@code getWritePlanProvider() != null}.
-     */
-    default Set<WriteOperation> supportedWriteOperations() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
-    }
-
-    /**
-     * Per-table view of {@link #supportedWriteOperations()}: derives from {@link #getWritePlanProvider(
-     * ConnectorTableHandle)} so a heterogeneous gateway admits the right operations for {@code handle} (e.g. an
-     * iceberg-on-HMS table admits DELETE/MERGE that the hive provider does not). The default routes through the
-     * per-handle provider, so every single-format connector is unaffected.
-     */
-    default Set<WriteOperation> supportedWriteOperations(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#supportsWriteBranch()}. No provider ⇒ false. */
-    default boolean supportsWriteBranch() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.supportsWriteBranch();
-    }
-
-    /** Per-table view of {@link #supportsWriteBranch()} (derives from the per-handle provider). */
-    default boolean supportsWriteBranch(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p != null && p.supportsWriteBranch();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresParallelWrite()}. No provider ⇒ false. */
-    default boolean requiresParallelWrite() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresParallelWrite();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresFullSchemaWriteOrder()}. No provider ⇒ false. */
-    default boolean requiresFullSchemaWriteOrder() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresFullSchemaWriteOrder();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionLocalSort()}. No provider ⇒ false. */
-    default boolean requiresPartitionLocalSort() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresPartitionLocalSort();
-    }
-
-    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionHashWrite()}. No provider ⇒ false. */
-    default boolean requiresPartitionHashWrite() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresPartitionHashWrite();
-    }
-
-    /** Per-table view of {@link #requiresPartitionHashWrite()} (derives from the per-handle provider). */
-    default boolean requiresPartitionHashWrite(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p != null && p.requiresPartitionHashWrite();
-    }
-
-    /**
-     * Null-safe view of {@link ConnectorWritePlanProvider#requiresMaterializeStaticPartitionValues()}. No
-     * provider ⇒ false.
-     */
-    default boolean requiresMaterializeStaticPartitionValues() {
-        ConnectorWritePlanProvider p = getWritePlanProvider();
-        return p != null && p.requiresMaterializeStaticPartitionValues();
-    }
-
-    /** Per-table view of {@link #requiresMaterializeStaticPartitionValues()} (derives from the per-handle provider). */
-    default boolean requiresMaterializeStaticPartitionValues(ConnectorTableHandle handle) {
-        ConnectorWritePlanProvider p = getWritePlanProvider(handle);
-        return p != null && p.requiresMaterializeStaticPartitionValues();
-    }
-
-    /**
      * Returns the procedure ops for {@code ALTER TABLE EXECUTE} dispatch, or {@code null} if this
      * connector exposes no table procedures. Procedure-side analogue of {@link #getWritePlanProvider()}.
      */
@@ -214,10 +153,10 @@ public interface Connector extends Closeable {
 
     /**
      * Storage-configuration defaults this connector derives from its own catalog properties, which the raw
-     * catalog map does not already supply. Design S8: storage-property derivation is owned by the connector —
+     * catalog map does not already supply. Storage-property derivation is owned by the connector —
      * fe-core does not parse metastore properties. fe-core folds the returned map into the catalog's storage
      * properties as DEFAULTS (an explicit user key always wins via {@code putIfAbsent}), and does so BEFORE
-     * both the fe-filesystem bind ({@code ConnectorContext.getStorageProperties()}) and the BE storage map
+     * both the fe-filesystem bind ({@code ConnectorStorageContext.getStorageProperties()}) and the BE storage map
      * ({@code getBackendStorageProperties()}), so the FE bind and the BE scan see the same derived storage.
      *
      * <p>The default is empty (no derivation), so every connector that does not need it is unaffected. The
@@ -229,16 +168,6 @@ public interface Connector extends Closeable {
      */
     default Map<String, String> deriveStorageProperties(Map<String, String> rawCatalogProps) {
         return Collections.emptyMap();
-    }
-
-    /** Returns the table-level property descriptors. */
-    default List<ConnectorPropertyMetadata<?>> getTableProperties() {
-        return Collections.emptyList();
-    }
-
-    /** Returns the session-level property descriptors. */
-    default List<ConnectorPropertyMetadata<?>> getSessionProperties() {
-        return Collections.emptyList();
     }
 
     /**
@@ -290,21 +219,6 @@ public interface Connector extends Closeable {
     }
 
     /**
-     * Execute a REST passthrough request against the underlying data source.
-     *
-     * <p>Connectors that expose HTTP endpoints (e.g., Elasticsearch) can
-     * override this to proxy REST requests from FE REST APIs.</p>
-     *
-     * @param path the relative URL path (e.g., "index_name/_search")
-     * @param body the request body (may be null for GET-style requests)
-     * @return the response body as a JSON string
-     * @throws UnsupportedOperationException if the connector doesn't support REST
-     */
-    default String executeRestRequest(String path, String body) {
-        throw new UnsupportedOperationException("REST passthrough not supported by this connector");
-    }
-
-    /**
      * Invalidates any connector-side per-table cache (e.g. a latest-snapshot/version cache) so a subsequent
      * read reflects the latest external state. Called by the engine on {@code REFRESH TABLE}. The names are
      * the REMOTE db/table names (as seen by the connector). Default no-op for connectors that cache nothing.
@@ -345,6 +259,17 @@ public interface Connector extends Closeable {
      * feed is unaffected.
      */
     default ConnectorEventSource getEventSource() {
+        return null;
+    }
+
+    /**
+     * Returns this connector's HTTP passthrough capability, or {@code null} if it has none. A capability-probe
+     * getter with the same shape as {@link #getEventSource()}: the caller probes for {@code null}, never via
+     * {@code instanceof}. Consumed by FE HTTP endpoints that speak one source's HTTP dialect (today
+     * {@code ESCatalogAction}), which narrow to that catalog type first and only then ask for the capability.
+     * The default returns {@code null}, so no connector inherits an entry point it cannot serve.
+     */
+    default ConnectorRestPassthrough getRestPassthrough() {
         return null;
     }
 

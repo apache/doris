@@ -21,7 +21,10 @@ import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.NamedColumnHandle;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -162,10 +165,10 @@ class EsScanPlanProviderTest {
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("test_index");
 
-        provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
-        provider.getScanNodeProperties(EMPTY_SESSION, handle, Collections.emptyList(),
+        provider.planScan(EMPTY_SESSION, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+        provider.getScanNodePropertiesResult(EMPTY_SESSION, handle, Collections.emptyList(),
                 java.util.Optional.empty());
-        // ES-F1: planScan and getScanNodeProperties of one scan node run on the SAME per-scan-node
+        // ES-F1: planScan and getScanNodePropertiesResult of one scan node run on the SAME per-scan-node
         // provider instance, so the metadata state (mapping + shard routing + node topology) is
         // fetched once and shared -- not twice. MUTATION: removing the memoizedState guard makes
         // each call refetch -> these go back to 2 -> red.
@@ -181,10 +184,12 @@ class EsScanPlanProviderTest {
     void testDifferentIndexesFetchSeparately() {
         CountingRestClient client = new CountingRestClient();
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
-        provider.planScan(EMPTY_SESSION, new EsTableHandle("index_a"),
-                Collections.emptyList(), java.util.Optional.empty());
-        provider.planScan(EMPTY_SESSION, new EsTableHandle("index_b"),
-                Collections.emptyList(), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(new EsTableHandle("index_a"), Collections.emptyList())
+                .build());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(new EsTableHandle("index_b"), Collections.emptyList())
+                .build());
         // The per-scan memo is guarded on the index, so a provider reused for a different index
         // still refetches -- distinct indexes never share a memo entry.
         Assertions.assertEquals(2, client.getMappingCount.get(),
@@ -201,9 +206,9 @@ class EsScanPlanProviderTest {
         EsTableHandle handle = new EsTableHandle("test_index");
 
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(EMPTY_SESSION, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(EMPTY_SESSION, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(2, client.searchShardsCount.get(),
                 "a separate scan node (provider) must refetch shard routing -- memo is per-scan, not cross-query");
@@ -248,7 +253,7 @@ class EsScanPlanProviderTest {
 
         new EsConnectorMetadata(client, minimalProps()).getTableSchema(session, handle);
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(session, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(1, client.getMappingCount.get(),
                 "one index's mapping must be fetched once per statement across the schema and scan paths");
@@ -282,9 +287,9 @@ class EsScanPlanProviderTest {
         EsTableHandle handle = new EsTableHandle("test_index");
 
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(session, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
         new EsScanPlanProvider(client, minimalProps())
-                .planScan(session, handle, Collections.emptyList(), java.util.Optional.empty());
+                .planScan(session, ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
 
         Assertions.assertEquals(2, client.searchShardsCount.get(),
                 "shard routing must be fetched per scan, never shared via the statement scope");
@@ -304,10 +309,12 @@ class EsScanPlanProviderTest {
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("test_index");
 
-        provider.planScan(EMPTY_SESSION, handle,
-                Collections.singletonList(new NamedColumnHandle("a")), java.util.Optional.empty());
-        provider.planScan(EMPTY_SESSION, handle,
-                Collections.singletonList(new NamedColumnHandle("b")), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(handle, Collections.singletonList(new NamedColumnHandle("a")))
+                .build());
+        provider.planScan(EMPTY_SESSION,
+                ConnectorScanRequest.builder(handle, Collections.singletonList(new NamedColumnHandle("b")))
+                .build());
 
         Assertions.assertEquals(2, client.searchShardsCount.get(),
                 "a different projection must refetch -- the memo is guarded on columns, not just index");
@@ -326,8 +333,12 @@ class EsScanPlanProviderTest {
                 return 0;
             }
         });
-        Assertions.assertTrue(connector.supportedWriteOperations().isEmpty(),
-                "ES connector should declare no supported write operations");
+        Assertions.assertNull(connector.getWritePlanProvider(),
+                "ES connector should expose no write plan provider, so every write is rejected");
+        // The ES-compatible FE HTTP endpoints probe for this capability and answer badRequest when it is
+        // absent, so ES must expose it (every other connector inherits the null default).
+        Assertions.assertNotNull(connector.getRestPassthrough(),
+                "ES fronts an HTTP source, so it must expose the passthrough capability the ES endpoints need");
         // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
         ConnectorContractValidator.validate(connector, "es");
     }
@@ -338,12 +349,92 @@ class EsScanPlanProviderTest {
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("my_test_index");
 
-        Map<String, String> props = provider.getScanNodeProperties(
-                EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+        Map<String, String> props = provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty()).getProperties();
         StringBuilder output = new StringBuilder();
         provider.appendExplainInfo(output, "", props);
 
         Assertions.assertTrue(output.toString().contains("ES index: my_test_index"));
+    }
+
+    // ─────────── early-stop (terminate_after), relocated out of the generic scan node ───────────
+    //
+    // WHY these matter: asking ES to stop after N hits is only correct when the engine has NO filtering left
+    // to do after the scan — otherwise ES stops early on rows a leftover engine-side filter would have thrown
+    // away, and the query silently returns too few rows. Both facts come from the engine through synthetic
+    // property keys. Before the relocation, this decision lived in the generic scan node and was reached by
+    // matching this connector's format string; it had NO unit coverage at all, only an ES-cluster suite.
+
+    private static Map<String, String> pushdownProps(String limit, String batchSize, String allPushed) {
+        Map<String, String> props = new HashMap<>();
+        if (limit != null) {
+            props.put(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT, limit);
+        }
+        if (batchSize != null) {
+            props.put("es.batch_size", batchSize);
+        }
+        if (allPushed != null) {
+            props.put(ScanNodePropertyKeys.SYNTHETIC_ALL_CONJUNCTS_PUSHED, allPushed);
+        }
+        return props;
+    }
+
+    private static TFileScanRangeParams populateWith(Map<String, String> props) {
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps()).populateScanLevelParams(params, props);
+        return params;
+    }
+
+    @Test
+    void terminateAfterIsRequestedWhenTheLimitFitsOneBatchAndNothingIsLeftToFilter() {
+        // "limit" is the BE-side key ES turns into an early stop; the literal is a wire contract.
+        Assertions.assertEquals("5",
+                populateWith(pushdownProps("5", "1024", "true")).getEsProperties().get("limit"));
+    }
+
+    @Test
+    void terminateAfterIsNotRequestedWhenFilteringRemains() {
+        // The correctness case: the engine still has conjuncts to apply, so stopping ES early would lose rows.
+        Assertions.assertFalse(
+                populateWith(pushdownProps("5", "1024", "false")).getEsProperties().containsKey("limit"),
+                "with filtering left to do, an early stop can drop rows that survive the remaining filter");
+    }
+
+    @Test
+    void terminateAfterIsNotRequestedWhenTheLimitExceedsOneBatch() {
+        Assertions.assertFalse(
+                populateWith(pushdownProps("5000", "1024", "true")).getEsProperties().containsKey("limit"));
+    }
+
+    @Test
+    void terminateAfterIsNotRequestedWhenTheEngineSuppliedNothing() {
+        // A property map with none of the synthetic keys (an older engine, or a direct unit-test call) must be
+        // treated as "no limit", not as an unbounded one.
+        Assertions.assertFalse(
+                populateWith(pushdownProps(null, null, null)).getEsProperties().containsKey("limit"));
+    }
+
+    @Test
+    void explainReportsTheEarlyStopVerbatim() {
+        StringBuilder output = new StringBuilder();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .appendExplainInfo(output, "", pushdownProps("5", "1024", "true"));
+        // The exact text is the acceptance baseline: an ES-cluster suite asserts this string, and this
+        // relocation must not change it by a character.
+        Assertions.assertTrue(output.toString().contains("ES terminate_after: 5\n"), output.toString());
+    }
+
+    @Test
+    void explainReportsNoEarlyStopWhenFilteringRemainsOrNothingWasPushed() {
+        StringBuilder withFilter = new StringBuilder();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .appendExplainInfo(withFilter, "", pushdownProps("5", "1024", "false"));
+        Assertions.assertFalse(withFilter.toString().contains("ES terminate_after"), withFilter.toString());
+
+        StringBuilder noKeys = new StringBuilder();
+        new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .appendExplainInfo(noKeys, "", Collections.emptyMap());
+        Assertions.assertFalse(noKeys.toString().contains("ES terminate_after"), noKeys.toString());
     }
 
     @Test
@@ -355,4 +446,14 @@ class EsScanPlanProviderTest {
 
         Assertions.assertFalse(output.toString().contains("ES index:"));
     }
+
+    @Test
+    public void beFileCacheAdmissionDoesNotApplyToEs() {
+        // ES is read over HTTP, never through BE's file readers, so it must stay out of file-cache admission
+        // governance exactly as it was while a catalog-type allow-list decided this.
+        Assertions.assertFalse(new EsScanPlanProvider(new CountingRestClient(), minimalProps())
+                .supportsFileCache());
+    }
+
+
 }

@@ -102,8 +102,9 @@ public class JdbcDorisConnector implements Connector {
         // SUPPORTS_METADATA_PRELOAD: preserves the legacy engine-name "jdbc" gate of
         // PluginDrivenExternalTable.supportsExternalMetadataPreload (F11) now that it is capability-driven, so
         // jdbc tables keep async metadata pre-load.
+        // Passthrough SQL is NOT declared here: JdbcConnectorMetadata implements
+        // ConnectorPassthroughSqlOps, and implementing that interface IS the declaration.
         return EnumSet.of(
-                ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD
         );
     }
@@ -301,7 +302,7 @@ public class JdbcDorisConnector implements Connector {
                 poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime,
                 onlySpecifiedDatabase, properties,
                 enableMappingVarbinary, enableMappingTimestampTz,
-                context::sanitizeJdbcUrl);
+                context::sanitizeOutboundUrl);
     }
 
     @Override
