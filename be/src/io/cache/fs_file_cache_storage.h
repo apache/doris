@@ -74,12 +74,15 @@ public:
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                            DiskScanBlockFileCallback on_block_file,
+                           DiskScanQuarantineCallback on_quarantine,
                            TokenBucketRateLimiterHolder* scan_limiter,
                            DiskScanCancellationCallback should_cancel) override;
     bool has_active_writer(const UInt128Wrapper& hash, size_t offset) override;
     bool has_active_writer_for_hash(const UInt128Wrapper& hash) override;
     Status delete_file_for_disk_scan(const std::filesystem::path& path) override;
-    Status delete_dir_for_disk_scan(const std::filesystem::path& path) override;
+    Status delete_dir_for_disk_scan(const std::filesystem::path& path,
+                                    TokenBucketRateLimiterHolder* repair_limiter,
+                                    DiskScanCancellationCallback should_cancel) override;
     Status rename_for_disk_scan(const std::filesystem::path& from,
                                 const std::filesystem::path& to) override;
     Status exists_for_disk_scan(const std::filesystem::path& path, bool* exists) override;

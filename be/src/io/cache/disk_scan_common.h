@@ -52,8 +52,14 @@ struct DiskScanBlockFileEntry {
     std::filesystem::path key_dir;
 };
 
+struct DiskScanQuarantineEntry {
+    std::filesystem::path path;
+    bool is_directory = false;
+};
+
 using DiskScanKeyDirCallback = std::function<Status(const DiskScanKeyDirEntry&)>;
 using DiskScanBlockFileCallback = std::function<Status(const DiskScanBlockFileEntry&)>;
+using DiskScanQuarantineCallback = std::function<Status(const DiskScanQuarantineEntry&)>;
 using DiskScanCancellationCallback = std::function<bool()>;
 
 enum class DiskScanRepairActionType {
@@ -65,6 +71,7 @@ enum class DiskScanRepairReason {
     DISK_ONLY_FILE,
     OLD_TMP_FILE,
     TTL_DUPLICATE_DIR,
+    QUARANTINE_GC,
 };
 
 struct DiskScanRepairAction {

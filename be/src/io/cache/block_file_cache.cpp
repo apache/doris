@@ -2516,7 +2516,25 @@ DiskScanRoundResult BlockFileCache::run_disk_scan_repair_once() {
             }
             return Status::OK();
         };
-        auto st = _storage->scan_disk_cache(on_key_dir, on_block_file,
+        auto on_quarantine = [&](const DiskScanQuarantineEntry& entry) -> Status {
+            if (should_cancel()) {
+                return Status::Cancelled("file cache disk scan cancelled");
+            }
+            DiskScanRepairAction action;
+            action.type = entry.is_directory ? DiskScanRepairActionType::DELETE_DIR
+                                             : DiskScanRepairActionType::DELETE_FILE;
+            action.path = entry.path;
+            action.key_dir = entry.path;
+            action.reason = DiskScanRepairReason::QUARANTINE_GC;
+            actions.push_back(std::move(action));
+            ++result.candidates;
+            if (actions.size() >= static_cast<size_t>(std::max<int64_t>(
+                                          1, config::file_cache_disk_scan_max_pending_repairs))) {
+                drain_disk_scan_actions(&actions, &result);
+            }
+            return Status::OK();
+        };
+        auto st = _storage->scan_disk_cache(on_key_dir, on_block_file, on_quarantine,
                                             _disk_scan_scan_limiter.get(), should_cancel);
         if (!st.ok() && !st.is<ErrorCode::CANCELLED>()) {
             LOG(WARNING) << "Failed to scan file cache disk. path=" << _cache_base_path
@@ -2698,18 +2716,29 @@ void BlockFileCache::drain_disk_scan_actions(std::vector<DiskScanRepairAction>* 
             return _close.load(std::memory_order_relaxed) ||
                    !config::enable_file_cache_disk_scan_repair;
         };
-        _disk_scan_repair_limiter->add(1, should_cancel);
-        if (should_cancel()) {
-            ++result->skipped_candidates;
-            continue;
-        }
-        std::filesystem::path quarantine_path;
-        auto st = quarantine_disk_scan_action(action, &quarantine_path);
-        if (!st.ok()) {
-            ++result->skipped_candidates;
-            continue;
+        const bool is_leftover_quarantine = action.reason == DiskScanRepairReason::QUARANTINE_GC;
+        std::filesystem::path quarantine_path = action.path;
+        Status st = Status::OK();
+        if (!is_leftover_quarantine) {
+            _disk_scan_repair_limiter->add(1, should_cancel);
+            if (should_cancel()) {
+                ++result->skipped_candidates;
+                continue;
+            }
+            st = quarantine_disk_scan_action(action, &quarantine_path);
+            if (!st.ok()) {
+                ++result->skipped_candidates;
+                continue;
+            }
         }
         if (action.type == DiskScanRepairActionType::DELETE_FILE) {
+            if (is_leftover_quarantine) {
+                _disk_scan_repair_limiter->add(1, should_cancel);
+                if (should_cancel()) {
+                    ++result->skipped_candidates;
+                    continue;
+                }
+            }
             st = _storage->delete_file_for_disk_scan(quarantine_path);
             if (st.ok()) {
                 ++result->repaired_files;
@@ -2722,12 +2751,15 @@ void BlockFileCache::drain_disk_scan_actions(std::vector<DiskScanRepairAction>* 
                 ++result->skipped_candidates;
             }
         } else {
-            st = _storage->delete_dir_for_disk_scan(quarantine_path);
+            st = _storage->delete_dir_for_disk_scan(quarantine_path,
+                                                    _disk_scan_repair_limiter.get(), should_cancel);
             if (st.ok()) {
                 ++result->repaired_dirs;
             } else {
-                LOG(WARNING) << "Failed to delete quarantined file cache directory. path="
-                             << quarantine_path << ", error=" << st;
+                if (!st.is<ErrorCode::CANCELLED>()) {
+                    LOG(WARNING) << "Failed to delete quarantined file cache directory. path="
+                                 << quarantine_path << ", error=" << st;
+                }
                 ++result->skipped_candidates;
             }
         }
@@ -2815,7 +2847,8 @@ Status BlockFileCache::quarantine_disk_scan_action(const DiskScanRepairAction& a
         return Status::InternalError("disk scan repair action is no longer safe");
     }
 
-    static std::atomic<uint64_t> quarantine_id {0};
+    static std::atomic<uint64_t> quarantine_id {
+            static_cast<uint64_t>(std::chrono::system_clock::now().time_since_epoch().count())};
     *quarantine_path = action.path.parent_path() /
                        (action.path.filename().native() + ".disk_scan_quarantine." +
                         std::to_string(quarantine_id.fetch_add(1, std::memory_order_relaxed)));

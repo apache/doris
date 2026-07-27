@@ -3496,6 +3496,99 @@ TEST_F(BlockFileCacheTest, disk_scan_dynamic_disable_cancels_round) {
     EXPECT_TRUE(fs::exists(file_path));
 }
 
+TEST_F(BlockFileCacheTest, disk_scan_quarantine_gc_is_cancellable_and_rate_limited) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    config::file_cache_disk_scan_enable_disk_memory_checker = false;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    auto key = io::BlockFileCache::hash("disk_scan_quarantine_gc_is_cancellable_and_rate_limited");
+    auto canonical_expiration = UnixSeconds() + 300;
+    auto stale_expiration = canonical_expiration + 300;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.expiration_time = canonical_expiration;
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+    {
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+        download(blocks[0]);
+    }
+
+    auto stale_dir = key_dir_path(key, stale_expiration);
+    create_cache_file(stale_dir / "10");
+    create_cache_file(stale_dir / "20");
+    create_cache_file(stale_dir / "30");
+
+    std::atomic<int> delete_attempts {0};
+    sp->set_call_back("FSFileCacheStorage::before_delete_quarantine_entry", [&](auto&&) {
+        if (++delete_attempts == 2) {
+            config::enable_file_cache_disk_scan_repair = false;
+        }
+    });
+    sp->enable_processing();
+    auto result = run_disk_scan_once_for_test(cache);
+
+    EXPECT_EQ(delete_attempts, 2);
+    EXPECT_EQ(result.repaired_dirs, 0);
+    EXPECT_EQ(result.skipped_candidates, 1);
+    EXPECT_FALSE(fs::exists(stale_dir));
+    std::vector<fs::path> quarantines;
+    for (const auto& entry : fs::directory_iterator(stale_dir.parent_path())) {
+        if (entry.path().filename().native().find(".disk_scan_quarantine.") != std::string::npos) {
+            quarantines.push_back(entry.path());
+        }
+    }
+    ASSERT_EQ(quarantines.size(), 1);
+    EXPECT_TRUE(fs::is_directory(quarantines[0]));
+    EXPECT_EQ(std::distance(fs::directory_iterator(quarantines[0]), fs::directory_iterator()), 2);
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_resumes_leftover_quarantine_gc) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] { sp->clear_all_call_backs(); }};
+
+    auto key = io::BlockFileCache::hash("disk_scan_resumes_leftover_quarantine_gc");
+    auto expiration = UnixSeconds() + 300;
+    auto key_dir = key_dir_path(key, expiration);
+    auto quarantine_dir = fs::path(key_dir.native() + ".disk_scan_quarantine.123456789");
+    create_cache_file(quarantine_dir / "10");
+    create_cache_file(quarantine_dir / "nested" / "20");
+    auto non_quarantine_dir = fs::path(key_dir.native() + ".disk_scan_quarantine.not_an_id");
+    create_cache_file(non_quarantine_dir / "30");
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+
+    std::atomic<int> delete_attempts {0};
+    sp->set_call_back("FSFileCacheStorage::before_delete_quarantine_entry",
+                      [&](auto&&) { ++delete_attempts; });
+    sp->enable_processing();
+    auto result = run_disk_scan_once_for_test(cache);
+
+    EXPECT_EQ(result.candidates, 1);
+    EXPECT_EQ(result.repaired_dirs, 1);
+    EXPECT_EQ(delete_attempts, 4);
+    EXPECT_FALSE(fs::exists(quarantine_dir));
+    EXPECT_TRUE(fs::exists(non_quarantine_dir / "30"));
+}
+
 TEST_F(BlockFileCacheTest, disk_scan_shutdown_interrupts_rate_limit_wait) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

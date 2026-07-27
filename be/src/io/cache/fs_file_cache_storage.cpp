@@ -42,6 +42,36 @@ namespace doris::io {
 
 namespace {
 
+constexpr std::string_view DISK_SCAN_QUARANTINE_MARKER = ".disk_scan_quarantine.";
+
+bool parse_disk_scan_quarantine(const std::filesystem::path& path, std::string* original_name) {
+    const auto name = path.filename().native();
+    const auto marker_pos = name.rfind(DISK_SCAN_QUARANTINE_MARKER);
+    if (marker_pos == std::string::npos || marker_pos == 0) {
+        return false;
+    }
+    const auto id = std::string_view(name).substr(marker_pos + DISK_SCAN_QUARANTINE_MARKER.size());
+    if (id.empty() || !std::ranges::all_of(id, [](char c) { return c >= '0' && c <= '9'; })) {
+        return false;
+    }
+    *original_name = name.substr(0, marker_pos);
+    return true;
+}
+
+bool is_cache_block_file_name(std::string_view name) {
+    const auto suffix_pos = name.find('_');
+    const auto offset = name.substr(0, suffix_pos);
+    if (offset.empty() ||
+        !std::ranges::all_of(offset, [](char c) { return c >= '0' && c <= '9'; })) {
+        return false;
+    }
+    if (suffix_pos == std::string_view::npos) {
+        return true;
+    }
+    const auto suffix = name.substr(suffix_pos + 1);
+    return suffix == "tmp" || suffix == "idx" || suffix == "disposable" || suffix == "ttl";
+}
+
 bool parse_hex_hash(std::string_view key_str, UInt128Wrapper* hash) {
     if (key_str.size() != sizeof(uint128_t) * 2 || !std::ranges::all_of(key_str, [](char c) {
             return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F');
@@ -362,6 +392,7 @@ Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
 
 Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                                            DiskScanBlockFileCallback on_block_file,
+                                           DiskScanQuarantineCallback on_quarantine,
                                            TokenBucketRateLimiterHolder* scan_limiter,
                                            DiskScanCancellationCallback should_cancel) {
     auto is_cancelled = [&]() { return should_cancel && should_cancel(); };
@@ -417,6 +448,18 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                 return Status::Cancelled("file cache disk scan cancelled");
             }
             std::filesystem::path block_file_path(block_file);
+            std::string quarantined_file_name;
+            if (parse_disk_scan_quarantine(block_file_path, &quarantined_file_name) &&
+                is_cache_block_file_name(quarantined_file_name)) {
+                auto file_status = std::filesystem::symlink_status(block_file_path, ec);
+                if (ec) {
+                    continue;
+                }
+                RETURN_IF_ERROR(on_quarantine(
+                        {block_file_path,
+                         file_status.type() == std::filesystem::file_type::directory}));
+                continue;
+            }
             if (!std::filesystem::is_regular_file(block_file_path, ec) || ec) {
                 continue;
             }
@@ -485,6 +528,22 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
             }
             std::sort(key_dir_entries.begin(), key_dir_entries.end());
             for (const auto& key_dir : key_dir_entries) {
+                std::filesystem::path key_dir_path(key_dir);
+                std::string quarantined_key_dir_name;
+                UInt128Wrapper quarantined_hash;
+                uint64_t quarantined_expiration = 0;
+                if (parse_disk_scan_quarantine(key_dir_path, &quarantined_key_dir_name) &&
+                    parse_key_dir_name(quarantined_key_dir_name, &quarantined_hash,
+                                       &quarantined_expiration)) {
+                    auto key_dir_status = std::filesystem::symlink_status(key_dir_path, ec);
+                    if (ec) {
+                        continue;
+                    }
+                    RETURN_IF_ERROR(on_quarantine(
+                            {key_dir_path,
+                             key_dir_status.type() == std::filesystem::file_type::directory}));
+                    continue;
+                }
                 RETURN_IF_ERROR(scan_key_dir(prefix, key_dir));
             }
         }
@@ -497,6 +556,23 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                 collect_directory_entries(_cache_base_path, key_dir_entries, should_cancel));
         std::sort(key_dir_entries.begin(), key_dir_entries.end());
         for (const auto& key_dir : key_dir_entries) {
+            std::filesystem::path key_dir_path(key_dir);
+            std::string quarantined_key_dir_name;
+            UInt128Wrapper quarantined_hash;
+            uint64_t quarantined_expiration = 0;
+            if (parse_disk_scan_quarantine(key_dir_path, &quarantined_key_dir_name) &&
+                parse_key_dir_name(quarantined_key_dir_name, &quarantined_hash,
+                                   &quarantined_expiration)) {
+                std::error_code ec;
+                auto key_dir_status = std::filesystem::symlink_status(key_dir_path, ec);
+                if (ec) {
+                    continue;
+                }
+                RETURN_IF_ERROR(on_quarantine(
+                        {key_dir_path,
+                         key_dir_status.type() == std::filesystem::file_type::directory}));
+                continue;
+            }
             RETURN_IF_ERROR(scan_key_dir("", key_dir));
         }
     }
@@ -525,11 +601,124 @@ bool FSFileCacheStorage::has_active_writer_for_hash(const UInt128Wrapper& hash) 
 }
 
 Status FSFileCacheStorage::delete_file_for_disk_scan(const std::filesystem::path& path) {
-    return fs->delete_file(path);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory) {
+        return Status::IOError("failed to delete quarantined file {}, error={}", path.native(),
+                               ec.message());
+    }
+    return Status::OK();
 }
 
-Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path& path) {
-    return fs->delete_directory(path);
+Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path& path,
+                                                    TokenBucketRateLimiterHolder* repair_limiter,
+                                                    DiskScanCancellationCallback should_cancel) {
+    struct DirectoryFrame {
+        std::filesystem::path path;
+        std::filesystem::directory_iterator iterator;
+    };
+
+    auto is_cancelled = [&] { return should_cancel && should_cancel(); };
+    auto consume_repair_token = [&]() -> bool {
+        if (is_cancelled()) {
+            return false;
+        }
+        if (repair_limiter != nullptr) {
+            repair_limiter->add(1, should_cancel);
+        }
+        return !is_cancelled();
+    };
+    auto open_directory = [](const std::filesystem::path& dir,
+                             std::filesystem::directory_iterator* iterator) -> Status {
+        std::error_code ec;
+        *iterator = std::filesystem::directory_iterator(dir, ec);
+        if (ec) {
+            return Status::IOError("failed to iterate quarantine directory {}, error={}",
+                                   dir.native(), ec.message());
+        }
+        return Status::OK();
+    };
+    auto remove_path = [](const std::filesystem::path& target) -> Status {
+        std::error_code ec;
+        std::filesystem::remove(target, ec);
+        if (ec && ec != std::errc::no_such_file_or_directory) {
+            return Status::IOError("failed to delete quarantine path {}, error={}", target.native(),
+                                   ec.message());
+        }
+        return Status::OK();
+    };
+
+    std::error_code ec;
+    auto root_status = std::filesystem::symlink_status(path, ec);
+    if (ec == std::errc::no_such_file_or_directory ||
+        (!ec && root_status.type() == std::filesystem::file_type::not_found)) {
+        return Status::OK();
+    }
+    if (ec) {
+        return Status::IOError("failed to stat quarantine directory {}, error={}", path.native(),
+                               ec.message());
+    }
+    if (root_status.type() != std::filesystem::file_type::directory) {
+        return Status::InvalidArgument("quarantine path is not a directory: {}", path.native());
+    }
+
+    std::vector<DirectoryFrame> stack;
+    std::filesystem::directory_iterator root_iterator;
+    RETURN_IF_ERROR(open_directory(path, &root_iterator));
+    stack.push_back({path, std::move(root_iterator)});
+    while (!stack.empty()) {
+        if (is_cancelled()) {
+            return Status::Cancelled("quarantine directory deletion cancelled");
+        }
+
+        auto& frame = stack.back();
+        if (frame.iterator == std::filesystem::directory_iterator()) {
+            if (!consume_repair_token()) {
+                return Status::Cancelled("quarantine directory deletion cancelled");
+            }
+            TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::before_delete_quarantine_entry",
+                                     &frame.path);
+            if (is_cancelled()) {
+                return Status::Cancelled("quarantine directory deletion cancelled");
+            }
+            RETURN_IF_ERROR(remove_path(frame.path));
+            stack.pop_back();
+            continue;
+        }
+
+        auto child = frame.iterator->path();
+        frame.iterator.increment(ec);
+        if (ec) {
+            return Status::IOError("failed to iterate quarantine directory {}, error={}",
+                                   frame.path.native(), ec.message());
+        }
+        auto child_status = std::filesystem::symlink_status(child, ec);
+        if (ec == std::errc::no_such_file_or_directory ||
+            (!ec && child_status.type() == std::filesystem::file_type::not_found)) {
+            ec.clear();
+            continue;
+        }
+        if (ec) {
+            return Status::IOError("failed to stat quarantine path {}, error={}", child.native(),
+                                   ec.message());
+        }
+        if (child_status.type() == std::filesystem::file_type::directory) {
+            std::filesystem::directory_iterator child_iterator;
+            RETURN_IF_ERROR(open_directory(child, &child_iterator));
+            stack.push_back({std::move(child), std::move(child_iterator)});
+            continue;
+        }
+
+        if (!consume_repair_token()) {
+            return Status::Cancelled("quarantine directory deletion cancelled");
+        }
+        TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::before_delete_quarantine_entry", &child);
+        if (is_cancelled()) {
+            return Status::Cancelled("quarantine directory deletion cancelled");
+        }
+        RETURN_IF_ERROR(remove_path(child));
+    }
+    return Status::OK();
 }
 
 Status FSFileCacheStorage::rename_for_disk_scan(const std::filesystem::path& from,
