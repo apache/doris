@@ -774,6 +774,12 @@ public class PaimonScanNodeTest {
         return new PaimonScanNode(id, new TupleDescriptor(tupleId), false, sessionVariable, ScanContext.EMPTY);
     }
 
+    private Table mockPaimonTableWithPartitionKeys(List<String> partitionKeys) {
+        Table paimonTable = Mockito.mock(Table.class);
+        Mockito.when(paimonTable.partitionKeys()).thenReturn(partitionKeys);
+        return paimonTable;
+    }
+
     private void mockNativeReader(PaimonScanNode spyNode) {
         Mockito.doReturn(true).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }
