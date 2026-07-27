@@ -32,6 +32,7 @@ import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.DataField;
 
 import java.io.FileNotFoundException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -235,9 +236,16 @@ public interface PaimonCatalogOps {
      */
     class CatalogBackedPaimonCatalogOps implements PaimonCatalogOps {
         private final Catalog catalog;
+        /** Extracted {@code paimon.table-option.*} catalog defaults; empty when none are configured. */
+        private final Map<String, String> tableOptions;
 
         public CatalogBackedPaimonCatalogOps(Catalog catalog) {
+            this(catalog, Collections.emptyMap());
+        }
+
+        public CatalogBackedPaimonCatalogOps(Catalog catalog, Map<String, String> tableOptions) {
             this.catalog = catalog;
+            this.tableOptions = tableOptions;
         }
 
         @Override
@@ -255,9 +263,20 @@ public interface PaimonCatalogOps {
             return catalog.listTables(databaseName);
         }
 
+        /**
+         * #65955: overlay the catalog-level {@code paimon.table-option.*} defaults onto the loaded
+         * table, exactly where legacy {@code PaimonExternalCatalog.getPaimonTable} did — this is the
+         * connector's only {@code Catalog.getTable} call, so branch, time-travel and system tables all
+         * inherit the defaults. Options the table sets itself win (see {@link PaimonTableOptions#forCopy}).
+         */
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
-            return catalog.getTable(identifier);
+            Table table = catalog.getTable(identifier);
+            if (tableOptions.isEmpty()) {
+                return table;
+            }
+            Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions, table.options());
+            return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 
         @Override

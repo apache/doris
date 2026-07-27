@@ -79,6 +79,10 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     public void validateProperties(Map<String, String> properties) {
         checkMetaCacheProperties(properties);
         warnIgnoredDeadTableCacheKeys(properties);
+        // #65955: an unknown or unparseable paimon.table-option.* must fail the CREATE/ALTER CATALOG.
+        // Upstream got this from AbstractPaimonProperties.initNormalizeAndCheckProps(), which the SPI
+        // path no longer runs; validateProperties is this path's fail-fast hook.
+        PaimonTableOptions.extract(properties);
         MetaStoreProviders.bind(properties, Collections.emptyMap()).validate();
     }
 

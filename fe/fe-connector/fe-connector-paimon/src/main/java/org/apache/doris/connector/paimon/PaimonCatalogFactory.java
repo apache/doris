@@ -134,11 +134,17 @@ public final class PaimonCatalogFactory {
 
         // FIXME(cmy): Rethink these custom properties (ported from AbstractPaimonProperties).
         // Re-key generic paimon.* props by stripping the prefix, excluding storage prefixes which
-        // belong in the Hadoop Configuration (see buildHadoopConfiguration).
+        // belong in the Hadoop Configuration (see buildHadoopConfiguration). #65955 also excludes the
+        // paimon.table-option.* (a per-TABLE option, applied on table load -- see PaimonTableOptions)
+        // and paimon.jni.* (a BE scanner knob, forwarded by PaimonScanPlanProvider) namespaces, which
+        // are not catalog Options and would otherwise leak in as unknown catalog config.
         props.forEach((k, v) -> {
             if (k.toLowerCase(Locale.ROOT).startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
-                if (StringUtils.isNotBlank(newKey) && !isStoragePrefixed(k)) {
+                boolean excluded = isStoragePrefixed(k)
+                        || PaimonTableOptions.isTableOptionProperty(k)
+                        || PaimonTableOptions.isJniProperty(k);
+                if (StringUtils.isNotBlank(newKey) && !excluded) {
                     options.set(newKey, v);
                 }
             }

@@ -5,7 +5,88 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-27）：rebase onto `5b3ac63f8b4` —— 0 能力迁移，白捡上游一个 BE 崩溃修复
+# 🆕🆕🆕 最新一轮（2026-07-27b）：rebase onto `042e613b134` —— 移植 #65955 paimon table-option + 修一处**静默失效**
+
+> `git pull --rebase upstream-apache master`，63 commit onto **`042e613b134`**（上游新增 6 个 commit）。
+> 备份点 tag `backup-before-rebase-0727b` = rebase 前 HEAD `ceb33843d4b`。**未 push**。
+
+## 冲突（全部来自同一个上游 commit `#65955`）
+
+上游 6 个 commit 里只有 **`74227a80e46` (#65955) “Support Paimon table option passthrough”** 碰了 fe-core 外表，
+它改的 5 个 fe-core 文件本分支 P5 全删/改光了，于是撞出两组冲突：
+
+| 冲突 | 类型 | 解法 |
+|---|---|---|
+| `AbstractPaimonProperties.java` @ 我们的 P5-cutover commit | content | **并集**：上游新增 `initNormalizeAndCheckProps()`、我们新增 `initHdfsExecutionAuthenticator()`，同一锚点两个方法，无语义交叉 |
+| `AbstractPaimonProperties.java` @ 我们的 P5-T29 commit | content | 取**我们的版本**（T29 的目标就是 fe-core paimon-SDK-free；上游新增的 `SupportedTableOptions`/`getTableOptionsForCopy` 全是 `org.apache.paimon.*`，必须搬走） |
+| `PaimonExternalCatalog` / `PaimonScanNode` / `PaimonScanNodeTest` / `AbstractPaimonPropertiesTest` | modify/delete | `git rm` 保留删除，能力另行移植 |
+
+`git range-diff` 63 commit → **60 个逐字节未变**，3 个改写正是上面两组冲突 + 一个纯上下文行位移
+（`PaimonJniScanner` 少了一行 `import CoreOptions`）。上游本轮触碰的 22 个文件里，与我们不同的只有 6 个：
+5 个是 T29 有意删除的 fe-core paimon 文件，第 6 个 `PaimonJniScanner.java` 差异**只有本分支自己的两处改动**
+（P3b kerberos 包名迁移 + null-predicate backstop），上游 #65955 内容一行没丢。
+
+## ⚠️ 抓到一处 0 冲突的**静默失效**（本轮最重要的收获）
+
+`#65955` 把 JNI IOManager 的属性命名空间从 `paimon.doris.*` 改成 `paimon.jni.*`，**FE 与 BE 同时改**
+（`be/src/format/table/paimon_jni_reader.cpp`、`be/src/format_v2/jni/paimon_jni_reader.cpp`、`PaimonJniScanner`）。
+BE 侧那 3 个文件本分支没碰过 ⇒ **auto-merge 干净通过、直接变成新键名**；而 FE 侧的转发表在
+`fe-connector-paimon/PaimonScanPlanProvider.BACKEND_PAIMON_JNI_OPTIONS`（legacy `PaimonScanNode` 早被删），
+git 完全看不见这层对应关系 ⇒ 不改就是 **FE 发 `doris.*`、BE 只认 `jni.*`**：编译过、测试过、IOManager 永久失效，
+paimon 主键合并读回到 OOM 老路。**这类跨 FE/BE 同名常量的改名，rebase 后必须逐个核对。**
+
+## 移植结论（4 项，落在 `fe-connector-paimon`）
+
+1. **新增 `PaimonTableOptions`** — 直译上游 `AbstractPaimonProperties` 里被 T29 删掉的
+   `TABLE_OPTION_PREFIX`/`extractTableOptions`/`validateTableOption`/`getTableOptionsForCopy`/`SupportedTableOptions`。
+   放 `fe-connector-paimon` 而非 `fe-connector-metastore-paimon`：三个消费点全在本模块，且与
+   `PaimonCatalogFactory` 已承接 `appendCatalogOptions` 的既有惯例一致。
+2. **`PaimonCatalogFactory.appendCommonOptions`** — 把 `paimon.table-option.*` + `paimon.jni.*` 排除出 catalog Options。
+3. **`PaimonConnectorProvider.validateProperties`** — 调 `extract()` 做 CREATE/ALTER CATALOG 的 fail-fast
+   （上游靠 `initNormalizeAndCheckProps()`，SPI 路径不再跑那条）。
+4. **`PaimonCatalogOps.CatalogBackedPaimonCatalogOps.getTable`** — `table.copy(forCopy(..))`。这是连接器**唯一**的
+   `Catalog.getTable`，与 legacy `PaimonExternalCatalog.getPaimonTable` 位置完全对齐，branch/时间旅行/系统表全覆盖；
+   `PaimonTableResolver.resolve` 的两条路径（handle 上的 transient table、reload）都经过它 ⇒ 发给 BE 的
+   `paimon.serialized_table` 必带 option。
+
+**不需要移植的一项**：上游 `PaimonExternalCatalog.notifyPropertiesUpdated` 里新增的
+`|| isTableOptionProperty(key)` 缓存失效条件。本分支 `PluginDrivenExternalCatalog` 对**任何**属性变更都
+`resetToUninitialized(false)` → connector 置空 → 下次访问整体重建（`tableOptions` 在 ctor 里算），
+而上游那句要清的 `PaimonExternalMetaCache` 引擎缓存本分支已随 T29 删除 ⇒ **结构上更强，无缺口**。
+
+## 测试
+
+- **单测（我跑）**：新增 `PaimonTableOptionsTest` 11 例（上游 `AbstractPaimonPropertiesTest` 的 table-option 用例
+  一一对应 + 两条连接器专属接线 + 2 条真实 local `FileSystemCatalog` 的 getTable 覆盖验证）；
+  `PaimonScanPlanProviderTest` 改键名 + 把 `backendOptionsForwardFileReaderAsyncOptOut` 换成
+  `backendOptionsDropRetiredFileReaderAsyncOptOut`（#65955 连同 `buildTableOptions` 一起废掉了这个 knob，
+  等价开关变成 `paimon.table-option.file-reader-async-threshold`）。
+  模块 **393/393**（1 个既有 live-connectivity skip）+ checkstyle 0 + 全量 FE `install`。
+  **5 个变异全部 RED**：键名回退 `doris.*`、去掉 validateProperties 的 extract、getTable 不 copy、
+  去掉 catalog Options 排除、`forCopy` 改用裸 key 比较。
+- **e2e（你跑）**：上游 `#66065` 新增 3 个 paimon suite，其中 2 个断言 `exception "PaimonExternalCatalog"` ——
+  那是 legacy `UnboundTableSinkCreator` 的 `"Load data to " + catalog.getClass().getSimpleName()`，本分支
+  paimon 是 `PluginDrivenExternalCatalog`，走 `UnboundConnectorTableSink`，拒绝改由连接器写能力裁决。已改：
+  `test_paimon_write_boundary`（INSERT/INSERT-SELECT → `does not support INSERT operations`；
+  INSERT OVERWRITE → `insert into overwrite only support`，它在 `InsertOverwriteTableCommand.allowInsertOverwrite`
+  更早被拦）、`test_paimon_ctas_atomicity_negative`（同 INSERT 文案；该 suite 另有
+  `enablePaimonKnownBugTest` 双重门控，默认不跑）。同 suite 的 UPDATE/DELETE/MERGE 三条断言**无需改**：
+  paimon 连接器不声明 DELETE/MERGE ⇒ `pluginConnectorSupportsRowLevelDml` 为 false ⇒ 仍落回 legacy 那三条文案。
+  第 3 个 suite `test_paimon_merge_engine_matrix` 纯读，无需改。
+
+## 其余 5 个上游 commit：0 能力迁移
+
+`#66049`(BE LSAN 头文件)、`#65492`… 无交集；`#65414` 是 nereids MV 规则的 2 行笔误修
+（`joinCheckContext`→`scanCheckContext`），纯 fe-core 与外表无关；`#66081` 是 cloud feut 阈值；
+`#65814` 纯 BE scanner。**BE 未编译**：本轮 BE 改动与本分支 BE 文件无交集。
+
+⚠️ 坑（复用）：`mvn -pl <单模块>` 必须 `-am`（`${revision}`）；`install` 报 "did not assign a file" 加
+`-Dmaven.build.cache.enabled=false`。**做变异测试时不要用 `git checkout -- <file>` 还原**——未 staged 的真实改动会
+一起被丢掉（本轮踩过）；用 `cp` 备份还原。
+
+---
+
+# 🆕🆕 上一轮（2026-07-27）：rebase onto `5b3ac63f8b4` —— 0 能力迁移，白捡上游一个 BE 崩溃修复
 
 > `git pull --rebase upstream-apache master`，62 commit onto **`5b3ac63f8b4`**（上游新增 5 个 commit）。
 
@@ -56,7 +137,7 @@
 
 ---
 
-# 🆕🆕 上一轮（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
+# 🆕 上上轮（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
 
 > `git pull --rebase upstream-apache master`，61 commit onto **`962bd5b28c7`**（上游只新增 2 个 commit）。
 
@@ -87,7 +168,7 @@ paimon e2e 必红。
 
 ---
 
-# 🆕 上上轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
+# 上上上轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
 
 > 任务 = TeamCity `Doris_External_Regression` **#1005291**（PR **66028** @ `7ff51a106f0`）中
 > `external_table_p0/iceberg/test_iceberg_nested_schema_evolution_spark_doris_interop.groovy:273`。

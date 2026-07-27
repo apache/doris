@@ -1226,14 +1226,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // filesystem/hive-metastore case) need withIOManager to spill through the Paimon IOManager;
     // BE's PaimonJniScanner enables it only when FE ships these keys. Catalog properties carry the
     // connector "paimon." prefix (e.g. properties.get("paimon.catalog.type")); the prefix is stripped
-    // so BE receives doris.enable_jni_io_manager etc. (BE re-adds the paimon. prefix).
+    // so BE receives jni.enable_jni_io_manager etc. (BE re-adds the paimon. prefix).
+    // #65955 moved this namespace from paimon.doris.* to paimon.jni.*, on BOTH sides at once
+    // (paimon_jni_reader.cpp x2 + PaimonJniScanner), and dropped jni.enable_file_reader_async along
+    // with the JNI scanner's table.copy(buildTableOptions(..)) that consumed it -- the equivalent knob
+    // is now the catalog-level "paimon.table-option.file-reader-async-threshold" (PaimonTableOptions).
     private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
     private static final List<String> BACKEND_PAIMON_JNI_OPTIONS = Arrays.asList(
-            "doris.enable_jni_io_manager",
-            "doris.jni_io_manager.tmp_dir",
-            "doris.jni_io_manager.impl_class",
-            // #65365: user opt-out of paimon's async file reader (BE reads paimon.jni.enable_file_reader_async).
-            "jni.enable_file_reader_async");
+            "jni.enable_jni_io_manager",
+            "jni.io_manager.tmp_dir",
+            "jni.io_manager.impl_class");
 
     // Package-private for direct unit testing (PaimonScanPlanProviderTest).
     Map<String, String> getBackendPaimonOptions() {
