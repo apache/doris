@@ -1644,8 +1644,10 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_valu
     }
     const auto primitive_type = remove_nullable(_field_schema->data_type)->get_primitive_type();
     const bool has_identity_width =
-            (_metadata.type == tparquet::Type::INT32 && primitive_type == TYPE_INT) ||
-            (_metadata.type == tparquet::Type::INT64 && primitive_type == TYPE_BIGINT) ||
+            (_metadata.type == tparquet::Type::INT32 &&
+             (primitive_type == TYPE_INT || primitive_type == TYPE_DECIMAL32)) ||
+            (_metadata.type == tparquet::Type::INT64 &&
+             (primitive_type == TYPE_BIGINT || primitive_type == TYPE_DECIMAL64)) ||
             (_metadata.type == tparquet::Type::FLOAT && primitive_type == TYPE_FLOAT) ||
             (_metadata.type == tparquet::Type::DOUBLE && primitive_type == TYPE_DOUBLE);
     if (!has_identity_width) {
