@@ -6,7 +6,76 @@
 
 ---
 
-## 🆕🆕🆕 最新一轮（2026-07-27 第二次）：rebase 到上游 `ceb33843d4b` —— 2 个真冲突，都在同一个文件
+## 🆕🆕🆕 最新一轮（2026-07-27 第三次）：rebase 到上游 `e48a96ae488` —— 0 冲突，但挖出一个构建口径错误 + 一批旧伤
+
+`git pull --rebase upstream-apache branch-catalog-spi`，**78 个提交全部重放，0 个文本冲突**，
+`range-diff` **78/78 全 `=`**（逐字节未变），上游 tip 已是 HEAD 祖先。备份 tag `backup-before-rebase-0727b` = rebase 前 `5aa18d41fb6`。
+
+### 为什么这次一个冲突都没有
+
+上游这轮 = 把整条栈 rebase 到 master `042e613b134`（带进 6 个 master 提交）+ **1 个自有提交** `e48a96ae488`
+（port #65955 的 paimon table-option 透传 + `paimon.doris.*` → `paimon.jni.*` 改名）。
+上游 rebase 自身只改写了 3 个提交（paimon 迁移 / paimon 去 legacy / kerberos 合并），且差异**全在被删除的 fe-core paimon 代码**里——净树无影响。
+
+**上游净 FE 改动全部落在 `fe-connector-paimon` 一个模块**。我方 78 个提交与上游净 delta 的文件交集（已做 `--find-renames`，我方有 1 个重命名
+`JdbcQueryTableValueFunction` → `PluginDrivenQueryTableValueFunction`）只有 5 个 paimon 文件，
+而两边在这 5 个文件里改的**都不是相邻行段**——所以三方合并逐 hunk 各自落位，一个冲突都没有。
+
+### ⚠ 但「0 冲突」正是最该查的情形，不是可以放心的信号
+
+两边同文件不相邻改动，恰恰合得出「能编译但语义错」。上游自己这轮就踩过：#65955 的 `doris.*` → `jni.*` 改名是**静默断裂**
+（FE 还发 `doris.*`、BE 只读 `jni.*`，编译/合并/测试全绿而 IOManager 永不生效）。所以按四层验证逐层过：
+
+1. **结构**：`range-diff` 78/78 `=`；上游 tip 是 HEAD 祖先。
+2. **重叠定位**：逐文件比对「上游新增行」∩「我方删除行」= **8 个文件全 0**，即我方补丁一行上游新代码都没冲掉。
+   人工复核三处接缝均完好：`BACKEND_PAIMON_JNI_OPTIONS` 已是 `jni.*` 三键且不含已退休的 `enable_file_reader_async`；
+   `PaimonConnector` 两处 `CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions)` 都带上了 tableOptions；
+   `PaimonCatalogFactory` 排除项 + `PaimonConnectorProvider.validateProperties` 的 fail-fast 都在。
+   另核 **overlay 唯一漏斗**：全连接器除注释外无第二个 `catalog.getTable(` 调用点，我方 `PaimonConnectorMetadata` 的 −55 行是删死接口，不碰装载路径。
+3. **符号级**：FE 全反应堆 74 模块 `clean install` **BUILD SUCCESS**（含测试源）。
+4. **语义级**：见下面的 e2e 核对。
+
+**e2e 静态核对**：上游新增/改动的 4 个 suite 都不含 `ENGINE=`/`SHOW CREATE` 基线，
+不受我方「连接器自报 engine 名」改动影响；`test_paimon_ctas_atomicity_negative` 里的 `create table ... engine=paimon`
+经核 `PaimonConnectorProvider.acceptedCreateTableEngineNames()` = `{"paimon"}`，仍然接受。
+
+### 🔥 构建口径错误（新坑，务必复用）
+
+**全反应堆 `clean test-compile` 对本仓库是无效验证**，会假报失败：
+`fe-connector-hms-hive-shade` 是**零 java 源文件**的纯 shade 装配模块，其 `shade`/`jar` 目标绑定在 **`package` 阶段**。
+`test-compile` 到不了 `package`，reactor 只能把它的 `target/classes`（只有 `META-INF`）喂给下游 ⇒
+`fe-connector-hms` 报一片 `cannot find symbol: IMetaStoreClient / HiveConf / LockComponent / Table / FieldSchema / Partition`。
+同理**只跑到 `test` 阶段也不行**，会在测试发现期炸 `NoClassDefFoundError: MetaException`。
+⇒ 结论：**必须用 `install`**（`clean install -DskipTests` 做符号级验证；跑测试用 `install`，不要用 `test`）。
+这也解释了历史 HANDOFF 为何一直写 `clean install`。
+
+### 旧伤：`fe-connector-hive` 13 个失败（**非本次 rebase 造成**，已修）
+
+判定方法（不猜）：pre→post rebase **整树差异 = 上游 26 个文件**，其中**没有任何 fe-connector-hive 输入**；
+且 `HiveConnectorMetadata.java` 与两个测试文件 **sha256 逐字节相同**，pre-rebase 树里就已含那条拒绝 ⇒ 确定性同结果。
+根因同一类：**校验从 fe-core 下放进连接器后跑得更早，fixture 却是按旧顺序写的**。已在 `784d11dafd2` 修（**只动测试，不碰生产**）：
+
+- **NOT NULL（12 例）**：#65893 把「hive 不支持 NOT NULL」搬进 `validateColumns`，排在 createTable 所有校验最前；
+  共享 `request()` fixture 的 `id` 是 `nullable=false` ⇒ 12 个用例还没走到自己要断言的 transactional / RANGE / 显式分区值 / 分桶拒绝就先被挡掉
+  （表现为消息断言 `expected: <true> but was: <false>`）。改为 nullable；NOT NULL 规则本身仍由 `notNullColumnIsRejected` 覆盖。
+- **无子类型复杂类（1 例）**：`0ff75bb52cb` 已把复杂类型改成强校验，裸 `ConnectorType.of("ARRAY")` 现在构造即抛；
+  `complexPartitionColumnIsRejected` 要的是「COMPLEX 分区列被拒」，不是「类型造不出来」⇒ 给 `col()` 加 `ConnectorType` 重载，传 `ARRAY<INT>`。
+- **分区列不存在（1 例）**：#65893 也把分区键存在性检查搬进了连接器；`createTableListPartitionThreadsPartitionKeys`
+  按 `dt`+`region` 分区而 fixture 只有 `id`+`dt` ⇒ 自带列表并把 region 放末尾（hive 要求分区列在 schema 末尾）。
+
+### 测试结论（全绿）
+
+`fe-connector` 聚合 **16 个模块全部 SUCCESS，checkstyle 开着，2939 个测试 0 失败 0 错误**（7 个 skip 是既有 live-connectivity）。
+其中 `fe-connector-paimon` **401/401**（rebase 真正影响的模块）、`fe-connector-hive` **375/375**、`fe-connector-iceberg` 1151、
+`fe-connector-api` 110（含录制基线 `ConnectorMetadataSurfaceTest`）。
+fe-core 定向 59/59（`CacheHotspotManagerTableFilterTest` 36 —— 正是上游 #66081 那个 feut 修复、
+`ConnectorPluginManagerTest` 16、`FileSystemPluginManagerTest` 5、`MetadataGeneratorPluginDrivenTest` 2）。
+**BE 未编译**：上游本轮 BE 改动（`scanner_context`、`paimon_jni_reader` ×2、`leak_annotations`）与本分支 BE 文件集合交集为空。
+**e2e 未跑**（需集群）。**未 push**。
+
+---
+
+## 🆕🆕 上一轮（2026-07-27 第二次）：rebase 到上游 `ceb33843d4b` —— 2 个真冲突，都在同一个文件
 
 `git pull --rebase upstream-apache branch-catalog-spi`，**75 个提交全部重放**，`range-diff` **73 个 `=` / 2 个 `!`**，
 两个 `!` 正是我手工解的那两个提交（第 13 个 `remove the catalog type allow-list`、第 49 个
@@ -82,7 +151,7 @@ fail-loud，classpath 撞名 = 构建错误）。若照抄上游把它一起包�
 
 ---
 
-## 🆕🆕 上一轮（2026-07-27）：rebase 到上游 `1aa5ae9597e` —— 「零冲突」但树是坏的
+## 上上上轮（2026-07-27）：rebase 到上游 `1aa5ae9597e` —— 「零冲突」但树是坏的
 
 `git pull --rebase upstream-apache branch-catalog-spi`，**72 个提交全部重放，0 个文本冲突**，
 `range-diff` 71 个 `=` / 1 个 `!`（第 28 个 `centralize the scan-node property key contract`，
