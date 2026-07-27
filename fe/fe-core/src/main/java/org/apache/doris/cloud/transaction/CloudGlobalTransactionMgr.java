@@ -2787,8 +2787,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      */
     private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
                                            List<TabletCommitInfo> tabletCommitInfos) {
-        if (commitTxnResponse.getIsPartialCommit()) {
-            LOG.info("skip make cloud tmp rowsets visible for partial commit, txn_id: {}",
+        if (commitTxnResponse.getIsLazyCommitIncomplete()) {
+            LOG.info("skip make cloud tmp rowsets visible for incomplete lazy commit, txn_id: {}",
                     commitTxnResponse.getTxnInfo().getTxnId());
             return;
         }

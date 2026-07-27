@@ -210,7 +210,7 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
-    public void testSkipMakeTmpRsVisibleForPartialCommit() throws Exception {
+    public void testSkipMakeTmpRsVisibleForIncompleteLazyCommit() throws Exception {
         boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
         try {
             Config.enable_notify_be_after_load_txn_commit = true;
@@ -228,18 +228,19 @@ public class CloudGlobalTransactionMgrTest {
             notifyMethod.setAccessible(true);
 
             TxnInfoPB txnInfo = TxnInfoPB.newBuilder().setTxnId(12345L).build();
-            CommitTxnResponse partialCommitResponse = CommitTxnResponse.newBuilder()
+            CommitTxnResponse incompleteLazyCommitResponse = CommitTxnResponse.newBuilder()
                     .setTxnInfo(txnInfo)
-                    .setIsPartialCommit(true)
+                    .setIsLazyCommitIncomplete(true)
                     .build();
             List<TabletCommitInfo> tabletCommitInfos =
                     Lists.newArrayList(new TabletCommitInfo(10001L, 10002L));
 
-            notifyMethod.invoke(transactionMgr, partialCommitResponse, tabletCommitInfos);
+            notifyMethod.invoke(transactionMgr, incompleteLazyCommitResponse, tabletCommitInfos);
             Assert.assertFalse(notified.get());
 
             notifyMethod.invoke(transactionMgr,
-                    partialCommitResponse.toBuilder().clearIsPartialCommit().build(), tabletCommitInfos);
+                    incompleteLazyCommitResponse.toBuilder().clearIsLazyCommitIncomplete().build(),
+                    tabletCommitInfos);
             Assert.assertTrue(notified.get());
         } finally {
             Config.enable_notify_be_after_load_txn_commit = originalEnableNotify;
