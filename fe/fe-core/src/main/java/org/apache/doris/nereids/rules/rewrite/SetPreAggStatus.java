@@ -444,8 +444,19 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitKeyValueSlots(aggSlots);
                     if (splitSlots.first.isEmpty()) {
                         // only value slots
-                        if (aggFunc.children().size() == 1 && aggFunc.child(0) instanceof SlotReference) {
-                            SlotReference slotRef = (SlotReference) aggFunc.child(0);
+                        Expression valueChild = aggFunc.child(0);
+                        // Unwrap safe numeric casts that commute with MAX/MIN
+                        // (e.g. max(cast(v9 as double)) → storage MAX + cast).
+                        // Only do this for MAX/MIN: sum(cast(x)) and
+                        // cast(sum(x)) are not generally interchangeable due
+                        // to overflow/precision, so SUM must stay OFF.
+                        while (valueChild instanceof Cast
+                                && ((Cast) valueChild).getDataType().isNumericType()
+                                && (aggFunc instanceof Max || aggFunc instanceof Min)) {
+                            valueChild = valueChild.child(0);
+                        }
+                        if (aggFunc.children().size() == 1 && valueChild instanceof SlotReference) {
+                            SlotReference slotRef = (SlotReference) valueChild;
                             if (slotRef.getOriginalColumn().isPresent()) {
                                 preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
                                         slotRef.getOriginalColumn().get().getAggregationType());
@@ -500,30 +511,43 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             List<Expression> conditionExps = new ArrayList<>();
             List<Expression> returnExps = new ArrayList<>();
 
-            // ignore cast
-            while (child instanceof Cast) {
-                if (!((Cast) child).getDataType().isNumericType()) {
-                    return PreAggStatus.off(String.format("%s is not numeric CAST.", child.toSql()));
-                }
+            // ignore cast — only safe for MAX/MIN: sum(cast(x)) and
+            // cast(sum(x)) are not generally interchangeable due to
+            // overflow/precision, so SUM must stay OFF.
+            while (child instanceof Cast
+                    && ((Cast) child).getDataType().isNumericType()
+                    && (aggFunc instanceof Max || aggFunc instanceof Min)) {
                 child = child.child(0);
+            }
+            // Reject non-numeric cast on the (possibly unwrapped) child
+            // for MAX/MIN, since string/text comparison is not commutative.
+            if (child instanceof Cast && !((Cast) child).getDataType().isNumericType()
+                    && (aggFunc instanceof Max || aggFunc instanceof Min)) {
+                return PreAggStatus.off(String.format("%s is not numeric CAST.", child.toSql()));
             }
             // step 1: extract all condition exprs and return exprs
             if (child instanceof If) {
                 conditionExps.add(child.child(0));
-                returnExps.add(removeCast(child.child(1)));
-                returnExps.add(removeCast(child.child(2)));
+                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
+                        ? removeCast(child.child(1)) : child.child(1));
+                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
+                        ? removeCast(child.child(2)) : child.child(2));
             } else if (child instanceof CaseWhen) {
                 CaseWhen caseWhen = (CaseWhen) child;
                 // WHEN THEN
                 for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                     conditionExps.add(whenClause.getOperand());
-                    returnExps.add(removeCast(whenClause.getResult()));
+                    returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
+                            ? removeCast(whenClause.getResult()) : whenClause.getResult());
                 }
                 // ELSE
-                returnExps.add(removeCast(caseWhen.getDefaultValue().orElse(new NullLiteral())));
+                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
+                        ? removeCast(caseWhen.getDefaultValue().orElse(new NullLiteral()))
+                        : caseWhen.getDefaultValue().orElse(new NullLiteral()));
             } else {
                 // currently, only IF and CASE WHEN are supported
-                returnExps.add(removeCast(child));
+                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
+                        ? removeCast(child) : child);
             }
             if (conditionExps.isEmpty()) {
                 return PreAggStatus.off(

@@ -481,4 +481,31 @@ suite("set_preagg") {
         """)
         notContains "(preagg_t1), PREAGGREGATION: ON"
     }
+
+    // max(cast(v9 as double)): a widening numeric cast wraps a value column.
+    // The cast-unwrapping loop peels it so OneValueSlotAggChecker sees v9
+    // with MAX aggregation type and returns ON — storage MAX + cast is safe.
+    // max(cast(v9 as double)): a widening numeric cast wraps a value column.
+    // The cast-unwrapping loop peels it so OneValueSlotAggChecker sees v9
+    // with MAX aggregation type and returns ON — storage MAX + cast is safe.
+    explain {
+        sql("""select max(cast(v9 as double)) from preagg_t1;""")
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: sum(cast(v7 as double)) — sum(cast(x)) and cast(sum(x)) are
+    // not interchangeable due to precision/overflow, so cast must NOT be
+    // unwrapped. OneValueSlotAggChecker sees a Cast, not a SlotReference,
+    // and correctly returns OFF.
+    explain {
+        sql("""select sum(cast(v7 as double)) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative: max(cast(v9 as string)) — non-numeric cast is never safe
+    // for MAX/MIN because string comparison differs from numeric comparison.
+    explain {
+        sql("""select max(cast(v9 as string)) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
 }
