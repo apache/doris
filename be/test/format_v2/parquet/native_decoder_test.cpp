@@ -264,6 +264,24 @@ public:
     std::vector<uint8_t> bytes;
 };
 
+class CaptureDictionaryConsumer final : public ParquetDictionaryValueConsumer {
+public:
+    Status consume_indices(const uint32_t* values, size_t num_values) override {
+        ++consume_calls;
+        indices.insert(indices.end(), values, values + num_values);
+        return Status::OK();
+    }
+
+    Status consume_repeated(uint32_t value, size_t num_values) override {
+        ++consume_calls;
+        indices.insert(indices.end(), num_values, value);
+        return Status::OK();
+    }
+
+    size_t consume_calls = 0;
+    std::vector<uint32_t> indices;
+};
+
 TEST(ParquetV2NativeDecoderTest, FragmentedPlainSelectionUsesOneConsumerBatch) {
     std::array<int32_t, 32> input {};
     std::iota(input.begin(), input.end(), 0);
@@ -286,6 +304,90 @@ TEST(ParquetV2NativeDecoderTest, FragmentedPlainSelectionUsesOneConsumerBatch) {
         expected.push_back(value);
     }
     EXPECT_EQ(consumer.values<int32_t>(), expected);
+}
+
+TEST(ParquetV2NativeDecoderTest, FragmentedDictionarySelectionUsesOneConsumerBatch) {
+    constexpr size_t VALUE_COUNT = 32;
+    std::array<int32_t, VALUE_COUNT> dictionary_values {};
+    std::iota(dictionary_values.begin(), dictionary_values.end(), 0);
+    auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+    memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY, decoder)
+                    .ok());
+    decoder->set_type_length(sizeof(int32_t));
+    ASSERT_TRUE(decoder->set_dict(dictionary, sizeof(dictionary_values), dictionary_values.size())
+                        .ok());
+
+    faststring encoded_ids;
+    RleEncoder<uint32_t> encoder(&encoded_ids, 5);
+    for (uint32_t id = 0; id < VALUE_COUNT; ++id) {
+        encoder.Put(id);
+    }
+    encoder.Flush();
+    std::vector<uint8_t> payload(encoded_ids.size() + 1);
+    payload[0] = 5;
+    memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+    Slice data(payload.data(), payload.size());
+    ASSERT_TRUE(decoder->set_data(&data).ok());
+
+    ParquetSelection selection {
+            .total_values = VALUE_COUNT, .selected_values = VALUE_COUNT / 2, .ranges = {}};
+    std::vector<uint32_t> expected;
+    for (uint32_t id = 0; id < VALUE_COUNT; id += 2) {
+        selection.ranges.push_back({.first = id, .count = 1});
+        expected.push_back(id);
+    }
+    CaptureDictionaryConsumer consumer;
+    ASSERT_TRUE(decoder->decode_selected_dictionary_values(selection, consumer).ok());
+
+    EXPECT_EQ(consumer.consume_calls, 1);
+    EXPECT_EQ(consumer.indices, expected);
+
+    ASSERT_TRUE(decoder->set_data(&data).ok());
+    std::vector<uint32_t> selected_indices;
+    ASSERT_TRUE(decoder->decode_selected_dictionary_indices(selection, &selected_indices).ok());
+    EXPECT_EQ(selected_indices, expected);
+}
+
+TEST(ParquetV2NativeDecoderTest, HighlySparseDictionarySelectionAvoidsFullBatchDecode) {
+    constexpr size_t DICTIONARY_SIZE = 32;
+    constexpr size_t VALUE_COUNT = 256;
+    std::array<int32_t, DICTIONARY_SIZE> dictionary_values {};
+    std::iota(dictionary_values.begin(), dictionary_values.end(), 0);
+    auto dictionary = make_unique_buffer<uint8_t>(sizeof(dictionary_values));
+    memcpy(dictionary.get(), dictionary_values.data(), sizeof(dictionary_values));
+
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(
+            Decoder::get_decoder(tparquet::Type::INT32, tparquet::Encoding::RLE_DICTIONARY, decoder)
+                    .ok());
+    decoder->set_type_length(sizeof(int32_t));
+    ASSERT_TRUE(decoder->set_dict(dictionary, sizeof(dictionary_values), DICTIONARY_SIZE).ok());
+
+    faststring encoded_ids;
+    RleEncoder<uint32_t> encoder(&encoded_ids, 5);
+    for (uint32_t row = 0; row < VALUE_COUNT; ++row) {
+        encoder.Put(row % DICTIONARY_SIZE);
+    }
+    encoder.Flush();
+    std::vector<uint8_t> payload(encoded_ids.size() + 1);
+    payload[0] = 5;
+    memcpy(payload.data() + 1, encoded_ids.data(), encoded_ids.size());
+    Slice data(payload.data(), payload.size());
+    ASSERT_TRUE(decoder->set_data(&data).ok());
+
+    ParquetSelection selection {.total_values = VALUE_COUNT, .selected_values = 8, .ranges = {}};
+    for (size_t row = 0; row < selection.selected_values; ++row) {
+        selection.ranges.push_back({.first = row * 32, .count = 1});
+    }
+    CaptureDictionaryConsumer consumer;
+    ASSERT_TRUE(decoder->decode_selected_dictionary_values(selection, consumer).ok());
+
+    EXPECT_EQ(consumer.consume_calls, selection.ranges.size());
+    EXPECT_EQ(consumer.indices, std::vector<uint32_t>(selection.selected_values, 0));
 }
 
 class ScriptedDictionaryMaterializationSource final : public ParquetDecodeSource {
@@ -4604,6 +4706,73 @@ TEST(ParquetV2NativeDecoderTest, DictionaryStringGatherAppendsCompactSurvivors) 
     EXPECT_EQ(destination.get_data_at(1).to_string_view(), "delta");
     EXPECT_EQ(destination.get_data_at(2).to_string_view(), "bravo");
     EXPECT_EQ(destination.get_data_at(3).to_string_view(), "charlie");
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryDecimalGatherAppendsCompactSurvivors) {
+    const std::array<uint32_t, 8> indices {3, 1, 2, 0, 0, 2, 1, 3};
+    const auto verify = [&]<typename ColumnType>() {
+        using ValueType = typename ColumnType::value_type;
+        auto dictionary = ColumnType::create(0, 2);
+        auto& dictionary_data = dictionary->get_data();
+        dictionary_data.resize(4);
+        for (size_t row = 0; row < dictionary_data.size(); ++row) {
+            dictionary_data[row].value = static_cast<decltype(ValueType::value)>(100 * (row + 1));
+        }
+        auto destination = ColumnType::create(0, 2);
+        destination->get_data().push_back(ValueType {50});
+
+        ASSERT_TRUE(try_simd_insert_parquet_dictionary_indices(*destination, *dictionary,
+                                                               indices.data(), indices.size()));
+        ASSERT_EQ(destination->size(), indices.size() + 1);
+        EXPECT_EQ(destination->get_data()[0].value, 50);
+        for (size_t row = 0; row < indices.size(); ++row) {
+            EXPECT_EQ(destination->get_data()[row + 1].value, dictionary_data[indices[row]].value);
+        }
+    };
+    verify.template operator()<ColumnDecimal32>();
+    verify.template operator()<ColumnDecimal64>();
+}
+
+template <PrimitiveType Type>
+void expect_fixed_width_dictionary_gather() {
+    using ColumnType = ColumnVector<Type>;
+    using ValueType = typename ColumnType::value_type;
+    static_assert(sizeof(ValueType) == 4 || sizeof(ValueType) == 8);
+
+    auto dictionary = ColumnType::create();
+    auto& dictionary_data = dictionary->get_data();
+    dictionary_data.resize(4);
+    for (size_t row = 0; row < dictionary_data.size(); ++row) {
+        const uint64_t bits = 0x0102030405060708ULL + row;
+        memcpy(&dictionary_data[row], &bits, sizeof(ValueType));
+    }
+    auto destination = ColumnType::create();
+    destination->get_data().push_back(dictionary_data[0]);
+    const std::array<uint32_t, 8> indices {3, 1, 2, 0, 0, 2, 1, 3};
+
+    ASSERT_TRUE(try_simd_insert_parquet_dictionary_indices(*destination, *dictionary,
+                                                           indices.data(), indices.size()));
+    ASSERT_EQ(destination->size(), indices.size() + 1);
+    for (size_t row = 0; row < indices.size(); ++row) {
+        EXPECT_EQ(0, memcmp(&destination->get_data()[row + 1], &dictionary_data[indices[row]],
+                            sizeof(ValueType)));
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, DictionaryGatherSupportsEverySimdFixedWidthColumn) {
+    expect_fixed_width_dictionary_gather<TYPE_INT>();
+    expect_fixed_width_dictionary_gather<TYPE_BIGINT>();
+    expect_fixed_width_dictionary_gather<TYPE_FLOAT>();
+    expect_fixed_width_dictionary_gather<TYPE_DOUBLE>();
+    expect_fixed_width_dictionary_gather<TYPE_DATE>();
+    expect_fixed_width_dictionary_gather<TYPE_DATETIME>();
+    expect_fixed_width_dictionary_gather<TYPE_DATEV2>();
+    expect_fixed_width_dictionary_gather<TYPE_DATETIMEV2>();
+    expect_fixed_width_dictionary_gather<TYPE_TIMESTAMPTZ>();
+    expect_fixed_width_dictionary_gather<TYPE_IPV4>();
+    expect_fixed_width_dictionary_gather<TYPE_TIMEV2>();
+    expect_fixed_width_dictionary_gather<TYPE_UINT32>();
+    expect_fixed_width_dictionary_gather<TYPE_UINT64>();
 }
 
 TEST(ParquetV2NativeDecoderTest, ComplexPageStatisticsPreservePerLeafCrossings) {
