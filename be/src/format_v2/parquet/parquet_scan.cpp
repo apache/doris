@@ -1856,6 +1856,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         if (dictionary_filter_it != _current_dictionary_filters.end()) {
             const uint16_t selected_rows_before = *selected_rows;
             IColumn::Filter compact_filter;
+            uint16_t new_selected_rows = 0;
             bool used_filter = false;
             const bool predicate_only = request.is_predicate_only(local_id);
             // Dictionary ids are sufficient for predicate-only slots; skipping typed survivor
@@ -1863,13 +1864,15 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             IColumn* projected_column = predicate_only ? nullptr : column.get();
             RETURN_IF_ERROR(column_reader->select_with_dictionary_filter(
                     *selection, *selected_rows, batch_rows, dictionary_filter_it->second,
-                    projected_column, &compact_filter, &used_filter));
+                    projected_column, &compact_filter, &new_selected_rows, &used_filter));
             if (used_filter) {
                 DORIS_CHECK(compact_filter.size() == selected_rows_before);
+                DORIS_CHECK(new_selected_rows <= selected_rows_before);
                 update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_batches, 1);
                 update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_rows,
                                            selected_rows_before);
-                const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                // The decoder already observes every keep bit while producing compact_filter, so
+                // reuse its count instead of adding another full filter scan at this boundary.
                 if (!predicate_only) {
                     update_counter_if_not_null(_scan_profile.dictionary_predicate_projected_rows,
                                                new_selected_rows);
