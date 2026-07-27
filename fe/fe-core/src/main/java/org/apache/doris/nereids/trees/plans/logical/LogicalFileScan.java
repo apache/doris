@@ -169,6 +169,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        LogicalFileScan that = (LogicalFileScan) other;
+        return Objects.equals(selectedPartitions, that.selectedPartitions)
+                && Objects.equals(tableSample, that.tableSample)
+                && hasSameSnapshot(tableSnapshot, that.tableSnapshot)
+                && hasSameScanParams(scanParams, that.scanParams);
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         if (cachedOutputs.isPresent()) {
             return cachedOutputs.get();
@@ -229,6 +241,23 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             }
         }
         return false;
+    }
+
+    private boolean hasSameSnapshot(Optional<TableSnapshot> left, Optional<TableSnapshot> right) {
+        if (!left.isPresent() || !right.isPresent()) {
+            return left.isPresent() == right.isPresent();
+        }
+        return left.get().getType() == right.get().getType()
+                && Objects.equals(left.get().getValue(), right.get().getValue());
+    }
+
+    private boolean hasSameScanParams(Optional<TableScanParams> left, Optional<TableScanParams> right) {
+        if (!left.isPresent() || !right.isPresent()) {
+            return left.isPresent() == right.isPresent();
+        }
+        return Objects.equals(left.get().getParamType(), right.get().getParamType())
+                && Objects.equals(left.get().getMapParams(), right.get().getMapParams())
+                && Objects.equals(left.get().getListParams(), right.get().getListParams());
     }
 
     /**
