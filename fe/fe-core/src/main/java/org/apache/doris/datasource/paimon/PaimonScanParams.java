@@ -236,7 +236,22 @@ public final class PaimonScanParams {
         if (snapshot == null) {
             return resolvedEmptyOptions(options);
         }
+        String tagName = selectedTagName(options, (FileStoreTable) selectedTable);
+        if (tagName != null) {
+            // A tag owns a retained Snapshot copy even after the ordinary snapshot file expires.
+            // Keep the canonical tag selector so planning reads that retained metadata path.
+            return resolvedTagOptions(options, tagName);
+        }
         return resolvedSnapshotOptions(options, String.valueOf(snapshot.id()));
+    }
+
+    private static String selectedTagName(Map<String, String> options, FileStoreTable selectedTable) {
+        String tagName = options.get(CoreOptions.SCAN_TAG_NAME.key());
+        if (tagName != null) {
+            return tagName;
+        }
+        // Paimon normalizes a tag-valued scan.version while copying the selected table.
+        return selectedTable.options().get(CoreOptions.SCAN_TAG_NAME.key());
     }
 
     private static Long compactedFullSnapshotId(FileStoreTable table) {
@@ -278,6 +293,13 @@ public final class PaimonScanParams {
         Map<String, String> resolved = new HashMap<>(options);
         INHERITED_READ_STATE_KEYS.forEach(resolved::remove);
         resolved.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
+        return resolved;
+    }
+
+    private static Map<String, String> resolvedTagOptions(Map<String, String> options, String tagName) {
+        Map<String, String> resolved = new HashMap<>(options);
+        INHERITED_READ_STATE_KEYS.forEach(resolved::remove);
+        resolved.put(CoreOptions.SCAN_TAG_NAME.key(), tagName);
         return resolved;
     }
 

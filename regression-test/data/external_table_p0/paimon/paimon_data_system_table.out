@@ -135,6 +135,9 @@ name	text	Yes	true	\N	NONE
 -- !binlog_incr --
 +U	2	\N	beta_v2	\N
 
+-- !binlog_incr_count --
+1
+
 -- !jni_binlog_rows --
 +I	1	\N	alpha	\N
 +U	2	\N	beta_v2	\N
@@ -158,4 +161,3 @@ name	text	Yes	true	\N	NONE
 +I	2	beta
 +I	3	gamma
 +I	4	delta
-

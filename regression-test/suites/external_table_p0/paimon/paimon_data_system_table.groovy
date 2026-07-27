@@ -162,6 +162,10 @@ suite("paimon_data_system_table", "p0,external") {
                 @incr('startSnapshotId'=1, 'endSnapshotId'=2)
                 order by id[1]
                 """
+        qt_binlog_incr_count """
+                select count(*) from ${tableName}\$binlog
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                """
 
         assertCountStarPushdown("select count(*) from ${tableName}\$binlog", "${tableName}\$binlog")
         assertCountStarPushdown("select count(*) from ${tableName}\$audit_log", "${tableName}\$audit_log")

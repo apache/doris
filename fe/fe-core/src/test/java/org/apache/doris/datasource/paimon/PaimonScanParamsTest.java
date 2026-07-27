@@ -194,7 +194,6 @@ public class PaimonScanParamsTest {
         FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
         FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
         Snapshot firstSnapshot = Mockito.mock(Snapshot.class);
-        Mockito.when(firstSnapshot.id()).thenReturn(11L);
         Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
         TableScanParams scanParams = new TableScanParams(
                 TableScanParams.OPTIONS,
@@ -210,9 +209,49 @@ public class PaimonScanParamsTest {
                     options -> PaimonScanParams.resolveOptions(baseTable, options));
 
             Assert.assertSame(first, second);
-            Assert.assertEquals("11", second.get("scan.snapshot-id"));
-            Assert.assertFalse(second.containsKey("scan.tag-name"));
+            Assert.assertEquals("mutable_tag", second.get("scan.tag-name"));
+            Assert.assertFalse(second.containsKey("scan.snapshot-id"));
             timeTravel.verify(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable), Mockito.times(1));
+        }
+    }
+
+    @Test
+    public void testTagSelectorRetainsTagMetadataInsteadOfExpiredSnapshotPath() {
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot taggedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
+
+        try (MockedStatic<TimeTravelUtil> timeTravel = Mockito.mockStatic(TimeTravelUtil.class)) {
+            timeTravel.when(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable))
+                    .thenReturn(taggedSnapshot);
+
+            Map<String, String> resolved = PaimonScanParams.resolveOptions(
+                    baseTable, ImmutableMap.of("scan.tag-name", "retained_tag"));
+
+            Assert.assertEquals("retained_tag", resolved.get("scan.tag-name"));
+            Assert.assertFalse(resolved.containsKey("scan.snapshot-id"));
+        }
+    }
+
+    @Test
+    public void testTagValuedVersionRetainsCanonicalTagMetadata() {
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable selectedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot taggedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(selectedTable);
+        Mockito.when(selectedTable.options()).thenReturn(ImmutableMap.of("scan.tag-name", "retained_tag"));
+
+        try (MockedStatic<TimeTravelUtil> timeTravel = Mockito.mockStatic(TimeTravelUtil.class)) {
+            timeTravel.when(() -> TimeTravelUtil.tryTravelOrLatest(selectedTable))
+                    .thenReturn(taggedSnapshot);
+
+            Map<String, String> resolved = PaimonScanParams.resolveOptions(
+                    baseTable, ImmutableMap.of("scan.version", "retained_tag"));
+
+            Assert.assertEquals("retained_tag", resolved.get("scan.tag-name"));
+            Assert.assertFalse(resolved.containsKey("scan.version"));
+            Assert.assertFalse(resolved.containsKey("scan.snapshot-id"));
         }
     }
 

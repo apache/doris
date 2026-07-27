@@ -123,6 +123,35 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testIncrementalBinlogCountStarDoesNotUsePhysicalRowCount() throws UserException {
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
+        PaimonSource source = mockPaimonSourceWithPartitionKeys(Collections.emptyList());
+        PaimonSysExternalTable binlogTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(binlogTable.getSysTableType()).thenReturn("binlog");
+        Mockito.when(source.getExternalTable()).thenReturn(binlogTable);
+        node.setSource(source);
+        node.setScanParams(new TableScanParams(
+                TableScanParams.INCREMENTAL_READ,
+                ImmutableMap.of("startSnapshotId", "1", "endSnapshotId", "2"),
+                Collections.emptyList()));
+        Mockito.doReturn(Arrays.asList(
+                mockCountDataSplit("before.parquet", 1),
+                mockCountDataSplit("after.parquet", 1)))
+                .when(node).getPaimonSplitFromAPI();
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        node.setPushDownCountSlotIds(Collections.emptyList());
+        List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+
+        Assert.assertEquals(2, splits.size());
+        for (org.apache.doris.spi.Split split : splits) {
+            Assert.assertFalse(((PaimonSplit) split).getRowCount().isPresent());
+        }
+    }
+
+    @Test
     public void testSplitWeight() throws UserException {
 
         PaimonScanNode paimonScanNode = newTestNode(new PlanNodeId(1), new TupleId(3), sv);

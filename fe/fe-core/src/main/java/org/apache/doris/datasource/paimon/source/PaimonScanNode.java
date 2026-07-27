@@ -418,7 +418,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // Merged row counts contain only COUNT(*) semantics. COUNT(col) must keep every DataSplit
         // because BE will read the argument column to account for NULL and schema-mapping rules.
-        boolean applyCountPushdown = isTableLevelCountStarPushdown();
+        // Incremental binlog readers pack an UPDATE_BEFORE/UPDATE_AFTER pair into one logical row,
+        // so DataSplit's physical merged count is not a valid COUNT(*) result for this relation.
+        boolean applyCountPushdown = isTableLevelCountStarPushdown() && !isIncrementalBinlogScan();
         // Used to avoid repeatedly calculating partition info map for the same
         // partition data.
         // And for counting the number of selected partitions for this paimon table.
@@ -569,6 +571,16 @@ public class PaimonScanNode extends FileQueryScanNode {
         PaimonSysExternalTable paimonSysExternalTable = (PaimonSysExternalTable) externalTable;
         String sysTableType = paimonSysExternalTable.getSysTableType();
         return PaimonScanParams.requiresPaimonReader(sysTableType);
+    }
+
+    private boolean isIncrementalBinlogScan() {
+        TableScanParams params = getScanParams();
+        if (params == null || !params.incrementalRead() || source == null) {
+            return false;
+        }
+        ExternalTable externalTable = source.getExternalTable();
+        return externalTable instanceof PaimonSysExternalTable
+                && "binlog".equalsIgnoreCase(((PaimonSysExternalTable) externalTable).getSysTableType());
     }
 
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
