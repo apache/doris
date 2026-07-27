@@ -143,8 +143,13 @@ public class PaimonConnector implements Connector {
     // a live connector (only PaimonConnectorMetadata's convenience/test constructors pass null).
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
+    // #65955: the catalog-level paimon.table-option.* defaults, extracted (and re-validated) once per
+    // connector and overlaid on every table load by CatalogBackedPaimonCatalogOps.getTable.
+    private final Map<String, String> tableOptions;
+
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
+        this.tableOptions = PaimonTableOptions.extract(properties);
         // Wrap the FE-injected context so every executeAuthenticated pins the TCCL to the plugin loader (the
         // paimon plugin bundles paimon-core + hadoop child-first) and, for a Kerberos catalog, runs the op
         // under a plugin-side UGI doAs (pluginAuthenticator): the plugin's FileSystem reads the plugin's own
@@ -244,8 +249,8 @@ public class PaimonConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties, context,
-                schemaAtMemo, latestSnapshotCache, partitionViewCache);
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                properties, context, schemaAtMemo, latestSnapshotCache, partitionViewCache);
     }
 
     @Override
@@ -309,7 +314,8 @@ public class PaimonConnector implements Connector {
         // FIX-B-R2-be: inject the SAME per-catalog schemaAtMemo getMetadata uses, so the schema-evolution
         // dict's per-schema-id reads are memoized across scans (and shared with the B-MC2 time-travel path).
         return new PaimonScanPlanProvider(properties,
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), context, schemaAtMemo);
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                context, schemaAtMemo);
     }
 
     /**

@@ -59,12 +59,15 @@ suite("test_paimon_ctas_atomicity_negative",
         sql """use ${dbName}"""
 
         // A failed CTAS must not leave metadata that makes a retry fail with TABLE ALREADY EXISTS.
+        // On the connector-SPI path the sink rejection is worded by the connector's declared write
+        // capabilities (the paimon connector declares none) rather than by the legacy fe-core
+        // "Load data to PaimonExternalCatalog is not supported"; the CTAS still fails at the same point.
         test {
             sql """
                 create table ctas_target engine=paimon
                 as select cast(1 as int) as id, cast('candidate' as string) as payload
             """
-            exception "PaimonExternalCatalog"
+            exception "does not support INSERT operations"
         }
         assertEquals(0, (sql """show tables like 'ctas_target'""").size())
     } finally {

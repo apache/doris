@@ -1951,28 +1951,32 @@ public class PaimonScanPlanProviderTest {
         // filesystem (non-jdbc) metastore: the common Paimon primary-key merge-read case #65332
         // targets. The three JNI IOManager options MUST still reach BE.
         props.put("paimon.catalog.type", "filesystem");
-        props.put("paimon.doris.enable_jni_io_manager", "true");
-        props.put("paimon.doris.jni_io_manager.tmp_dir", "/tmp/doris-paimon");
-        props.put("paimon.doris.jni_io_manager.impl_class", "org.example.CustomIOManager");
+        props.put("paimon.jni.enable_jni_io_manager", "true");
+        props.put("paimon.jni.io_manager.tmp_dir", "/tmp/doris-paimon");
+        props.put("paimon.jni.io_manager.impl_class", "org.example.CustomIOManager");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
                 props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
 
         // WHY (#65332): BE's PaimonJniScanner spills through the Paimon IOManager only when FE ships
-        // doris.enable_jni_io_manager (BE re-adds the paimon. prefix). Before the fix a non-jdbc
+        // jni.enable_jni_io_manager (BE re-adds the paimon. prefix). Before the fix a non-jdbc
         // catalog returned emptyMap(), so the flag never reached BE and primary-key merge reads
         // could OOM. The "paimon." connector prefix must be stripped exactly once.
-        // MUTATION: gating the JNI collection behind the jdbc check (or dropping the prefix strip)
-        // -> keys absent/misnamed -> red.
-        Assertions.assertEquals("true", opts.get("doris.enable_jni_io_manager"));
-        Assertions.assertEquals("/tmp/doris-paimon", opts.get("doris.jni_io_manager.tmp_dir"));
-        Assertions.assertEquals("org.example.CustomIOManager", opts.get("doris.jni_io_manager.impl_class"));
+        // WHY these exact names (#65955): the namespace moved paimon.doris.* -> paimon.jni.* on BOTH
+        // sides simultaneously, and BE (paimon_jni_reader.cpp / PaimonJniScanner.ENABLE_JNI_IO_MANAGER)
+        // now reads ONLY paimon.jni.*. Keeping the old spelling here compiles and merges cleanly but
+        // silently disables the IOManager — so the literals are the contract, not an implementation detail.
+        // MUTATION: gating the JNI collection behind the jdbc check, dropping the prefix strip, or
+        // reverting any key to doris.* -> keys absent/misnamed -> red.
+        Assertions.assertEquals("true", opts.get("jni.enable_jni_io_manager"));
+        Assertions.assertEquals("/tmp/doris-paimon", opts.get("jni.io_manager.tmp_dir"));
+        Assertions.assertEquals("org.example.CustomIOManager", opts.get("jni.io_manager.impl_class"));
         Assertions.assertEquals(3, opts.size());
     }
 
     @Test
-    public void backendOptionsForwardFileReaderAsyncOptOut() {
+    public void backendOptionsDropRetiredFileReaderAsyncOptOut() {
         Map<String, String> props = new HashMap<>();
         props.put("paimon.catalog.type", "filesystem");
         props.put("paimon.jni.enable_file_reader_async", "false");
@@ -1981,13 +1985,14 @@ public class PaimonScanPlanProviderTest {
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
 
-        // WHY (#65365): BE's PaimonJniScanner disables paimon's async file reader only when FE ships
-        // jni.enable_file_reader_async=false (BE re-adds the paimon. prefix). Upstream added the key to
-        // the legacy PaimonScanNode forwarding list, which this branch deleted with the fe-core paimon
-        // subsystem — the connector list is now the only path to BE.
-        // MUTATION: dropping the key from BACKEND_PAIMON_JNI_OPTIONS -> flag never reaches BE -> red.
-        Assertions.assertEquals("false", opts.get("jni.enable_file_reader_async"));
-        Assertions.assertEquals(1, opts.size());
+        // WHY (#65365 -> #65955): the opt-out was forwarded while BE's PaimonJniScanner still applied
+        // table.copy(buildTableOptions(..)); #65955 deleted that override wholesale, so the key is now
+        // consumed by nobody and the equivalent knob is the catalog-level table option
+        // "paimon.table-option.file-reader-async-threshold" (PaimonTableOptions). Forwarding a key BE
+        // ignores would advertise an opt-out that silently does nothing.
+        // MUTATION: re-adding jni.enable_file_reader_async to BACKEND_PAIMON_JNI_OPTIONS (e.g. a future
+        // rebase re-porting #65365) -> non-empty -> red.
+        Assertions.assertTrue(opts.isEmpty());
     }
 
     // ---- FIX-SCHEMA-EVOLUTION (B-1a): native-reader schema dictionary ----
