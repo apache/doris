@@ -390,11 +390,12 @@ public class ExprToStringValueVisitorTest {
 
     @Test
     public void testDateLiteralTimeStampTzHistoricalOffsetStreamLoad() throws Exception {
-        // BE's TIMESTAMPTZ parser consumes only HH:MM offsets (minutes 00/30/45).
-        // Historical zone offsets can include seconds (e.g. Asia/Shanghai before
-        // 1901 had LMT +08:05:43), which BE would reject on group-commit or
-        // transactional-insert PDataRow paths.  Stream-load rendering must
-        // serialise in UTC format so BE can round-trip.
+        // BE's TimestampTzValue::to_string() truncates offset seconds
+        // (e.g. +08:05:43 → +08:05), denoting a different instant if
+        // reparsed.  Both stream-load and query paths must therefore
+        // serialise historical second-resolution offsets in UTC format
+        // so that FE constant evaluation and BE row serialisation
+        // produce the same string for the same stored instant.
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
@@ -405,10 +406,14 @@ public class ExprToStringValueVisitorTest {
             // Stream-load path must emit UTC format.
             Assertions.assertEquals("1900-01-01 00:00:00+00:00",
                     V.visitDateLiteral(d, StringValueContext.forStreamLoad(FormatOptions.getDefault())));
-            // Query path shows the historical wall clock with full offset.
-            String queryResult = V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault()));
-            Assertions.assertTrue(queryResult.contains("+08:05:43"),
-                    "Query path should render historical offset with seconds: " + queryResult);
+            // Query path also falls back to UTC when the session timezone's
+            // offset at the target instant contains seconds (e.g. +08:05:43),
+            // because BE's TimestampTzValue::to_string() truncates offset
+            // seconds to +08:05, producing text that denotes a different
+            // instant.  Falling back to UTC ensures FE constant evaluation
+            // and BE row serialisation produce the same string.
+            Assertions.assertEquals("1900-01-01 00:00:00+00:00",
+                    V.visitDateLiteral(d, StringValueContext.forQuery(FormatOptions.getDefault())));
         } finally {
             ConnectContext.remove();
         }

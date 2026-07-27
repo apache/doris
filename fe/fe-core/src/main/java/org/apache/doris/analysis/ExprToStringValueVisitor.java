@@ -77,7 +77,19 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
                     String offset = dorisZone.getRules().getOffset(targetInstant).toString();
                     DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
                             ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
-                    value = dateLiteral.getStringValue() + offset;
+                    // BE's TimestampTzValue::to_string() renders the wall clock
+                    // with the session timezone offset but truncates seconds
+                    // (e.g. +08:05:43 becomes +08:05), producing text that
+                    // denotes a different instant if reparsed.  When the offset
+                    // contains seconds (a second colon), fall back to UTC so
+                    // that FE constant evaluation and BE row serialisation
+                    // produce the same string for the same stored instant.
+                    int firstColon = offset.indexOf(':');
+                    if (firstColon > 0 && offset.indexOf(':', firstColon + 1) > 0) {
+                        value = expr.getStringValue();
+                    } else {
+                        value = dateLiteral.getStringValue() + offset;
+                    }
                 }
             } catch (Exception e) {
                 LOG.warn("generate timestamptz({})'s string value for query failed. ",
