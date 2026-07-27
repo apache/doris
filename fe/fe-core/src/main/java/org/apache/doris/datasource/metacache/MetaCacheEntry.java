@@ -32,8 +32,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
@@ -48,6 +49,15 @@ import javax.annotation.Nullable;
  */
 public class MetaCacheEntry<K, V> {
     private static final int SINGLE_KEY_STRIPES = 1;
+    private static final AtomicLongFieldUpdater<StripeState> GENERATION_UPDATER =
+            AtomicLongFieldUpdater.newUpdater(StripeState.class, "generation");
+
+    private static final class StripeState {
+        // Protect slow miss loads without holding the short-lived publication monitor.
+        private final Object loadLock = new Object();
+        // Read outside the publication monitor only for the intentionally best-effort async refresh admission.
+        private volatile long generation;
+    }
 
     private final String name;
     @Nullable
@@ -59,12 +69,8 @@ public class MetaCacheEntry<K, V> {
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
     private final Cache<K, V> data;
-    // Protect one stripe at a time to deduplicate concurrent miss loads with bounded lock count.
-    private final Object[] loadLocks;
-    // Serialize short mutation and manual-publication windows; async refresh admission remains best-effort.
-    private final Object[] publishLocks;
-    // Track per-stripe invalidation generations so unrelated keys do not invalidate each other.
-    private final AtomicLongArray generations;
+    // Lazily allocate coordination state for active stripes; StripeState itself is the publication monitor.
+    private final AtomicReferenceArray<StripeState> stripeStates;
     private final AtomicLong invalidateCount = new AtomicLong(0);
     // Track load statistics outside Caffeine because manual miss loads bypass the built-in load counters.
     private final AtomicLong loadSuccessCount = new AtomicLong(0);
@@ -147,9 +153,11 @@ public class MetaCacheEntry<K, V> {
             throw new IllegalArgumentException("stripeCount must be positive");
         }
         this.stripeCount = stripeCount;
-        this.loadLocks = new Object[stripeCount];
-        this.publishLocks = new Object[stripeCount];
-        this.generations = new AtomicLongArray(stripeCount);
+        this.stripeStates = new AtomicReferenceArray<>(stripeCount);
+        if (stripeCount == SINGLE_KEY_STRIPES) {
+            // Names entries always use their sole stripe, so keep their established allocation behavior.
+            stripeStates.set(0, new StripeState());
+        }
         Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
@@ -174,11 +182,6 @@ public class MetaCacheEntry<K, V> {
             this.loadingData = cacheFactory.buildCache(cacheLoader, refreshExecutor);
         }
         this.data = loadingData;
-        // Initialize striped locks eagerly to keep the hot path allocation-free.
-        for (int i = 0; i < loadLocks.length; i++) {
-            loadLocks[i] = new Object();
-            publishLocks[i] = new Object();
-        }
     }
 
     public String name() {
@@ -249,8 +252,9 @@ public class MetaCacheEntry<K, V> {
         if (!effectiveEnabled) {
             return;
         }
-        synchronized (publishLock(key)) {
-            bumpGeneration(key);
+        StripeState state = stripeState(key);
+        synchronized (state) {
+            bumpGeneration(state);
             beforePublicMutationWriteForTest(key);
             data.put(key, value);
         }
@@ -263,8 +267,9 @@ public class MetaCacheEntry<K, V> {
         if (!effectiveEnabled) {
             return null;
         }
-        synchronized (publishLock(key)) {
-            bumpGeneration(key);
+        StripeState state = stripeState(key);
+        synchronized (state) {
+            bumpGeneration(state);
             beforePublicMutationWriteForTest(key);
             return data.asMap().compute(key, remappingFunction);
         }
@@ -280,8 +285,9 @@ public class MetaCacheEntry<K, V> {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
         Runnable action = Objects.requireNonNull(afterMutation, "afterMutation can not be null");
-        synchronized (publishLock(key)) {
-            bumpGeneration(key);
+        StripeState state = stripeState(key);
+        synchronized (state) {
+            bumpGeneration(state);
             beforePublicMutationWriteForTest(key);
             V value = effectiveEnabled ? data.asMap().compute(key, remappingFunction) : null;
             action.run();
@@ -303,8 +309,11 @@ public class MetaCacheEntry<K, V> {
     public void invalidateKeyAndRun(K key, Runnable afterInvalidation) {
         Objects.requireNonNull(key, "key can not be null");
         Runnable action = Objects.requireNonNull(afterInvalidation, "afterInvalidation can not be null");
-        synchronized (publishLock(key)) {
-            bumpGeneration(key);
+        // A cold explicit invalidation intentionally initializes and retains its bounded stripe state so future
+        // publication for the same stripe observes this generation change.
+        StripeState state = stripeState(key);
+        synchronized (state) {
+            bumpGeneration(state);
             if (data.asMap().remove(key) != null) {
                 invalidateCount.incrementAndGet();
             }
@@ -373,17 +382,18 @@ public class MetaCacheEntry<K, V> {
                 return loadAndTrack(key, loadFunction);
             }
             // Bypass object publication when disabled, but still fence an auxiliary-index update against invalidation.
+            StripeState state = stripeState(key);
             long generation;
-            synchronized (publishLock(key)) {
-                generation = generationOf(key);
+            synchronized (state) {
+                generation = generationOf(state);
             }
             V loaded = loadAndTrack(key, loadFunction);
             if (loaded == null) {
                 return loaded;
             }
             beforeCurrentValueActionForTest(key, loaded);
-            synchronized (publishLock(key)) {
-                if (generation == generationOf(key)
+            synchronized (state) {
+                if (generation == generationOf(state)
                         && currentValueActionRequired.test(key, loaded)) {
                     currentValueAction.accept(key, loaded);
                 }
@@ -399,19 +409,20 @@ public class MetaCacheEntry<K, V> {
         }
 
         // Keep the slow miss load under the per-key load lock so concurrent misses for the same key
-        // are still deduplicated. publishLock(key) only protects the short publication window.
-        synchronized (loadLock(key)) {
+        // are still deduplicated. The StripeState monitor only protects the short publication window.
+        StripeState state = stripeState(key);
+        synchronized (state.loadLock) {
             value = data.asMap().get(key);
             if (value != null) {
                 runCurrentValueActionIfPresent(
-                        key, value, currentValueActionRequired, currentValueAction);
+                        state, key, value, currentValueActionRequired, currentValueAction);
                 return value;
             }
 
             long generation;
             // Snapshot generation only after re-checking the cache under the publication lock so
             // public mutations cannot slip between the miss observation and the captured version.
-            synchronized (publishLock(key)) {
+            synchronized (state) {
                 value = data.asMap().get(key);
                 if (value != null) {
                     if (currentValueAction != null
@@ -420,23 +431,23 @@ public class MetaCacheEntry<K, V> {
                     }
                     return value;
                 }
-                generation = generationOf(key);
+                generation = generationOf(state);
             }
             V loaded = loadAndTrack(key, loadFunction);
             if (loaded == null) {
                 return null;
             }
 
-            synchronized (publishLock(key)) {
-                if (generation != generationOf(key)) {
+            synchronized (state) {
+                if (generation != generationOf(state)) {
                     return loaded;
                 }
                 // Leave a narrow hook for tests to pause exactly before the cache put race window.
                 beforeManualCachePutForTest(key, loaded);
                 putLoadedValueWithoutGenerationBump(key, loaded);
                 // Re-check after the put because invalidateAll()/invalidateIf() may bump stripe generations
-                // outside publishLock while this thread is publishing a loaded value.
-                if (generation != generationOf(key)) {
+                // outside the StripeState monitor while this thread is publishing a loaded value.
+                if (generation != generationOf(state)) {
                     removeLoadedValueWithoutGenerationBump(key, loaded);
                 } else if (currentValueAction != null
                         && currentValueActionRequired.test(key, loaded)) {
@@ -456,8 +467,27 @@ public class MetaCacheEntry<K, V> {
         if (!currentValueActionRequired.test(key, value)) {
             return;
         }
+        runRequiredCurrentValueActionIfPresent(
+                stripeState(key), key, value, currentValueActionRequired, currentValueAction);
+    }
+
+    private void runCurrentValueActionIfPresent(StripeState state, K key, V value,
+            @Nullable BiPredicate<K, V> currentValueActionRequired,
+            @Nullable BiConsumer<K, V> currentValueAction) {
+        if (currentValueAction == null) {
+            return;
+        }
+        if (!currentValueActionRequired.test(key, value)) {
+            return;
+        }
+        runRequiredCurrentValueActionIfPresent(
+                state, key, value, currentValueActionRequired, currentValueAction);
+    }
+
+    private void runRequiredCurrentValueActionIfPresent(StripeState state, K key, V value,
+            BiPredicate<K, V> currentValueActionRequired, BiConsumer<K, V> currentValueAction) {
         beforeCurrentValueActionForTest(key, value);
-        synchronized (publishLock(key)) {
+        synchronized (state) {
             if (data.asMap().get(key) == value
                     && currentValueActionRequired.test(key, value)) {
                 currentValueAction.accept(key, value);
@@ -485,9 +515,11 @@ public class MetaCacheEntry<K, V> {
             @Override
             public CompletableFuture<V> asyncReload(K key, V oldValue, Executor executor) {
                 // This fences refreshes admitted before a later generation bump. Admission intentionally remains
-                // outside publishLock: a refresh admitted after the bump but before key removal may repopulate the
-                // key, which is accepted under the external metadata cache's eventual-consistency semantics.
-                long generation = generationOf(key);
+                // outside the publication monitor: a refresh admitted after the bump but before key removal may
+                // repopulate the key, which is accepted under the external metadata cache's eventual-consistency
+                // semantics.
+                StripeState state = stripeState(key);
+                long generation = generationOf(state);
                 CompletableFuture<V> result = new CompletableFuture<>();
                 CompletableFuture.supplyAsync(() -> loadFromDefaultLoader(key), executor)
                         .whenComplete((loaded, error) -> {
@@ -495,8 +527,8 @@ public class MetaCacheEntry<K, V> {
                                 result.completeExceptionally(error);
                                 return;
                             }
-                            synchronized (publishLock(key)) {
-                                if (generation == generationOf(key)) {
+                            synchronized (state) {
+                                if (generation == generationOf(state)) {
                                     result.complete(loaded);
                                 } else {
                                     result.cancel(false);
@@ -513,26 +545,38 @@ public class MetaCacheEntry<K, V> {
         return (hash & Integer.MAX_VALUE) % stripeCount;
     }
 
-    // Map keys to a fixed lock stripe set to bound memory usage while keeping same-key deduplication.
-    private Object loadLock(K key) {
-        return loadLocks[stripe(key)];
+    private StripeState stripeState(K key) {
+        int index = stripe(key);
+        StripeState state = stripeStates.get(index);
+        if (state != null) {
+            return state;
+        }
+        StripeState created = new StripeState();
+        if (stripeStates.compareAndSet(index, null, created)) {
+            return created;
+        }
+        // A failed CAS must use the retained state installed by the winner; states are never removed or replaced.
+        return stripeStates.get(index);
     }
 
-    private Object publishLock(K key) {
-        return publishLocks[stripe(key)];
+    private long generationOf(StripeState state) {
+        return state.generation;
     }
 
-    private long generationOf(K key) {
-        return generations.get(stripe(key));
-    }
-
-    private void bumpGeneration(K key) {
-        generations.incrementAndGet(stripe(key));
+    private void bumpGeneration(StripeState state) {
+        GENERATION_UPDATER.incrementAndGet(state);
     }
 
     private void bumpAllGenerations() {
+        // Only initialized stripe states need to be bumped. Any operation that has captured a generation has already
+        // published and retained its StripeState. AtomicReferenceArray linearizes concurrent installation with this
+        // scan: a state installed before its slot is read is bumped, while one installed afterwards is a post-bump
+        // admission. Stripe states are never removed or replaced.
         for (int i = 0; i < stripeCount; i++) {
-            generations.incrementAndGet(i);
+            StripeState state = stripeStates.get(i);
+            if (state != null) {
+                bumpGeneration(state);
+            }
         }
     }
 
@@ -546,6 +590,16 @@ public class MetaCacheEntry<K, V> {
 
     int stripeCountForTest() {
         return stripeCount;
+    }
+
+    int initializedStripeCountForTest() {
+        int count = 0;
+        for (int i = 0; i < stripeCount; i++) {
+            if (stripeStates.get(i) != null) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // Let tests pause between the first generation check and data.put without affecting production behavior.

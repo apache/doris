@@ -62,6 +62,8 @@ public class MetaCacheEntryTest {
 
             Assert.assertEquals(8, entry.stripeCountForTest());
             Assert.assertEquals(8, syncRemovalEntry.stripeCountForTest());
+            Assert.assertEquals(0, entry.initializedStripeCountForTest());
+            Assert.assertEquals(0, syncRemovalEntry.initializedStripeCountForTest());
         } finally {
             Config.external_meta_cache_object_entry_lock_stripes = originalStripeCount;
             refreshExecutor.shutdownNow();
@@ -82,6 +84,7 @@ public class MetaCacheEntryTest {
                     MetaCacheEntry.singleKeyStripeCount());
 
             Assert.assertEquals(1, entry.stripeCountForTest());
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
             Assert.assertEquals("single-key", entry.name());
             Assert.assertEquals(Integer.valueOf(1), entry.get("a"));
         } finally {
@@ -97,6 +100,62 @@ public class MetaCacheEntryTest {
             IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
                     () -> new MetaCacheEntry<>("invalid", String::length, cacheSpec, refreshExecutor, false, 0));
             Assert.assertTrue(exception.getMessage().contains("stripeCount"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testMultiKeyStripeStatesInitializeLazily() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "lazy",
+                    String::length,
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false,
+                    8);
+
+            Assert.assertEquals(0, entry.initializedStripeCountForTest());
+            Assert.assertNull(entry.getIfPresent("a"));
+            Assert.assertEquals(0, entry.initializedStripeCountForTest());
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("a"));
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
+            // "a" and "i" have hash codes in the same stripe when stripeCount is 8.
+            Assert.assertEquals(Integer.valueOf(1), entry.get("i"));
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
+            Assert.assertEquals(Integer.valueOf(1), entry.get("b"));
+            Assert.assertEquals(2, entry.initializedStripeCountForTest());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testDisabledEntryInitializesStateOnlyForCoordinatedMutation() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            AtomicInteger actionCount = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "disabled",
+                    String::length,
+                    CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false,
+                    8);
+
+            Assert.assertEquals(0, entry.initializedStripeCountForTest());
+            Assert.assertEquals(Integer.valueOf(1), entry.get("a"));
+            entry.invalidateAll();
+            Assert.assertEquals(0, entry.initializedStripeCountForTest());
+
+            entry.invalidateKeyAndRun("a", actionCount::incrementAndGet);
+            Assert.assertEquals(1, actionCount.get());
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
+            entry.invalidateAll();
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
         } finally {
             refreshExecutor.shutdownNow();
         }
@@ -735,11 +794,13 @@ public class MetaCacheEntryTest {
 
             Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
             Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
             entry.invalidateAll();
             releaseLoader.countDown();
 
             Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
             Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(1, entry.initializedStripeCountForTest());
             Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
             Assert.assertEquals(2, loadCounter.get());
         } finally {
