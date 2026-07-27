@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.iceberg.DorisS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -75,6 +76,7 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     private void buildS3CatalogProperties(Map<String, String> props) {
         props.put(AwsClientProperties.CLIENT_REGION, s3Properties.getRegion());
         IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties(props, s3Properties);
+        DorisS3FileIOAwsClientFactory.configure(props);
     }
 
     private S3TablesClient buildS3TablesClient(Map<String, String> props) {

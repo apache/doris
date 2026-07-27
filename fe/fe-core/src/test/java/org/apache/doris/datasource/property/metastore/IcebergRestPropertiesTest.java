@@ -959,7 +959,7 @@ public class IcebergRestPropertiesTest {
         restProps.toFileIOProperties(storageList, fileIOProperties, conf);
 
         // OSSProperties should be used, not S3Properties
-        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
                 fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
         Assertions.assertEquals("ossSecretKey", fileIOProperties.get(S3FileIOProperties.SECRET_ACCESS_KEY));
@@ -1011,6 +1011,8 @@ public class IcebergRestPropertiesTest {
         Map<String, String> fileIOProperties = new HashMap<>();
         restProps.toFileIOProperties(List.of(oss), fileIOProperties, new Configuration());
 
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
+                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         try (S3FileIO fileIO = new S3FileIO()) {
             fileIO.initialize(fileIOProperties);
             Assertions.assertEquals(URI.create("https://oss-cn-beijing.aliyuncs.com"),
@@ -1058,7 +1060,7 @@ public class IcebergRestPropertiesTest {
         restProps.toFileIOProperties(storageList, fileIOProperties, conf);
 
         // First non-S3Properties (oss1) should be used
-        Assertions.assertEquals("https://oss-cn-beijing.aliyuncs.com",
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
                 fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
     }

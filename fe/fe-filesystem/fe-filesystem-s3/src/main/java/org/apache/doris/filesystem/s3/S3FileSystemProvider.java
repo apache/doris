@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.spi.FileSystemContext;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -104,6 +105,13 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));
+    }
+
+    @Override
+    public FileSystem create(Map<String, String> properties, FileSystemContext context) throws IOException {
+        S3FileSystemProperties boundProperties = bind(properties);
+        return new S3FileSystem(boundProperties,
+                new S3ObjStorage(boundProperties, context.getS3ClientHttpScheme()));
     }
 
     @Override

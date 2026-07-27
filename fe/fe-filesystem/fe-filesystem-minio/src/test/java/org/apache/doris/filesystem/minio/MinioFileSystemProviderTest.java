@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.minio;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3ObjStorage;
+import org.apache.doris.filesystem.spi.FileSystemContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -144,9 +145,8 @@ class MinioFileSystemProviderTest {
         props.put("minio.endpoint", "127.0.0.1:9000");
         props.put("minio.access_key", "ak");
         props.put("minio.secret_key", "sk");
-        props.put("s3_client_http_scheme", "http");
 
-        S3FileSystem s3 = (S3FileSystem) provider.create(props);
+        S3FileSystem s3 = (S3FileSystem) provider.create(props, new FileSystemContext("http"));
         S3ObjStorage storage = (S3ObjStorage) s3.getObjStorage();
         try {
             Assertions.assertEquals(URI.create("http://127.0.0.1:9000"),
