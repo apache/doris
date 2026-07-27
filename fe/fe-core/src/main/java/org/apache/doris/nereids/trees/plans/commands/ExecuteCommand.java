@@ -92,13 +92,27 @@ public class ExecuteCommand extends Command {
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        LogicalPlan relationRoot = logicalPlan;
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            relationRoot = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        } else if (logicalPlan instanceof InsertOverwriteTableCommand) {
+            relationRoot = ((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery();
+        } else if (logicalPlan instanceof UpdateCommand) {
+            relationRoot = ((UpdateCommand) logicalPlan).getLogicalQuery();
+        } else if (logicalPlan instanceof Command) {
+            // Non-DML commands deliberately have no traversable children; they cannot own a
+            // relation scan tree whose resolved state needs resetting.
+            relationRoot = null;
+        }
         // PREPARE retains relation objects across executions. Clear only their resolved scan state
         // so each EXECUTE resolves a fresh snapshot while one execution still uses one snapshot.
-        for (UnboundRelation relation : logicalPlan.<UnboundRelation>collectToList(
-                UnboundRelation.class::isInstance)) {
-            TableScanParams scanParams = relation.getScanParams();
-            if (scanParams != null) {
-                scanParams.resetResolvedMapParams();
+        if (relationRoot != null) {
+            for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
+                    UnboundRelation.class::isInstance)) {
+                TableScanParams scanParams = relation.getScanParams();
+                if (scanParams != null) {
+                    scanParams.resetResolvedMapParams();
+                }
             }
         }
         if (logicalPlan instanceof LogicalSqlCache) {

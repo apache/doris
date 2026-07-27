@@ -219,9 +219,14 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected List<String> getFileColumnNames() {
-        // The descriptor table caches the latest schema. Position relation-scoped historical
-        // slots against the same processed Paimon table that is serialized to the reader.
-        return processedTable.rowType().getFieldNames();
+        if (scanParams != null && scanParams.isOptions()) {
+            // Relation-scoped options may select a historical schema, so its slots must be
+            // positioned against the same processed table that is serialized to the reader.
+            return processedTable.rowType().getFieldNames();
+        }
+        // Normal scans must retain the refreshable descriptor schema; the cached Paimon table
+        // handle can still expose pre-refresh column names after an external schema change.
+        return super.getFileColumnNames();
     }
 
     @Override

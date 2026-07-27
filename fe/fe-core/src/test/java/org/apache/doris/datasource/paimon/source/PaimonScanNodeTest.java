@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -811,6 +812,10 @@ public class PaimonScanNodeTest {
     @Test
     public void testFileColumnPositionsUseProcessedHistoricalSchema() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        node.setScanParams(new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                Collections.emptyList()));
         Table historicalTable = Mockito.mock(Table.class);
         Mockito.when(historicalTable.rowType()).thenReturn(new org.apache.paimon.types.RowType(Arrays.asList(
                 new DataField(0, "id", new IntType()),
@@ -818,6 +823,20 @@ public class PaimonScanNodeTest {
         setField(PaimonScanNode.class, node, "processedTable", historicalTable);
 
         Assert.assertEquals(Arrays.asList("id", "old_name"), node.getFileColumnNames());
+    }
+
+    @Test
+    public void testLatestScanUsesRefreshedDescriptorColumnPositions() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        Column latestColumn = Mockito.mock(Column.class);
+        Mockito.when(latestColumn.getName()).thenReturn("renamed_name");
+        Mockito.when(node.getTupleDesc().getTable().getFullSchema())
+                .thenReturn(Collections.singletonList(latestColumn));
+
+        Table staleTableHandle = Mockito.mock(Table.class);
+        setField(PaimonScanNode.class, node, "processedTable", staleTableHandle);
+
+        Assert.assertEquals(Collections.singletonList("renamed_name"), node.getFileColumnNames());
     }
 
     @Test
