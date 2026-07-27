@@ -108,6 +108,13 @@ public class RefreshManager {
         }
 
         if (!db.isPresent()) {
+            if (!Strings.isNullOrEmpty(log.getDbName())) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(catalog.getId(), log.getDbName());
+                LOG.info("database object cache is cold when replaying refresh database; "
+                                + "invalidated engine caches by local name {} from edit log: {}",
+                        log.getDbName(), log.debugForRefreshDb());
+                return;
+            }
             LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
         } else {
             refreshDbInternal(db.get());
@@ -174,6 +181,14 @@ public class RefreshManager {
         }
         // See comment in refreshDbInternal for why db and table may be null.
         if (!db.isPresent()) {
+            if (!Strings.isNullOrEmpty(log.getDbName()) && !Strings.isNullOrEmpty(log.getTableName())) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidateTable(catalog.getId(), log.getDbName(), log.getTableName());
+                LOG.info("database object cache is cold when replaying refresh table; "
+                                + "invalidated engine caches by local names {}.{} from edit log: {}",
+                        log.getDbName(), log.getTableName(), log.debugForRefreshTable());
+                return;
+            }
             LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }

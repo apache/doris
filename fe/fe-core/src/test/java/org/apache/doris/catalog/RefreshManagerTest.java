@@ -25,6 +25,8 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
@@ -58,6 +60,7 @@ public class RefreshManagerTest {
     private CountingDatabase database;
     private RecordingExternalMetaCache engineCache;
     private RecordingConstraintManager constraintManager;
+    private AtomicInteger databaseObjectLoadCalls;
 
     @Before
     public void setUp() throws Exception {
@@ -71,6 +74,7 @@ public class RefreshManagerTest {
         catalog.addDatabaseForTest(database);
 
         engineCache = new RecordingExternalMetaCache();
+        databaseObjectLoadCalls = new AtomicInteger();
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalMetaCacheRegistry cacheRegistry = Deencapsulation.getField(metaCacheMgr, "cacheRegistry");
         cacheRegistry.resetForTest(Collections.singletonList(engineCache));
@@ -96,6 +100,36 @@ public class RefreshManagerTest {
         new RefreshManager().replayRefreshTable(log);
 
         assertColdTableInvalidatedByName();
+    }
+
+    @Test
+    public void testReplayNameBasedRefreshDbInvalidatesEngineCacheWhenDatabaseObjectCacheHasTtlZero() {
+        disableDatabaseObjectCacheWithTtlZero();
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(CATALOG_ID, DATABASE_NAME);
+
+        new RefreshManager().replayRefreshDb(log);
+
+        Assert.assertEquals(1, engineCache.invalidateDbCalls.get());
+        Assert.assertEquals(CATALOG_ID, engineCache.lastCatalogId);
+        Assert.assertEquals(DATABASE_NAME, engineCache.lastDatabaseName);
+        Assert.assertEquals(0, engineCache.invalidateTableCalls.get());
+        Assert.assertEquals(0, databaseObjectLoadCalls.get());
+    }
+
+    @Test
+    public void testReplayNameBasedRefreshTableInvalidatesEngineCacheWhenDatabaseObjectCacheHasTtlZero() {
+        disableDatabaseObjectCacheWithTtlZero();
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L);
+
+        new RefreshManager().replayRefreshTable(log);
+
+        Assert.assertEquals(0, engineCache.invalidateDbCalls.get());
+        Assert.assertEquals(1, engineCache.invalidateTableCalls.get());
+        Assert.assertEquals(CATALOG_ID, engineCache.lastCatalogId);
+        Assert.assertEquals(DATABASE_NAME, engineCache.lastDatabaseName);
+        Assert.assertEquals(TABLE_NAME, engineCache.lastTableName);
+        Assert.assertEquals(0, databaseObjectLoadCalls.get());
     }
 
     @Test
@@ -144,6 +178,20 @@ public class RefreshManagerTest {
         database.addTableForTest(table);
         database.evictTableObjectForTest(TABLE_NAME);
         Assert.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
+    }
+
+    private void disableDatabaseObjectCacheWithTtlZero() {
+        MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledDatabases = new MetaCacheEntry<>(
+                "ttl_zero_databases",
+                ignored -> {
+                    databaseObjectLoadCalls.incrementAndGet();
+                    return database;
+                },
+                CacheSpec.of(true, 0L, 10L),
+                Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
+                false);
+        Deencapsulation.setField(catalog, "databases", disabledDatabases);
+        Assert.assertFalse(catalog.getDbForReplay(DATABASE_NAME).isPresent());
     }
 
     private void assertColdTableInvalidatedByName() {
@@ -269,6 +317,7 @@ public class RefreshManagerTest {
     }
 
     private static class RecordingExternalMetaCache implements ExternalMetaCache {
+        private final AtomicInteger invalidateDbCalls = new AtomicInteger();
         private final AtomicInteger invalidateTableCalls = new AtomicInteger();
         private long lastCatalogId;
         private String lastDatabaseName;
@@ -309,6 +358,9 @@ public class RefreshManagerTest {
 
         @Override
         public void invalidateDb(long catalogId, String dbName) {
+            lastCatalogId = catalogId;
+            lastDatabaseName = dbName;
+            invalidateDbCalls.incrementAndGet();
         }
 
         @Override

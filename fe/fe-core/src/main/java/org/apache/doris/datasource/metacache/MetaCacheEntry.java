@@ -61,7 +61,7 @@ public class MetaCacheEntry<K, V> {
     private final Cache<K, V> data;
     // Protect one stripe at a time to deduplicate concurrent miss loads with bounded lock count.
     private final Object[] loadLocks;
-    // Serialize short publication windows so public mutations cannot race with stale write-back.
+    // Serialize short mutation and manual-publication windows; async refresh admission remains best-effort.
     private final Object[] publishLocks;
     // Track per-stripe invalidation generations so unrelated keys do not invalidate each other.
     private final AtomicLongArray generations;
@@ -166,7 +166,7 @@ public class MetaCacheEntry<K, V> {
                 maxSize,
                 true,
                 null);
-        // Build through a dedicated loader so refresh reload can check generation before publishing.
+        // Build through a dedicated loader so refresh results admitted under an older generation are rejected.
         CacheLoader<K, V> cacheLoader = newCacheLoader();
         if (syncRemovalListener) {
             this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(cacheLoader, removalListener);
@@ -243,7 +243,7 @@ public class MetaCacheEntry<K, V> {
     }
 
     public void put(K key, V value) {
-        // Public mutations participate in generation control so in-flight loads cannot overwrite them later.
+        // Public mutations advance the generation so loads admitted under an older generation cannot overwrite them.
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(value, "value can not be null");
         if (!effectiveEnabled) {
@@ -484,6 +484,9 @@ public class MetaCacheEntry<K, V> {
 
             @Override
             public CompletableFuture<V> asyncReload(K key, V oldValue, Executor executor) {
+                // This fences refreshes admitted before a later generation bump. Admission intentionally remains
+                // outside publishLock: a refresh admitted after the bump but before key removal may repopulate the
+                // key, which is accepted under the external metadata cache's eventual-consistency semantics.
                 long generation = generationOf(key);
                 CompletableFuture<V> result = new CompletableFuture<>();
                 CompletableFuture.supplyAsync(() -> loadFromDefaultLoader(key), executor)
