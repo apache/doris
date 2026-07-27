@@ -36,7 +36,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
-#include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2.h"
@@ -56,7 +56,7 @@ struct CastResult {
 
 CastResult execute_to_variant(const ColumnPtr& source, const DataTypePtr& source_type,
                               const NullMap::value_type* null_map = nullptr) {
-    auto result_type = std::make_shared<DataTypeVariant>();
+    auto result_type = std::make_shared<DataTypeVariantV2>();
     ColumnPtr initial_result = result_type->create_column();
     Block block {{source, source_type, "source"}, {initial_result, result_type, "result"}};
     RuntimeState state;
@@ -264,7 +264,7 @@ TEST(CastVariantV2ToTest, NullArrayRowDoesNotEncodeHiddenTypedVariantValue) {
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->get_data().push_back(1);
     auto source = ColumnArray::create(std::move(elements), std::move(offsets));
-    auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariant>());
+    auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
     constexpr std::array<NullMap::value_type, 1> NULLS {1};
 
     CastResult unmasked = execute_to_variant(source->get_ptr(), type);
@@ -292,7 +292,7 @@ TEST(CastVariantV2ToTest, NothingSourceProducesInternalNullRows) {
 
 TEST(CastVariantV2ToTest, VariantIdentityKeepsColumnPointer) {
     ColumnPtr source = one_encoded_int(5);
-    CastResult cast = execute_to_variant(source, std::make_shared<DataTypeVariant>());
+    CastResult cast = execute_to_variant(source, std::make_shared<DataTypeVariantV2>());
     ASSERT_TRUE(cast.status.ok()) << cast.status;
     EXPECT_EQ(cast.column.get(), source.get());
 }

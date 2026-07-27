@@ -45,15 +45,34 @@ class CountTest {
     }
 
     @Test
-    void testCountDistinctAllowsVariantWithDedicatedState() {
+    void testCountDistinctRejectsLegacyVariant() {
         Count count = new Count(true, SlotReference.of("v", VariantType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, count::checkLegalityAfterRewrite);
+        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
+    }
+
+    @Test
+    void testCountDistinctAllowsVariantV2WithDedicatedState() {
+        Count count = new Count(true, SlotReference.of("v", VariantType.COMPUTE_V2_INSTANCE));
 
         Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }
 
     @Test
-    void testMultiDistinctCountAllowsVariantWithDedicatedState() {
+    void testMultiDistinctCountRejectsLegacyVariant() {
         MultiDistinctCount count = new MultiDistinctCount(SlotReference.of("v", VariantType.INSTANCE));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, count::checkLegalityAfterRewrite);
+        Assertions.assertTrue(exception.getMessage().contains("COUNT DISTINCT could not process type"));
+    }
+
+    @Test
+    void testMultiDistinctCountAllowsVariantV2WithDedicatedState() {
+        MultiDistinctCount count = new MultiDistinctCount(
+                SlotReference.of("v", VariantType.COMPUTE_V2_INSTANCE));
 
         Assertions.assertDoesNotThrow(count::checkLegalityAfterRewrite);
     }

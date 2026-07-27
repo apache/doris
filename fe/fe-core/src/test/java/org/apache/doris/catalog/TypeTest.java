@@ -134,6 +134,10 @@ public class TypeTest {
         VariantType docMode = new VariantType(fields1, 0, false, 10000, 1,
                 true, 0L, 64, false);
         Assert.assertFalse(Type.matchExactType(v1, docMode, false));
+
+        VariantType computeV2 = new VariantType(fields1, 0, false, 10000, 1,
+                false, 0L, 64, false, true);
+        Assert.assertFalse(Type.matchExactType(v1, computeV2, false));
     }
 
     @Test

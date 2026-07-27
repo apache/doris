@@ -158,6 +158,29 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testVariantCommonTypeRequiresExecutionCompatibility() {
+        VariantType v1 = new VariantType(100);
+        VariantType anotherV1 = new VariantType(200);
+        VariantType v2 = v1.withComputeV2(true);
+        VariantType anotherV2 = anotherV1.withComputeV2(true);
+
+        Assertions.assertTrue(TypeCoercionUtils.findWiderTypeForTwo(v1, anotherV1, false, true).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.findWiderTypeForTwo(v1, v2, false, true).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.findWiderTypeForTwo(v2, v1, false, true).isEmpty());
+        Assertions.assertEquals(VariantType.COMPUTE_V2_INSTANCE,
+                TypeCoercionUtils.findWiderTypeForTwo(v2, anotherV2, false, true).get());
+        Assertions.assertTrue(TypeCoercionUtils.findWiderTypeForTwo(
+                ArrayType.of(v1), ArrayType.of(v2), false, true).isEmpty());
+
+        Assertions.assertTrue(TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, anotherV1).isEmpty());
+        Assertions.assertTrue(TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, v2).isEmpty());
+        Assertions.assertEquals(VariantType.COMPUTE_V2_INSTANCE,
+                TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v2, anotherV2).get());
+        Assertions.assertTrue(TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                ImmutableList.of(ArrayType.of(v1), ArrayType.of(v2))).isEmpty());
+    }
+
+    @Test
     public void testHasCharacterType() {
         Assertions.assertFalse(TypeCoercionUtils.hasCharacterType(NullType.INSTANCE));
         Assertions.assertFalse(TypeCoercionUtils.hasCharacterType(BooleanType.INSTANCE));

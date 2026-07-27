@@ -144,7 +144,8 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        return target.equals(this) || target instanceof VariantType;
+        return target instanceof VariantType
+                && isExecutionCompatibleWith((VariantType) target);
     }
 
     @Override
@@ -335,6 +336,50 @@ public class VariantType extends PrimitiveType {
 
     public boolean isComputeV2() {
         return computeV2;
+    }
+
+    /** Whether the type or any nested complex type contains Variant. */
+    public static boolean containsVariant(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return true;
+        } else if (dataType instanceof ArrayType) {
+            return containsVariant(((ArrayType) dataType).getItemType());
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (dataType instanceof StructType) {
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getDataType()));
+        }
+        return false;
+    }
+
+    /** Selects the compute-only Variant representation in a possibly nested type. */
+    public static DataType toComputeV2(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return ((VariantType) dataType).withComputeV2(true);
+        } else if (dataType instanceof ArrayType) {
+            return ArrayType.of(toComputeV2(((ArrayType) dataType).getItemType()));
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return MapType.of(toComputeV2(mapType.getKeyType()), toComputeV2(mapType.getValueType()));
+        } else if (dataType instanceof StructType) {
+            return new StructType(((StructType) dataType).getFields().stream()
+                    .map(field -> field.withDataType(toComputeV2(field.getDataType())))
+                    .collect(Collectors.toList()));
+        }
+        return dataType;
+    }
+
+    /**
+     * Whether two Variant values use an execution-compatible physical representation.
+     *
+     * <p>Legacy Variant values are compatible only when their type properties are equal.
+     * Compute-only Variant V2 values share one physical representation, independent of source
+     * layout properties.</p>
+     */
+    public boolean isExecutionCompatibleWith(VariantType other) {
+        return (computeV2 && other.computeV2) || equals(other);
     }
 
     /** Returns this Variant type with the requested compute-only physical representation. */

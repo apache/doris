@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 
@@ -107,6 +108,10 @@ Status finalize_collected_node(FunctionContext* context, const CollectedArrayNod
 
     const PrimitiveType primitive = node.type->get_primitive_type();
     if (primitive == TYPE_VARIANT) {
+        if (dynamic_cast<const DataTypeVariantV2*>(node.type.get()) == nullptr) {
+            return Status::InvalidArgument(
+                    "Variant V2 ARRAY CAST does not support legacy Variant targets");
+        }
         ColumnPtr encoded = variant_column_from_refs(node.values, nulls);
         return apply_forced_nulls(std::move(encoded), nulls, output);
     }

@@ -38,7 +38,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function/function_helpers.h"
@@ -63,7 +63,7 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
         nested = &nullable->get_nested_column();
     }
     if (const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(nested)) {
-        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto variant_type = std::make_shared<DataTypeVariantV2>();
         auto target_type = std::make_shared<DataTypeArray>(variant_type);
         ColumnPtr array_column;
         RETURN_IF_ERROR(CastWrapper::variant_v2_internal::cast_variant_to_array(

@@ -1108,6 +1108,8 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (right instanceof NullType) {
             return Optional.of(left);
+        } else if (left instanceof VariantType && right instanceof VariantType) {
+            return findCommonVariantType((VariantType) left, (VariantType) right);
         } else if (left instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
@@ -1174,6 +1176,13 @@ public class TypeCoercionUtils {
             return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
+    }
+
+    private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
+        if (!left.isExecutionCompatibleWith(right)) {
+            return Optional.empty();
+        }
+        return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : left);
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
@@ -1951,6 +1960,10 @@ public class TypeCoercionUtils {
         }
         if (t2.isNullType()) {
             return Optional.of(t1);
+        }
+
+        if (t1 instanceof VariantType && t2 instanceof VariantType) {
+            return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 
         // objectType only support compare with itself, so return empty here.

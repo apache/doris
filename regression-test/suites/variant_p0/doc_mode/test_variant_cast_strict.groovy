@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Non-layout Variant properties do not make a distinct SQL type, so VALUES and
-// batch-insert paths accept values whose materialization thresholds differ. A
-// physical layout mismatch such as doc mode still requires an explicit JSONB hop.
+// Legacy V1 requires exact Variant properties because BE has no Variant-to-Variant
+// conversion. V2 allows these casts under enable_variant_v2 and is covered by
+// variant_compute_v2.
 suite("test_variant_cast_strict", "p0") {
     // Use session variables to set variant defaults (column-level properties
     // forbid setting max_subcolumns_count and enable_doc_mode together).
@@ -40,13 +40,15 @@ suite("test_variant_cast_strict", "p0") {
 
     def jsonValue = '{"anchors":{"common_int":150025,"phase_marker":"phase_a","present":true,"row_id":15001},"dynamic":{"path_00000":15001000,"path_00001":15001001},"parent":{"child":{"name":"phase_a_15001"}},"phase_a_small":{"leaf":15001}}'
 
-    // ---- Case 1: a Variant value with different properties is aligned to the target.
-    sql """ insert into ${t} values (15001, cast('${jsonValue}' as variant<properties(
+    // ---- Case 1: V1 rejects an implicit Variant-to-Variant cast with different properties.
+    test {
+        sql """ insert into ${t} values (15001, cast('${jsonValue}' as variant<properties(
             "variant_enable_doc_mode" = "true",
             "variant_doc_materialization_min_rows" = "999",
             "variant_doc_hash_shard_count" = "7"
         )>)); """
-    qt_case1 """ select id, cast(v['anchors']['row_id'] as bigint) from ${t} where id = 15001; """
+        exception "cast"
+    }
 
     // ---- Case 2: GOOD — drop the cast, let FE coerce String -> target Variant directly.
     sql """ insert into ${t} values (15002, '${jsonValue}'); """
@@ -57,7 +59,7 @@ suite("test_variant_cast_strict", "p0") {
     sql """ insert into ${t} values (15003, cast('${jsonValue}' as variant)); """
     qt_case3 """ select id, cast(v['anchors']['row_id'] as bigint) from ${t} where id = 15003; """
 
-    // ---- Case 4: cross-table copies with different physical layouts need a JSONB hop.
+    // ---- Case 4: cross-table — different variant configs need an explicit JSONB hop.
     def t_src = "variant_cast_strict_src"
     // Create source table with NO doc-mode by clearing session vars first, then restore.
     sql """ set default_variant_enable_doc_mode = false """
@@ -77,39 +79,36 @@ suite("test_variant_cast_strict", "p0") {
     sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_max_subcolumns_count = 37 """
 
-    // 4a: direct copy is rejected because doc-mode layouts differ.
+    // 4a: direct copy is rejected (configs differ).
     test {
         sql """ insert into ${t} select id, v from ${t_src}; """
-        exception "Conversion from Variant"
+        exception "cast"
     }
 
-    // 4b: the explicit JSONB bridge converts between layouts.
+    // 4b: routing through JSONB works.
     sql """ insert into ${t} select id, cast(cast(v as JSONB) as variant) from ${t_src}; """
     qt_case4b """ select id, cast(v['anchors']['row_id'] as bigint) from ${t} where id = 15004; """
 
-    // ---- Case 5: multi-row VALUES inside a transaction takes the batch-insert path.
+    // ---- Case 5: the same V1 check also applies to batch insert in a transaction.
     sql """ begin """
-    def committed = false
     try {
-        sql """
-            insert into ${t} values
-                (15005, cast('${jsonValue}' as variant<properties(
-                    "variant_enable_doc_mode" = "true",
-                    "variant_doc_materialization_min_rows" = "999",
-                    "variant_doc_hash_shard_count" = "7"
-                )>)),
-                (15006, cast('${jsonValue}' as variant<properties(
-                    "variant_enable_doc_mode" = "true",
-                    "variant_doc_materialization_min_rows" = "999",
-                    "variant_doc_hash_shard_count" = "7"
-                )>));
-        """
-        sql """ commit """
-        committed = true
-    } finally {
-        if (!committed) {
-            sql """ rollback """
+        test {
+            sql """
+                insert into ${t} values
+                    (15005, cast('${jsonValue}' as variant<properties(
+                        "variant_enable_doc_mode" = "true",
+                        "variant_doc_materialization_min_rows" = "999",
+                        "variant_doc_hash_shard_count" = "7"
+                    )>)),
+                    (15006, cast('${jsonValue}' as variant<properties(
+                        "variant_enable_doc_mode" = "true",
+                        "variant_doc_materialization_min_rows" = "999",
+                        "variant_doc_hash_shard_count" = "7"
+                    )>));
+            """
+            exception "cast"
         }
+    } finally {
+        sql """ rollback """
     }
-    order_qt_case5 """ select id, cast(v['anchors']['row_id'] as bigint) from ${t} where id in (15005, 15006); """
 }

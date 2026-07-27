@@ -216,6 +216,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         return new Cast(children, targetType, isExplicitType);
     }
 
+    /** Return this cast with a different immutable target type. */
+    public Cast withTargetType(DataType targetType) {
+        return this.targetType.equals(targetType)
+                ? this : new Cast(children, targetType, isExplicitType);
+    }
+
     @Override
     public String computeToSql() throws UnboundException {
         return "cast(" + child().toSql() + " as " + targetType.toSql() + ")";

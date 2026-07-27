@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/vdatetime_value.h"
@@ -55,7 +56,7 @@ struct CastResult {
 CastResult execute_from_variant(const ColumnPtr& source, const DataTypePtr& target_type,
                                 const NullMap::value_type* null_map = nullptr,
                                 std::string_view timezone = "UTC") {
-    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
     ColumnPtr initial_result = target_type->create_column();
     Block block {{source, variant_type, "source"}, {initial_result, target_type, "result"}};
     RuntimeState state;
@@ -414,7 +415,7 @@ TEST(CastVariantV2FromTest, ArrayLeafNullSemanticsAreTargetSpecific) {
     EXPECT_EQ(jsonb_elements.get_null_map_data()[0], 0);
     EXPECT_EQ(jsonb_text(jsonb_elements.get_nested_column(), 0), "null");
 
-    auto variant_array = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariant>());
+    auto variant_array = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
     CastResult variants = execute_from_variant(source, variant_array);
     ASSERT_TRUE(variants.status.ok()) << variants.status;
     const auto& variant_outer = nullable_result(variants.column);
@@ -424,6 +425,12 @@ TEST(CastVariantV2FromTest, ArrayLeafNullSemanticsAreTargetSpecific) {
     EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(variant_elements.get_nested_column())
                         .get_value_ref(0)
                         .is_null());
+
+    auto legacy_variant_array =
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariant>());
+    CastResult legacy_variants = execute_from_variant(source, legacy_variant_array);
+    EXPECT_TRUE(legacy_variants.status.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(legacy_variants.column.get(), legacy_variants.initial_result.get());
 
     auto int_array = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
     CastResult integers = execute_from_variant(source, int_array);
@@ -443,7 +450,7 @@ TEST(CastVariantV2FromTest, NestedArrayRoundTripPreservesNullAndEmptyArray) {
                  Field::create_field<TYPE_ARRAY>(std::move(empty_inner))};
     source->insert(Field::create_field<TYPE_ARRAY>(std::move(outer)));
 
-    auto variant_type = std::make_shared<DataTypeVariant>();
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
     Block to_block {{source->get_ptr(), outer_type, "source"},
                     {variant_type->create_column(), variant_type, "result"}};
     RuntimeState state;

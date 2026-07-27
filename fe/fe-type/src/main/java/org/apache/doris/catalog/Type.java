@@ -1170,7 +1170,8 @@ public abstract class Type {
                 VariantType variant1 = (VariantType) type1;
                 VariantType variant2 = (VariantType) type2;
                 if (variant1.getVariantMaxSubcolumnsCount() != variant2.getVariantMaxSubcolumnsCount()
-                        || variant1.getEnableVariantDocMode() != variant2.getEnableVariantDocMode()) {
+                        || variant1.getEnableVariantDocMode() != variant2.getEnableVariantDocMode()
+                        || variant1.isComputeV2() != variant2.isComputeV2()) {
                     return false;
                 }
                 ArrayList<VariantField> fields1 = variant1.getPredefinedFields();
