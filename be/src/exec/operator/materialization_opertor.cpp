@@ -464,6 +464,10 @@ Status MaterializationSharedState::init_multi_requests(
     multi_get_request.set_file_cache_remote_only_on_miss(
             config::is_cloud_mode() &&
             state->query_options().enable_topn_lazy_mat_phase2_no_write_file_cache);
+    if (state->query_options().__isset.rowid_fetch_parallel_batch_rows) {
+        multi_get_request.set_parallel_batch_rows(
+                state->query_options().rowid_fetch_parallel_batch_rows);
+    }
     auto* query_id = multi_get_request.mutable_query_id();
     query_id->set_hi(state->query_id().hi);
     query_id->set_lo(state->query_id().lo);

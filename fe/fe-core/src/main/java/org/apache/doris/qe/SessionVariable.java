@@ -458,6 +458,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
 
+    public static final String ROWID_FETCH_PARALLEL_BATCH_ROWS = "rowid_fetch_parallel_batch_rows";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -2194,6 +2196,21 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPartitionPrune = true;
+
+    /**
+     * Controls the parallel execution strategy of TopN lazy materialization phase 2 (rowid fetch)
+     * for internal tables:
+     *   0  : read rowids serially (default, original behavior)
+     *   -1 : read in parallel, one task per segment group
+     *   >0 : read in parallel, split the request into consecutive row ranges of N rows per task
+     */
+    @VarAttrDef.VarAttr(name = ROWID_FETCH_PARALLEL_BATCH_ROWS, needForward = true,
+            description = {
+                    "TopN 延迟物化二期 rowid fetch 内表读取的并发策略：0 串行（默认），-1 按 segment 分组并发，"
+                            + ">0 每 N 行一个并发任务",
+                    "Parallel strategy of TopN lazy materialization phase 2 rowid fetch for internal tables: "
+                            + "0 serial (default), -1 one task per segment group, >0 one task per N rows"})
+    public int rowidFetchParallelBatchRows = 0;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -5859,6 +5876,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
+        tResult.setRowidFetchParallelBatchRows(rowidFetchParallelBatchRows);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);

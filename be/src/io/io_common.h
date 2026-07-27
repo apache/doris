@@ -183,6 +183,20 @@ struct FileCacheStatistics {
 
         peer_hosts.insert(other.peer_hosts.begin(), other.peer_hosts.end());
     }
+
+    // Merge only the fields used by the rowid fetch (TopN lazy materialization phase 2) path.
+    // Used to combine statistics collected by parallel rowid fetch tasks.
+    void merge(const FileCacheStatistics& other) {
+        num_local_io_total += other.num_local_io_total;
+        num_remote_io_total += other.num_remote_io_total;
+        local_io_timer += other.local_io_timer;
+        remote_io_timer += other.remote_io_timer;
+        bytes_read_from_local += other.bytes_read_from_local;
+        bytes_read_from_remote += other.bytes_read_from_remote;
+        num_skip_cache_io_total += other.num_skip_cache_io_total;
+        write_cache_io_timer += other.write_cache_io_timer;
+        bytes_write_into_cache += other.bytes_write_into_cache;
+    }
 };
 
 struct IOContext {

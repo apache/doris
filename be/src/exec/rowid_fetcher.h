@@ -133,7 +133,16 @@ private:
             std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
             OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
             int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-            io::FileCacheMissPolicy file_cache_miss_policy);
+            io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows = 0);
+
+    // Parallel variant of read_batch_doris_format_row, used when parallel_batch_rows != 0
+    // and the request does not fetch from the row store.
+    static Status read_batch_doris_format_row_parallel(
+            const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
+            OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+            io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,

@@ -69,8 +69,10 @@
 #include "storage/tablet_info.h" // DorisNodesInfo
 #include "storage/utils.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/jsonb/serialize.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -612,7 +614,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                         RETURN_IF_ERROR(read_batch_doris_format_row(
                                 request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
                                 stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy));
+                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy,
+                                request.has_parallel_batch_rows() ? request.parallel_batch_rows()
+                                                                  : 0));
                     } else {
                         RETURN_IF_ERROR(read_batch_external_row(
                                 request.wg_id(), request_block_desc, id_file_map, slots,
@@ -673,7 +677,15 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
         OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
         int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-        io::FileCacheMissPolicy file_cache_miss_policy) {
+        io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows) {
+    // parallel_batch_rows != 0 enables the parallel read path. Reading from the row store
+    // always goes through the serial path below.
+    if (parallel_batch_rows != 0 && !request_block_desc.fetch_row_store()) {
+        return read_batch_doris_format_row_parallel(
+                request_block_desc, id_file_map, slots, query_id, result_block, stats,
+                acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
+                file_cache_miss_policy, parallel_batch_rows);
+    }
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
@@ -760,6 +772,236 @@ Status RowIdStorageReader::read_batch_doris_format_row(
 
     scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
 
+    return Status::OK();
+}
+
+Status RowIdStorageReader::read_batch_doris_format_row_parallel(
+        const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
+        OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+        io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows) {
+    DCHECK(parallel_batch_rows != 0);
+    DCHECK(!request_block_desc.fetch_row_store());
+    if (result_block.is_empty_column()) [[likely]] {
+        result_block = Block(slots, request_block_desc.row_id_size());
+    }
+    TabletSchema full_read_schema;
+    for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
+        full_read_schema.append_column(TabletColumn(column_pb));
+    }
+
+    ThreadPool* pool = ExecEnv::GetInstance()->internal_rowid_fetch_pool();
+    if (pool == nullptr) [[unlikely]] {
+        return Status::InternalError("InternalRowIdFetch thread pool is not initialized");
+    }
+
+    const size_t total_rows = request_block_desc.row_id_size();
+
+    // Per-task status, statistics and timers. seg_map/iterator_map/stats cannot be shared
+    // across threads (ColumnIterator is not thread safe), so each task collects its own and
+    // they are merged back after all tasks finish.
+    struct TaskResult {
+        Status status = Status::OK();
+        OlapReaderStatistics stats;
+        int64_t acquire_tablet_ms = 0;
+        int64_t acquire_rowsets_ms = 0;
+        int64_t acquire_segments_ms = 0;
+        int64_t lookup_row_data_ms = 0;
+    };
+
+    // Groups request rows in [begin, end) by their (tablet_id, rowset_id, segment_id) key,
+    // same as Phase 1 of the serial path, with request positions rebased to [0, end - begin).
+    auto build_segment_batches = [&](size_t begin, size_t end,
+                                     std::vector<DorisFormatReadBatch>* scan_batches,
+                                     Status* status) {
+        std::unordered_map<SegKey, size_t, HashOfSegKey> batch_idx_by_seg;
+        for (size_t j = begin; j < end; ++j) {
+            auto file_id = request_block_desc.file_id(cast_set<int>(j));
+            auto file_mapping = id_file_map->get_file_mapping(file_id);
+            if (!file_mapping) {
+                *status = Status::InternalError(
+                        "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                        BackendOptions::get_localhost(), print_id(query_id), file_id);
+                return;
+            }
+            auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
+            SegKey seg_key {
+                    .tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
+            auto [it, inserted] = batch_idx_by_seg.emplace(seg_key, scan_batches->size());
+            if (inserted) {
+                scan_batches->emplace_back();
+                scan_batches->back().file_mapping = file_mapping;
+            }
+            (*scan_batches)[it->second].row_ids_with_positions.emplace_back(
+                    request_block_desc.row_id(cast_set<int>(j)), j - begin);
+        }
+    };
+
+    // Reads one segment batch, same as one iteration of Phase 2 of the serial path: sorts and
+    // dedups the batch's row_ids, reads them into blocks[batch_idx] with task-local
+    // seg_map/iterator_map/stats, and fills the scatter entries of block_idx for the request
+    // positions recorded in the batch.
+    auto read_one_segment_batch =
+            [&](DorisFormatReadBatch& scan_batch, size_t batch_idx, std::vector<Block>& blocks,
+                std::vector<std::pair<size_t, size_t>>& block_idx, TaskResult& task_result) {
+                auto& row_ids_with_positions = scan_batch.row_ids_with_positions;
+                std::sort(row_ids_with_positions.begin(), row_ids_with_positions.end(),
+                          [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+
+                std::vector<uint32_t> row_ids;
+                row_ids.reserve(row_ids_with_positions.size());
+                for (const auto& [row_id, result_idx] : row_ids_with_positions) {
+                    if (row_ids.empty() || row_ids.back() != row_id) {
+                        row_ids.emplace_back(row_id);
+                    }
+                    block_idx[result_idx] = std::make_pair(batch_idx, row_ids.size() - 1);
+                }
+
+                blocks[batch_idx] = Block(slots, row_ids.size());
+                std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
+                std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+                std::string row_store_buffer;
+                RowStoreReadStruct row_store_read_struct(row_store_buffer);
+                task_result.status = read_doris_format_row(
+                        id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
+                        row_store_read_struct, task_result.stats, &task_result.acquire_tablet_ms,
+                        &task_result.acquire_rowsets_ms, &task_result.acquire_segments_ms,
+                        &task_result.lookup_row_data_ms, seg_map, iterator_map,
+                        file_cache_miss_policy, blocks[batch_idx]);
+            };
+
+    auto merge_task_results = [&](const std::vector<TaskResult>& task_results) -> Status {
+        Status first_error = Status::OK();
+        for (const auto& task_result : task_results) {
+            if (!task_result.status.ok() && first_error.ok()) {
+                first_error = task_result.status;
+            }
+            stats.merge(task_result.stats);
+            *acquire_tablet_ms += task_result.acquire_tablet_ms;
+            *acquire_rowsets_ms += task_result.acquire_rowsets_ms;
+            *acquire_segments_ms += task_result.acquire_segments_ms;
+            *lookup_row_data_ms += task_result.lookup_row_data_ms;
+        }
+        return first_error;
+    };
+
+    if (parallel_batch_rows < 0) {
+        // parallel_batch_rows == -1: one task per segment group, i.e. run Phase 2 of the
+        // serial path concurrently. Every request row belongs to exactly one batch, so the
+        // entries of row_id_block_idx written by different tasks never overlap.
+        std::vector<DorisFormatReadBatch> scan_batches;
+        Status build_status = Status::OK();
+        build_segment_batches(0, total_rows, &scan_batches, &build_status);
+        RETURN_IF_ERROR(build_status);
+
+        const size_t num_tasks = scan_batches.size();
+        std::vector<Block> scan_blocks(num_tasks);
+        std::vector<std::pair<size_t, size_t>> row_id_block_idx(total_rows);
+        std::vector<TaskResult> task_results(num_tasks);
+
+        CountDownLatch latch(cast_set<int>(num_tasks));
+        std::counting_semaphore semaphore {config::internal_rowid_fetch_max_concurrent};
+        for (size_t t = 0; t < num_tasks; ++t) {
+            semaphore.acquire();
+            Status submit_status = pool->submit_func([&, t]() {
+                Defer defer([&] {
+                    semaphore.release();
+                    latch.count_down();
+                });
+                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                signal::set_signal_task_id(query_id);
+                try {
+                    read_one_segment_batch(scan_batches[t], t, scan_blocks, row_id_block_idx,
+                                           task_results[t]);
+                } catch (const doris::Exception& e) {
+                    task_results[t].status = e.to_status();
+                } catch (const std::exception& e) {
+                    task_results[t].status =
+                            Status::InternalError("Row id fetch task failed: {}", e.what());
+                }
+            });
+            if (!submit_status.ok()) [[unlikely]] {
+                semaphore.release();
+                latch.count_down();
+                task_results[t].status = submit_status;
+            }
+        }
+        latch.wait();
+
+        RETURN_IF_ERROR(merge_task_results(task_results));
+        scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+        return Status::OK();
+    }
+
+    // parallel_batch_rows > 0: one task per consecutive range of parallel_batch_rows rows.
+    // Each task groups/sorts/dedups inside its own range and produces a local block keeping
+    // the original relative order of the range. Local blocks are concatenated in task order.
+    const size_t batch_rows = parallel_batch_rows;
+    const size_t num_tasks = (total_rows + batch_rows - 1) / batch_rows;
+    std::vector<TaskResult> task_results(num_tasks);
+    std::vector<Block> task_blocks(num_tasks);
+
+    CountDownLatch latch(cast_set<int>(num_tasks));
+    std::counting_semaphore semaphore {config::internal_rowid_fetch_max_concurrent};
+    for (size_t t = 0; t < num_tasks; ++t) {
+        semaphore.acquire();
+        Status submit_status = pool->submit_func([&, t]() {
+            Defer defer([&] {
+                semaphore.release();
+                latch.count_down();
+            });
+            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+            signal::set_signal_task_id(query_id);
+
+            auto& task_result = task_results[t];
+            const size_t begin = t * batch_rows;
+            const size_t end = std::min(begin + batch_rows, total_rows);
+
+            try {
+                std::vector<DorisFormatReadBatch> local_batches;
+                build_segment_batches(begin, end, &local_batches, &task_result.status);
+                if (!task_result.status.ok()) {
+                    return;
+                }
+                std::vector<Block> local_scan_blocks(local_batches.size());
+                std::vector<std::pair<size_t, size_t>> local_block_idx(end - begin);
+                for (size_t b = 0; b < local_batches.size(); ++b) {
+                    read_one_segment_batch(local_batches[b], b, local_scan_blocks, local_block_idx,
+                                           task_result);
+                    if (!task_result.status.ok()) {
+                        return;
+                    }
+                }
+                Block local_block(slots, end - begin);
+                scatter_scan_blocks_to_result_block(local_block_idx, local_scan_blocks,
+                                                    local_block);
+                task_blocks[t] = std::move(local_block);
+            } catch (const doris::Exception& e) {
+                task_result.status = e.to_status();
+            } catch (const std::exception& e) {
+                task_result.status =
+                        Status::InternalError("Row id fetch task failed: {}", e.what());
+            }
+        });
+        if (!submit_status.ok()) [[unlikely]] {
+            semaphore.release();
+            latch.count_down();
+            task_results[t].status = submit_status;
+        }
+    }
+    latch.wait();
+
+    RETURN_IF_ERROR(merge_task_results(task_results));
+
+    for (size_t column_id = 0; column_id < result_block.columns(); ++column_id) {
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
+        for (const auto& task_block : task_blocks) {
+            dst_col->insert_range_from(*task_block.get_by_position(column_id).column, 0,
+                                       task_block.rows());
+        }
+    }
     return Status::OK();
 }
 

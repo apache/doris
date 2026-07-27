@@ -507,6 +507,13 @@ struct TQueryOptions {
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
 
   226: optional bool enable_prune_nested_column = false;
+
+  // Controls the parallel execution strategy of TopN lazy materialization phase 2 (rowid fetch)
+  // for internal tables:
+  //   0  : read rowids serially (default, original behavior)
+  //   -1 : read in parallel, one task per segment group
+  //   >0 : read in parallel, split the request into consecutive row ranges of N rows per task
+  228: optional i32 rowid_fetch_parallel_batch_rows = 0;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

@@ -854,6 +854,9 @@ message PMultiGetRequestV2 {
     optional bool gc_id_map = 4;
     optional uint64 wg_id = 5;
     optional bool file_cache_remote_only_on_miss = 6;
+    // Parallel execution strategy of rowid fetch for internal tables.
+    // 0: serial; -1: one task per segment group; >0: one task per N consecutive rows.
+    optional int32 parallel_batch_rows = 7;
 };
 
 message PMultiGetBlockV2 {
