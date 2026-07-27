@@ -88,8 +88,12 @@ for benchmark_binary in "${head_binary}" "${base_binary}"; do
         exit 1
     fi
 done
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "ERROR: python3 is required to validate and compare benchmark JSON"
+if command -v python3 >/dev/null 2>&1; then
+    benchmark_python=python3
+elif command -v python >/dev/null 2>&1; then
+    benchmark_python=python
+else
+    echo "ERROR: Python is required to validate and compare benchmark JSON"
     exit 1
 fi
 
@@ -122,21 +126,28 @@ run_smoke_and_validate() {
         --benchmark_out="${output_file}" \
         --benchmark_out_format=json
 
-    python3 - "${group}/" "${expected_count}" "${output_file}" <<'PY'
+    "${benchmark_python}" - "${group}/" "${expected_count}" "${output_file}" <<'PY'
+from __future__ import print_function
+
+import io
 import json
 import sys
 
 prefix, expected_text, output_file = sys.argv[1:]
 expected = int(expected_text)
 try:
-    with open(output_file, encoding="utf-8") as benchmark_file:
+    with io.open(output_file, encoding="utf-8") as benchmark_file:
         payload = json.load(benchmark_file)
-except (OSError, json.JSONDecodeError) as error:
-    raise SystemExit(f"ERROR: cannot read benchmark JSON {output_file}: {error}")
+except (OSError, ValueError) as error:
+    raise SystemExit(
+        "ERROR: cannot read benchmark JSON {0}: {1}".format(output_file, error)
+    )
 
-benchmarks = payload.get("benchmarks")
+benchmarks = payload.get("benchmarks") if isinstance(payload, dict) else None
 if not isinstance(benchmarks, list):
-    raise SystemExit(f"ERROR: benchmark JSON has no benchmark list: {output_file}")
+    raise SystemExit(
+        "ERROR: benchmark JSON has no benchmark list: {0}".format(output_file)
+    )
 
 matched = [
     benchmark
@@ -147,8 +158,8 @@ matched = [
 ]
 if len(matched) != expected:
     raise SystemExit(
-        f"ERROR: unexpected smoke result count for {prefix}: "
-        f"expected={expected}, actual={len(matched)}"
+        "ERROR: unexpected smoke result count for {0}: "
+        "expected={1}, actual={2}".format(prefix, expected, len(matched))
     )
 
 failed = [
@@ -158,7 +169,9 @@ failed = [
 ]
 if failed:
     raise SystemExit(
-        f"ERROR: benchmark JSON reports failures for {prefix}: {', '.join(failed)}"
+        "ERROR: benchmark JSON reports failures for {0}: {1}".format(
+            prefix, ", ".join(failed)
+        )
     )
 PY
 }
@@ -231,7 +244,7 @@ run_gate_phase base-a2 "${base_binary}"
 
 compare_gate() {
     local prefix="$1"
-    python3 "${script_dir}/compare-parquet-microbenchmark.py" \
+    "${benchmark_python}" "${script_dir}/compare-parquet-microbenchmark.py" \
         --base-a1 "${result_dir}/${prefix}base-a1.json" \
         --head-b1 "${result_dir}/${prefix}head-b1.json" \
         --head-b2 "${result_dir}/${prefix}head-b2.json" \
