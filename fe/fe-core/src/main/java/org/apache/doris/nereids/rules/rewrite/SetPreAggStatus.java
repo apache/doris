@@ -448,8 +448,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                         // Unwrap safe numeric casts that commute with MAX/MIN
                         // (e.g. max(cast(v9 as double)) → storage MAX + cast).
                         // Only do this for MAX/MIN: sum(cast(x)) and
-                        // cast(sum(x)) are not generally interchangeable due
-                        // to overflow/precision, so SUM must stay OFF.
+                        // sum(x) are not interchangeable due to overflow/
+                        // precision, so SUM must stay OFF.
                         while (valueChild instanceof Cast
                                 && ((Cast) valueChild).getDataType().isNumericType()
                                 && (aggFunc instanceof Max || aggFunc instanceof Min)) {
@@ -464,6 +464,14 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                                 preAggStatus = PreAggStatus.off(
                                         String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                             }
+                        } else if (aggFunc.children().size() == 1
+                                && (valueChild instanceof If || valueChild instanceof CaseWhen)) {
+                            // IF/CaseWhen: the condition references only key columns (foreign or
+                            // local), stable across this scan's partial rows.  The return
+                            // expressions reference local value columns validated below.
+                            // Reuse checkAggWithKeyAndValueSlots: the global condition
+                            // check (step 2) accepts foreign key columns.
+                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc);
                         } else {
                             preAggStatus = PreAggStatus.off(
                                     String.format("can't turn preAgg on for aggregate function %s", aggFunc));
@@ -479,7 +487,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             preAggStatus = PreAggStatus.off(
                                     String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                         } else {
-                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
+                            preAggStatus = checkAggWithKeyAndValueSlots(aggFunc);
                         }
                     }
                 }
@@ -505,27 +513,28 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             return Pair.of(keySlots, valueSlots);
         }
 
-        private PreAggStatus checkAggWithKeyAndValueSlots(AggregateFunction aggFunc,
-                Set<SlotReference> keySlots, Set<SlotReference> valueSlots) {
+        private PreAggStatus checkAggWithKeyAndValueSlots(AggregateFunction aggFunc) {
             Expression child = aggFunc.child(0);
             List<Expression> conditionExps = new ArrayList<>();
             List<Expression> returnExps = new ArrayList<>();
 
             // ignore cast — only safe for MAX/MIN: sum(cast(x)) and
-            // cast(sum(x)) are not generally interchangeable due to
-            // overflow/precision, so SUM must stay OFF.
+            // sum(x) are not interchangeable due to overflow/precision,
+            // so SUM must stay OFF.
             while (child instanceof Cast
                     && ((Cast) child).getDataType().isNumericType()
                     && (aggFunc instanceof Max || aggFunc instanceof Min)) {
                 child = child.child(0);
             }
-            // Reject non-numeric cast on the (possibly unwrapped) child
-            // for MAX/MIN, since string/text comparison is not commutative.
-            if (child instanceof Cast && !((Cast) child).getDataType().isNumericType()
-                    && (aggFunc instanceof Max || aggFunc instanceof Min)) {
-                return PreAggStatus.off(String.format("%s is not numeric CAST.", child.toSql()));
+            // Reject remaining cast.
+            if (child instanceof Cast) {
+                return PreAggStatus.off(String.format("%s is not supported.", child.toSql()));
             }
-            // step 1: extract all condition exprs and return exprs
+            // step 1: extract all condition exprs and return exprs.
+            // child is guaranteed to be Cast-free here (rejected above), but
+            // individual IF/CaseWhen return expressions may still have their
+            // own Cast wrappers. Only strip those for MAX/MIN: sum(cast(x))
+            // and cast(sum(x)) are not interchangeable due to overflow.
             if (child instanceof If) {
                 conditionExps.add(child.child(0));
                 returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
@@ -545,18 +554,23 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                         ? removeCast(caseWhen.getDefaultValue().orElse(new NullLiteral()))
                         : caseWhen.getDefaultValue().orElse(new NullLiteral()));
             } else {
-                // currently, only IF and CASE WHEN are supported
-                returnExps.add((aggFunc instanceof Max || aggFunc instanceof Min)
-                        ? removeCast(child) : child);
+                // Non-IF/CASE — conditionExps stays empty and returns OFF below.
+                returnExps.add(removeCast(child));
             }
             if (conditionExps.isEmpty()) {
                 return PreAggStatus.off(
                         String.format("can't turn preAgg on for aggregate function %s", aggFunc));
             }
 
-            // step 2: check condition expressions
+            // step 2: check condition expressions — all condition inputs must
+            // be key columns (from any table), not value columns.  A global
+            // splitKeyValueSlots check handles this correctly for both the
+            // mixed-path (called with local key/value sets) and the value-only
+            // path (foreign key conditions in IF/CaseWhen).
             Set<Slot> inputSlots = ExpressionUtils.getInputSlotSet(conditionExps);
-            if (!keySlots.containsAll(inputSlots)) {
+            Pair<Set<SlotReference>, Set<SlotReference>> condSplit =
+                    splitKeyValueSlots(inputSlots);
+            if (!condSplit.second.isEmpty()) {
                 return PreAggStatus
                         .off(String.format("some columns in condition %s is not key.", conditionExps));
             }
@@ -730,7 +744,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             public PreAggStatus visitMax(Max max, List<Expression> returnValues) {
                 for (Expression value : returnValues) {
                     if (!(isAggTypeMatched(value, AggregateType.MAX) || isKeySlot(value)
-                            || value.isNullLiteral())) {
+                            || value.isLiteral())) {
                         return PreAggStatus.off(String.format("%s is not supported.", max.toSql()));
                     }
                 }
@@ -741,7 +755,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             public PreAggStatus visitMin(Min min, List<Expression> returnValues) {
                 for (Expression value : returnValues) {
                     if (!(isAggTypeMatched(value, AggregateType.MIN) || isKeySlot(value)
-                            || value.isNullLiteral())) {
+                            || value.isLiteral())) {
                         return PreAggStatus.off(String.format("%s is not supported.", min.toSql()));
                     }
                 }

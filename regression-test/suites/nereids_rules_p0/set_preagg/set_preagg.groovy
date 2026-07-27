@@ -250,7 +250,7 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: some columns in condition"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: count"
         contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
@@ -480,11 +480,24 @@ suite("set_preagg") {
             inner join preagg_t2 r on t.a = r.k1;
         """)
         notContains "(preagg_t1), PREAGGREGATION: ON"
+        // r's local slots are only {r.v7} with IF; the value-only IF/CaseWhen
+        // handler validates conditions (foreign key t.a → safe) and returns ON.
+        contains "(preagg_t2), PREAGGREGATION: ON"
     }
 
-    // max(cast(v9 as double)): a widening numeric cast wraps a value column.
-    // The cast-unwrapping loop peels it so OneValueSlotAggChecker sees v9
-    // with MAX aggregation type and returns ON — storage MAX + cast is safe.
+    // CASE WHEN symmetry of the foreign-key-condition / local-value-return
+    // pattern on r: conditions reference only foreign keys, return references
+    // r.v7, so r should be ON.
+    explain {
+        sql("""
+            select sum(case when t.a > 0 then r.v7 else 0 end)
+            from (select abs(k1) as a from preagg_t1) t
+            inner join preagg_t2 r on t.a = r.k1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+    }
+
     // max(cast(v9 as double)): a widening numeric cast wraps a value column.
     // The cast-unwrapping loop peels it so OneValueSlotAggChecker sees v9
     // with MAX aggregation type and returns ON — storage MAX + cast is safe.
@@ -506,6 +519,27 @@ suite("set_preagg") {
     // for MAX/MIN because string comparison differs from numeric comparison.
     explain {
         sql("""select max(cast(v9 as string)) from preagg_t1;""")
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Mixed-path IF with cast in return: max(if(k6 > 0, cast(v9 as double), 0))
+    // enters checkAggWithKeyAndValueSlots. The return cast is safe for MAX
+    // (max(cast(x)) = cast(max(x))), so the strip+match yields ON.
+    explain {
+        sql("""
+            select max(if(k6 > 0, cast(v9 as double), 0)) from preagg_t1;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Negative mixed-path IF with cast in return:
+    // sum(if(k6 > 0, cast(v7 as double), 0)) — sum(cast(x)) is not
+    // interchangeable with cast(sum(x)), so the guard keeps the Cast
+    // wrapper and the checker returns OFF.
+    explain {
+        sql("""
+            select sum(if(k6 > 0, cast(v7 as double), 0)) from preagg_t1;
+        """)
         notContains "(preagg_t1), PREAGGREGATION: ON"
     }
 }
