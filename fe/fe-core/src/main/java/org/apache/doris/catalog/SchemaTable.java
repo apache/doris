@@ -861,6 +861,14 @@ public class SchemaTable extends Table {
                             .column("ALTER_USER", ScalarType.createStringType())
                             .column("MODIFY_TIME", ScalarType.createStringType())
                             .build()))
+            .put("extensions",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "extensions", TableType.SCHEMA,
+                        builder().column("EXTENSION_NAME", ScalarType.createStringType())
+                            .column("EXTENSION_TYPE", ScalarType.createStringType())
+                            .column("EXTENSION_VERSION", ScalarType.createStringType())
+                            .column("SOURCE", ScalarType.createStringType())
+                            .column("DESCRIPTION", ScalarType.createStringType())
+                            .build()))
             .put("be_compaction_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
                             builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
