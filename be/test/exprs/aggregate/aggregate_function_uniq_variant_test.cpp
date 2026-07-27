@@ -19,8 +19,10 @@
 
 #include <array>
 #include <memory>
+#include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -28,6 +30,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_uniq.h"
@@ -153,7 +156,7 @@ int64_t result(const IAggregateFunction& function, ConstAggregateDataPtr place) 
 }
 
 TEST(AggregateFunctionUniqVariantTest, CanonicalExactStateCoversEncodedAndTypedValues) {
-    AggregateFunctionUniqVariant function({std::make_shared<DataTypeVariant>()});
+    AggregateFunctionUniqVariant function({std::make_shared<DataTypeVariantV2>()});
     auto encoded = encoded_values();
     AggregateState destination(function);
     add_column(function, destination, *encoded);
@@ -186,7 +189,7 @@ TEST(AggregateFunctionUniqVariantTest, CanonicalExactStateCoversEncodedAndTypedV
 }
 
 TEST(AggregateFunctionUniqVariantTest, SerializedStateOwnsOnlyCanonicalKeys) {
-    AggregateFunctionUniqVariant function({std::make_shared<DataTypeVariant>()});
+    AggregateFunctionUniqVariant function({std::make_shared<DataTypeVariantV2>()});
     AggregateState source(function);
     auto encoded = encoded_values();
     add_column(function, source, *encoded);
@@ -209,7 +212,7 @@ TEST(AggregateFunctionUniqVariantTest, SerializedStateOwnsOnlyCanonicalKeys) {
 }
 
 TEST(AggregateFunctionUniqVariantTest, DeserializeAndMergeCopiesNewKeysIntoDestinationArena) {
-    AggregateFunctionUniqVariant function({std::make_shared<DataTypeVariant>()});
+    AggregateFunctionUniqVariant function({std::make_shared<DataTypeVariantV2>()});
     AggregateState destination(function);
     auto typed = typed_int_values();
     add_column(function, destination, *typed);
@@ -233,7 +236,7 @@ TEST(AggregateFunctionUniqVariantTest, DeserializeAndMergeCopiesNewKeysIntoDesti
 }
 
 TEST(AggregateFunctionUniqVariantTest, NullableFactorySkipsSqlNullButCountsVariantNull) {
-    const DataTypePtr variant_type = std::make_shared<DataTypeVariant>();
+    const DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
     const DataTypePtr nullable_type = make_nullable(variant_type);
     AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
             "multi_distinct_count", {nullable_type}, std::make_shared<DataTypeInt64>(), false,
@@ -248,6 +251,21 @@ TEST(AggregateFunctionUniqVariantTest, NullableFactorySkipsSqlNullButCountsVaria
     AggregateState state(*function);
     add_column(*function, state, *nullable);
     EXPECT_EQ(result(*function, state.place), 4);
+}
+
+TEST(AggregateFunctionUniqVariantTest, FactoryRejectsLegacyVariant) {
+    try {
+        static_cast<void>(AggregateFunctionSimpleFactory::instance().get(
+                "multi_distinct_count", {std::make_shared<DataTypeVariant>()},
+                std::make_shared<DataTypeInt64>(), false,
+                BeExecVersionManager::get_newest_version()));
+        FAIL() << "Expected legacy Variant to be rejected";
+    } catch (const Exception& exception) {
+        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(exception.message().find("legacy Variant"), std::string::npos)
+                << exception.message();
+        EXPECT_NE(exception.message().find("Variant V2"), std::string::npos) << exception.message();
+    }
 }
 
 } // namespace
