@@ -74,6 +74,9 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
     fi
 
     if [[ -d "${teamcity_build_checkoutDir}/parquet-benchmark-results" ]]; then
+        # The TeamCity step invokes this script with bash -x. Disable tracing before the
+        # service message so the command itself is not parsed as a second artifact path.
+        { set +x; } 2>/dev/null
         echo "##teamcity[publishArtifacts 'parquet-benchmark-results => parquet-microbenchmark']"
     fi
     exit "${benchmark_status}"
@@ -85,8 +88,8 @@ for benchmark_binary in "${head_binary}" "${base_binary}"; do
         exit 1
     fi
 done
-if ! command -v jq >/dev/null 2>&1; then
-    echo "ERROR: jq is required to validate benchmark JSON"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required to validate and compare benchmark JSON"
     exit 1
 fi
 
@@ -119,11 +122,45 @@ run_smoke_and_validate() {
         --benchmark_out="${output_file}" \
         --benchmark_out_format=json
 
-    jq -e --arg prefix "${group}/" --argjson expected "${expected_count}" '
-        ([.benchmarks[] | select(.name | startswith($prefix))] | length) == $expected
-        and all(.benchmarks[] | select(.name | startswith($prefix));
-                    (.error_occurred // false) == false)
-    ' "${output_file}" >/dev/null
+    python3 - "${group}/" "${expected_count}" "${output_file}" <<'PY'
+import json
+import sys
+
+prefix, expected_text, output_file = sys.argv[1:]
+expected = int(expected_text)
+try:
+    with open(output_file, encoding="utf-8") as benchmark_file:
+        payload = json.load(benchmark_file)
+except (OSError, json.JSONDecodeError) as error:
+    raise SystemExit(f"ERROR: cannot read benchmark JSON {output_file}: {error}")
+
+benchmarks = payload.get("benchmarks")
+if not isinstance(benchmarks, list):
+    raise SystemExit(f"ERROR: benchmark JSON has no benchmark list: {output_file}")
+
+matched = [
+    benchmark
+    for benchmark in benchmarks
+    if isinstance(benchmark, dict)
+    and isinstance(benchmark.get("name"), str)
+    and benchmark["name"].startswith(prefix)
+]
+if len(matched) != expected:
+    raise SystemExit(
+        f"ERROR: unexpected smoke result count for {prefix}: "
+        f"expected={expected}, actual={len(matched)}"
+    )
+
+failed = [
+    benchmark["name"]
+    for benchmark in matched
+    if benchmark.get("error_occurred", False) is not False
+]
+if failed:
+    raise SystemExit(
+        f"ERROR: benchmark JSON reports failures for {prefix}: {', '.join(failed)}"
+    )
+PY
 }
 
 run_smoke_and_validate ParquetDecoder 152 "${result_dir}/decoder-smoke.json"
