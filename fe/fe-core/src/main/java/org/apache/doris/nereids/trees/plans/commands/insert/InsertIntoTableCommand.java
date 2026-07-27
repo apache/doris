@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -309,6 +310,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
             TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
+            waitForAutoStartBeforeSinkFinalization(
+                    ctx, newestTargetTableIf, !insertExecutor.isEmptyInsert());
             newestTargetTableIf.readLock();
             try {
                 if (targetTableIf.getId() != newestTargetTableIf.getId()) {
@@ -352,6 +355,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    void waitForAutoStartBeforeSinkFinalization(
+            ConnectContext ctx, TableIf targetTableIf, boolean shouldFinalizeSink) throws UserException {
+        if (shouldFinalizeSink && Config.isCloudMode() && targetTableIf instanceof OlapTable) {
+            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(ctx.getCloudCluster());
+        }
     }
 
     /**

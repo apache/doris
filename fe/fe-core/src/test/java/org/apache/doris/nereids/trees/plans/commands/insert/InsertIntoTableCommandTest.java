@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -38,6 +41,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.mockito.internal.util.collections.Sets;
@@ -169,5 +173,36 @@ class InsertIntoTableCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> {
             command.selectInsertExecutorFactory(planner, ctx, stmtExecutor, remoteDorisExternalTable);
         }, "remote olap table do not support group commit");
+    }
+
+    @Test
+    void testWaitForAutoStartBeforeSinkFinalizationWithLegacyDistribution() throws Exception {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                PlanType.INSERT_INTO_TABLE_COMMAND,
+                logicalPlan,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty()
+        );
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCloudCluster("current-compute-group");
+        ctx.getSessionVariable().setEnableNereidsDistributePlanner(false);
+        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.when(systemInfoService.waitForAutoStart("current-compute-group"))
+                .thenReturn("current-compute-group");
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.cloud_unique_id = "test-cloud";
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+
+            command.waitForAutoStartBeforeSinkFinalization(ctx, olapTable, true);
+
+            Mockito.verify(systemInfoService).waitForAutoStart("current-compute-group");
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
     }
 }
