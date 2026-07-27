@@ -39,15 +39,21 @@
 不受我方「连接器自报 engine 名」改动影响；`test_paimon_ctas_atomicity_negative` 里的 `create table ... engine=paimon`
 经核 `PaimonConnectorProvider.acceptedCreateTableEngineNames()` = `{"paimon"}`，仍然接受。
 
-### 🔥 构建口径错误（新坑，务必复用）
+### 🔥 构建口径错误（**已知坑复发**，本轮白烧 2 个循环）
 
-**全反应堆 `clean test-compile` 对本仓库是无效验证**，会假报失败：
-`fe-connector-hms-hive-shade` 是**零 java 源文件**的纯 shade 装配模块，其 `shade`/`jar` 目标绑定在 **`package` 阶段**。
-`test-compile` 到不了 `package`，reactor 只能把它的 `target/classes`（只有 `META-INF`）喂给下游 ⇒
-`fe-connector-hms` 报一片 `cannot find symbol: IMetaStoreClient / HiveConf / LockComponent / Table / FieldSchema / Partition`。
-同理**只跑到 `test` 阶段也不行**，会在测试发现期炸 `NoClassDefFoundError: MetaException`。
-⇒ 结论：**必须用 `install`**（`clean install -DskipTests` 做符号级验证；跑测试用 `install`，不要用 `test`）。
-这也解释了历史 HANDOFF 为何一直写 `clean install`。
+先说结论：**全反应堆 `clean test-compile` 和 `mvn test` 对本仓库都是无效验证**，会假报失败。
+`fe-connector-hms-hive-shade` 是**零 java 源文件**的纯 shade 装配模块，`shade`/`jar` 目标绑定在 **`package` 阶段**。
+到不了 `package` 时，reactor 就把它的 `target/classes`（只有 `META-INF`）喂给下游、**盖住 `~/.m2` 里那个好的 shaded jar** ⇒
+- `test-compile`：`fe-connector-hms` 报一片 `cannot find symbol: IMetaStoreClient / HiveConf / LockComponent / Table / FieldSchema / Partition`；
+- `test`：测试**发现期**炸 `NoClassDefFoundError: MetaException`（控制台只说 `TestEngine with ID 'junit-vintage' failed to discover tests`，
+  真因只在 `target/surefire-reports/*-jvmRun1.dump` 里）。
+
+⇒ **必须用 `install`**：符号级验证 `clean install -DskipTests`（`-DskipTests` 仍然**编译**测试源），跑测试也用 `install`，不要用 `test`。
+
+**⚠ 教训（本轮真正的浪费）**：这不是新坑，memory `doris-build-verify-gotchas` 的 **#13(b)(c) / #15 / #20** 早就逐条记过，
+#15 甚至给了另一条解法（`-pl '!fe-connector/fe-connector-hms-hive-shade,!fe-connector/fe-connector-paimon-hive-shade' test-compile`）。
+我这轮**没有先查 memory 就直接上 `test-compile`**，两次假失败各花一个完整构建循环。
+**下轮起步：动手跑任何 maven 前先读 `doris-build-verify-gotchas`。**
 
 ### 旧伤：`fe-connector-hive` 13 个失败（**非本次 rebase 造成**，已修）
 
