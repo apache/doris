@@ -2620,6 +2620,8 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        response->set_is_partial_commit(true);
+
         // set table versions in response
         if (is_versioned_read) {
             Versionstamp vs;
@@ -2649,6 +2651,8 @@ void MetaServiceImpl::commit_txn_eventually(
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
+        } else {
+            response->clear_is_partial_commit();
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats

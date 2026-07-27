@@ -37,7 +37,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
@@ -51,6 +53,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CloudGlobalTransactionMgrTest {
@@ -200,6 +206,43 @@ public class CloudGlobalTransactionMgrTest {
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
             masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
                     transactionId, null, null);
+        }
+    }
+
+    @Test
+    public void testSkipMakeTmpRsVisibleForPartialCommit() throws Exception {
+        boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
+        try {
+            Config.enable_notify_be_after_load_txn_commit = true;
+            AtomicBoolean notified = new AtomicBoolean(false);
+            CloudGlobalTransactionMgr transactionMgr = new CloudGlobalTransactionMgr() {
+                @Override
+                public void sendMakeCloudTmpRsVisibleTasks(long txnId,
+                        List<TTabletCommitInfo> commitInfos, Map<Long, Long> partitionVersionMap,
+                        long updateVersionVisibleTime) {
+                    notified.set(true);
+                }
+            };
+            Method notifyMethod = CloudGlobalTransactionMgr.class.getDeclaredMethod(
+                    "notifyBesMakeTmpRsVisible", CommitTxnResponse.class, List.class);
+            notifyMethod.setAccessible(true);
+
+            TxnInfoPB txnInfo = TxnInfoPB.newBuilder().setTxnId(12345L).build();
+            CommitTxnResponse partialCommitResponse = CommitTxnResponse.newBuilder()
+                    .setTxnInfo(txnInfo)
+                    .setIsPartialCommit(true)
+                    .build();
+            List<TabletCommitInfo> tabletCommitInfos =
+                    Lists.newArrayList(new TabletCommitInfo(10001L, 10002L));
+
+            notifyMethod.invoke(transactionMgr, partialCommitResponse, tabletCommitInfos);
+            Assert.assertFalse(notified.get());
+
+            notifyMethod.invoke(transactionMgr,
+                    partialCommitResponse.toBuilder().clearIsPartialCommit().build(), tabletCommitInfos);
+            Assert.assertTrue(notified.get());
+        } finally {
+            Config.enable_notify_be_after_load_txn_commit = originalEnableNotify;
         }
     }
 
