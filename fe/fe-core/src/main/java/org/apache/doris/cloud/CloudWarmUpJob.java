@@ -524,6 +524,14 @@ public class CloudWarmUpJob implements Writable {
         this.errMsg = msg;
     }
 
+    private boolean resetErrMsg() {
+        if (StringUtils.isEmpty(errMsg)) {
+            return false;
+        }
+        this.errMsg = "";
+        return true;
+    }
+
     public void setFinishedTimeMs(long timeMs) {
         this.finishedTimeMs = timeMs;
     }
@@ -969,6 +977,7 @@ public class CloudWarmUpJob implements Writable {
     }
 
     private void runEventDrivenJob() throws Exception {
+        boolean hasError = false;
         try {
             refreshEventDrivenBeToThriftAddress();
             initClients();
@@ -990,12 +999,16 @@ public class CloudWarmUpJob implements Writable {
                         hasTableFilter() ? getCurrentTableIdNames().size() : "all");
                 TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                 if (response.getStatus().getStatusCode() != TStatusCode.OK) {
+                    hasError = true;
                     if (!response.getStatus().getErrorMsgs().isEmpty()) {
                         errMsg = response.getStatus().getErrorMsgs().get(0);
                     }
                     LOG.warn("send warm up request failed. job_id={}, event={}, err={}",
                             jobId, syncEvent, errMsg);
                 }
+            }
+            if (!hasError && resetErrMsg()) {
+                Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
             }
         } catch (Exception e) {
             errMsg = e.getMessage();
@@ -1105,6 +1118,7 @@ public class CloudWarmUpJob implements Writable {
                     }
                     if (allBatchesDone) {
                         clearJobOnBEs();
+                        resetErrMsg();
                         this.finishedTimeMs = System.currentTimeMillis();
                         if (this.isPeriodic()) {
                             // wait for next schedule
