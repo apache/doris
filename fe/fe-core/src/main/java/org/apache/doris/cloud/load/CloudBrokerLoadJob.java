@@ -40,7 +40,6 @@ import org.apache.doris.load.loadv2.BrokerPendingTaskAttachment;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadLoadingTask;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -167,7 +166,6 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 
         try (AutoCloseConnectContext r = buildConnectContext()) {
-            OlapTableSink.waitForAutoStartBeforeCreatingDummyLocation(ConnectContext.get());
             task.init(loadId, attachment.getFileStatusByTable(aggKey),
                     attachment.getFileNumByTable(aggKey), getUserInfo());
             task.settWorkloadGroups(tWorkloadGroups);

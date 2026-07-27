@@ -17,12 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -42,14 +37,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
-import org.mockito.InOrder;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.mockito.internal.util.collections.Sets;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -177,82 +169,5 @@ class InsertIntoTableCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> {
             command.selectInsertExecutorFactory(planner, ctx, stmtExecutor, remoteDorisExternalTable);
         }, "remote olap table do not support group commit");
-    }
-
-    @Test
-    void testResolveTargetTableAfterAutoStartWithLegacyDistribution() throws Exception {
-        InsertIntoTableCommand command = Mockito.spy(new InsertIntoTableCommand(
-                PlanType.INSERT_INTO_TABLE_COMMAND,
-                logicalPlan,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                true,
-                Optional.empty()
-        ));
-        String originalCloudUniqueId = Config.cloud_unique_id;
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCloudCluster("current-compute-group");
-        ctx.getSessionVariable().setEnableNereidsDistributePlanner(false);
-        List<String> qualifiedTargetTableName = Lists.newArrayList("catalog", "database", "table");
-        OlapTable recreatedTable = Mockito.mock(OlapTable.class);
-        AbstractInsertExecutor insertExecutor = Mockito.mock(AbstractInsertExecutor.class);
-        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
-        Mockito.when(insertExecutor.isEmptyInsert()).thenReturn(false);
-        Mockito.when(systemInfoService.waitForAutoStart("current-compute-group"))
-                .thenReturn("current-compute-group");
-        Mockito.doReturn(recreatedTable).when(command).getTargetTableIf(ctx, qualifiedTargetTableName);
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            Config.cloud_unique_id = "test-cloud";
-            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
-
-            TableIf targetTable = command.getTargetTableAfterAutoStart(
-                    ctx, qualifiedTargetTableName, olapTable, insertExecutor);
-
-            Assertions.assertSame(recreatedTable, targetTable);
-            InOrder inOrder = Mockito.inOrder(systemInfoService, command);
-            inOrder.verify(systemInfoService).waitForAutoStart("current-compute-group");
-            inOrder.verify(command).getTargetTableIf(ctx, qualifiedTargetTableName);
-        } finally {
-            Config.cloud_unique_id = originalCloudUniqueId;
-        }
-    }
-
-    @Test
-    void testAutoStartFailureCleansUpInsertExecutor() throws Exception {
-        InsertIntoTableCommand command = Mockito.spy(new InsertIntoTableCommand(
-                PlanType.INSERT_INTO_TABLE_COMMAND,
-                logicalPlan,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                true,
-                Optional.empty()
-        ));
-        String originalCloudUniqueId = Config.cloud_unique_id;
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCloudCluster("current-compute-group");
-        List<String> qualifiedTargetTableName = Lists.newArrayList("catalog", "database", "table");
-        AbstractInsertExecutor insertExecutor = Mockito.mock(AbstractInsertExecutor.class);
-        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
-        DdlException autoStartFailure = new DdlException("compute group is manually shut down");
-        Mockito.when(insertExecutor.isEmptyInsert()).thenReturn(false);
-        Mockito.when(systemInfoService.waitForAutoStart("current-compute-group")).thenThrow(autoStartFailure);
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            Config.cloud_unique_id = "test-cloud";
-            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
-
-            DdlException thrown = Assertions.assertThrows(DdlException.class,
-                    () -> command.getTargetTableAfterAutoStart(
-                            ctx, qualifiedTargetTableName, olapTable, insertExecutor));
-
-            Assertions.assertSame(autoStartFailure, thrown);
-            Mockito.verify(insertExecutor).onFail(autoStartFailure);
-            Mockito.verify(command, Mockito.never()).getTargetTableIf(ctx, qualifiedTargetTableName);
-        } finally {
-            Config.cloud_unique_id = originalCloudUniqueId;
-        }
     }
 }

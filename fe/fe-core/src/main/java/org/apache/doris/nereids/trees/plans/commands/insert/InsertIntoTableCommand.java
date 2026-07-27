@@ -80,7 +80,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.LocalExchangeNode;
-import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -308,10 +307,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 });
             }
 
-            // Wake the compute group without holding the table lock, then resolve the table again because
-            // the wait may take a long time and the table may have been dropped and recreated meanwhile.
-            TableIf newestTargetTableIf = getTargetTableAfterAutoStart(
-                    ctx, qualifiedTargetTableName, targetTableIf, insertExecutor);
+            // lock after plan and check does table's schema changed to ensure we lock table order by id.
+            TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             newestTargetTableIf.readLock();
             try {
                 if (targetTableIf.getId() != newestTargetTableIf.getId()) {
@@ -355,20 +352,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
-    }
-
-    TableIf getTargetTableAfterAutoStart(ConnectContext ctx, List<String> qualifiedTargetTableName,
-            TableIf plannedTargetTable, AbstractInsertExecutor insertExecutor) throws UserException {
-        if (!insertExecutor.isEmptyInsert() && plannedTargetTable instanceof OlapTable) {
-            try {
-                OlapTableSink.waitForAutoStartBeforeCreatingDummyLocation(ctx);
-                return getTargetTableIf(ctx, qualifiedTargetTableName);
-            } catch (UserException | RuntimeException e) {
-                insertExecutor.onFail(e);
-                throw e;
-            }
-        }
-        return getTargetTableIf(ctx, qualifiedTargetTableName);
     }
 
     /**
