@@ -77,25 +77,61 @@ public class RoutineLoadJobTest {
 
         UserException exception = Assert.assertThrows(UserException.class,
                 () -> routineLoadJob.validateTargetTable(
-                        Mockito.mock(Database.class), Mockito.mock(OlapTable.class)));
+                        Mockito.mock(Database.class), Mockito.mock(OlapTable.class), Maps.newHashMap()));
         Assert.assertTrue(exception.getMessage().contains("single-table job"));
     }
 
     @Test
-    public void testValidateTargetTablePlansSuccessfully() throws Exception {
+    public void testValidateTargetTablePlansWithAlteredJobProperties() throws Exception {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Database database = Mockito.mock(Database.class);
         OlapTable targetTable = Mockito.mock(OlapTable.class);
+        Map<String, String> alteredJobProperties = Maps.newHashMap();
+        alteredJobProperties.put(
+                CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS.name());
 
-        try (MockedConstruction<NereidsStreamLoadPlanner> plannerConstruction =
-                Mockito.mockConstruction(NereidsStreamLoadPlanner.class)) {
-            routineLoadJob.validateTargetTable(database, targetTable);
+        try (MockedConstruction<NereidsStreamLoadPlanner> plannerConstruction = Mockito.mockConstruction(
+                NereidsStreamLoadPlanner.class, (planner, context) -> {
+                    NereidsRoutineLoadTaskInfo taskInfo =
+                            (NereidsRoutineLoadTaskInfo) context.arguments().get(2);
+                    Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
+                            taskInfo.getUniqueKeyUpdateMode());
+                })) {
+            routineLoadJob.validateTargetTable(database, targetTable, alteredJobProperties);
 
             NereidsStreamLoadPlanner planner = plannerConstruction.constructed().get(0);
             InOrder inOrder = Mockito.inOrder(targetTable, planner);
             inOrder.verify(targetTable).readLock();
             inOrder.verify(planner).plan(Mockito.any(TUniqueId.class));
             inOrder.verify(targetTable).readUnlock();
+        }
+    }
+
+    @Test
+    public void testValidateTargetTableComputesEffectiveModeForLegacyPartialColumns() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        Database database = Mockito.mock(Database.class);
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+
+        Map<String, String> legacyPartialUpdateProperties = Maps.newHashMap();
+        legacyPartialUpdateProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "true");
+        Map<String, String> flexibleUpdateProperties = Maps.newHashMap(legacyPartialUpdateProperties);
+        flexibleUpdateProperties.put(
+                CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS.name());
+        List<Pair<Map<String, String>, TUniqueKeyUpdateMode>> testCases = Lists.newArrayList(
+                Pair.of(legacyPartialUpdateProperties, TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS),
+                Pair.of(flexibleUpdateProperties, TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS));
+
+        for (Pair<Map<String, String>, TUniqueKeyUpdateMode> testCase : testCases) {
+            try (MockedConstruction<NereidsStreamLoadPlanner> plannerConstruction = Mockito.mockConstruction(
+                    NereidsStreamLoadPlanner.class, (planner, context) -> {
+                        NereidsRoutineLoadTaskInfo taskInfo =
+                                (NereidsRoutineLoadTaskInfo) context.arguments().get(2);
+                        Assert.assertEquals(testCase.second, taskInfo.getUniqueKeyUpdateMode());
+                    })) {
+                routineLoadJob.validateTargetTable(database, targetTable, testCase.first);
+                Assert.assertEquals(1, plannerConstruction.constructed().size());
+            }
         }
     }
 
@@ -117,7 +153,7 @@ public class RoutineLoadJobTest {
                             .when(planner).plan(Mockito.any(TUniqueId.class));
                 })) {
             UserException exception = Assert.assertThrows(UserException.class,
-                    () -> routineLoadJob.validateTargetTable(database, targetTable));
+                    () -> routineLoadJob.validateTargetTable(database, targetTable, Maps.newHashMap()));
             Assert.assertTrue(exception.getMessage().contains("planning failed"));
 
             NereidsStreamLoadPlanner planner = plannerConstruction.constructed().get(0);

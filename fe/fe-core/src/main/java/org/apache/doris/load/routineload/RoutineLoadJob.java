@@ -471,7 +471,8 @@ public abstract class RoutineLoadJob
         }
     }
 
-    public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
+    public void validateTargetTable(Database db, OlapTable targetTable,
+            Map<String, String> alteredJobProperties) throws UserException {
         if (isMultiTable) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
@@ -484,12 +485,28 @@ public abstract class RoutineLoadJob
 
         targetTable.readLock();
         try {
-            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable,
-                    toNereidsRoutineLoadTaskInfo());
+            NereidsRoutineLoadTaskInfo taskInfo = toNereidsRoutineLoadTaskInfo();
+            taskInfo.applyAlterPropertiesForValidation(
+                    alteredJobProperties, getEffectiveUniqueKeyUpdateMode(alteredJobProperties));
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable, taskInfo);
             planner.plan(new TUniqueId(0, 0));
         } finally {
             targetTable.readUnlock();
         }
+    }
+
+    private TUniqueKeyUpdateMode getEffectiveUniqueKeyUpdateMode(Map<String, String> alteredJobProperties) {
+        TUniqueKeyUpdateMode effectiveUniqueKeyUpdateMode = uniqueKeyUpdateMode;
+        if (alteredJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            effectiveUniqueKeyUpdateMode = TUniqueKeyUpdateMode.valueOf(
+                    alteredJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+        }
+        if (alteredJobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)
+                && Boolean.parseBoolean(alteredJobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS))
+                && effectiveUniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+            effectiveUniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+        }
+        return effectiveUniqueKeyUpdateMode;
     }
 
     @Override

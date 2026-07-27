@@ -196,9 +196,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
         // check data source properties
         checkDataSourceProperties();
-        checkPartialUpdate();
         if (hasTargetTable()) {
             validateTargetTable(ctx, job);
+        } else {
+            checkPartialUpdate(job);
         }
         if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)
                 && routineLoadDesc == null && !hasTargetTable()) {
@@ -357,12 +358,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         dataSourceProperties.analyze();
     }
 
-    private void checkPartialUpdate() throws UserException {
+    private void checkPartialUpdate(RoutineLoadJob job) throws UserException {
         if (!isPartialUpdate) {
             return;
         }
-        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                .getJob(getDbName(), getDbName());
         if (job.isMultiTable()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
         }
@@ -400,7 +399,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             throw new AnalysisException(
                     "if load_to_single_tablet set to true, the olap table must be with random distribution");
         }
-        job.validateTargetTable(db, olapTable);
+        job.validateTargetTable(db, olapTable, analyzedJobProperties);
         this.targetTableId = olapTable.getId();
     }
 

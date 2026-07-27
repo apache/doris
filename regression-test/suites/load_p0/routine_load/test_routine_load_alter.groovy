@@ -393,7 +393,27 @@ suite("test_routine_load_alter","p0") {
             sql "PAUSE ROUTINE LOAD FOR ${alterTargetJob}"
             def showBeforeAlter = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
             assertEquals(srcTableName, showBeforeAlter[0][6].toString())
+            def stateBeforeAlter = showBeforeAlter[0][8].toString()
+            def updateModeBeforeAlter = parseJson(showBeforeAlter[0][11]).unique_key_update_mode.toString()
+            assertEquals("UPSERT", updateModeBeforeAlter)
             def progressBeforeAlter = showBeforeAlter[0][15].toString()
+
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${alterTargetJob}
+                    SET TARGET TABLE = "${dstTableName}"
+                    PROPERTIES(
+                        "unique_key_update_mode" = "UPDATE_FIXED_COLUMNS"
+                    )
+                """
+                exception "Only unique key merge on write support partial update"
+            }
+            def showAfterRejectedPartialUpdate = sql "SHOW ROUTINE LOAD FOR ${alterTargetJob}"
+            assertEquals(srcTableName, showAfterRejectedPartialUpdate[0][6].toString())
+            assertEquals(stateBeforeAlter, showAfterRejectedPartialUpdate[0][8].toString())
+            assertEquals(updateModeBeforeAlter,
+                    parseJson(showAfterRejectedPartialUpdate[0][11]).unique_key_update_mode.toString())
+            assertEquals(progressBeforeAlter, showAfterRejectedPartialUpdate[0][15].toString())
 
             test {
                 sql """

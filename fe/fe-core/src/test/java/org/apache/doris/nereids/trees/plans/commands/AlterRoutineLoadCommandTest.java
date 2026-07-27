@@ -217,7 +217,8 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertEquals("target-switch", command.getDataSourceProperties()
                 .getOriginalDataSourceProperties().get("property.client.id"));
         Assertions.assertEquals(3000L, command.getTargetTableId());
-        Mockito.verify(routineLoadJob).validateTargetTable(db, currentTable);
+        Mockito.verify(routineLoadJob).validateTargetTable(
+                db, currentTable, command.getAnalyzedJobProperties());
     }
 
     @Test
@@ -232,7 +233,8 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertTrue(command.getAnalyzedJobProperties().isEmpty());
         Assertions.assertNull(command.getDataSourceProperties());
         Assertions.assertEquals(3000L, command.getTargetTableId());
-        Mockito.verify(routineLoadJob).validateTargetTable(db, currentTable);
+        Mockito.verify(routineLoadJob).validateTargetTable(
+                db, currentTable, command.getAnalyzedJobProperties());
     }
 
     @Test
