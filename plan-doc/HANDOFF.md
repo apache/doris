@@ -5,7 +5,58 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
+# 🆕🆕🆕 最新一轮（2026-07-27）：rebase onto `5b3ac63f8b4` —— 0 能力迁移，白捡上游一个 BE 崩溃修复
+
+> `git pull --rebase upstream-apache master`，62 commit onto **`5b3ac63f8b4`**（上游新增 5 个 commit）。
+
+**冲突只有 2 处，都在 `MetadataGenerator.java` 的 import 区，纯并集**（commit 33 `#65740` 与 commit 40 perf 各撞一次）：
+上游 `#65644` 加了 `import ...extension.loader.PluginRegistry`，正好夹在我们加的 `datasource.plugin.PluginDriven*` 之间，
+按字母序并列即可，**无语义冲突**。
+
+**本轮 0 能力迁移**。上游 5 个 commit：`#66073`(BE parquet V2 懒初始化)、`#65492`(BE RowKeyEncoder)、`#66053`(CODEOWNERS)
+三个与本分支无交集；FE 侧两个都**不需要往 fe-connector 搬**：
+
+- `#65987` JDBC driver_url 加固：上游 master **已有全套 `fe-connector-*` 模块**，该修复本来就打在 `fe-connector-jdbc`
+  （新 `JdbcDorisConnector.checkDriverUrlSecurityRule()` 挂进 `JdbcConnectorProvider.validateProperties`）。它同时硬化的
+  `fe-core/JdbcResource`（`jdbc_driver_secure_path` 结构化匹配 + 解析失败 fail-closed）是共享工具类，本分支 iceberg/paimon 的
+  `driver_url` 走 `ConnectorValidationContext.validateAndResolveDriverPath()` → `JdbcResource.getFullDriverUrl()` **自动继承**。
+  强制规则在上游也只覆盖 jdbc 连接器 ⇒ **作用域与上游完全一致，无缺口**。
+- `#65644` `information_schema.extensions` 插件清单表：给 `ConnectorPluginManager.loadBuiltins()` 加了
+  `PluginRegistry.registerBuiltin()`，**失败会 LOG.warn 后跳过 provider**（能静默丢连接器的路径）。已核：本分支 8 个连接器
+  `name()` 默认返回 `getType()` = `iceberg/paimon/hudi/hms/jdbc/es/max_compute/trino-connector`，全部满足
+  `PluginNames` 的 `[A-Za-z0-9._-]`/非空/≤64 且互不重名；且连接器**不在 fe-core classpath**（`fe-core/pom.xml` 只依赖
+  `fe-connector-api|spi`），只走目录插件路径 ⇒ 新增的 `hasProviderNamed()` 重名 discard 不会误伤。
+  `PluginRegistry.register()` 用 `putIfAbsent` 返回 boolean **不抛异常** ⇒ 重复 `loadBuiltins()` 的单测安全。
+  上游 e2e `test_extensions_schema.groovy` 只断言"≥1 行 + (type,name) 唯一"，不锁清单 ⇒ **本分支多 7 个连接器不会红，无需改测试**。
+
+**⚡ 白捡**：`#66073` 顺带加了 `RuntimeProfile::get_or_create_child`，并把
+`format_v2/table/iceberg_position_delete_sys_table_reader.cpp` 的 `get_child`+`create_child` 两步换成原子一步 ——
+正是 ExtReg **1005971** BE SIGABRT 的根因（多 scanner 共享 `_scanner_profile` 的 TOCTOU）。**上游已修，我们不用再自带 patch**。
+
+**完整性验证**（不靠"没冲突"当没事）：
+`git range-diff` 62 commit → **56 个逐字节未变**，6 个改写全部只是上下文行位移（逐个核过 diff，含
+`JdbcDorisConnector` 里我们的 `getWritePlanProvider()` 插入锚点漂移，已确认落在类体正确位置）。
+上游本轮触碰的 **56 个文件**中，我们与上游不同的只有 4 个 —— `Config.java`/`JdbcDorisConnector.java`/
+`FileSystemPluginManager.java`/`MetadataGenerator.java`，差异**全部是本分支自己的改动**，上游内容一行没丢。
+上游改过但本地不存在的 3 个文件（`UploadAction`/`LoadSubmitter`/`TmpFileMgr`）**正是上游自己删的**，全仓无残留引用。
+
+**测试**（全绿）：FE 全量 `clean install` BUILD SUCCESS；`fe-common` 213/213（含上游改的 `ConfigTest`）、
+`fe-connector-jdbc` 全模块（含上游新增 `JdbcDriverUrlSecurityRuleTest` 9/9、`JdbcConnectorProviderValidateTest` 24/24）、
+`fe-extension-loader` 10/10（上游新增 `PluginRegistryTest` 7 + `DirectoryPluginRuntimeManagerMetadataTest` 3）、
+`fe-authentication-handler` 101/101（含上游改的 `AuthenticationPluginManagerTest` 17）、
+`fe-core` 定向 37/37（`JdbcResourceTest` 22 + `FileSystemPluginManagerTest` 5 + `ConnectorPluginManagerTest` 5 +
+`DefaultConnectorContextSiblingTest` 3 + `MetadataGeneratorPluginDrivenTest` 2）+ checkstyle 0。
+**BE 未编译**：本分支 BE 侧 7 个文件与上游 3 个 BE commit 的文件集合 `comm -12` **交集为空**，且 `#66073` 对
+`RuntimeProfile` 是纯新增 API —— 这是文件级证据不是编译验证，需要时请跑 BE。
+
+⚠️ 坑（复用）：`mvn -pl <单模块>` 会因 `${revision}` 解析失败，**必须 `-am`**；maven build-cache 扩展会导致
+`install` 报 "did not assign a file to the build artifact"，加 `-Dmaven.build.cache.enabled=false`。
+
+**未 push**。备份点 `backup-before-rebase-0727` = rebase 前 HEAD `1aa5ae9597e`。
+
+---
+
+# 🆕🆕 上一轮（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
 
 > `git pull --rebase upstream-apache master`，61 commit onto **`962bd5b28c7`**（上游只新增 2 个 commit）。
 
@@ -36,7 +87,7 @@ paimon e2e 必红。
 
 ---
 
-# 🆕🆕 上一轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
+# 🆕 上上轮（2026-07-25）：CI **1005291** 的 iceberg 大小写列名回归 —— 已修待 CI 验
 
 > 任务 = TeamCity `Doris_External_Regression` **#1005291**（PR **66028** @ `7ff51a106f0`）中
 > `external_table_p0/iceberg/test_iceberg_nested_schema_evolution_spark_doris_interop.groovy:273`。
