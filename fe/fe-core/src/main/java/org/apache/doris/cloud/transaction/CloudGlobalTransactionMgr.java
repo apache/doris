@@ -704,8 +704,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setIs2Pc(is2PC)
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos))
-                .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit)
-                .setSupportsIncompleteLazyCommitResponse(true);
+                .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
         }
@@ -1652,8 +1651,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setIs2Pc(false)
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setIsTxnLoad(true)
-                .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit)
-                .setSupportsIncompleteLazyCommitResponse(true);
+                .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
         }
@@ -2789,15 +2787,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      */
     private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
                                            List<TabletCommitInfo> tabletCommitInfos) {
-        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
-                || !Config.enable_notify_be_after_load_txn_commit) {
+        if (commitTxnResponse.getIsLazyCommitIncomplete()) {
+            LOG.info("skip make cloud tmp rowsets visible for incomplete lazy commit, txn_id: {}",
+                    commitTxnResponse.getTxnInfo().getTxnId());
             return;
         }
-        if (!commitTxnResponse.hasIsLazyCommitIncomplete()
-                || commitTxnResponse.getIsLazyCommitIncomplete()) {
-            LOG.info("skip make cloud tmp rowsets visible because lazy commit completion is "
-                            + "unconfirmed or incomplete, txn_id: {}",
-                    commitTxnResponse.getTxnInfo().getTxnId());
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
+                || !Config.enable_notify_be_after_load_txn_commit) {
             return;
         }
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();

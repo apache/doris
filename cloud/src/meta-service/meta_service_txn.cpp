@@ -2652,7 +2652,7 @@ void MetaServiceImpl::commit_txn_eventually(
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
         } else {
-            response->set_is_lazy_commit_incomplete(false);
+            response->clear_is_lazy_commit_incomplete();
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -3286,7 +3286,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_txn, get, put, del);
-    response->set_is_lazy_commit_incomplete(false);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";
@@ -3324,9 +3323,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     TxnErrorCode err = TxnErrorCode::TXN_OK;
-    const bool supports_incomplete_lazy_commit_response =
-            request->has_supports_incomplete_lazy_commit_response() &&
-            request->supports_incomplete_lazy_commit_response();
     bool enable_txn_lazy_commit_feature =
             (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
              request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
@@ -3371,13 +3367,6 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     msg.clear();
     commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
                           stats);
-    if (!supports_incomplete_lazy_commit_response && response->is_lazy_commit_incomplete()) {
-        code = MetaServiceCode::KV_TXN_COMMIT_ERR;
-        msg = fmt::format(
-                "lazy commit is incomplete, txn_id={}, "
-                "caller does not support incomplete lazy commit responses",
-                txn_id);
-    }
 }
 
 void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request, Transaction* txn,

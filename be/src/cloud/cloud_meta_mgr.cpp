@@ -1641,7 +1641,6 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
     req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
-    req.set_supports_incomplete_lazy_commit_response(true);
     auto st = retry_rpc(MetaServiceRPC::COMMIT_TXN, req, &res, &MetaService_Stub::commit_txn,
                         {
                                 .host_limiters = host_level_ms_rpc_rate_limiters_,
