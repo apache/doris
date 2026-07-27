@@ -45,16 +45,16 @@ public class OlapTableSinkTest {
     public void testCreateDummyLocationUsesLoadAvailableBackendInCurrentComputeGroup() throws Exception {
         String originalCloudUniqueId = Config.cloud_unique_id;
         CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
-        Backend currentGroupBackend = Mockito.mock(Backend.class);
+        Backend currentComputeGroupBackend = Mockito.mock(Backend.class);
         Backend loadDisabledBackend = Mockito.mock(Backend.class);
         OlapTable table = Mockito.mock(OlapTable.class);
 
-        Mockito.when(currentGroupBackend.getId()).thenReturn(1L);
-        Mockito.when(currentGroupBackend.isLoadAvailable()).thenReturn(true);
+        Mockito.when(currentComputeGroupBackend.getId()).thenReturn(1L);
+        Mockito.when(currentComputeGroupBackend.isLoadAvailable()).thenReturn(true);
         Mockito.when(loadDisabledBackend.getId()).thenReturn(2L);
         Mockito.when(loadDisabledBackend.isLoadAvailable()).thenReturn(false);
         Mockito.when(systemInfoService.getBackendsByClusterName("current-compute-group"))
-                .thenReturn(Arrays.asList(currentGroupBackend, loadDisabledBackend));
+                .thenReturn(Arrays.asList(currentComputeGroupBackend, loadDisabledBackend));
         Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(Collections.singletonList(3L));
         Mockito.when(table.getIndexNumber()).thenReturn(1);
 
@@ -84,13 +84,13 @@ public class OlapTableSinkTest {
     public void testCreateDummyLocationDoesNotShareBackendCandidatesAcrossIndexes() throws Exception {
         String originalCloudUniqueId = Config.cloud_unique_id;
         CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
-        Backend currentGroupBackend = Mockito.mock(Backend.class);
+        Backend currentComputeGroupBackend = Mockito.mock(Backend.class);
         OlapTable table = Mockito.mock(OlapTable.class);
 
-        Mockito.when(currentGroupBackend.getId()).thenReturn(1L);
-        Mockito.when(currentGroupBackend.isLoadAvailable()).thenReturn(true);
+        Mockito.when(currentComputeGroupBackend.getId()).thenReturn(1L);
+        Mockito.when(currentComputeGroupBackend.isLoadAvailable()).thenReturn(true);
         Mockito.when(systemInfoService.getBackendsByClusterName("current-compute-group"))
-                .thenReturn(Collections.singletonList(currentGroupBackend));
+                .thenReturn(Collections.singletonList(currentComputeGroupBackend));
         Mockito.when(table.getIndexNumber()).thenReturn(2);
 
         ConnectContext context = new ConnectContext();

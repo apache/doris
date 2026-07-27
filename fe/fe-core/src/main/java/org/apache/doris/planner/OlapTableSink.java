@@ -1169,18 +1169,18 @@ public class OlapTableSink extends DataSink {
 
         final long fakeTabletId = 0;
         SystemInfoService clusterInfo = Env.getCurrentSystemInfo();
-        List<Backend> currentClusterBackends;
+        List<Backend> currentComputeGroupBackends;
         if (Config.isCloudMode()) {
             ConnectContext context = ConnectContext.get();
             if (context == null) {
                 throw new UserException("connect context is null when creating dummy location");
             }
-            currentClusterBackends = ((CloudSystemInfoService) clusterInfo)
+            currentComputeGroupBackends = ((CloudSystemInfoService) clusterInfo)
                     .getBackendsByClusterName(context.getCloudCluster());
         } else {
-            currentClusterBackends = new ArrayList<>(clusterInfo.getBackendsByCurrentCluster().values());
+            currentComputeGroupBackends = new ArrayList<>(clusterInfo.getBackendsByCurrentCluster().values());
         }
-        List<Long> availableBeIds = currentClusterBackends.stream()
+        List<Long> availableBeIds = currentComputeGroupBackends.stream()
                 .filter(Backend::isLoadAvailable)
                 .filter(backend -> !backend.isDecommissioned() && !backend.isDecommissioning())
                 .map(Backend::getId)
