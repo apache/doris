@@ -62,6 +62,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -91,7 +92,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         String createBaseTable = "create table test_stream.tbl_stream_base (\n"
                 + "  k1 int,\n"
-                + "  k2 int\n"
+                + "  k2 int not null\n"
                 + ")\n"
                 + "unique key(k1)\n"
                 + "partition by range(k1)\n"
@@ -124,7 +125,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         String createDuplicateBaseTable = "create table test_stream.tbl_dup_stream_base (\n"
                 + "  k1 int,\n"
-                + "  k2 int\n"
+                + "  k2 int not null\n"
                 + ")\n"
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
@@ -532,6 +533,13 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 .findFirst()
                 .orElseThrow()
                 .isAllowNull();
+        boolean baseK2Nullable = base.getBaseSchema(false).stream()
+                .filter(c -> c.getName().equals("k2"))
+                .findFirst()
+                .orElseThrow()
+                .isAllowNull();
+        Assertions.assertFalse(baseK2Nullable,
+                "value column k2 must be NOT NULL in the catalog baseline so widening to nullable is provable");
 
         Plan analyzedPlan = PlanChecker.from(connectContext)
                 .analyze("select * from test_stream.s2")
@@ -561,6 +569,8 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 .findFirst()
                 .orElseThrow()
                 .isAllowNull();
+        Assertions.assertFalse(baseK2Nullable,
+                "value column k2 must be NOT NULL in the catalog baseline so RESET can prove it stays non-nullable");
 
         Plan analyzedPlan = PlanChecker.from(connectContext)
                 .analyze("select * from test_stream.s_dup@reset()")
@@ -583,6 +593,50 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             }
         }
         return null;
+    }
+
+    @Test
+    public void testIncrTimestampRangePropagatesToScanRangeTso() throws Exception {
+        // An @incr('startTimestamp'=..., 'endTimestamp'=...) query on the MOW base table goes
+        // through makeUniformedTimestampRangeMap in BindRelation, which seeds a per-partition
+        // (start, end) offset on the RowBinlogTableWrapper. OlapScanNode.getScanRangeLocations then
+        // stamps those offsets onto every scan range as startTso/endTso. Verify the whole chain by
+        // asserting every incremental scan range carries the composed start/end TSO for its partition.
+        String startTs = "2026-05-25 20:51:28";
+        String endTs = "2026-05-25 21:51:28";
+        long expectedStartTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(startTs));
+        long expectedEndTso = TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTs));
+
+        ConnectContext ctx = createDefaultCtx();
+        ctx.setDatabase("test_stream");
+        ctx.getSessionVariable().showHiddenColumns = true;
+        StatementScopeIdGenerator.clear();
+        String sql = "explain select * from test_stream.tbl_stream_base"
+                + "@incr('startTimestamp' = '" + startTs + "', 'endTimestamp' = '" + endTs + "')";
+        PlanFragment fragment = getFragment(ctx, sql);
+
+        List<OlapScanNode> scanNodes = new ArrayList<>();
+        collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
+        Assertions.assertFalse(scanNodes.isEmpty());
+
+        boolean assertedAtLeastOne = false;
+        for (OlapScanNode scanNode : scanNodes) {
+            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+                continue;
+            }
+            List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
+            Assertions.assertFalse(locations.isEmpty());
+            for (TScanRangeLocations loc : locations) {
+                TPaloScanRange range = loc.getScanRange().getPaloScanRange();
+                Assertions.assertEquals(expectedStartTso, range.getStartTso(),
+                        "startTSO should equal the composed @incr startTimestamp for every partition");
+                Assertions.assertEquals(expectedEndTso, range.getEndTso(),
+                        "endTSO should equal the composed @incr endTimestamp for every partition");
+                assertedAtLeastOne = true;
+            }
+        }
+        Assertions.assertTrue(assertedAtLeastOne,
+                "expected at least one incremental scan range to assert TSO bounds against");
     }
 
     @Test
