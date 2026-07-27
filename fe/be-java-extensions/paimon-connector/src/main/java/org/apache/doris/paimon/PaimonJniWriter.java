@@ -26,15 +26,21 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.crosspartition.IndexBootstrap;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.index.BucketAssigner;
+import org.apache.paimon.index.HashBucketAssigner;
+import org.apache.paimon.index.SimpleHashBucketAssigner;
 import org.apache.paimon.memory.HeapMemorySegmentPool;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
-import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.InnerTableCommit;
+import org.apache.paimon.table.sink.PartitionKeyExtractor;
+import org.apache.paimon.table.sink.RowPartitionKeyExtractor;
 import org.apache.paimon.table.sink.SinkRecord;
 import org.apache.paimon.table.sink.TableWriteImpl;
 import org.slf4j.Logger;
@@ -66,14 +72,14 @@ import java.util.Set;
  *   → ArrowStreamReader → VectorSchemaRoot
  *   → PaimonArrowConverter (column-major typed extraction)
  *   → PaimonWriteSchema.tableRow() (canonical table-schema order)
- *   → BatchTableWrite.write(row) (SDK-owned routing and buffering)
+ *   → Paimon SDK bucket assignment and table write
  * </pre>
  *
  * <p>Commit path:
  *
  * <pre>
  *   VPaimonTableWriter::close() → JNI → PaimonJniWriter.prepareCommit()
- *   → BatchTableWrite.prepareCommit()
+ *   → TableWriteImpl.prepareCommit()
  *   → PaimonCommitCodec.encode() → DPCM-framed byte[][]
  *   → C++ collects TPaimonCommitMessage[] → RPC to FE → PaimonTransaction
  * </pre>
@@ -90,11 +96,14 @@ public class PaimonJniWriter {
 
     private PaimonWriteSchema writeSchema;
     private FileStoreTable table;
-    private BatchTableWrite writer;
-    private TableWriteImpl<?> tableWrite;
+    private TableWriteImpl<?> writer;
     private IOManager ioManager;
     private long commitIdentifier;
     private String commitUser;
+    private BucketMode bucketMode;
+    private BucketAssigner hashBucketAssigner;
+    private PartitionKeyExtractor<InternalRow> dynamicBucketExtractor;
+    private GlobalIndexAssigner globalIndexAssigner;
     private boolean fullCompactionChangelog;
     private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
     private List<CommitMessage> preparedCommitMessages = Collections.emptyList();
@@ -137,15 +146,12 @@ public class PaimonJniWriter {
             preExecutionAuthenticator.execute(() -> {
                 try {
                     FileStoreTable table = PaimonUtils.deserialize(serializedTable);
-                    if (table.bucketMode() == BucketMode.HASH_DYNAMIC) {
-                        throw new UnsupportedOperationException(
-                                "Paimon dynamic-bucket tables are not supported for writes");
-                    }
                     LOG.info("PaimonJniWriter opening: table={}, columns={}",
                             table.fullName(), columnNames != null ? columnNames.length : 0);
                     this.commitIdentifier = transactionId;
                     this.table = table;
                     this.commitUser = commitUser;
+                    this.bucketMode = table.bucketMode();
 
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
                     this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames);
@@ -157,6 +163,11 @@ public class PaimonJniWriter {
                     openFileStoreWriter(table, commitUser, overwrite, spillDirectories, coreOptions);
                     return null;
                 } catch (Throwable t) {
+                    try {
+                        closeWriter();
+                    } catch (Throwable closeFailure) {
+                        t.addSuppressed(closeFailure);
+                    }
                     throw new RuntimeException("PaimonJniWriter open failed", t);
                 }
             });
@@ -169,8 +180,8 @@ public class PaimonJniWriter {
      * <p>Called from C++ {@code JniPaimonWriter::_write_projected_block()}
      * once per Block. The buffer is a zero-copy direct view of the native
      * Arrow IPC Stream bytes. Rows are deserialized, normalized to table-schema
-     * order, and handed to Paimon's high-level {@code write(row)} API. The SDK
-     * owns partition/bucket routing, buffering, spill, and file rolling.
+     * order, and handed to Paimon's writer and bucket assigner APIs. The SDK
+     * owns partition/bucket semantics, buffering, spill, and file rolling.
      *
      * @param directBuffer direct view of the native Arrow IPC Stream bytes (no copy)
      */
@@ -271,12 +282,12 @@ public class PaimonJniWriter {
 
     private void openFileStoreWriter(FileStoreTable table, String commitUser, boolean overwrite,
             String spillDirectories, CoreOptions coreOptions) throws Exception {
-        tableWrite = table.newWrite(commitUser);
+        writer = table.newWrite(commitUser);
         if (overwrite) {
-            tableWrite.withIgnorePreviousFiles(true);
+            writer.withIgnorePreviousFiles(true);
         }
-        writer = tableWrite;
         openSpillResources(coreOptions, spillDirectories);
+        openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
     private void validateWriteColumnsForMergeEngine(int writeColumnCount, CoreOptions coreOptions) {
@@ -294,7 +305,8 @@ public class PaimonJniWriter {
     }
 
     private void openSpillResources(CoreOptions coreOptions, String spillDirectories) throws Exception {
-        if (!coreOptions.writeBufferSpillable()) {
+        boolean needsLocalIo = coreOptions.writeBufferSpillable();
+        if (!needsLocalIo) {
             return;
         }
         String[] splitDirectories = IOManagerImpl.splitPaths(spillDirectories);
@@ -302,10 +314,62 @@ public class PaimonJniWriter {
             Files.createDirectories(Paths.get(directory));
         }
         ioManager = IOManager.create(splitDirectories);
+        if (!coreOptions.writeBufferSpillable()) {
+            LOG.info("Paimon writer local state enabled: dirs={}", spillDirectories);
+            return;
+        }
         HeapMemorySegmentPool memorySegmentPool = new HeapMemorySegmentPool(
                 coreOptions.writeBufferSize(), coreOptions.pageSize());
         writer.withIOManager(ioManager).withMemoryPool(memorySegmentPool);
         LOG.info("Paimon writer spill enabled: dirs={}", spillDirectories);
+    }
+
+    private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,
+            boolean overwrite, CoreOptions coreOptions) throws Exception {
+        switch (bucketMode) {
+            case HASH_DYNAMIC:
+                openHashDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
+                break;
+            case KEY_DYNAMIC:
+                openKeyDynamicBucketAssigner(table);
+                break;
+            default:
+                // Fixed, unaware and postpone modes route through TableWrite.write(row).
+                break;
+        }
+    }
+
+    private void openHashDynamicBucketAssigner(FileStoreTable table, String commitUser,
+            boolean overwrite, CoreOptions coreOptions) {
+        dynamicBucketExtractor = new RowPartitionKeyExtractor(table.schema());
+        if (overwrite) {
+            hashBucketAssigner =
+                    new SimpleHashBucketAssigner(
+                            1,
+                            0,
+                            coreOptions.dynamicBucketTargetRowNum(),
+                            coreOptions.dynamicBucketMaxBuckets());
+            return;
+        }
+
+        hashBucketAssigner =
+                new HashBucketAssigner(
+                        table.snapshotManager(),
+                        commitUser,
+                        table.store().newIndexFileHandler(),
+                        1,
+                        1,
+                        0,
+                        coreOptions.dynamicBucketTargetRowNum(),
+                        coreOptions.dynamicBucketMaxBuckets());
+    }
+
+    private void openKeyDynamicBucketAssigner(FileStoreTable table) throws Exception {
+        globalIndexAssigner = new GlobalIndexAssigner(table);
+        globalIndexAssigner.open(1, 0, this::writeAssignedRow);
+        new IndexBootstrap(table).bootstrap(
+                1, 0, this::bootstrapGlobalIndexKey);
+        globalIndexAssigner.finishBootstrap();
     }
 
     // ────────────────────────────────────────────────────────────
@@ -318,22 +382,73 @@ public class PaimonJniWriter {
             return;
         }
         // Extract values in Doris input order, then normalize every row to the
-        // full table schema before calling the SDK's high-level write API.
+        // full table schema before calling the SDK writer or bucket assigner.
         Object[][] columnValues = arrowConverter.convert(root, writeSchema.targetTypes());
-        BatchTableWrite currentWriter = requireWriter();
         for (int r = 0; r < rowCount; r++) {
-            if (fullCompactionChangelog) {
-                SinkRecord sinkRecord =
-                        tableWrite.writeAndReturn(writeSchema.tableRow(columnValues, r));
-                if (sinkRecord != null) {
-                    fullCompactionBuckets.add(
-                            new PartitionBucket(
-                                    sinkRecord.partition().copy(), sinkRecord.bucket()));
-                }
-            } else {
-                currentWriter.write(writeSchema.tableRow(columnValues, r));
+            InternalRow row = writeSchema.tableRow(columnValues, r);
+            switch (bucketMode) {
+                case HASH_DYNAMIC:
+                    writeHashDynamicRow(row);
+                    break;
+                case KEY_DYNAMIC:
+                    globalIndexAssigner.processInput(row);
+                    break;
+                default:
+                    writeRow(row);
+                    break;
             }
         }
+    }
+
+    private void writeHashDynamicRow(InternalRow row) throws Exception {
+        int bucket =
+                hashBucketAssigner.assign(
+                        dynamicBucketExtractor.partition(row),
+                        dynamicBucketExtractor.trimmedPrimaryKey(row).hashCode());
+        writeRow(row, bucket);
+    }
+
+    private void writeAssignedRow(InternalRow row, Integer bucket) {
+        try {
+            writeRow(row, bucket);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to write Paimon key-dynamic bucket row", e);
+        }
+    }
+
+    private void bootstrapGlobalIndexKey(InternalRow row) {
+        try {
+            globalIndexAssigner.bootstrapKey(row);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to bootstrap Paimon key-dynamic index", e);
+        }
+    }
+
+    private void writeRow(InternalRow row) throws Exception {
+        if (!fullCompactionChangelog) {
+            writer.write(row);
+            return;
+        }
+
+        trackFullCompactionBucket(writer.writeAndReturn(row));
+    }
+
+    private void writeRow(InternalRow row, int bucket) throws Exception {
+        if (!fullCompactionChangelog) {
+            writer.write(row, bucket);
+            return;
+        }
+
+        trackFullCompactionBucket(writer.writeAndReturn(row, bucket));
+    }
+
+    private void trackFullCompactionBucket(SinkRecord sinkRecord) {
+        if (sinkRecord == null) {
+            return;
+        }
+        fullCompactionBuckets.add(
+                new PartitionBucket(
+                        sinkRecord.partition().copy(), sinkRecord.bucket()));
     }
 
     // ────────────────────────────────────────────────────────────
@@ -351,13 +466,22 @@ public class PaimonJniWriter {
     }
 
     private List<CommitMessage> prepareCommitMessages() throws Exception {
-        BatchTableWrite currentWriter = requireWriter();
+        if (writer == null) {
+            throw new IllegalStateException("Paimon writer is not open");
+        }
+        prepareDynamicBucketCommit();
         submitFullCompaction();
-        List<CommitMessage> messages = tableWrite != null && commitIdentifier > 0
-                ? tableWrite.prepareCommit(true, commitIdentifier)
-                : currentWriter.prepareCommit();
+        List<CommitMessage> messages = commitIdentifier > 0
+                ? writer.prepareCommit(true, commitIdentifier)
+                : writer.prepareCommit();
         preparedCommitMessages = new ArrayList<>(messages);
         return messages;
+    }
+
+    private void prepareDynamicBucketCommit() throws Exception {
+        if (hashBucketAssigner != null) {
+            hashBucketAssigner.prepareCommit(commitIdentifier);
+        }
     }
 
     private void submitFullCompaction() throws Exception {
@@ -369,39 +493,49 @@ public class PaimonJniWriter {
         Iterator<PartitionBucket> iterator = fullCompactionBuckets.iterator();
         while (iterator.hasNext()) {
             PartitionBucket partitionBucket = iterator.next();
-            tableWrite.compact(partitionBucket.partition, partitionBucket.bucket, true);
+            writer.compact(partitionBucket.partition, partitionBucket.bucket, true);
             iterator.remove();
         }
     }
 
-    private BatchTableWrite requireWriter() {
-        if (writer == null) {
-            throw new IllegalStateException("Paimon writer is not open");
+    private void closeWriter() throws Exception {
+        Exception failure = closeResource(writer, null);
+        failure = closeResource(globalIndexAssigner, failure);
+        failure = closeResource(ioManager, failure);
+        clearWriterState();
+        if (failure != null) {
+            throw failure;
         }
-        return writer;
     }
 
-    private void closeWriter() throws Exception {
-        try {
-            if (writer != null) {
-                writer.close();
-            }
-        } finally {
-            writer = null;
-            tableWrite = null;
-            table = null;
-            commitUser = null;
-            fullCompactionChangelog = false;
-            fullCompactionBuckets.clear();
-            preparedCommitMessages = Collections.emptyList();
-            try {
-                if (ioManager != null) {
-                    ioManager.close();
-                }
-            } finally {
-                ioManager = null;
-            }
+    private static Exception closeResource(AutoCloseable resource, Exception previousFailure) {
+        if (resource == null) {
+            return previousFailure;
         }
+        try {
+            resource.close();
+        } catch (Exception closeFailure) {
+            if (previousFailure == null) {
+                return closeFailure;
+            }
+            previousFailure.addSuppressed(closeFailure);
+        }
+        return previousFailure;
+    }
+
+    private void clearWriterState() {
+        writer = null;
+        table = null;
+        commitIdentifier = 0;
+        commitUser = null;
+        bucketMode = null;
+        hashBucketAssigner = null;
+        dynamicBucketExtractor = null;
+        globalIndexAssigner = null;
+        ioManager = null;
+        fullCompactionChangelog = false;
+        fullCompactionBuckets.clear();
+        preparedCommitMessages = Collections.emptyList();
     }
 
     private void abortWriter() throws Exception {

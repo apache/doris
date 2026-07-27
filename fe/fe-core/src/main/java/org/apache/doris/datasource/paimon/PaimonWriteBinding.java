@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandC
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.CatalogOptions;
-import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 
 import java.util.Collections;
@@ -73,10 +72,6 @@ public class PaimonWriteBinding {
         } catch (Exception e) {
             throw new UserException("Failed to bind Paimon table for write", e);
         }
-        if (table.bucketMode() == BucketMode.HASH_DYNAMIC) {
-            throw new AnalysisException("Paimon dynamic-bucket tables are not supported for writes");
-        }
-
         Map<String, Expression> typedStaticPartition = context.getStaticPartition();
         Map<String, String> staticPartition = resolveStaticPartition(table, typedStaticPartition);
         return new PaimonWriteBinding(

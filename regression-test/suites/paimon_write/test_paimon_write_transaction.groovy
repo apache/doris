@@ -78,15 +78,6 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             'partition.default-name' = '__CUSTOM_DEFAULT_PARTITION__'
         );
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_dynamic_bucket;
-        CREATE TABLE paimon.${dbName}.t_dynamic_bucket (
-            id INT, name STRING
-        ) USING paimon
-        TBLPROPERTIES (
-            'primary-key' = 'id',
-            'bucket' = '-1'
-        );
-
         DROP TABLE IF EXISTS paimon.${dbName}.t_multi;
         CREATE TABLE paimon.${dbName}.t_multi (
             id INT, name STRING, score DOUBLE
@@ -249,11 +240,6 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             IF(region = '', '<EMPTY>', region) AS region
             FROM t_static_default ORDER BY id"""
         assertTableEquals("t_static_default", "ORDER BY id")
-
-        test {
-            sql """INSERT INTO t_dynamic_bucket VALUES (1, 'unsupported')"""
-            exception "Paimon dynamic-bucket tables are not supported for writes"
-        }
 
         // FT-016: Dynamic partition overwrite replaces the partitions present in the
         // input while preserving existing partitions that are not touched.

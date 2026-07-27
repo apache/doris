@@ -34,6 +34,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
@@ -108,12 +110,12 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTable;
-        Table paimonTable = paimonExternalTable.getPaimonTable(Optional.empty());
-        if (requiresSingleWriter(CoreOptions.fromMap(paimonTable.options()))) {
+        if (requiresSingleWriter()) {
             return PhysicalProperties.GATHER;
         }
 
+        PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTable;
+        Table paimonTable = paimonExternalTable.getPaimonTable(Optional.empty());
         List<String> primaryKeys = paimonTable.primaryKeys();
         if (primaryKeys.isEmpty()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
@@ -136,13 +138,22 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         return PhysicalProperties.createHash(primaryKeyExprIds, ShuffleType.REQUIRE);
     }
 
+    /**
+     * Whether this sink must use one writer to preserve Paimon write semantics.
+     */
     public boolean requiresSingleWriter() {
         Table paimonTable = ((PaimonExternalTable) targetTable)
                 .getPaimonTable(Optional.empty());
-        return requiresSingleWriter(CoreOptions.fromMap(paimonTable.options()));
-    }
+        Preconditions.checkState(paimonTable instanceof FileStoreTable,
+                "Paimon write requires a file store table");
+        FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
+        BucketMode bucketMode = fileStoreTable.bucketMode();
+        if (bucketMode == BucketMode.HASH_DYNAMIC
+                || bucketMode == BucketMode.KEY_DYNAMIC) {
+            return true;
+        }
 
-    private boolean requiresSingleWriter(CoreOptions coreOptions) {
+        CoreOptions coreOptions = CoreOptions.fromMap(paimonTable.options());
         return !coreOptions.writeOnly()
                 && (coreOptions.needLookup()
                         || coreOptions.changelogProducer()
