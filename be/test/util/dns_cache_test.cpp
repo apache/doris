@@ -422,9 +422,11 @@ TEST_F(DNSCacheTest, negative_cache_rearms_on_continued_failure_after_ttl_expiry
     ASSERT_EQ(0u, cache.size_for_test());
     ASSERT_EQ(1u, cache.negative_cache_size_for_test());
 
-    // Simulate TTL expiry.
-    cache._clear_negative_cache_for_test();
-    ASSERT_EQ(0u, cache.negative_cache_size_for_test());
+    // Simulate TTL expiry by backdating the entry (entry still exists, time is past).
+    // Use _expire (not _clear) so the entry is visible to get()'s TTL check,
+    // which sets expired_negative=true and triggers the re-arm path on failure.
+    cache._expire_negative_cache_for_test();
+    ASSERT_EQ(1u, cache.negative_cache_size_for_test()); // entry exists but expired
 
     // DNS still failing: one retry is allowed, then negative cache re-arms.
     int calls_before = resolver_calls;

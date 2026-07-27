@@ -107,6 +107,16 @@ private:
         _negative_cache.clear();
     }
 
+    // Backdate all negative-cache entries to epoch so they appear expired
+    // without removing them.  Use this to simulate TTL expiry in tests that
+    // need the re-arm path in get() to trigger.
+    void _expire_negative_cache_for_test() {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        for (auto& [k, v] : _negative_cache) {
+            v = std::chrono::steady_clock::time_point {};
+        }
+    }
+
     friend class DNSCacheTest;
 
 private:
