@@ -107,7 +107,7 @@ public class KafkaUtilTest {
             LoadException exception = Assert.assertThrows(
                     LoadException.class, () -> KafkaUtil.getBackendIdsForMetaRequest(""));
 
-            Assert.assertEquals("compute group is empty when getting kafka meta", exception.getMessage());
+            Assert.assertEquals("compute group is empty when getting kafka meta", exception.getDetailMessage());
             Mockito.verify(systemInfoService, Mockito.never()).getBackendsByClusterName(Mockito.anyString());
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
