@@ -58,6 +58,18 @@ under the License.
             <artifactId>aliyun-sdk-oss</artifactId>
             <version>${aliyun-sdk-oss.version}</version>
         </dependency>
+        <!-- Explicit: aliyun-java-sdk-core used directly in AssumeRole and ECS credential providers -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>aliyun-java-sdk-core</artifactId>
+            <version>4.7.6</version>
+        </dependency>
+        <!-- Explicit: aliyun-java-sdk-sts not transitively pulled by aliyun-sdk-oss -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>aliyun-java-sdk-sts</artifactId>
+            <version>3.1.3</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>

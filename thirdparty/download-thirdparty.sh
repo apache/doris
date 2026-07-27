@@ -729,6 +729,44 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
+# patch tea-cpp for OpenSSL 1.1.1 compatibility (EVP_MD_CTX_get0_md → EVP_MD_CTX_md)
+if [[ " ${TP_ARCHIVES[*]} " =~ " TEA_CPP " ]]; then
+    cd "${TP_SOURCE_DIR}/${TEA_CPP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        echo "Applying OpenSSL 1.1.1 compatibility fix to tea-cpp..."
+        sed -i.bak 's/EVP_MD_CTX_get0_md/EVP_MD_CTX_md/g' include/darabonba/signature/RSASigner.hpp
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${TEA_CPP_SOURCE}"
+fi
+
+# patch tea-cpp: CURLOPT_CAINFO support + CURL error propagation (required for OSS STS SSL)
+if [[ " ${TP_ARCHIVES[*]} " =~ " TEA_CPP " ]]; then
+    cd "${TP_SOURCE_DIR}/${TEA_CPP_SOURCE}"
+    if [[ ! -f "patched_mark_doris_oss_fix" ]]; then
+        echo "Applying OSS SSL/error fix to tea-cpp..."
+        patch -p1 <"${TP_PATCH_DIR}/tea-cpp-doris-oss-fix.patch"
+        touch "patched_mark_doris_oss_fix"
+    fi
+    cd -
+    echo "Finished patching ${TEA_CPP_SOURCE} (doris-oss-fix)"
+fi
+
+# patch credentials-cpp for OpenSSL 1.1.1 compatibility (EVP_MD_CTX_get0_md → EVP_MD_CTX_md)
+if [[ " ${TP_ARCHIVES[*]} " =~ " CREDENTIALS_CPP " ]]; then
+    cd "${TP_SOURCE_DIR}/${CREDENTIALS_CPP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        echo "Applying OpenSSL 1.1.1 compatibility fix to credentials-cpp..."
+        if [[ -f "src/credentials/providers/RsaKeyPairCredentialsProvider.cpp" ]]; then
+            sed -i.bak 's/EVP_MD_CTX_get0_md/EVP_MD_CTX_md/g' src/credentials/providers/RsaKeyPairCredentialsProvider.cpp
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${CREDENTIALS_CPP_SOURCE}"
+fi
+
 # patch paimon-cpp
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"

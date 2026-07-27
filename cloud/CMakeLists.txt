@@ -362,6 +362,12 @@ if(BUILD_AZURE STREQUAL "ON")
     add_definitions(-DUSE_AZURE)
 endif()
 
+option(BUILD_OSS "ON for building native Alibaba OSS support or OFF for not" OFF)
+message(STATUS "build oss: ${BUILD_OSS}")
+if(BUILD_OSS STREQUAL "ON")
+    add_definitions(-DUSE_OSS)
+endif()
+
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
     set(LSAN_LIBS -static-liblsan)

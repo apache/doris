@@ -216,6 +216,12 @@ if(BUILD_AZURE STREQUAL "ON")
     add_definitions(-DUSE_AZURE)
 endif()
 
+# Set if use native OSS SDK or not
+option(BUILD_OSS "ON for building native Alibaba OSS support for BE or OFF for not" OFF)
+message(STATUS "build oss: ${BUILD_OSS}")
+if(BUILD_OSS STREQUAL "ON")
+    add_definitions(-DUSE_OSS)
+endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 

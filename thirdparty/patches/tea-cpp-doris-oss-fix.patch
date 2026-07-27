@@ -1,0 +1,63 @@
+--- a/include/darabonba/Core.hpp
++++ b/include/darabonba/Core.hpp
+@@ -57,4 +57,5 @@
+   std::string https_proxy;           // Per-request HTTPS proxy
+   std::string no_proxy;              // Per-request no-proxy list
+   std::string credential;            // Per-request credentials
++  std::string ca_cert;               // Per-request CA cert file path
+ };
+--- a/src/darabonba/Core.cpp
++++ b/src/darabonba/Core.cpp
+@@ -126,6 +126,9 @@
+     if (runtime.contains("credential")) {
+       config.credential = runtime["credential"].get<std::string>();
+     }
++    if (runtime.contains("ca")) {
++      config.ca_cert = runtime["ca"].get<std::string>();
++    }
+   }
+
+   return config;
+@@ -221,6 +224,7 @@
+   request_runtime["httpProxy"] = request_config.http_proxy;
+   request_runtime["httpsProxy"] = request_config.https_proxy;
+   request_runtime["noProxy"] = request_config.no_proxy;
++  request_runtime["ca"] = request_config.ca_cert;
+
+   return it->second->makeRequest(request, request_runtime);
+ }
+--- a/src/darabonba/http/MCurlHttpClient.cpp
++++ b/src/darabonba/http/MCurlHttpClient.cpp
+@@ -30,6 +30,10 @@
+     } else {
+       curl_easy_setopt(easyHandle, CURLOPT_SSL_VERIFYPEER, 1L);
+       curl_easy_setopt(easyHandle, CURLOPT_SSL_VERIFYHOST,
+                        2L); // 2L for full verification
++      std::string caFile = options.value("ca", std::string {});
++      if (!caFile.empty()) {
++        curl_easy_setopt(easyHandle, CURLOPT_CAINFO, caFile.c_str());
++      }
+     }
+     // timeout
+@@ -154,7 +158,21 @@
+     while ((msg = curl_multi_info_read(mCurl_, &msgs_in_queue)) != nullptr) {
+       if (msg->msg == CURLMSG_DONE) {
+         auto easyHandle = msg->easy_handle;
++        auto curlResult = msg->data.result;
+         auto curlStorage = std::move(runningCurl_[easyHandle]);
+         runningCurl_.erase(easyHandle);
+
++        if (curlResult != CURLE_OK) {
++          const char* errorStr = curl_easy_strerror(curlResult);
++          std::string errorMsg = std::string("CURL error: ") + errorStr;
++
++          curl_slist_free_all(curlStorage->reqHeader);
++          curl_multi_remove_handle(mCurl_, easyHandle);
++          curl_easy_cleanup(easyHandle);
++
++          curlStorage->promise->set_exception(
++              std::make_exception_ptr(std::runtime_error(errorMsg)));
++          continue;
++        }
++
+         auto body = dynamic_cast<MCurlResponseBody *>(

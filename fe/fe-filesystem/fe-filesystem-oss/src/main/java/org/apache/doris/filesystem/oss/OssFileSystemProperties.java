@@ -62,6 +62,9 @@ public final class OssFileSystemProperties
     public static final String FORCE_PARSING_BY_STANDARD_URI =
             "oss.force_parsing_by_standard_uri";
 
+    public static final String CREDENTIALS_PROVIDER = "oss.credentials_provider";
+
+    public static final String DEFAULT_CREDENTIALS_PROVIDER = "DEFAULT";
     public static final String DEFAULT_MAX_CONNECTIONS = "100";
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "10000";
     public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "10000";
@@ -149,10 +152,35 @@ public final class OssFileSystemProperties
             description = "The OSS role ARN for AssumeRole access.")
     private String roleArn = "";
 
+    @ConnectorProperty(names = {"oss.role_session_name"},
+            required = false,
+            description = "Session name used for STS AssumeRole; default 'doris-session'.")
+    private String roleSessionName = "doris-session";
+
     @ConnectorProperty(names = {"AWS_EXTERNAL_ID"},
             required = false,
             description = "The external ID for AssumeRole trust policy.")
     private String externalId = "";
+
+    @ConnectorProperty(names = {"oss.ecs_ram_role_name"},
+            required = false,
+            description = "ECS-attached RAM role name; mutually exclusive with oss.role_arn.")
+    private String ecsRamRoleName = "";
+
+    @ConnectorProperty(names = {"oss.oidc_provider_arn"},
+            required = false,
+            description = "OIDC provider ARN for RRSA (Kubernetes pod identity).")
+    private String oidcProviderArn = "";
+
+    @ConnectorProperty(names = {"oss.oidc_token_file"},
+            required = false,
+            description = "Path to OIDC token file mounted by Kubernetes.")
+    private String oidcTokenFile = "";
+
+    @ConnectorProperty(names = {CREDENTIALS_PROVIDER, "AWS_CREDENTIALS_PROVIDER_TYPE"},
+            required = false,
+            description = "Credential provider mode: DEFAULT, INSTANCE_PROFILE, OIDC, ENV, ANONYMOUS.")
+    private String credentialsProvider = DEFAULT_CREDENTIALS_PROVIDER;
 
     @ConnectorProperty(names = {"AWS_ROOT_PATH"},
             required = false,
@@ -178,6 +206,14 @@ public final class OssFileSystemProperties
     @Override
     public void validate() {
         new ParamRules()
+                .mutuallyExclusive(roleArn, ecsRamRoleName,
+                        "OSS_ROLE_ARN and oss.ecs_ram_role_name are mutually exclusive.")
+                .mutuallyExclusive(ecsRamRoleName, oidcProviderArn,
+                        "oss.ecs_ram_role_name and oss.oidc_provider_arn are mutually exclusive.")
+                .requireTogether(new String[] {oidcProviderArn, oidcTokenFile},
+                        "oss.oidc_provider_arn and oss.oidc_token_file must be set together.")
+                .check(this::hasUnsupportedCredentialsProviderType,
+                        "Unsupported oss.credentials_provider: " + credentialsProvider)
                 .requireTogether(new String[] {accessKey, secretKey},
                         "Both the access key and the secret key must be set.")
                 .check(() -> StringUtils.isBlank(region),
@@ -311,6 +347,35 @@ public final class OssFileSystemProperties
     @Override
     public String getRoleArn() {
         return roleArn;
+    }
+
+    public String getRoleSessionName() {
+        return roleSessionName;
+    }
+
+    public String getEcsRamRoleName() {
+        return ecsRamRoleName;
+    }
+
+    public String getOidcProviderArn() {
+        return oidcProviderArn;
+    }
+
+    public String getOidcTokenFile() {
+        return oidcTokenFile;
+    }
+
+    public OssCredentialsProviderType getCredentialsProviderType() {
+        return OssCredentialsProviderType.fromString(credentialsProvider);
+    }
+
+    private boolean hasUnsupportedCredentialsProviderType() {
+        try {
+            getCredentialsProviderType();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return true;
+        }
     }
 
     @Override

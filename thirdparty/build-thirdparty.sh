@@ -76,6 +76,7 @@ else
 fi
 
 BUILD_AZURE="ON"
+BUILD_OSS="ON"
 
 while true; do
     case "$1" in
@@ -125,6 +126,10 @@ fi
 
 if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
+fi
+
+if [[ "$(echo "${DISABLE_BUILD_OSS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_OSS='OFF'
 fi
 
 echo "Get params:
@@ -1920,6 +1925,99 @@ build_ali_sdk() {
     "${BUILD_SYSTEM}" install
 }
 
+build_apr() {
+    check_if_source_exist "${APR_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${APR_SOURCE}"
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR}" \
+        CC=gcc ./configure --enable-layout=classic --prefix="${TP_INSTALL_DIR}" \
+        --disable-shared --enable-static
+    make -j "${PARALLEL}"
+    make install
+}
+
+build_apr_util() {
+    check_if_source_exist "${APR_UTIL_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${APR_UTIL_SOURCE}"
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR}" \
+        CC=gcc ./configure --enable-layout=classic --prefix="${TP_INSTALL_DIR}" \
+        --disable-shared --enable-static \
+        --with-apr="${TP_INSTALL_DIR}"
+    make -j "${PARALLEL}"
+    make install
+}
+
+_build_oss_cmake_lib() {
+    local src_var="$1"
+    local src_dir="${TP_SOURCE_DIR}/${!src_var}"
+    check_if_source_exist "${!src_var}"
+    cd "${src_dir}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DBUILD_PRODUCT=core \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DCURL_LIBRARY="${TP_LIB_DIR}/libcurl.a" \
+        -DCURL_INCLUDE_DIR="${TP_INCLUDE_DIR}" \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+build_tea_cpp() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then return; fi
+    _build_oss_cmake_lib TEA_CPP_SOURCE
+}
+
+build_credentials_cpp() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then return; fi
+    _build_oss_cmake_lib CREDENTIALS_CPP_SOURCE
+}
+
+build_openapi_v2() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then return; fi
+    _build_oss_cmake_lib OPENAPI_V2_SOURCE
+}
+
+build_sts_20150401() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then return; fi
+    _build_oss_cmake_lib STS_20150401_SOURCE
+}
+
+build_oss_cpp() {
+    if [[ "${BUILD_OSS}" == "OFF" ]]; then return; fi
+    build_apr
+    build_apr_util
+    check_if_source_exist "${OSS_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OSS_CPP_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
+        -DBUILD_PRODUCT=core \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_SAMPLE=OFF \
+        -DBUILD_TESTS=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DCMAKE_CXX_FLAGS="-fvisibility=hidden -D_GLIBCXX_USE_CXX11_ABI=1" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 # base64
 build_base64() {
     check_if_source_exist "${BASE64_SOURCE}"
@@ -2258,6 +2356,11 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         libdeflate
         streamvbyte
         ali_sdk
+        tea_cpp
+        credentials_cpp
+        openapi_v2
+        sts_20150401
+        oss_cpp
         base64
         azure
         brotli
