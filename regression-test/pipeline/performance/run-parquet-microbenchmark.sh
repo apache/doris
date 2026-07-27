@@ -61,7 +61,7 @@ if [[ "${PARQUET_MICROBENCHMARK_IN_CONTAINER:-false}" != true ]]; then
         -e PARQUET_MICROBENCHMARK_IN_CONTAINER=true \
         -e PARQUET_BENCHMARK_CPU="${PARQUET_BENCHMARK_CPU:-8}" \
         -e PARQUET_BENCHMARK_MIN_TIME="${PARQUET_BENCHMARK_MIN_TIME:-0.5s}" \
-        -e PARQUET_BENCHMARK_WARMUP_TIME="${PARQUET_BENCHMARK_WARMUP_TIME:-0.2s}" \
+        -e PARQUET_BENCHMARK_WARMUP_TIME="${PARQUET_BENCHMARK_WARMUP_TIME:-0.2}" \
         -e PARQUET_REGRESSION_THRESHOLD_PCT="${PARQUET_REGRESSION_THRESHOLD_PCT:-15}" \
         -e PARQUET_WARNING_THRESHOLD_PCT="${PARQUET_WARNING_THRESHOLD_PCT:-5}" \
         -e PARQUET_MAX_CV_PCT="${PARQUET_MAX_CV_PCT:-3}" \
@@ -247,7 +247,7 @@ run_gate_phase() {
     taskset -c "${benchmark_cpu}" "${binary}" \
         --benchmark_filter="${gate_filter}" \
         --benchmark_min_time="${PARQUET_BENCHMARK_MIN_TIME:-0.5s}" \
-        --benchmark_min_warmup_time="${PARQUET_BENCHMARK_WARMUP_TIME:-0.2s}" \
+        --benchmark_min_warmup_time="${PARQUET_BENCHMARK_WARMUP_TIME:-0.2}" \
         --benchmark_repetitions=5 \
         --benchmark_out="${result_dir}/${phase}.json" \
         --benchmark_out_format=json
