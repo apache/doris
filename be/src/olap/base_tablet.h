@@ -190,12 +190,13 @@ public:
                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                                      int64_t queue_time_us = 0);
 
     Status calc_delete_bitmap_between_segments(
             TabletSchemaSPtr schema, RowsetId rowset_id,
             const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            DeleteBitmapPtr delete_bitmap);
+            DeleteBitmapPtr delete_bitmap, int64_t queue_time_us = 0);
 
     static Status commit_phase_update_delete_bitmap(
             const BaseTabletSPtr& tablet, const RowsetSharedPtr& rowset,
