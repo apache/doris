@@ -231,34 +231,22 @@ struct ProcessHashTableBuild {
         hash_table_ctx.hash_table->template prepare_build<JoinOpType>(
                 _rows, _batch_size, *has_null_key, hash_table_ctx.direct_mapping_range());
 
-        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
-            const_cast<IColumn*>(_build_raw_ptrs[0])->replace_column_null_data(null_map->data());
-        }
-
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        // only 2 cases need to access the null value in hash table
-        bool keep_null_key = false;
+        auto null_bucket_mode = JoinNullBucketMode::DISCARD;
+        const auto& is_null_safe_eq_join =
+                _parent->parent()->cast<HashJoinBuildSinkOperatorX>().is_null_safe_eq_join();
         if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
              JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
             with_other_conjuncts) {
-            // null aware join with other conjuncts
-            keep_null_key = true;
-        } else if (_parent->parent()
-                                   ->cast<HashJoinBuildSinkOperatorX>()
-                                   .is_null_safe_eq_join()
-                                   .size() == 1 &&
-                   _parent->parent()
-                           ->cast<HashJoinBuildSinkOperatorX>()
-                           .is_null_safe_eq_join()[0]) {
-            // single null safe eq
-            keep_null_key = true;
+            null_bucket_mode = JoinNullBucketMode::NULL_AWARE;
+        } else if (is_null_safe_eq_join.size() == 1 && is_null_safe_eq_join[0]) {
+            null_bucket_mode = JoinNullBucketMode::NULL_SAFE_EQUAL;
         }
 
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                         _rows, keep_null_key);
+                                         _rows, null_bucket_mode);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 

@@ -23,7 +23,9 @@
 #include "exec/common/agg_utils.h"
 #include "exec/common/columns_hashing.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/common/hash_table/hash_crc32_return32.h"
 #include "exec/common/hash_table/hash_map_context.h"
+#include "exec/common/hash_table/join_hash_table.h"
 #include "exec/common/hash_table/ph_hash_map.h"
 #include "testutil/column_helper.h"
 
@@ -130,31 +132,107 @@ TEST(HashTableMethodTest, testMethodStringNoCache) {
               {0, 1, -1, 3, -1, 4});
 }
 
-// For join, null keys are routed to a dedicated null bucket and matched by raw key
-// comparison. The nested column of a null row may hold residual bytes left by expression
-// evaluation, so init_serialized_keys must normalize null keys to a canonical empty
-// StringRef to make null keys equal (e.g. single-column null-safe equal join).
-TEST(HashTableMethodTest, testMethodStringNoCacheNullKeyNormalized) {
-    MethodStringNoCache<StringHashMap<IColumn::ColumnIndex>> method;
+TEST(HashTableMethodTest, testJoinNullBucketMatchesWithoutKeyNormalization) {
+    using JoinMethod =
+            MethodStringNoCache<JoinHashMap<StringRef, HashCRC32Return32<StringRef>, false>>;
+    constexpr uint32_t batch_size = 8;
 
-    // Row 1 is null but its nested data holds residual bytes, row 2 is a real empty string.
-    auto column =
-            ColumnHelper::create_nullable_column<DataTypeString>({"a", "residual", ""}, {0, 1, 0});
-    ColumnRawPtrs key_columns {column.get()};
-    const auto& null_map = assert_cast<const ColumnNullable&>(*column).get_null_map_data();
+    auto build_column = ColumnHelper::create_nullable_column<DataTypeString>(
+            {"mock", "build-null-residual-1", "build-null-residual-2", ""}, {1, 1, 1, 0});
+    const auto& build_nullable = assert_cast<const ColumnNullable&>(*build_column);
+    ColumnRawPtrs build_columns {&build_nullable.get_nested_column()};
+    const auto& build_null_map = build_nullable.get_null_map_data();
 
-    const uint32_t bucket_size = 8;
-    method.init_serialized_keys(key_columns, 3, null_map.data(), true, false, bucket_size);
+    auto probe_column = ColumnHelper::create_nullable_column<DataTypeString>(
+            {"probe-null-residual", "", "missing"}, {1, 0, 0});
+    const auto& probe_nullable = assert_cast<const ColumnNullable&>(*probe_column);
+    ColumnRawPtrs probe_columns {&probe_nullable.get_nested_column()};
+    const auto& probe_null_map = probe_nullable.get_null_map_data();
 
-    // Null key is normalized to a canonical empty StringRef instead of the residual bytes.
-    EXPECT_TRUE(method._stored_keys[1] == StringRef());
-    // Non-null rows keep their real bytes, including the real empty string.
-    EXPECT_TRUE(method._stored_keys[0] == StringRef("a", 1));
-    EXPECT_TRUE(method._stored_keys[2] == StringRef("", 0));
-    // Null row is routed to the dedicated null bucket, real rows to normal hash buckets.
-    EXPECT_EQ(method.bucket_nums[1], bucket_size);
-    EXPECT_LT(method.bucket_nums[0], bucket_size);
-    EXPECT_LT(method.bucket_nums[2], bucket_size);
+    auto prepare_method = [&](JoinMethod& method, JoinNullBucketMode null_bucket_mode) {
+        method.hash_table->template prepare_build<TJoinOp::FULL_OUTER_JOIN>(build_column->size(),
+                                                                            batch_size, true, 0);
+        method.init_serialized_keys(build_columns, build_column->size(), build_null_map.data(),
+                                    true, true, method.hash_table->get_bucket_size());
+        method.hash_table->build(method.keys, method.bucket_nums.data(), build_column->size(),
+                                 null_bucket_mode);
+        method.init_serialized_keys(probe_columns, probe_column->size(), probe_null_map.data(),
+                                    true, false, method.hash_table->get_bucket_size());
+        method.hash_table->pre_build_idxs(method.bucket_nums);
+    };
+
+    JoinMethod null_safe_method;
+    prepare_method(null_safe_method, JoinNullBucketMode::NULL_SAFE_EQUAL);
+    EXPECT_TRUE(null_safe_method._build_stored_keys[1] == StringRef("build-null-residual-1"));
+    EXPECT_TRUE(null_safe_method._build_stored_keys[2] == StringRef("build-null-residual-2"));
+    EXPECT_TRUE(null_safe_method._stored_keys[0] == StringRef("probe-null-residual"));
+
+    uint32_t probe_idxs[batch_size + 1] = {};
+    uint32_t build_idxs[batch_size + 1] = {};
+    bool probe_visited = false;
+    auto [probe_idx, build_idx, matched_count] =
+            null_safe_method.hash_table->template find_batch<TJoinOp::INNER_JOIN>(
+                    null_safe_method.keys, null_safe_method.bucket_nums.data(), 0, 0,
+                    probe_column->size(), probe_idxs, probe_visited, build_idxs,
+                    probe_null_map.data(), false, false, false);
+    EXPECT_EQ(probe_idx, probe_column->size());
+    EXPECT_EQ(build_idx, 0);
+    ASSERT_EQ(matched_count, 3);
+    EXPECT_EQ(probe_idxs[0], 0);
+    EXPECT_EQ(build_idxs[0], 2);
+    EXPECT_EQ(probe_idxs[1], 0);
+    EXPECT_EQ(build_idxs[1], 1);
+    EXPECT_EQ(probe_idxs[2], 1);
+    EXPECT_EQ(build_idxs[2], 3);
+
+    probe_visited = false;
+    std::tie(probe_idx, build_idx, matched_count) =
+            null_safe_method.hash_table->template find_batch<TJoinOp::INNER_JOIN>(
+                    null_safe_method.keys, null_safe_method.bucket_nums.data(), 0, 0,
+                    probe_column->size(), probe_idxs, probe_visited, build_idxs,
+                    probe_null_map.data(), true, false, false);
+    ASSERT_EQ(matched_count, 3);
+
+    probe_visited = false;
+    std::tie(probe_idx, build_idx, matched_count) =
+            null_safe_method.hash_table->template find_batch<TJoinOp::LEFT_SEMI_JOIN>(
+                    null_safe_method.keys, null_safe_method.bucket_nums.data(), 0, 0,
+                    probe_column->size(), probe_idxs, probe_visited, build_idxs,
+                    probe_null_map.data(), false, false, false);
+    ASSERT_EQ(matched_count, 2);
+    EXPECT_EQ(probe_idxs[0], 0);
+    EXPECT_EQ(probe_idxs[1], 1);
+
+    probe_visited = false;
+    std::tie(probe_idx, build_idx, matched_count) =
+            null_safe_method.hash_table->template find_batch<TJoinOp::LEFT_ANTI_JOIN>(
+                    null_safe_method.keys, null_safe_method.bucket_nums.data(), 0, 0,
+                    probe_column->size(), probe_idxs, probe_visited, build_idxs,
+                    probe_null_map.data(), false, false, false);
+    ASSERT_EQ(matched_count, 1);
+    EXPECT_EQ(probe_idxs[0], 2);
+
+    probe_visited = false;
+    std::tie(probe_idx, build_idx, matched_count) =
+            null_safe_method.hash_table->template find_batch<TJoinOp::RIGHT_SEMI_JOIN>(
+                    null_safe_method.keys, null_safe_method.bucket_nums.data(), 0, 0,
+                    probe_column->size(), probe_idxs, probe_visited, build_idxs,
+                    probe_null_map.data(), false, false, false);
+    EXPECT_TRUE(null_safe_method.hash_table->get_visited()[1]);
+    EXPECT_TRUE(null_safe_method.hash_table->get_visited()[2]);
+    EXPECT_TRUE(null_safe_method.hash_table->get_visited()[3]);
+
+    JoinMethod regular_equal_method;
+    prepare_method(regular_equal_method, JoinNullBucketMode::DISCARD);
+    probe_visited = false;
+    std::tie(probe_idx, build_idx, matched_count) =
+            regular_equal_method.hash_table->template find_batch<TJoinOp::INNER_JOIN>(
+                    regular_equal_method.keys, regular_equal_method.bucket_nums.data(), 0, 0,
+                    probe_column->size(), probe_idxs, probe_visited, build_idxs,
+                    probe_null_map.data(), false, false, false);
+    ASSERT_EQ(matched_count, 1);
+    EXPECT_EQ(probe_idxs[0], 1);
+    EXPECT_EQ(build_idxs[0], 3);
 }
 
 // Verify that iterating a DataWithNullKey hash map via init_iterator()/begin/end

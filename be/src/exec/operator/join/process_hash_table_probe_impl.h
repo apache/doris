@@ -234,14 +234,6 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.arena.clear();
-        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_parent->_probe_columns.size() == 1 && null_map) {
-            if (simd::contain_one(null_map, probe_rows)) {
-                const_cast<IColumn*>(_parent->_probe_columns[0])
-                        ->replace_column_null_data(null_map);
-            }
-        }
-
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
                                             false, hash_table_ctx.hash_table->get_bucket_size());
         hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums);
