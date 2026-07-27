@@ -54,7 +54,9 @@ private:
     // Resolve hostname to IP address.
     // If resolution fails, falls back to cached IP if available.
     // Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
-    std::string _resolve_hostname(const std::string& hostname);
+    // *is_fresh is set to true when DNS returned a live result, false when the
+    // returned IP is the stale cached fallback from a failed lookup.
+    std::string _resolve_hostname(const std::string& hostname, bool* is_fresh = nullptr);
 
     // update the ip of hostname in cache; out_failures (if non-null) is set to
     // the current consecutive failure count read under the same lock; out_ip (if
@@ -63,8 +65,14 @@ private:
     Status _update(const std::string& hostname, uint32_t* out_failures = nullptr,
                    std::string* out_ip = nullptr);
 
-    // erase a hostname from cache (with unique_lock)
+    // erase a hostname from cache unconditionally (with unique_lock)
     void _erase(const std::string& hostname);
+
+    // Erase a hostname from cache only if failure_count still meets threshold.
+    // Re-reads the live counter under the same lock that performs the erase, so
+    // a concurrent successful resolution that cleared the counter is not lost.
+    // Returns true if the host was erased, false if the counter was already reset.
+    bool _erase_if_still_failing(const std::string& hostname, uint32_t threshold);
 
     // one refresh cycle: update every cached hostname and evict if needed
     void _refresh_once();

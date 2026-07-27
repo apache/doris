@@ -45,6 +45,7 @@ DNSCache::~DNSCache() {
 }
 
 Status DNSCache::get(const std::string& hostname, std::string* ip) {
+    bool expired_negative = false;
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
@@ -57,11 +58,13 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
         // dropped.  The entry expires after dns_cache_negative_ttl_seconds;
         // once expired the next caller falls through and retries the resolve.
         auto neg_it = _negative_cache.find(hostname);
-        if (neg_it != _negative_cache.end() &&
-            std::chrono::steady_clock::now() < neg_it->second) {
-            return Status::InternalError(
-                    "Hostname {} is in negative DNS cache (recently evicted), skipping resolve",
-                    hostname);
+        if (neg_it != _negative_cache.end()) {
+            if (std::chrono::steady_clock::now() < neg_it->second) {
+                return Status::InternalError(
+                        "Hostname {} is in negative DNS cache (recently evicted), skipping resolve",
+                        hostname);
+            }
+            expired_negative = true; // TTL passed; allow one retry
         }
     }
     // First access (or negative TTL expired): resolve and populate the cache.
@@ -69,13 +72,27 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     // lookup — operator[] under a shared_lock would mutate the map and could
     // reinsert an empty entry if a concurrent refresh cycle evicted the hostname
     // between _update() and here.
-    return _update(hostname, nullptr, ip);
+    Status st = _update(hostname, nullptr, ip);
+    if (!st.ok() && expired_negative) {
+        // DNS is still failing after the backoff window.  Re-arm the negative
+        // cache so the retry rate stays bounded at one attempt per TTL period —
+        // otherwise every concurrent caller blocks on a full DNS timeout each time.
+        int32_t ttl = config::dns_cache_negative_ttl_seconds;
+        if (ttl > 0) {
+            std::unique_lock<std::shared_mutex> lock(mutex);
+            _negative_cache[hostname] =
+                    std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
+        }
+    }
+    return st;
 }
 
 // Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
 // If resolution fails, falls back to cached IP if available.
 // Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
-std::string DNSCache::_resolve_hostname(const std::string& hostname) {
+// *is_fresh (if non-null) is set to true when DNS returned a live result, false
+// when the IP comes from the stale cached fallback path.
+std::string DNSCache::_resolve_hostname(const std::string& hostname, bool* is_fresh) {
     // Get cached IP first (if any)
     std::string cached_ip;
     {
@@ -93,6 +110,7 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
                             : hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
 
     if (!status.ok() || resolved_ip.empty()) {
+        if (is_fresh) *is_fresh = false;
         if (!cached_ip.empty()) {
             // Only track failure counts for hosts that are currently in the cache.
             // Hosts that were never cached or have already been evicted are not
@@ -138,6 +156,7 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
     }
 
     // Resolution succeeded - clear failure counter for this hostname.
+    if (is_fresh) *is_fresh = true;
     {
         std::unique_lock<std::shared_mutex> lock(mutex);
         failure_count.erase(hostname);
@@ -156,8 +175,27 @@ void DNSCache::_erase(const std::string& hostname) {
     }
 }
 
+bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t threshold) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    auto fc_it = failure_count.find(hostname);
+    if (fc_it == failure_count.end() || fc_it->second < threshold) {
+        // A concurrent successful resolution cleared or reset the counter between
+        // _update() returning and this call — do not erase a now-healthy entry.
+        return false;
+    }
+    cache.erase(hostname);
+    failure_count.erase(hostname);
+    int32_t ttl = config::dns_cache_negative_ttl_seconds;
+    if (ttl > 0) {
+        _negative_cache[hostname] =
+                std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
+    }
+    return true;
+}
+
 Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, std::string* out_ip) {
-    std::string real_ip = _resolve_hostname(hostname);
+    bool is_fresh = false;
+    std::string real_ip = _resolve_hostname(hostname, &is_fresh);
     if (real_ip.empty()) {
         if (out_failures) *out_failures = 0;
         if (out_ip) out_ip->clear();
@@ -166,6 +204,18 @@ Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, st
     }
 
     std::unique_lock<std::shared_mutex> lock(mutex);
+    // _resolve_hostname may have captured a stale cached_ip before a concurrent
+    // eviction completed.  If the host is now in the negative cache we must not
+    // reinsert the stale IP: that would silently undo the eviction and clear the
+    // tombstone, defeating the whole purpose of eviction.  Only a fresh DNS
+    // result (is_fresh == true, meaning DNS actually resolved) may override an
+    // eviction — which indicates the backend is genuinely back.
+    if (!is_fresh && _negative_cache.count(hostname)) {
+        if (out_failures) *out_failures = 0;
+        if (out_ip) out_ip->clear();
+        return Status::InternalError(
+                "Hostname {} was concurrently evicted; stale-fallback not reinserted", hostname);
+    }
     auto it = cache.find(hostname);
     if (it == cache.end() || it->second != real_ip) {
         cache[hostname] = real_ip;
@@ -204,14 +254,10 @@ void DNSCache::_refresh_once() {
         uint32_t failures = 0;
         Status st = _update(key, &failures);
         if (!st.ok()) {
-            // _update only returns an error when _resolve_hostname returns an
-            // empty string, which happens only if the hostname has never been
-            // successfully resolved (no cached IP to fall back to).  Keys in
-            // the refresh loop come from `cache`, so they all have a prior IP;
-            // during DNS failure _resolve_hostname returns that cached IP and
-            // _update returns OK.  This branch is therefore effectively dead
-            // under normal refresh semantics — the eviction logic below handles
-            // the long-running failure case instead.
+            // _update returns an error either when _resolve_hostname returns ""
+            // (no fallback IP) or when a stale fallback was suppressed because
+            // the host was concurrently evicted.  Either way, log and move on;
+            // the threshold check below handles the normal eviction path.
             LOG(WARNING) << "Failed to update DNS cache for hostname " << key << ": "
                          << st.to_string();
         }
@@ -223,9 +269,13 @@ void DNSCache::_refresh_once() {
         //      `Fail to wait EPOLLOUT ... Connection timed out`.
         int32_t threshold = config::dns_cache_max_consecutive_failures;
         if (threshold > 0 && failures >= static_cast<uint32_t>(threshold)) {
-            LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after " << failures
-                         << " consecutive resolution failures";
-            _erase(key);
+            // Re-read failure_count under the mutex that also performs the erase
+            // to fence any concurrent success that cleared the counter between
+            // _update() returning and this point.
+            if (_erase_if_still_failing(key, static_cast<uint32_t>(threshold))) {
+                LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after "
+                             << failures << " consecutive resolution failures";
+            }
         }
     }
 }
