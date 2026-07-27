@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 
+#include "core/value/variant/variant_scalar.h"
 #include "core/value/variant/variant_value.h"
 
 namespace doris {
@@ -31,67 +31,12 @@ inline constexpr size_t VARIANT_CANONICAL_SIZE_PREFIX = sizeof(uint32_t);
 
 class SipHash;
 class CanonicalScalarSerializationPlan;
-class VariantCanonicalScalarRef;
-struct VariantCanonicalScalarAdapter;
+struct VariantScalarAdapter;
 
-bool canonical_equals(VariantCanonicalScalarRef left, VariantCanonicalScalarRef right);
+bool canonical_equals(const VariantScalarRef& left, const VariantScalarRef& right);
 
 template <typename Sink>
-void canonical_hash(VariantCanonicalScalarRef value, Sink& sink);
-
-// Stack-only logical scalar view used by typed column adapters. String and binary values are
-// borrowed until the synchronous hash/serialization call returns; no column or DataType
-// dependency crosses into the codec.
-class VariantCanonicalScalarRef {
-public:
-    enum class Kind : uint8_t {
-        NULL_VALUE,
-        BOOL,
-        EXACT_INTEGER,
-        DECIMAL,
-        FLOATING,
-        STRING,
-        BINARY,
-        DATE,
-        TIMESTAMP_TZ,
-        TIMESTAMP_NTZ,
-        TIME,
-        UUID,
-    };
-
-    static VariantCanonicalScalarRef null_value() noexcept;
-    static VariantCanonicalScalarRef boolean(bool value) noexcept;
-    static VariantCanonicalScalarRef exact_integer(__int128 value);
-    static VariantCanonicalScalarRef decimal(__int128 unscaled, uint8_t scale);
-    static VariantCanonicalScalarRef float32(float value) noexcept;
-    static VariantCanonicalScalarRef float64(double value) noexcept;
-    static VariantCanonicalScalarRef string(StringRef value);
-    static VariantCanonicalScalarRef binary(StringRef value);
-    static VariantCanonicalScalarRef date(int32_t days_since_epoch) noexcept;
-    static VariantCanonicalScalarRef timestamp_micros(int64_t value, bool utc_adjusted) noexcept;
-    static VariantCanonicalScalarRef timestamp_nanos(int64_t value, bool utc_adjusted) noexcept;
-    static VariantCanonicalScalarRef time_ntz_micros(int64_t value) noexcept;
-    static VariantCanonicalScalarRef uuid(const std::array<uint8_t, 16>& value) noexcept;
-
-private:
-    explicit VariantCanonicalScalarRef(Kind kind) noexcept : _kind(kind) {}
-
-    __int128 _integer = 0;
-    double _floating = 0;
-    StringRef _bytes;
-    std::array<uint8_t, 16> _uuid {};
-    Kind _kind;
-    uint8_t _scale = 0;
-    bool _boolean = false;
-
-    friend class CanonicalScalarSerializationPlan;
-    friend bool canonical_equals(VariantCanonicalScalarRef left, VariantCanonicalScalarRef right);
-    template <typename Sink>
-    friend void canonical_hash(VariantCanonicalScalarRef value, Sink& sink);
-    friend CanonicalScalarSerializationPlan prepare_canonical_serialize(
-            VariantCanonicalScalarRef value);
-    friend struct VariantCanonicalScalarAdapter;
-};
+void canonical_hash(const VariantScalarRef& value, Sink& sink);
 
 // Incremental adapters used by canonical_hash(). Each update consumes one canonical token. The
 // token traversal and token boundaries are shared by all sinks; the adapters only select the hash
@@ -147,12 +92,12 @@ extern template void canonical_hash<VariantCrc32HashSink>(VariantRef value,
 extern template void canonical_hash<VariantCrc32cHashSink>(VariantRef value,
                                                            VariantCrc32cHashSink& sink);
 
-extern template void canonical_hash<SipHash>(VariantCanonicalScalarRef value, SipHash& sink);
-extern template void canonical_hash<VariantXxHashSink>(VariantCanonicalScalarRef value,
+extern template void canonical_hash<SipHash>(const VariantScalarRef& value, SipHash& sink);
+extern template void canonical_hash<VariantXxHashSink>(const VariantScalarRef& value,
                                                        VariantXxHashSink& sink);
-extern template void canonical_hash<VariantCrc32HashSink>(VariantCanonicalScalarRef value,
+extern template void canonical_hash<VariantCrc32HashSink>(const VariantScalarRef& value,
                                                           VariantCrc32HashSink& sink);
-extern template void canonical_hash<VariantCrc32cHashSink>(VariantCanonicalScalarRef value,
+extern template void canonical_hash<VariantCrc32cHashSink>(const VariantScalarRef& value,
                                                            VariantCrc32cHashSink& sink);
 
 // No-heap canonical arena plan for one scalar. The output layout is identical to
@@ -163,17 +108,17 @@ public:
     void write(char* destination, size_t capacity) const;
 
 private:
-    CanonicalScalarSerializationPlan(VariantCanonicalScalarRef value, size_t cell_size) noexcept
+    CanonicalScalarSerializationPlan(VariantScalarRef value, size_t cell_size) noexcept
             : _value(value), _cell_size(cell_size) {}
 
-    VariantCanonicalScalarRef _value;
+    VariantScalarRef _value;
     size_t _cell_size;
 
     friend CanonicalScalarSerializationPlan prepare_canonical_serialize(
-            VariantCanonicalScalarRef value);
+            const VariantScalarRef& value);
 };
 
-CanonicalScalarSerializationPlan prepare_canonical_serialize(VariantCanonicalScalarRef value);
+CanonicalScalarSerializationPlan prepare_canonical_serialize(const VariantScalarRef& value);
 
 // Owns a validated canonical serialization plan while borrowing the source Variant bytes. The
 // source metadata/value buffers must remain stable until write() returns. This lets column adapters

@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/value/large_int_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -44,9 +45,9 @@ StringRef string_ref(std::string_view value) {
     return {value.data(), value.size()};
 }
 
-std::string encode_plan(const VariantScalarEncodingPlan& plan) {
-    std::string encoded(plan.size(), '\0');
-    plan.write(encoded.data(), encoded.size());
+std::string encode_scalar(const VariantScalarRef& scalar) {
+    std::string encoded(scalar.encoded_size(), '\0');
+    scalar.write_physical(encoded.data(), encoded.size());
     return encoded;
 }
 
@@ -207,21 +208,21 @@ TEST(VariantBatchBuilderTest, FinishedBatchOwnsEmptySmallAndMovedStorage) {
     EXPECT_EQ(field.get_string(), string_ref("v"));
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive scalar plan parity matrix.
-TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
-    const auto expect_parity = [](const VariantScalarEncodingPlan& plan, auto&& add_value) {
-        EXPECT_EQ(encode_plan(plan), encode_builder_scalar(add_value));
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive scalar parity matrix.
+TEST(VariantBatchBuilderTest, ScalarRefPhysicalEncodingMatchesBuilder) {
+    const auto expect_parity = [](const VariantScalarRef& scalar, auto&& add_value) {
+        EXPECT_EQ(encode_scalar(scalar), encode_builder_scalar(add_value));
     };
 
-    expect_parity(VariantScalarEncodingPlan::null_value(),
+    expect_parity(VariantScalarRef::null_value(),
                   [](VariantBatchBuilder::Row& builder) { builder.add_null(); });
-    expect_parity(VariantScalarEncodingPlan::boolean(false),
+    expect_parity(VariantScalarRef::boolean(false),
                   [](VariantBatchBuilder::Row& builder) { builder.add_bool(false); });
-    expect_parity(VariantScalarEncodingPlan::boolean(true),
+    expect_parity(VariantScalarRef::boolean(true),
                   [](VariantBatchBuilder::Row& builder) { builder.add_bool(true); });
     for (const int64_t value : {int64_t {-129}, int64_t {-128}, int64_t {127}, int64_t {128},
                                 int64_t {32768}, int64_t {1} << 40}) {
-        expect_parity(VariantScalarEncodingPlan::integer(value),
+        expect_parity(VariantScalarRef::integer(value),
                       [value](VariantBatchBuilder::Row& builder) { builder.add_int(value); });
     }
     const std::array<std::pair<int64_t, uint8_t>, 4> fixed_integers {
@@ -233,7 +234,7 @@ TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
     for (const auto& value_and_width : fixed_integers) {
         const auto value = value_and_width.first;
         const auto width = value_and_width.second;
-        expect_parity(VariantScalarEncodingPlan::integer(value, width),
+        expect_parity(VariantScalarRef::integer(value, width),
                       [value](VariantBatchBuilder::Row& builder) { builder.add_int(value); });
     }
     const std::string empty_metadata("\x11\0\0", 3);
@@ -244,7 +245,7 @@ TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
             std::pair {uint8_t {8}, VariantPrimitiveId::INT64},
     };
     for (const auto& [width, id] : requested_integers) {
-        const std::string encoded = encode_plan(VariantScalarEncodingPlan::integer(1, width));
+        const std::string encoded = encode_scalar(VariantScalarRef::integer(1, width));
         const VariantRef decoded {
                 .metadata = {.data = empty_metadata.data(), .size = empty_metadata.size()},
                 .value = {encoded.data(), encoded.size()}};
@@ -252,13 +253,13 @@ TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
         EXPECT_EQ(decoded.get_int(), 1);
         EXPECT_EQ(decoded.value_size(), static_cast<size_t>(width) + 1);
     }
-    expect_parity(VariantScalarEncodingPlan::float32(-1.25F),
+    expect_parity(VariantScalarRef::float32(-1.25F),
                   [](VariantBatchBuilder::Row& builder) { builder.add_float(-1.25F); });
-    expect_parity(VariantScalarEncodingPlan::float64(123.5),
+    expect_parity(VariantScalarRef::float64(123.5),
                   [](VariantBatchBuilder::Row& builder) { builder.add_double(123.5); });
-    expect_parity(VariantScalarEncodingPlan::decimal(-123456789, 7),
+    expect_parity(VariantScalarRef::decimal(-123456789, 7),
                   [](VariantBatchBuilder::Row& builder) { builder.add_decimal(-123456789, 7); });
-    expect_parity(VariantScalarEncodingPlan::decimal(-123456789012345678LL, 7, 8),
+    expect_parity(VariantScalarRef::decimal(-123456789012345678LL, 7, 8),
                   [](VariantBatchBuilder::Row& builder) {
                       builder.add_decimal(-123456789012345678LL, 7, 8);
                   });
@@ -270,7 +271,7 @@ TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
     for (const auto& unscaled_and_width : fixed_decimals) {
         const auto unscaled = unscaled_and_width.first;
         const auto width = unscaled_and_width.second;
-        expect_parity(VariantScalarEncodingPlan::decimal(unscaled, 3, width),
+        expect_parity(VariantScalarRef::decimal(unscaled, 3, width),
                       [unscaled, width](VariantBatchBuilder::Row& builder) {
                           builder.add_decimal(unscaled, 3, width);
                       });
@@ -281,47 +282,47 @@ TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
             std::pair {uint8_t {16}, VariantPrimitiveId::DECIMAL16},
     };
     for (const auto& [width, id] : requested_decimals) {
-        const std::string encoded = encode_plan(VariantScalarEncodingPlan::decimal(1, 3, width));
+        const std::string encoded = encode_scalar(VariantScalarRef::decimal(1, 3, width));
         const VariantRef decoded {
                 .metadata = {.data = empty_metadata.data(), .size = empty_metadata.size()},
                 .value = {encoded.data(), encoded.size()}};
         EXPECT_EQ(decoded.primitive_id(), id);
         EXPECT_EQ(decoded.get_decimal(), (VariantDecimal {1, 3, width}));
     }
-    expect_parity(VariantScalarEncodingPlan::date(-20000),
+    expect_parity(VariantScalarRef::date(-20000),
                   [](VariantBatchBuilder::Row& builder) { builder.add_date(-20000); });
-    expect_parity(VariantScalarEncodingPlan::timestamp_micros(-1234567890, true),
+    expect_parity(VariantScalarRef::timestamp_micros(-1234567890, true),
                   [](VariantBatchBuilder::Row& builder) {
                       builder.add_timestamp_micros(-1234567890, true);
                   });
-    expect_parity(VariantScalarEncodingPlan::timestamp_micros(2234567890, false),
+    expect_parity(VariantScalarRef::timestamp_micros(2234567890, false),
                   [](VariantBatchBuilder::Row& builder) {
                       builder.add_timestamp_micros(2234567890, false);
                   });
-    expect_parity(VariantScalarEncodingPlan::timestamp_nanos(-3234567890, true),
+    expect_parity(VariantScalarRef::timestamp_nanos(-3234567890, true),
                   [](VariantBatchBuilder::Row& builder) {
                       builder.add_timestamp_nanos(-3234567890, true);
                   });
-    expect_parity(VariantScalarEncodingPlan::timestamp_nanos(4234567890, false),
+    expect_parity(VariantScalarRef::timestamp_nanos(4234567890, false),
                   [](VariantBatchBuilder::Row& builder) {
                       builder.add_timestamp_nanos(4234567890, false);
                   });
     expect_parity(
-            VariantScalarEncodingPlan::time_ntz_micros(5234567890),
+            VariantScalarRef::time_ntz_micros(5234567890),
             [](VariantBatchBuilder::Row& builder) { builder.add_time_ntz_micros(5234567890); });
 
     const std::string binary("\0\xFF\x01", 3);
-    expect_parity(VariantScalarEncodingPlan::binary(StringRef(binary)),
+    expect_parity(VariantScalarRef::binary(StringRef(binary)),
                   [&binary](VariantBatchBuilder::Row& builder) {
                       builder.add_binary(StringRef(binary));
                   });
     const std::string short_text(63, 's');
     const std::string long_text(64, 'L');
-    expect_parity(VariantScalarEncodingPlan::string(StringRef(short_text)),
+    expect_parity(VariantScalarRef::string(StringRef(short_text)),
                   [&short_text](VariantBatchBuilder::Row& builder) {
                       builder.add_string(StringRef(short_text));
                   });
-    expect_parity(VariantScalarEncodingPlan::string(StringRef(long_text)),
+    expect_parity(VariantScalarRef::string(StringRef(long_text)),
                   [&long_text](VariantBatchBuilder::Row& builder) {
                       builder.add_string(StringRef(long_text));
                   });
@@ -330,63 +331,59 @@ TEST(VariantBatchBuilderTest, ScalarEncodingPlanMatchesBuilder) {
     for (uint8_t index = 0; index < uuid.size(); ++index) {
         uuid[index] = index;
     }
-    expect_parity(VariantScalarEncodingPlan::uuid(uuid),
+    expect_parity(VariantScalarRef::uuid(uuid),
                   [&uuid](VariantBatchBuilder::Row& builder) { builder.add_uuid(uuid); });
     const auto decimal38 = static_cast<__int128>(power_of_ten(38) - 1);
     expect_parity(
-            VariantScalarEncodingPlan::largeint(decimal38),
+            VariantScalarRef::decimal(decimal38, 0, 16),
             [decimal38](VariantBatchBuilder::Row& builder) { builder.add_largeint(decimal38); });
     const auto outside_decimal38 = static_cast<__int128>(power_of_ten(38));
-    const VariantScalarEncodingPlan fallback =
-            VariantScalarEncodingPlan::largeint(outside_decimal38);
-    EXPECT_TRUE(fallback.used_string_fallback());
-    expect_parity(fallback, [outside_decimal38](VariantBatchBuilder::Row& builder) {
-        builder.add_largeint(outside_decimal38);
-    });
-    for (const __int128 value : {-outside_decimal38, std::numeric_limits<__int128>::min()}) {
-        const VariantScalarEncodingPlan negative_fallback =
-                VariantScalarEncodingPlan::largeint(value);
-        EXPECT_TRUE(negative_fallback.used_string_fallback());
-        expect_parity(negative_fallback,
+    const auto expect_largeint_fallback = [&](const __int128 value) {
+        const std::string text = LargeIntValue::to_string(value);
+        expect_parity(VariantScalarRef::string(StringRef(text)),
                       [value](VariantBatchBuilder::Row& builder) { builder.add_largeint(value); });
+    };
+    expect_largeint_fallback(outside_decimal38);
+    for (const __int128 value : {-outside_decimal38, std::numeric_limits<__int128>::min()}) {
+        expect_largeint_fallback(value);
     }
 
     std::string borrowed_short = "borrowed";
-    const VariantScalarEncodingPlan borrowed_short_plan =
-            VariantScalarEncodingPlan::string(StringRef(borrowed_short));
+    const VariantScalarRef borrowed_short_scalar =
+            VariantScalarRef::string(StringRef(borrowed_short));
     borrowed_short.front() = 'B';
-    EXPECT_EQ(encode_plan(borrowed_short_plan),
+    EXPECT_EQ(encode_scalar(borrowed_short_scalar),
               encode_builder_scalar([&borrowed_short](VariantBatchBuilder::Row& builder) {
                   builder.add_string(StringRef(borrowed_short));
               }));
     std::string borrowed_long(64, 'x');
-    const VariantScalarEncodingPlan borrowed_long_plan =
-            VariantScalarEncodingPlan::string(StringRef(borrowed_long));
+    const VariantScalarRef borrowed_long_scalar =
+            VariantScalarRef::string(StringRef(borrowed_long));
     borrowed_long.back() = 'y';
-    EXPECT_EQ(encode_plan(borrowed_long_plan),
+    EXPECT_EQ(encode_scalar(borrowed_long_scalar),
               encode_builder_scalar([&borrowed_long](VariantBatchBuilder::Row& builder) {
                   builder.add_string(StringRef(borrowed_long));
               }));
 
-    const VariantScalarEncodingPlan integer = VariantScalarEncodingPlan::integer(1);
+    const VariantScalarRef integer = VariantScalarRef::integer(1);
     std::array<char, 4> unchanged {'a', 'b', 'c', 'd'};
-    EXPECT_THROW(integer.write(unchanged.data(), integer.size() - 1), Exception);
+    EXPECT_THROW(integer.write_physical(unchanged.data(), integer.encoded_size() - 1), Exception);
     EXPECT_EQ(unchanged, (std::array<char, 4> {'a', 'b', 'c', 'd'}));
-    EXPECT_THROW(integer.write(nullptr, integer.size()), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::integer(128, 1), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::integer(1, 3), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::decimal(1, 39), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::decimal(1, 0, 3), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::decimal(1'000'000'000, 0, 4), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::decimal(
-                         static_cast<__int128>(1'000'000'000'000'000'000LL), 0, 8),
-                 Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::decimal(outside_decimal38, 0, 16), Exception);
+    EXPECT_THROW(integer.write_physical(nullptr, integer.encoded_size()), Exception);
+    EXPECT_THROW(VariantScalarRef::integer(128, 1), Exception);
+    EXPECT_THROW(VariantScalarRef::integer(1, 3), Exception);
+    EXPECT_THROW(VariantScalarRef::decimal(1, 39), Exception);
+    EXPECT_THROW(VariantScalarRef::decimal(1, 0, 3), Exception);
+    EXPECT_THROW(VariantScalarRef::decimal(1'000'000'000, 0, 4), Exception);
+    EXPECT_THROW(
+            VariantScalarRef::decimal(static_cast<__int128>(1'000'000'000'000'000'000LL), 0, 8),
+            Exception);
+    EXPECT_THROW(VariantScalarRef::decimal(outside_decimal38, 0, 16), Exception);
     const std::string invalid_utf8("\xC3\x28", 2);
-    EXPECT_THROW(VariantScalarEncodingPlan::string(StringRef(invalid_utf8)), Exception);
+    EXPECT_THROW(VariantScalarRef::string(StringRef(invalid_utf8)), Exception);
     const StringRef null_bytes(static_cast<const char*>(nullptr), 1);
-    EXPECT_THROW(VariantScalarEncodingPlan::string(null_bytes), Exception);
-    EXPECT_THROW(VariantScalarEncodingPlan::binary(null_bytes), Exception);
+    EXPECT_THROW(VariantScalarRef::string(null_bytes), Exception);
+    EXPECT_THROW(VariantScalarRef::binary(null_bytes), Exception);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
@@ -1106,11 +1103,11 @@ TEST(VariantBatchBuilderTest, InlineScalarPathsMatchPlanFactoryAndCanonicalBytes
     });
     const VariantRef canonical_value = canonical.ref();
     const std::array<std::string, 5> plan_bytes {
-            encode_plan(VariantScalarEncodingPlan::null_value()),
-            encode_plan(VariantScalarEncodingPlan::boolean(true)),
-            encode_plan(VariantScalarEncodingPlan::integer(-128)),
-            encode_plan(VariantScalarEncodingPlan::integer(128)),
-            encode_plan(VariantScalarEncodingPlan::string(string_ref("abc"))),
+            encode_scalar(VariantScalarRef::null_value()),
+            encode_scalar(VariantScalarRef::boolean(true)),
+            encode_scalar(VariantScalarRef::integer(-128)),
+            encode_scalar(VariantScalarRef::integer(128)),
+            encode_scalar(VariantScalarRef::string(string_ref("abc"))),
     };
     for (size_t index = 0; index < plan_bytes.size(); ++index) {
         const VariantRef child = canonical_value.array_at(static_cast<uint32_t>(index));

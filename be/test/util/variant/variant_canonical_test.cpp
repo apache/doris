@@ -295,7 +295,7 @@ Hashes hashes(VariantRef value) {
     return {.sip = sip.get64(), .xx = xx.digest(), .crc = crc.digest(), .crc32c = crc32c.digest()};
 }
 
-Hashes hashes(VariantCanonicalScalarRef value) {
+Hashes hashes(const VariantScalarRef& value) {
     SipHash sip;
     canonical_hash(value, sip);
     VariantXxHashSink xx(0x123456789ABCDEF0ULL);
@@ -316,12 +316,18 @@ std::string arena(VariantRef value) {
     return encoded;
 }
 
-std::string arena(VariantCanonicalScalarRef value) {
+std::string arena(const VariantScalarRef& value) {
     const CanonicalScalarSerializationPlan plan = prepare_canonical_serialize(value);
     std::string encoded(plan.size(), '\0');
     plan.write(encoded.data(), encoded.size());
     EXPECT_GE(encoded.size(), sizeof(uint32_t));
     EXPECT_EQ(read_u32(encoded.data()), encoded.size() - sizeof(uint32_t));
+    return encoded;
+}
+
+std::string physical(const VariantScalarRef& value) {
+    std::string encoded(value.encoded_size(), '\0');
+    value.write_physical(encoded.data(), encoded.size());
     return encoded;
 }
 
@@ -369,8 +375,7 @@ void expect_distinct(const OwnedValue& left, const OwnedValue& right) {
     EXPECT_NE(arena(left.ref()), arena(right.ref()));
 }
 
-void expect_scalar_equivalent(VariantCanonicalScalarRef scalar_ref,
-                              const OwnedValue& encoded_value) {
+void expect_scalar_equivalent(const VariantScalarRef& scalar_ref, const OwnedValue& encoded_value) {
     EXPECT_TRUE(canonical_equals(scalar_ref, scalar_ref));
     const Hashes scalar_hashes = hashes(scalar_ref);
     const Hashes encoded_hashes = hashes(encoded_value.ref());
@@ -383,66 +388,61 @@ void expect_scalar_equivalent(VariantCanonicalScalarRef scalar_ref,
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive typed/encoded parity matrix.
 TEST(VariantCanonicalTest, TypedScalarCanonicalMatchesVariantRef) {
-    expect_scalar_equivalent(VariantCanonicalScalarRef::null_value(),
+    expect_scalar_equivalent(VariantScalarRef::null_value(),
                              scalar(primitive(VariantPrimitiveId::NULL_VALUE)));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::boolean(false),
+    expect_scalar_equivalent(VariantScalarRef::boolean(false),
                              scalar(primitive(VariantPrimitiveId::FALSE_VALUE)));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::boolean(true),
+    expect_scalar_equivalent(VariantScalarRef::boolean(true),
                              scalar(primitive(VariantPrimitiveId::TRUE_VALUE)));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::exact_integer(42), integer_value(42, 1));
+    expect_scalar_equivalent(VariantScalarRef::integer(42), integer_value(42, 1));
     expect_scalar_equivalent(
-            VariantCanonicalScalarRef::exact_integer(
-                    static_cast<__int128>(1'000'000'000'000'000'000LL)),
+            VariantScalarRef::integer(static_cast<__int128>(1'000'000'000'000'000'000LL)),
             decimal_value(static_cast<__int128>(1'000'000'000'000'000'000LL), 0, 16));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::decimal(12300, 4),
-                             decimal_value(123, 2, 4));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::decimal(4200, 2), integer_value(42, 1));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::float32(1.5F), float_value(1.5F));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::float64(42.0), integer_value(42, 1));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::float64(-0.0), integer_value(0, 1));
-    expect_scalar_equivalent(
-            VariantCanonicalScalarRef::float64(std::numeric_limits<double>::quiet_NaN()),
-            double_bits(0x7FF0000000000001ULL));
+    expect_scalar_equivalent(VariantScalarRef::decimal(12300, 4), decimal_value(123, 2, 4));
+    expect_scalar_equivalent(VariantScalarRef::decimal(4200, 2), integer_value(42, 1));
+    expect_scalar_equivalent(VariantScalarRef::float32(1.5F), float_value(1.5F));
+    expect_scalar_equivalent(VariantScalarRef::float64(42.0), integer_value(42, 1));
+    expect_scalar_equivalent(VariantScalarRef::float64(-0.0), integer_value(0, 1));
+    expect_scalar_equivalent(VariantScalarRef::float64(std::numeric_limits<double>::quiet_NaN()),
+                             double_bits(0x7FF0000000000001ULL));
 
     const std::string short_text = "typed string";
     const std::string long_text(64, 'L');
     const std::string binary("\0\xFF\x01", 3);
-    expect_scalar_equivalent(VariantCanonicalScalarRef::string(StringRef(short_text)),
+    expect_scalar_equivalent(VariantScalarRef::string(StringRef(short_text)),
                              string_value(short_text));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::string(StringRef(long_text)),
+    expect_scalar_equivalent(VariantScalarRef::string(StringRef(long_text)),
                              string_value(long_text, true));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::binary(StringRef(binary)),
-                             binary_value(binary));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::date(-20000),
+    expect_scalar_equivalent(VariantScalarRef::binary(StringRef(binary)), binary_value(binary));
+    expect_scalar_equivalent(VariantScalarRef::date(-20000),
                              fixed_value(VariantPrimitiveId::DATE, -20000, 4));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::timestamp_micros(-1234567890, true),
+    expect_scalar_equivalent(VariantScalarRef::timestamp_micros(-1234567890, true),
                              fixed_value(VariantPrimitiveId::TIMESTAMP_MICROS, -1234567890, 8));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::timestamp_micros(2234567890, false),
+    expect_scalar_equivalent(VariantScalarRef::timestamp_micros(2234567890, false),
                              fixed_value(VariantPrimitiveId::TIMESTAMP_NTZ_MICROS, 2234567890, 8));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::timestamp_nanos(-3234567891, true),
+    expect_scalar_equivalent(VariantScalarRef::timestamp_nanos(-3234567891, true),
                              fixed_value(VariantPrimitiveId::TIMESTAMP_NANOS, -3234567891, 8));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::timestamp_nanos(4234567891, false),
+    expect_scalar_equivalent(VariantScalarRef::timestamp_nanos(4234567891, false),
                              fixed_value(VariantPrimitiveId::TIMESTAMP_NTZ_NANOS, 4234567891, 8));
-    expect_scalar_equivalent(VariantCanonicalScalarRef::time_ntz_micros(5234567890),
+    expect_scalar_equivalent(VariantScalarRef::time_ntz_micros(5234567890),
                              fixed_value(VariantPrimitiveId::TIME_NTZ_MICROS, 5234567890, 8));
 
     std::array<uint8_t, 16> uuid {};
     for (uint8_t index = 0; index < uuid.size(); ++index) {
         uuid[index] = index;
     }
-    expect_scalar_equivalent(VariantCanonicalScalarRef::uuid(uuid), uuid_value(uuid));
+    expect_scalar_equivalent(VariantScalarRef::uuid(uuid), uuid_value(uuid));
 
-    const VariantCanonicalScalarRef integer_42 = VariantCanonicalScalarRef::exact_integer(42);
-    const VariantCanonicalScalarRef decimal_42 = VariantCanonicalScalarRef::decimal(4200, 2);
-    const VariantCanonicalScalarRef double_42 = VariantCanonicalScalarRef::float64(42.0);
+    const VariantScalarRef integer_42 = VariantScalarRef::integer(42);
+    const VariantScalarRef decimal_42 = VariantScalarRef::decimal(4200, 2);
+    const VariantScalarRef double_42 = VariantScalarRef::float64(42.0);
     EXPECT_TRUE(canonical_equals(integer_42, decimal_42));
     EXPECT_TRUE(canonical_equals(decimal_42, double_42));
-    EXPECT_FALSE(canonical_equals(integer_42, VariantCanonicalScalarRef::string(StringRef("42"))));
-    EXPECT_FALSE(canonical_equals(integer_42, VariantCanonicalScalarRef::float64(42.5)));
+    EXPECT_FALSE(canonical_equals(integer_42, VariantScalarRef::string(StringRef("42"))));
+    EXPECT_FALSE(canonical_equals(integer_42, VariantScalarRef::float64(42.5)));
 
     std::string borrowed = "borrowed";
-    const VariantCanonicalScalarRef borrowed_ref =
-            VariantCanonicalScalarRef::string(StringRef(borrowed));
+    const VariantScalarRef borrowed_ref = VariantScalarRef::string(StringRef(borrowed));
     const CanonicalScalarSerializationPlan borrowed_plan =
             prepare_canonical_serialize(borrowed_ref);
     borrowed.front() = 'B';
@@ -451,7 +451,7 @@ TEST(VariantCanonicalTest, TypedScalarCanonicalMatchesVariantRef) {
     EXPECT_EQ(borrowed_arena, arena(string_value(borrowed).ref()));
 
     const CanonicalScalarSerializationPlan null_plan =
-            prepare_canonical_serialize(VariantCanonicalScalarRef::null_value());
+            prepare_canonical_serialize(VariantScalarRef::null_value());
     std::array<char, 16> unchanged {};
     unchanged.fill('x');
     EXPECT_THROW(null_plan.write(nullptr, null_plan.size()), Exception);
@@ -459,8 +459,8 @@ TEST(VariantCanonicalTest, TypedScalarCanonicalMatchesVariantRef) {
     EXPECT_TRUE(std::ranges::all_of(unchanged, [](char value) { return value == 'x'; }));
 
     const std::string invalid_utf8("\xC3\x28", 2);
-    EXPECT_THROW(VariantCanonicalScalarRef::string(StringRef(invalid_utf8)), Exception);
-    EXPECT_THROW(VariantCanonicalScalarRef::decimal(1, 39), Exception);
+    EXPECT_THROW(VariantScalarRef::string(StringRef(invalid_utf8)), Exception);
+    EXPECT_THROW(VariantScalarRef::decimal(1, 39), Exception);
     const __int128 outside_decimal38 = [] {
         __int128 value = 1;
         for (uint8_t digit = 0; digit < 38; ++digit) {
@@ -468,11 +468,31 @@ TEST(VariantCanonicalTest, TypedScalarCanonicalMatchesVariantRef) {
         }
         return value;
     }();
-    EXPECT_THROW(VariantCanonicalScalarRef::decimal(outside_decimal38, 0), Exception);
-    EXPECT_THROW(VariantCanonicalScalarRef::exact_integer(outside_decimal38), Exception);
+    EXPECT_THROW(VariantScalarRef::decimal(outside_decimal38, 0), Exception);
     const StringRef null_bytes(static_cast<const char*>(nullptr), 1);
-    EXPECT_THROW(VariantCanonicalScalarRef::string(null_bytes), Exception);
-    EXPECT_THROW(VariantCanonicalScalarRef::binary(null_bytes), Exception);
+    EXPECT_THROW(VariantScalarRef::string(null_bytes), Exception);
+    EXPECT_THROW(VariantScalarRef::binary(null_bytes), Exception);
+}
+
+TEST(VariantCanonicalTest, ScalarRefRetainsPhysicalEncodingBeforeCanonicalization) {
+    const auto expect_ids = [](const VariantScalarRef& scalar_ref, VariantPrimitiveId physical_id,
+                               VariantPrimitiveId canonical_id) {
+        const OwnedValue physical_value {.metadata = empty_metadata(),
+                                         .value = physical(scalar_ref)};
+        EXPECT_EQ(physical_value.ref().primitive_id(), physical_id);
+
+        const std::string canonical = arena(scalar_ref);
+        EXPECT_EQ(arena_value_ref(canonical).primitive_id(), canonical_id);
+    };
+
+    expect_ids(VariantScalarRef::integer(42, 8), VariantPrimitiveId::INT64,
+               VariantPrimitiveId::INT8);
+    expect_ids(VariantScalarRef::decimal(4200, 2, 16), VariantPrimitiveId::DECIMAL16,
+               VariantPrimitiveId::INT8);
+    expect_ids(VariantScalarRef::float32(1.5F), VariantPrimitiveId::FLOAT,
+               VariantPrimitiveId::DOUBLE);
+    expect_ids(VariantScalarRef::timestamp_nanos(1000, true), VariantPrimitiveId::TIMESTAMP_NANOS,
+               VariantPrimitiveId::TIMESTAMP_MICROS);
 }
 
 TEST(VariantCanonicalTest, NumericEquivalenceMatrix) {

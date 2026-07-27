@@ -65,8 +65,8 @@ template <PrimitiveType Type, typename Column>
 void append_scalar_value(const IColumn& source, size_t row, uint8_t scale,
                          VariantBatchBuilder::Row* output) {
     const auto& column = assert_cast<const Column&>(source);
-    with_variant_typed_scalar<Type>(column, row, scale, [&](auto&& physical_factory, auto&&) {
-        output->add_scalar(physical_factory());
+    with_variant_typed_scalar<Type>(column, row, scale, [&](const VariantScalarRef& scalar) {
+        output->add_scalar(scalar);
     });
 }
 

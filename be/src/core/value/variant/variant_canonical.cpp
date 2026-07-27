@@ -869,20 +869,27 @@ void write_metadata(const std::vector<StringRef>& keys, uint8_t width, char*& ou
 
 } // namespace
 
-struct VariantCanonicalScalarAdapter {
-    static NormalizedValue normalize(VariantCanonicalScalarRef value) {
-        switch (value._kind) {
-        case VariantCanonicalScalarRef::Kind::NULL_VALUE:
+struct VariantScalarAdapter {
+    static NormalizedValue normalize(const VariantScalarRef& value) {
+        switch (value._physical_id) {
+        case VariantPrimitiveId::NULL_VALUE:
             return normalized_kind(CanonicalKind::NULL_VALUE);
-        case VariantCanonicalScalarRef::Kind::BOOL: {
+        case VariantPrimitiveId::TRUE_VALUE: {
             NormalizedValue normalized = normalized_kind(CanonicalKind::BOOL);
-            normalized.boolean = value._boolean;
+            normalized.boolean = true;
             return normalized;
         }
-        case VariantCanonicalScalarRef::Kind::EXACT_INTEGER:
-            return normalized_integer(CanonicalKind::EXACT_INTEGER, value._integer);
-        case VariantCanonicalScalarRef::Kind::DECIMAL: {
-            __int128 unscaled = value._integer;
+        case VariantPrimitiveId::FALSE_VALUE:
+            return normalized_kind(CanonicalKind::BOOL);
+        case VariantPrimitiveId::INT8:
+        case VariantPrimitiveId::INT16:
+        case VariantPrimitiveId::INT32:
+        case VariantPrimitiveId::INT64:
+            return normalized_integer(CanonicalKind::EXACT_INTEGER, value._signed_value);
+        case VariantPrimitiveId::DECIMAL4:
+        case VariantPrimitiveId::DECIMAL8:
+        case VariantPrimitiveId::DECIMAL16: {
+            __int128 unscaled = value._signed_value;
             uint8_t scale = value._scale;
             while (scale != 0 && unscaled % 10 == 0) {
                 unscaled /= 10;
@@ -895,27 +902,42 @@ struct VariantCanonicalScalarAdapter {
             normalized.scale = scale;
             return normalized;
         }
-        case VariantCanonicalScalarRef::Kind::FLOATING:
-            return normalize_floating(value._floating);
-        case VariantCanonicalScalarRef::Kind::STRING:
+        case VariantPrimitiveId::FLOAT:
+            return normalize_floating(static_cast<double>(
+                    std::bit_cast<float>(static_cast<uint32_t>(value._floating_bits))));
+        case VariantPrimitiveId::DOUBLE:
+            return normalize_floating(std::bit_cast<double>(value._floating_bits));
+        case VariantPrimitiveId::STRING:
             return normalized_bytes(CanonicalKind::STRING, value._bytes);
-        case VariantCanonicalScalarRef::Kind::BINARY:
+        case VariantPrimitiveId::BINARY:
             return normalized_bytes(CanonicalKind::BINARY, value._bytes);
-        case VariantCanonicalScalarRef::Kind::DATE:
-            return normalized_integer(CanonicalKind::DATE, value._integer);
-        case VariantCanonicalScalarRef::Kind::TIMESTAMP_TZ:
-            return normalized_integer(CanonicalKind::TIMESTAMP_TZ, value._integer);
-        case VariantCanonicalScalarRef::Kind::TIMESTAMP_NTZ:
-            return normalized_integer(CanonicalKind::TIMESTAMP_NTZ, value._integer);
-        case VariantCanonicalScalarRef::Kind::TIME:
-            return normalized_integer(CanonicalKind::TIME, value._integer);
-        case VariantCanonicalScalarRef::Kind::UUID: {
+        case VariantPrimitiveId::DATE:
+            return normalized_integer(CanonicalKind::DATE, value._signed_value);
+        case VariantPrimitiveId::TIMESTAMP_MICROS:
+            return normalized_integer(CanonicalKind::TIMESTAMP_TZ, value._signed_value * 1000);
+        case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+            return normalized_integer(CanonicalKind::TIMESTAMP_NTZ, value._signed_value * 1000);
+        case VariantPrimitiveId::TIMESTAMP_NANOS:
+            return normalized_integer(CanonicalKind::TIMESTAMP_TZ, value._signed_value);
+        case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+            return normalized_integer(CanonicalKind::TIMESTAMP_NTZ, value._signed_value);
+        case VariantPrimitiveId::TIME_NTZ_MICROS:
+            return normalized_integer(CanonicalKind::TIME, value._signed_value);
+        case VariantPrimitiveId::UUID: {
             NormalizedValue normalized = normalized_kind(CanonicalKind::UUID);
             normalized.uuid = value._uuid;
             return normalized;
         }
         }
         __builtin_unreachable();
+    }
+
+    static size_t canonical_encoded_size(const VariantScalarRef& value) {
+        return scalar_encoded_size(normalize(value));
+    }
+
+    static void write_canonical(const VariantScalarRef& value, char*& output) noexcept {
+        write_scalar(normalize(value), output);
     }
 };
 
@@ -995,136 +1017,27 @@ template void canonical_hash<VariantXxHashSink>(VariantRef value, VariantXxHashS
 template void canonical_hash<VariantCrc32HashSink>(VariantRef value, VariantCrc32HashSink& sink);
 template void canonical_hash<VariantCrc32cHashSink>(VariantRef value, VariantCrc32cHashSink& sink);
 
-VariantCanonicalScalarRef VariantCanonicalScalarRef::null_value() noexcept {
-    return VariantCanonicalScalarRef(Kind::NULL_VALUE);
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::boolean(bool value) noexcept {
-    VariantCanonicalScalarRef result(Kind::BOOL);
-    result._boolean = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::exact_integer(__int128 value) {
-    if (variant_unsigned_magnitude(value) > VARIANT_DECIMAL16_MAX) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant exact integer exceeds the decimal38 canonical domain");
-    }
-    VariantCanonicalScalarRef result(Kind::EXACT_INTEGER);
-    result._integer = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::decimal(__int128 unscaled, uint8_t scale) {
-    if (scale > 38) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant decimal scale {} is outside [0, 38]",
-                        scale);
-    }
-    if (variant_unsigned_magnitude(unscaled) > VARIANT_DECIMAL16_MAX) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant decimal unscaled value exceeds precision 38");
-    }
-    VariantCanonicalScalarRef result(Kind::DECIMAL);
-    result._integer = unscaled;
-    result._scale = scale;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::float32(float value) noexcept {
-    VariantCanonicalScalarRef result(Kind::FLOATING);
-    result._floating = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::float64(double value) noexcept {
-    VariantCanonicalScalarRef result(Kind::FLOATING);
-    result._floating = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::string(StringRef value) {
-    if (value.data == nullptr && value.size != 0) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant string has a null data pointer");
-    }
-    if (value.size != 0 && !validate_utf8(value.data, value.size)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant string is not valid UTF-8");
-    }
-    if (value.size > std::numeric_limits<uint32_t>::max()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant string exceeds the uint32 byte limit");
-    }
-    VariantCanonicalScalarRef result(Kind::STRING);
-    result._bytes = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::binary(StringRef value) {
-    if (value.data == nullptr && value.size != 0) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant binary has a null data pointer");
-    }
-    if (value.size > std::numeric_limits<uint32_t>::max()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant binary exceeds the uint32 byte limit");
-    }
-    VariantCanonicalScalarRef result(Kind::BINARY);
-    result._bytes = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::date(int32_t days_since_epoch) noexcept {
-    VariantCanonicalScalarRef result(Kind::DATE);
-    result._integer = days_since_epoch;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::timestamp_micros(int64_t value,
-                                                                      bool utc_adjusted) noexcept {
-    VariantCanonicalScalarRef result(utc_adjusted ? Kind::TIMESTAMP_TZ : Kind::TIMESTAMP_NTZ);
-    result._integer = static_cast<__int128>(value) * 1000;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::timestamp_nanos(int64_t value,
-                                                                     bool utc_adjusted) noexcept {
-    VariantCanonicalScalarRef result(utc_adjusted ? Kind::TIMESTAMP_TZ : Kind::TIMESTAMP_NTZ);
-    result._integer = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::time_ntz_micros(int64_t value) noexcept {
-    VariantCanonicalScalarRef result(Kind::TIME);
-    result._integer = value;
-    return result;
-}
-
-VariantCanonicalScalarRef VariantCanonicalScalarRef::uuid(
-        const std::array<uint8_t, 16>& value) noexcept {
-    VariantCanonicalScalarRef result(Kind::UUID);
-    result._uuid = value;
-    return result;
-}
-
-bool canonical_equals(VariantCanonicalScalarRef left, VariantCanonicalScalarRef right) {
-    const NormalizedValue normalized_left = VariantCanonicalScalarAdapter::normalize(left);
-    const NormalizedValue normalized_right = VariantCanonicalScalarAdapter::normalize(right);
+bool canonical_equals(const VariantScalarRef& left, const VariantScalarRef& right) {
+    const NormalizedValue normalized_left = VariantScalarAdapter::normalize(left);
+    const NormalizedValue normalized_right = VariantScalarAdapter::normalize(right);
     return normalized_left.kind == normalized_right.kind &&
            scalar_equals(normalized_left, normalized_right);
 }
 
 template <typename Sink>
-void canonical_hash(VariantCanonicalScalarRef value, Sink& sink) {
-    const NormalizedValue normalized = VariantCanonicalScalarAdapter::normalize(value);
+void canonical_hash(const VariantScalarRef& value, Sink& sink) {
+    const NormalizedValue normalized = VariantScalarAdapter::normalize(value);
     const char tag = static_cast<char>(normalized.kind);
     sink.update(&tag, 1);
     hash_normalized_scalar(normalized, sink);
 }
 
-template void canonical_hash<SipHash>(VariantCanonicalScalarRef value, SipHash& sink);
-template void canonical_hash<VariantXxHashSink>(VariantCanonicalScalarRef value,
+template void canonical_hash<SipHash>(const VariantScalarRef& value, SipHash& sink);
+template void canonical_hash<VariantXxHashSink>(const VariantScalarRef& value,
                                                 VariantXxHashSink& sink);
-template void canonical_hash<VariantCrc32HashSink>(VariantCanonicalScalarRef value,
+template void canonical_hash<VariantCrc32HashSink>(const VariantScalarRef& value,
                                                    VariantCrc32HashSink& sink);
-template void canonical_hash<VariantCrc32cHashSink>(VariantCanonicalScalarRef value,
+template void canonical_hash<VariantCrc32cHashSink>(const VariantScalarRef& value,
                                                     VariantCrc32cHashSink& sink);
 
 void CanonicalScalarSerializationPlan::write(char* destination, size_t capacity) const {
@@ -1137,21 +1050,18 @@ void CanonicalScalarSerializationPlan::write(char* destination, size_t capacity)
                         "Variant canonical serialization needs {} bytes, but capacity is {}",
                         _cell_size, capacity);
     }
-    const NormalizedValue normalized = VariantCanonicalScalarAdapter::normalize(_value);
-    const size_t value_size = scalar_encoded_size(normalized);
-    DCHECK_EQ(_cell_size,
-              VARIANT_CANONICAL_SIZE_PREFIX + VARIANT_EMPTY_METADATA.size() + value_size);
+    const size_t value_size =
+            _cell_size - VARIANT_CANONICAL_SIZE_PREFIX - VARIANT_EMPTY_METADATA.size();
 
     char* output = destination;
     write_unsigned(output, VARIANT_EMPTY_METADATA.size() + value_size, sizeof(uint32_t));
     output = std::copy(VARIANT_EMPTY_METADATA.begin(), VARIANT_EMPTY_METADATA.end(), output);
-    write_scalar(normalized, output);
+    VariantScalarAdapter::write_canonical(_value, output);
     DCHECK_EQ(output, destination + _cell_size);
 }
 
-CanonicalScalarSerializationPlan prepare_canonical_serialize(VariantCanonicalScalarRef value) {
-    const NormalizedValue normalized = VariantCanonicalScalarAdapter::normalize(value);
-    const size_t value_size = scalar_encoded_size(normalized);
+CanonicalScalarSerializationPlan prepare_canonical_serialize(const VariantScalarRef& value) {
+    const size_t value_size = VariantScalarAdapter::canonical_encoded_size(value);
     if (value_size > std::numeric_limits<uint32_t>::max() - VARIANT_EMPTY_METADATA.size()) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant canonical arena payload exceeds uint32 byte limit");

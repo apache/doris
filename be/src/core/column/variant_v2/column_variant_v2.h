@@ -244,33 +244,31 @@ void visit_variant_v2_values(const IColumn& source, size_t start, size_t end,
     DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
     const auto& inner_nulls = nullable.get_null_map_data();
     DorisVector<char> scratch;
-    auto emit = [&](size_t row, VariantScalarEncodingPlan plan) {
-        scratch.resize(plan.size());
-        plan.write(scratch.data(), scratch.size());
+    auto emit = [&](size_t row, const VariantScalarRef& scalar) {
+        scratch.resize(scalar.encoded_size());
+        scalar.write_physical(scratch.data(), scratch.size());
         on_value(row, VariantRef {.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
                                                .size = VARIANT_EMPTY_METADATA.size()},
                                   .value = {scratch.data(), scratch.size()}});
     };
-    dispatch_variant_typed_column(nullable.get_nested_column(),
-                                  view.typed_type()->get_primitive_type(),
-                                  [&]<PrimitiveType Type>(const auto& nested) {
-                                      for (size_t row = start; row < end; ++row) {
-                                          if (!outer_nulls.empty() && outer_nulls[row] != 0) {
-                                              on_null(row);
-                                              continue;
-                                          }
-                                          const size_t physical_row = constant ? 0 : row;
-                                          if (inner_nulls[physical_row] != 0) {
-                                              emit(row, VariantScalarEncodingPlan::null_value());
-                                              continue;
-                                          }
-                                          with_variant_typed_scalar<Type>(
-                                                  nested, physical_row, static_cast<uint8_t>(scale),
-                                                  [&](auto&& physical_factory, auto&&) {
-                                                      emit(row, physical_factory());
-                                                  });
-                                      }
-                                  });
+    dispatch_variant_typed_column(
+            nullable.get_nested_column(), view.typed_type()->get_primitive_type(),
+            [&]<PrimitiveType Type>(const auto& nested) {
+                for (size_t row = start; row < end; ++row) {
+                    if (!outer_nulls.empty() && outer_nulls[row] != 0) {
+                        on_null(row);
+                        continue;
+                    }
+                    const size_t physical_row = constant ? 0 : row;
+                    if (inner_nulls[physical_row] != 0) {
+                        emit(row, VariantScalarRef::null_value());
+                        continue;
+                    }
+                    with_variant_typed_scalar<Type>(
+                            nested, physical_row, static_cast<uint8_t>(scale),
+                            [&](const VariantScalarRef& scalar) { emit(row, scalar); });
+                }
+            });
 }
 
 } // namespace doris
