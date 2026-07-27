@@ -105,20 +105,37 @@ jobs:
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
-          auth_object="$(printf '%s\n' \
-            'oss://doris-community-ci/codex/auth.json.1' \
-            'oss://doris-community-ci/codex/auth.json.2' \
-            | shuf -n 1)"
+          auth_prefix='oss://doris-community-ci/codex/auth.json.'
+          auth_listing="$RUNNER_TEMP/codex-auth-objects.list"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"; then
+            echo 'Failed to list Codex auth objects from OSS.'
+            exit 1
+          fi
+
+          auth_object=''
+          while IFS= read -r candidate; do
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate" "$RUNNER_TEMP/codex-home/auth.json" \
+              && test -s "$RUNNER_TEMP/codex-home/auth.json" \
+              && jq -e '
+                .auth_mode == "chatgpt"
+                and (.tokens.access_token | type == "string" and length > 0)
+                and (.tokens.refresh_token | type == "string" and length > 0)
+              ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null; then
+              auth_object="$candidate"
+              break
+            fi
+            echo "Skipping invalid Codex auth object: ${candidate##*/}"
+          done < <(
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | shuf
+          )
+
+          if [ -z "$auth_object" ]; then
+            echo 'No valid Codex auth object found in OSS.'
+            exit 1
+          fi
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
           chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
-          test -s "$RUNNER_TEMP/codex-home/auth.json"
-          jq -e '
-            .auth_mode == "chatgpt"
-            and (.tokens.access_token | type == "string" and length > 0)
-            and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
 
           cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
           cli_auth_credentials_store = "file"
