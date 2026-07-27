@@ -69,7 +69,8 @@ UUID/FIXED/BINARY, and the Iceberg optional/required flag. Nested defaults do no
 `Column.defaultValue`. The read phase deliberately leaves that generic Doris field unset for
 Iceberg schema columns so existing INSERT/MERGE code cannot mistake `initial-default` for
 `write-default`. The write phase uses a separate schema-pinned write-default path in the same pull
-request.
+request. Consequently, `DESC` and `SHOW CREATE TABLE` do not present either Iceberg value as a
+generic Doris column default.
 
 File Scanner V1 and File Scanner V2 consume the same metadata contract but implement missing-field
 materialization independently:
@@ -127,16 +128,17 @@ The write phase adds write-time consumption without changing Iceberg default met
 introduces a statement-scoped, field-ID keyed context pinned to the target schema ID and format
 version.
 
-The following write paths consume the current `write-default`:
+The following write paths consume the statement-pinned `write-default`:
 
 - omitted columns in INSERT
 - explicit `DEFAULT`
 - reordered and multi-row VALUES
 - MERGE `NOT MATCHED INSERT`
-- `DEFAULT(column)` where Doris syntax supports it
+- `DEFAULT(column)` in INSERT, UPDATE, and matched MERGE
 
-Explicit NULL and explicit values are never replaced. UPDATE and MERGE UPDATE preserve their
-existing semantics. Analyzer projection and the schema sent to the Iceberg sink must use the same
+Explicit NULL and explicit values are never replaced. A bare `DEFAULT` in an INSERT position uses
+that destination field's write default, while `DEFAULT(column)` resolves the referenced field by
+Iceberg field ID. Analyzer projection and the schema sent to the Iceberg sink must use the same
 schema ID; schema skew fails before data is dispatched.
 
 The write phase does not add CREATE/ALTER syntax and does not author or evolve default metadata.
@@ -177,9 +179,12 @@ syntax is not expanded beyond syntax Doris already supports when the later DDL P
 ## Write-path acceptance criteria
 
 1. Omitted INSERT columns, explicit `DEFAULT`, reordered/multi-row VALUES, supported
-   `DEFAULT(column)`, and MERGE `NOT MATCHED INSERT` consume the current typed `write-default`.
-2. Explicit NULL and explicit values are never replaced. UPDATE, MERGE UPDATE, and rewrite paths
-   preserve their existing semantics.
+   `DEFAULT(column)`, and MERGE `NOT MATCHED INSERT` consume the typed `write-default` from the
+   statement-pinned schema. A branch target pins the schema at the branch head, matching Spark;
+   columns added after the branch point are unavailable until the branch advances.
+2. Explicit NULL and explicit values are never replaced. UPDATE and matched MERGE
+   `DEFAULT(column)` consume the referenced field's typed `write-default`; other rewrite behavior
+   remains unchanged.
 3. A statement uses one field-ID keyed Iceberg write context. Analyzer projections, the sink schema
    JSON, branch selection, and transaction preflight are pinned to the same schema ID.
 4. Schema skew is rejected before data dispatch; Doris never combines defaults from one schema with

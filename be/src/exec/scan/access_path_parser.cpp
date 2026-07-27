@@ -152,8 +152,7 @@ int32_t schema_field_id_or(const format::ColumnDefinition* schema_column, int32_
 
 std::string schema_field_name_or(const format::ColumnDefinition* schema_column,
                                  std::string fallback) {
-    return schema_column == nullptr || schema_column->name.empty() ? std::move(fallback)
-                                                                   : schema_column->name;
+    return schema_column == nullptr || schema_column->name.empty() ? fallback : schema_column->name;
 }
 
 struct AccessPathNode {
@@ -239,7 +238,7 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
     case TYPE_ARRAY: {
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
         const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
-                                             ? &schema_column->children[0]
+                                             ? schema_column->children.data()
                                              : nullptr;
         auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0), "element",
                                         array_type.get_nested_type());
@@ -250,7 +249,7 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
     case TYPE_MAP: {
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
         const auto* key_schema = schema_column != nullptr && !schema_column->children.empty()
-                                         ? &schema_column->children[0]
+                                         ? schema_column->children.data()
                                          : nullptr;
         const auto* value_schema = schema_column != nullptr && schema_column->children.size() > 1
                                            ? &schema_column->children[1]
@@ -348,15 +347,7 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
             merge_access_path_node(&key_node, child_node);
             continue;
         }
-        if (child_path == "VALUES") {
-            need_key = true;
-            key_node.project_all = true;
-            key_node.children.clear();
-            need_value = true;
-            merge_access_path_node(&value_node, child_node);
-            continue;
-        }
-        if (child_path == "*") {
+        if (child_path == "VALUES" || child_path == "*") {
             need_key = true;
             key_node.project_all = true;
             key_node.children.clear();
@@ -392,7 +383,7 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
     }
 
     const auto* key_schema = schema_column != nullptr && !schema_column->children.empty()
-                                     ? &schema_column->children[0]
+                                     ? schema_column->children.data()
                                      : nullptr;
     const auto* value_schema = schema_column != nullptr && schema_column->children.size() > 1
                                        ? &schema_column->children[1]
@@ -441,7 +432,7 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
         const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
-                                             ? &schema_column->children[0]
+                                             ? schema_column->children.data()
                                              : nullptr;
         auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0), "element",
                                         array_type.get_nested_type());

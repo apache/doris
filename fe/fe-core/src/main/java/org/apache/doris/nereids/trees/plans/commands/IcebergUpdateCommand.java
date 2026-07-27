@@ -120,6 +120,8 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
         IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
                 icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
 
         // Verify table format version (must be v2+ for update support)
         // org.apache.iceberg.Table icebergTableObj = icebergTable.getIcebergTable();
@@ -139,6 +141,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
             executeMergePlan(ctx, executor, icebergTable, mergePlan, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
@@ -232,7 +235,13 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
-        LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, assignments,
+        List<EqualTo> resolvedAssignments = assignments.stream()
+                .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
+                        assignment.left(),
+                        IcebergDmlCommandUtils.resolveDefaultReferences(
+                                assignment.right(), writeSchemaContext))))
+                .collect(Collectors.toList());
+        LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, resolvedAssignments,
                 writeSchemaContext.getMergeColumns(), tableName);
 
         List<NamedExpression> outputExprs;
@@ -322,12 +331,15 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
         IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
                 icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(table.getId());
         try {
             return buildMergePlan(ctx, logicalQuery, assignments, icebergTable, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 

@@ -20,7 +20,9 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -320,10 +323,61 @@ public class IcebergWriteSchemaContextTest {
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> context.validateCurrentSchema(table));
         Assertions.assertTrue(exception.getMessage().contains("retry the statement"));
+        Mockito.verify(table, Mockito.never()).refresh();
     }
 
     @Test
-    public void testBranchPinsSnapshotSchemaInsteadOfMainSchema() {
+    public void testCreatePinsSchemaFromStatementMvccSnapshot() {
+        Schema pinnedSchema = new Schema(24,
+                List.of(defaultField(1, "value", Types.IntegerType.get(),
+                        Literal.of(23), Literal.of(24), false)));
+        Schema cachedTableSchema = new Schema(25,
+                List.of(defaultField(1, "value", Types.IntegerType.get(),
+                        Literal.of(24), Literal.of(25), false)));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(cachedTableSchema);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                pinnedSchema.schemaId(), pinnedSchema,
+                cachedTableSchema.schemaId(), cachedTableSchema));
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(catalog.getEnableMappingTimestampTz()).thenReturn(true);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(database.getFullName()).thenReturn("test_db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getDatabase()).thenReturn(database);
+        Mockito.when(dorisTable.getIcebergTable()).thenReturn(table);
+        Mockito.when(dorisTable.getId()).thenReturn(8L);
+        Mockito.when(dorisTable.getName()).thenReturn("mvcc_table");
+
+        ConnectContext connectContext = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        connectContext.setStatementContext(statementContext);
+        connectContext.setThreadLocalInfo();
+        statementContext.setSnapshot(new MvccTableInfo(dorisTable), new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(IcebergPartitionInfo.empty(),
+                        new IcebergSnapshot(101L, pinnedSchema.schemaId()))));
+        try {
+            IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
+                    dorisTable, Optional.empty());
+            Assertions.assertEquals(pinnedSchema.schemaId(), context.getSchemaId());
+            Assertions.assertEquals("24",
+                    stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
+            Mockito.verify(table, Mockito.never()).refresh();
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBranchPinsSnapshotSchemaWithoutRefreshingSharedTable() {
         Schema mainSchema = new Schema(30,
                 List.of(defaultField(1, "value", Types.IntegerType.get(),
                         Literal.of(30), Literal.of(31), false)));
@@ -361,6 +415,8 @@ public class IcebergWriteSchemaContextTest {
         Assertions.assertEquals("29",
                 stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
         Assertions.assertEquals(Optional.of("audit"), context.getBranchName());
+        Assertions.assertDoesNotThrow(() -> context.validateCurrentSchema(table));
+        Mockito.verify(table, Mockito.never()).refresh();
 
         UnboundOneRowRelation child = new UnboundOneRowRelation(
                 RelationId.createGenerator().getNextId(), List.of());

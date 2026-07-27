@@ -72,6 +72,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
@@ -820,6 +821,60 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testApplicableTaskPreflightIgnoresCrossPartitionEqualityDelete() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Types.NestedField unsupported = Types.NestedField.optional(
+                9, "dropped_nanos", Types.TimestampNanoType.withoutZone());
+        Schema historicalSchema = new Schema(1, List.of(id, unsupported));
+        Schema currentSchema = new Schema(2, List.of(id));
+        Snapshot historicalSnapshot = mockSnapshot(1000L, historicalSchema, null);
+        Snapshot currentSnapshot = mockSnapshot(1001L, currentSchema, 1000L);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(List.of(historicalSchema, currentSchema));
+        Mockito.when(metadata.schemasById()).thenReturn(Map.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(metadata.snapshot(1000L)).thenReturn(historicalSnapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(currentSnapshot);
+
+        DeleteFile unrelatedPartitionDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(unrelatedPartitionDelete.content()).thenReturn(FileContent.EQUALITY_DELETES);
+        Mockito.when(unrelatedPartitionDelete.equalityFieldIds()).thenReturn(List.of(9));
+        FileScanTask unrelatedPartitionTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(unrelatedPartitionTask.deletes()).thenReturn(List.of(unrelatedPartitionDelete));
+        FileScanTask applicablePartitionTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(applicablePartitionTask.deletes()).thenReturn(Collections.emptyList());
+
+        Assert.assertEquals(Set.of(9),
+                IcebergScanNode.collectEqualityDeleteFieldIdsFromTasks(
+                        List.of(unrelatedPartitionTask)));
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+        Mockito.doReturn(CloseableIterable.withNoopClose(List.of(applicablePartitionTask)))
+                .when(node).planFileScanTask(tableScan);
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        Set<Integer> applicableFieldIds;
+        try {
+            applicableFieldIds = node.loadEqualityDeleteFieldIds(tableScan);
+        } finally {
+            ConnectContext.remove();
+        }
+        Assert.assertEquals(Collections.emptySet(), applicableFieldIds);
+
+        List<Types.NestedField> fields = node.getSchemaFieldsForScan(
+                currentSchema, applicableFieldIds);
+        Assert.assertEquals(1, fields.size());
+        Assert.assertEquals(1, node.getScanColumns(new Schema(fields)).size());
+    }
+
+    @Test
     public void testSchemaCarrierHandlesReusedSchemaId() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField equalityKey = Types.NestedField.optional("k")
@@ -1203,6 +1258,14 @@ public class IcebergScanNodeTest {
         Assert.assertEquals(Set.of(7),
                 IcebergScanNode.collectEqualityDeleteFieldIds(List.of(emptyEqualityDelete)));
 
+        FileScanTask applicableTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(applicableTask.deletes()).thenReturn(List.of(emptyEqualityDelete));
+        FileScanTask taskWithoutEqualityDeletes = Mockito.mock(FileScanTask.class);
+        Mockito.when(taskWithoutEqualityDeletes.deletes()).thenReturn(List.of(positionDelete));
+        Assert.assertEquals(Set.of(7),
+                IcebergScanNode.collectEqualityDeleteFieldIdsFromTasks(
+                        List.of(applicableTask, taskWithoutEqualityDeletes)));
+
         Backend smoothUpgradeSource = Mockito.mock(Backend.class);
         Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
         Mockito.when(smoothUpgradeSource.getId()).thenReturn(10003L);
@@ -1240,7 +1303,7 @@ public class IcebergScanNodeTest {
         Mockito.doAnswer(invocation -> {
             loaderObservedAuthentication.set(authenticated.get());
             return Set.of(7);
-        }).when(node).loadEqualityDeleteFieldIds(snapshot);
+        }).when(node).loadEqualityDeleteFieldIds(tableScan);
 
         Assert.assertEquals(Set.of(7), node.getEqualityDeleteFieldIdsForScan());
         Assert.assertTrue(loaderObservedAuthentication.get());

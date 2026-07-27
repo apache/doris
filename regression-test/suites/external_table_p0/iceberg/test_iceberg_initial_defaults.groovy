@@ -166,7 +166,10 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
         ) USING iceberg
         TBLPROPERTIES (
             'format-version' = '3',
-            'write.format.default' = 'parquet'
+            'write.format.default' = 'parquet',
+            'write.delete.mode' = 'merge-on-read',
+            'write.update.mode' = 'merge-on-read',
+            'write.merge.mode' = 'merge-on-read'
         );
 
         INSERT INTO ${parquetTable} VALUES
@@ -199,7 +202,10 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
         ) USING iceberg
         TBLPROPERTIES (
             'format-version' = '3',
-            'write.format.default' = 'orc'
+            'write.format.default' = 'orc',
+            'write.delete.mode' = 'merge-on-read',
+            'write.update.mode' = 'merge-on-read',
+            'write.merge.mode' = 'merge-on-read'
         );
 
         INSERT INTO ${orcTable} VALUES
@@ -536,5 +542,58 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
         runChecks("v2", true)
     } finally {
         sql """set enable_file_scanner_v2 = ${originalEnableFileScannerV2}"""
+    }
+
+    // UPDATE and both MERGE branches must resolve DEFAULT(column) from the same pinned write
+    // schema. The matched branch uses the referenced string field; the not-matched branch writes
+    // default_int's value into default_long so destination-position substitution is detectable.
+    sql """switch ${mappedCatalog}"""
+    sql """use ${namespace}"""
+    tableNames.each { String format, String currentTable ->
+        sql """
+            UPDATE ${currentTable}
+            SET default_int = DEFAULT(default_int)
+            WHERE id = 10
+        """
+        sql """
+            MERGE INTO ${currentTable} t
+            USING (SELECT 10 AS id UNION ALL SELECT 12 AS id) s
+            ON t.id = s.id
+            WHEN MATCHED THEN UPDATE SET
+                default_string = DEFAULT(default_string)
+            WHEN NOT MATCHED THEN INSERT (id, default_long)
+                VALUES (s.id, DEFAULT(default_int))
+        """
+    }
+    test {
+        sql """
+            MERGE INTO ${parquetTable} t
+            USING (SELECT 13 AS id) s
+            ON t.id = s.id
+            WHEN NOT MATCHED THEN INSERT (id, default_int)
+                VALUES (s.id, DEFAULT(no_such_column))
+        """
+        exception "no_such_column"
+    }
+
+    String sparkUpdateMergeVerification = runSparkSql("""
+        USE demo.${namespace};
+        SELECT concat_ws('|', 'parquet', CAST(id AS STRING),
+            CAST(default_int AS STRING), CAST(default_long AS STRING), default_string)
+        FROM ${parquetTable} WHERE id IN (10, 12)
+        UNION ALL
+        SELECT concat_ws('|', 'orc', CAST(id AS STRING),
+            CAST(default_int AS STRING), CAST(default_long AS STRING), default_string)
+        FROM ${orcTable} WHERE id IN (10, 12);
+    """)
+    [
+        "parquet|10|35|4900000001|write-default",
+        "parquet|12|35|35|write-default",
+        "orc|10|35|4900000001|write-default",
+        "orc|12|35|35|write-default"
+    ].each { String expectedRow ->
+        assertTrue(sparkUpdateMergeVerification.readLines().any { it.trim() == expectedRow },
+                "Spark did not read Doris UPDATE/MERGE default row: ${expectedRow}\n" +
+                        sparkUpdateMergeVerification)
     }
 }

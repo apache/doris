@@ -942,6 +942,10 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
+    public static Table loadFreshIcebergTable(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).loadFreshIcebergTable(dorisTable);
+    }
+
     private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
         Preconditions.checkNotNull(catalog, "catalog can not be null");
         return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());

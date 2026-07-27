@@ -278,8 +278,8 @@ public class StatementContext implements Closeable {
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
-    // Present only while analyzing a normal Iceberg INSERT. UPDATE and MERGE UPDATE deliberately
-    // leave it empty so DEFAULT(column) keeps its existing non-insert semantics.
+    // Present while analyzing an Iceberg INSERT, UPDATE, or MERGE so DEFAULT(column)
+    // resolves from the statement-pinned Iceberg write schema.
     private Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext = Optional.empty();
 
     private boolean privChecked;
@@ -1281,6 +1281,10 @@ public class StatementContext implements Closeable {
      */
     public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
         this.icebergRewriteFileScanTasks = tasks;
+    }
+
+    public List<org.apache.iceberg.FileScanTask> getIcebergRewriteFileScanTasks() {
+        return icebergRewriteFileScanTasks;
     }
 
     /**

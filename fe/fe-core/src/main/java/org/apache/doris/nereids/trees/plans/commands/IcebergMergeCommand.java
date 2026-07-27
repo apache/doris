@@ -39,7 +39,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Default;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
@@ -146,6 +147,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         IcebergDmlCommandUtils.checkMergeMode(icebergTable);
         IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
                 icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
@@ -153,6 +156,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             executeMergePlan(ctx, executor, icebergTable, mergePlan, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
@@ -167,12 +171,15 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         IcebergDmlCommandUtils.checkMergeMode(icebergTable);
         IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.create(
                 icebergTable, Optional.empty());
+        Optional<IcebergWriteSchemaContext> previousWriteSchemaContext =
+                IcebergDmlCommandUtils.installWriteSchemaContext(ctx, writeSchemaContext);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
             return buildMergePlan(ctx, icebergTable, writeSchemaContext);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            IcebergDmlCommandUtils.restoreWriteSchemaContext(ctx, previousWriteSchemaContext);
         }
     }
 
@@ -259,13 +266,15 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     private List<Expression> buildUpdateProjection(MergeMatchedClause clause, Expression rowIdExpr,
-            List<Column> columns, ConnectContext ctx) {
+            List<Column> columns, ConnectContext ctx, IcebergWriteSchemaContext writeSchemaContext) {
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : clause.getAssignments()) {
             List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
             UpdateCommand.checkAssignmentColumn(ctx, nameParts, targetNameParts, targetAlias.orElse(null));
             String columnName = nameParts.get(nameParts.size() - 1);
-            if (colNameToExpression.put(columnName, equalTo.right()) != null) {
+            Expression value = IcebergDmlCommandUtils.resolveDefaultReferences(
+                    equalTo.right(), writeSchemaContext);
+            if (colNameToExpression.put(columnName, value) != null) {
                 throw new AnalysisException("Duplicate column name in update: " + columnName);
             }
         }
@@ -287,7 +296,9 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                         + column.getName() + "' in table '" + getTargetTable(ctx).getName() + "' is not allowed.");
             }
             if (colNameToExpression.containsKey(column.getName())) {
-                projection.add(colNameToExpression.remove(column.getName()));
+                projection.add(new Cast(
+                        colNameToExpression.remove(column.getName()),
+                        DataType.fromCatalogType(column.getType())));
             } else {
                 List<String> nameParts = Lists.newArrayList(targetNameInPlan);
                 nameParts.add(column.getName());
@@ -354,10 +365,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                     value = rowItem.child(0);
                 }
             }
-            if (value == null || value instanceof Default || value instanceof DefaultValueSlot) {
+            if (value == null || value instanceof DefaultValueSlot) {
                 value = writeSchemaContext.resolveWriteDefault(column);
+            } else {
+                value = IcebergDmlCommandUtils.resolveDefaultReferences(value, writeSchemaContext);
             }
-            projection.add(value);
+            projection.add(new Cast(value, DataType.fromCatalogType(column.getType())));
         }
         if (!colNameToExpression.isEmpty()) {
             throw new AnalysisException("unknown column in target table: "
@@ -366,19 +379,23 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return projection;
     }
 
-    private List<NamedExpression> generateFinalProjections(List<String> colNames,
+    private List<NamedExpression> generateFinalProjections(List<String> colNames, List<DataType> colTypes,
             List<List<Expression>> finalProjections) {
+        if (colNames.size() != colTypes.size()) {
+            throw new AnalysisException("Column names and types count doesn't match");
+        }
         for (List<Expression> projection : finalProjections) {
-            if (projection.size() != finalProjections.get(0).size()) {
+            if (projection.size() != colNames.size()) {
                 throw new AnalysisException("Column count doesn't match each other");
             }
         }
         List<NamedExpression> output = new ArrayList<>();
-        for (int i = 0; i < finalProjections.get(0).size(); i++) {
-            Expression project = new NullLiteral();
+        for (int i = 0; i < colNames.size(); i++) {
+            DataType targetType = colTypes.get(i);
+            Expression project = new NullLiteral(targetType);
             for (int j = 0; j < finalProjections.size(); j++) {
                 project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
-                        finalProjections.get(j).get(i), project);
+                        new Cast(finalProjections.get(j).get(i), targetType), project);
             }
             output.add(new UnboundAlias(project, colNames.get(i)));
         }
@@ -419,7 +436,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             if (clause.isDelete()) {
                 finalProjections.add(buildDeleteProjection(rowIdExpr, columns));
             } else {
-                finalProjections.add(buildUpdateProjection(clause, rowIdExpr, columns, ctx));
+                finalProjections.add(buildUpdateProjection(
+                        clause, rowIdExpr, columns, ctx, writeSchemaContext));
             }
         }
 
@@ -430,14 +448,18 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         }
 
         List<String> colNames = new ArrayList<>();
+        List<DataType> colTypes = new ArrayList<>();
         colNames.add(IcebergMergeOperation.OPERATION_COLUMN);
+        colTypes.add(TinyIntType.INSTANCE);
         colNames.add(Column.ICEBERG_ROWID_COL);
+        colTypes.add(rowIdType);
         for (Column column : columns) {
             if (column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column)) {
                 colNames.add(column.getName());
+                colTypes.add(DataType.fromCatalogType(column.getType()));
             }
         }
-        plan = new LogicalProject<>(generateFinalProjections(colNames, finalProjections), plan);
+        plan = new LogicalProject<>(generateFinalProjections(colNames, colTypes, finalProjections), plan);
 
         if (cte.isPresent()) {
             plan = (LogicalPlan) cte.get().withChildren(plan);

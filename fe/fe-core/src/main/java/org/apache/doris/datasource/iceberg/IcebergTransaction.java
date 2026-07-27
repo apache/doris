@@ -131,7 +131,7 @@ public class IcebergTransaction implements Transaction {
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.table = IcebergUtils.loadFreshIcebergTable(dorisTable);
                 this.baseSnapshotId = null;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
@@ -305,7 +305,7 @@ public class IcebergTransaction implements Transaction {
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 this.branchName = null;
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.table = IcebergUtils.loadFreshIcebergTable(dorisTable);
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
                 if (insertCtx != null && insertCtx.getWriteSchemaContext().isPresent()) {
                     insertCtx.getWriteSchemaContext().get().validateCurrentSchema(table);

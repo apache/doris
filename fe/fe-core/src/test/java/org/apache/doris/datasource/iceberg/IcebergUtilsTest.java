@@ -324,12 +324,13 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testInitialDefaultsStaySeparateFromDorisColumnDefault() {
+    public void testIcebergDefaultsStaySeparateFromDorisColumnDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
                         .withId(1)
                         .ofType(Types.IntegerType.get())
                         .withInitialDefault(7)
+                        .withWriteDefault(9)
                         .build(),
                 Types.NestedField.optional("added_timestamp")
                         .withId(2)

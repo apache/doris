@@ -25,6 +25,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
@@ -106,6 +107,12 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     public Table getIcebergTable(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getIcebergTable();
+    }
+
+    public Table loadFreshIcebergTable(ExternalTable dorisTable) {
+        IcebergMetadataOps ops = resolveMetadataOps(dorisTable.getCatalog());
+        return ops.loadTable(SessionContext.current(),
+                dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
     }
 
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {

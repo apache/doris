@@ -195,7 +195,8 @@ public class IcebergTransactionTest {
         Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithPartition);
 
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
-            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
             // Allow parsePartitionValueFromString to call the real implementation
             mockedStatic.when(() -> IcebergUtils.parsePartitionValueFromString(
@@ -311,7 +312,8 @@ public class IcebergTransactionTest {
         Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
 
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
-            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
 
             IcebergTransaction txn = getTxn();
@@ -348,7 +350,7 @@ public class IcebergTransactionTest {
                 IcebergWriteSchemaContext.forSchema(pinnedSchema, 3, true, true)));
 
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
-            mockedStatic.when(() -> IcebergUtils.getIcebergTable(
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
                             ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
             mockedStatic.when(() -> IcebergUtils.getFormatVersion(table)).thenReturn(3);
@@ -361,6 +363,7 @@ public class IcebergTransactionTest {
                     () -> getTxn().beginMerge(dorisTable, Optional.of(insertContext)));
             Assert.assertTrue(mergeException.getMessage().contains("retry the statement"));
             Mockito.verify(table, Mockito.never()).newTransaction();
+            Mockito.verify(table, Mockito.never()).refresh();
         }
     }
 
@@ -458,7 +461,8 @@ public class IcebergTransactionTest {
         Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
         Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
-            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
 
             IcebergTransaction txn = getTxn();
@@ -484,7 +488,8 @@ public class IcebergTransactionTest {
         Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
         Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
         try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
-            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
                     .thenReturn(table);
 
             IcebergTransaction txn = getTxn();

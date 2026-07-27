@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
@@ -96,7 +98,7 @@ public final class IcebergWriteSchemaContext {
     private final Map<Integer, Types.NestedField> fieldsById;
     private final Map<Integer, Expression> writeDefaultsById;
 
-    /** Pin the current main or branch schema under the catalog authentication boundary. */
+    /** Pin the statement snapshot's current table schema under the catalog authentication boundary. */
     public static IcebergWriteSchemaContext create(
             IcebergExternalTable dorisTable, Optional<String> branchName) {
         Objects.requireNonNull(dorisTable, "dorisTable should not be null");
@@ -104,8 +106,9 @@ public final class IcebergWriteSchemaContext {
         try {
             return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 Table table = dorisTable.getIcebergTable();
-                table.refresh();
-                Schema schema = resolveSchema(table, branchName, dorisTable.getName());
+                Schema schema = branchName.isPresent()
+                        ? resolveBranchSchema(table, branchName.get(), dorisTable.getName())
+                        : resolveStatementSchema(table, dorisTable);
                 int formatVersion = IcebergUtils.getFormatVersion(table);
                 return new IcebergWriteSchemaContext(
                         dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
@@ -173,19 +176,31 @@ public final class IcebergWriteSchemaContext {
         this.writeDefaultsById = defaults.build();
     }
 
-    private static Schema resolveSchema(Table table, Optional<String> branchName, String tableName) {
-        if (!branchName.isPresent()) {
-            return table.schema();
-        }
-        SnapshotRef ref = table.refs().get(branchName.get());
+    private static Schema resolveBranchSchema(Table table, String branchName, String tableName) {
+        SnapshotRef ref = table.refs().get(branchName);
         if (ref == null) {
-            throw new AnalysisException(branchName.get() + " is not founded in " + tableName);
+            throw new AnalysisException(branchName + " is not founded in " + tableName);
         }
         if (!ref.isBranch()) {
-            throw new AnalysisException(branchName.get()
+            throw new AnalysisException(branchName
                     + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
         }
         return SnapshotUtil.schemaFor(table, ref.snapshotId());
+    }
+
+    private static Schema resolveStatementSchema(Table table, IcebergExternalTable dorisTable) {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(dorisTable);
+        if (!snapshot.isPresent()) {
+            return table.schema();
+        }
+        Preconditions.checkState(snapshot.get() instanceof IcebergMvccSnapshot,
+                "Expected an Iceberg MVCC snapshot for table %s", dorisTable.getName());
+        long schemaId = ((IcebergMvccSnapshot) snapshot.get())
+                .getSnapshotCacheValue().getSnapshot().getSchemaId();
+        Schema schema = table.schemas().get(Math.toIntExact(schemaId));
+        return Preconditions.checkNotNull(schema,
+                "Iceberg schema %s is not available in the statement table metadata for %s",
+                schemaId, dorisTable.getName());
     }
 
     /** Resolve the value used for an omitted column or an explicit DEFAULT. */
@@ -208,8 +223,9 @@ public final class IcebergWriteSchemaContext {
 
     /** Validate that the table still exposes the schema and format pinned during analysis. */
     public void validateCurrentSchema(Table table) {
-        table.refresh();
-        Schema currentSchema = resolveSchema(table, branchName, tableName);
+        Schema currentSchema = branchName.isPresent()
+                ? resolveBranchSchema(table, branchName.get(), tableName)
+                : table.schema();
         int currentFormatVersion = IcebergUtils.getFormatVersion(table);
         if (currentSchema.schemaId() != getSchemaId() || currentFormatVersion != formatVersion) {
             throw new AnalysisException("Iceberg table schema changed during write planning for " + tableName

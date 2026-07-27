@@ -17,13 +17,21 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Default;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.TableProperties;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Helpers for Iceberg row-level DML commands.
@@ -45,6 +53,49 @@ final class IcebergDmlCommandUtils {
     static void checkMergeMode(IcebergExternalTable table) {
         checkNotCopyOnWrite(table, "MERGE INTO", TableProperties.MERGE_MODE,
                 TableProperties.MERGE_MODE_DEFAULT);
+    }
+
+    static Optional<IcebergWriteSchemaContext> installWriteSchemaContext(
+            ConnectContext context, IcebergWriteSchemaContext writeSchemaContext) {
+        Optional<IcebergWriteSchemaContext> previous =
+                context.getStatementContext().getIcebergWriteSchemaContext();
+        context.getStatementContext().setIcebergWriteSchemaContext(Optional.of(writeSchemaContext));
+        return previous;
+    }
+
+    static void restoreWriteSchemaContext(
+            ConnectContext context, Optional<IcebergWriteSchemaContext> previous) {
+        context.getStatementContext().setIcebergWriteSchemaContext(previous);
+    }
+
+    static Expression resolveDefaultReferences(
+            Expression expression, IcebergWriteSchemaContext writeSchemaContext) {
+        return expression.rewriteDownShortCircuit(candidate -> {
+            if (!(candidate instanceof Default)) {
+                return candidate;
+            }
+            Expression reference = candidate.child(0);
+            Column column;
+            if (reference instanceof UnboundSlot) {
+                String columnName = ((UnboundSlot) reference).getNameParts()
+                        .get(((UnboundSlot) reference).getNameParts().size() - 1);
+                column = writeSchemaContext.getColumns().stream()
+                        .filter(targetColumn -> targetColumn.getName().equalsIgnoreCase(columnName))
+                        .findFirst()
+                        .orElseThrow(() -> new AnalysisException(
+                                "Cannot find column information for DEFAULT(" + columnName + ")"));
+            } else if (reference instanceof SlotReference
+                    && ((SlotReference) reference).getOriginalColumn().isPresent()) {
+                column = ((SlotReference) reference).getOriginalColumn().get();
+                if (!writeSchemaContext.findField(column).isPresent()) {
+                    throw new AnalysisException(
+                            "Cannot find column information for DEFAULT(" + column.getName() + ")");
+                }
+            } else {
+                throw new AnalysisException("DEFAULT requires a column reference");
+            }
+            return writeSchemaContext.resolveWriteDefault(column);
+        });
     }
 
     private static void checkNotCopyOnWrite(IcebergExternalTable table, String operation,

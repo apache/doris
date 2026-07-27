@@ -415,6 +415,70 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testIcebergUpdateAndMergeDefaultColumnUsePinnedWriteDefaults() throws Exception {
+        useIceberg();
+        useMockedIcebergSchema(icebergWriteDefaultSchema(36, true), 3);
+        try {
+            String updateSql = "update " + tableName
+                    + " set name = DEFAULT(name) where id = 1";
+            UpdateCommand updateCommand = (UpdateCommand) parseStmt(updateSql);
+            Plan updatePlan = updateCommand.getExplainPlan(connectContext);
+            Assertions.assertTrue(connectContext.getStatementContext()
+                    .getIcebergWriteSchemaContext().isEmpty());
+            PhysicalIcebergMergeSink<?> updateSink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) updatePlan,
+                            PhysicalProperties.GATHER, updateSql),
+                    PhysicalIcebergMergeSink.class);
+            Assertions.assertTrue(updateSink.treeString().contains("write-name"));
+
+            String matchedMergeSql = "merge into " + tableName + " t "
+                    + "using (select 1 as id) s on t.id = s.id "
+                    + "when matched then update set name = DEFAULT(name)";
+            MergeIntoCommand matchedMergeCommand =
+                    (MergeIntoCommand) parseStmt(matchedMergeSql);
+            Plan matchedMergePlan = matchedMergeCommand.getExplainPlan(connectContext);
+            Assertions.assertTrue(connectContext.getStatementContext()
+                    .getIcebergWriteSchemaContext().isEmpty());
+            PhysicalIcebergMergeSink<?> matchedMergeSink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) matchedMergePlan,
+                            PhysicalProperties.GATHER, matchedMergeSql),
+                    PhysicalIcebergMergeSink.class);
+            Assertions.assertTrue(matchedMergeSink.treeString().contains("write-name"));
+
+            String crossColumnMergeSql = "merge into " + tableName + " t "
+                    + "using (select 99 as id) s on t.id = s.id "
+                    + "when not matched then insert (id, amount) "
+                    + "values (s.id, DEFAULT(score))";
+            MergeIntoCommand crossColumnMergeCommand =
+                    (MergeIntoCommand) parseStmt(crossColumnMergeSql);
+            Plan crossColumnMergePlan =
+                    crossColumnMergeCommand.getExplainPlan(connectContext);
+            Assertions.assertTrue(connectContext.getStatementContext()
+                    .getIcebergWriteSchemaContext().isEmpty());
+            PhysicalIcebergMergeSink<?> crossColumnMergeSink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) crossColumnMergePlan,
+                            PhysicalProperties.GATHER, crossColumnMergeSql),
+                    PhysicalIcebergMergeSink.class);
+            Assertions.assertTrue(crossColumnMergeSink.treeString().contains("9"));
+
+            String unknownColumnMergeSql = "merge into " + tableName + " t "
+                    + "using (select 100 as id) s on t.id = s.id "
+                    + "when not matched then insert (id, name) "
+                    + "values (s.id, DEFAULT(no_such_column))";
+            MergeIntoCommand unknownColumnMergeCommand =
+                    (MergeIntoCommand) parseStmt(unknownColumnMergeSql);
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> unknownColumnMergeCommand.getExplainPlan(connectContext));
+            Assertions.assertTrue(exception.getMessage().contains("no_such_column"));
+            Assertions.assertTrue(connectContext.getStatementContext()
+                    .getIcebergWriteSchemaContext().isEmpty());
+        } finally {
+            useMockedIcebergSchema(baseIcebergSchema, 2);
+        }
+    }
+
     private Schema icebergWriteDefaultSchema(int schemaId, boolean nameHasDefault) {
         Types.NestedField name = nameHasDefault
                 ? Types.NestedField.builder().withId(2).withName("name").isOptional(false)
@@ -447,6 +511,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                 TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
                 TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName()))
                 .when(mockedIcebergTable).properties();
+        connectContext.setStatementContext(new StatementContext());
     }
 
     @Test

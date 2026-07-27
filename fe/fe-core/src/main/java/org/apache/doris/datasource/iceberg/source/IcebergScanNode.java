@@ -921,15 +921,13 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     Set<Integer> getEqualityDeleteFieldIdsForScan() throws UserException {
-        Snapshot snapshot = createTableScan().snapshot();
-        if (snapshot == null) {
+        TableScan scan = createTableScan();
+        if (scan.snapshot() == null) {
             return Collections.emptySet();
         }
         try {
-            // deleteManifests() can lazily read the manifest list. Keep both that call and the
-            // manifest-entry cache load inside the catalog's authentication context.
             return preExecutionAuthenticator.execute(
-                    () -> loadEqualityDeleteFieldIds(snapshot));
+                    () -> loadEqualityDeleteFieldIds(scan));
         } catch (Exception e) {
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
@@ -940,22 +938,27 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    Set<Integer> loadEqualityDeleteFieldIds(Snapshot snapshot) {
-        IcebergExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .iceberg(source.getCatalog().getId());
-        Preconditions.checkState(source.getTargetTable() instanceof ExternalTable,
-                "Iceberg scan target table is not an external table");
-        ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
+    Set<Integer> loadEqualityDeleteFieldIds(TableScan scan) {
+        ConnectContext context = ConnectContext.get();
+        Preconditions.checkNotNull(context);
+        Preconditions.checkNotNull(context.getStatementContext());
+        List<FileScanTask> rewriteTasks =
+                context.getStatementContext().getIcebergRewriteFileScanTasks();
+        if (rewriteTasks != null) {
+            return collectEqualityDeleteFieldIdsFromTasks(rewriteTasks);
+        }
+        try (CloseableIterable<FileScanTask> tasks = planFileScanTask(scan)) {
+            return collectEqualityDeleteFieldIdsFromTasks(tasks);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to close Iceberg file scan tasks", e);
+        }
+    }
+
+    @VisibleForTesting
+    static Set<Integer> collectEqualityDeleteFieldIdsFromTasks(Iterable<FileScanTask> tasks) {
         Set<Integer> equalityDeleteFieldIds = new HashSet<>();
-        for (ManifestFile manifest : snapshot.deleteManifests(icebergTable.io())) {
-            Preconditions.checkState(manifest.content() == ManifestContent.DELETES,
-                    "Iceberg delete manifest %s has content %s", manifest.path(),
-                    manifest.content());
-            ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(
-                    cache, targetExternalTable, manifest, icebergTable,
-                    this::recordManifestCacheAccess);
-            equalityDeleteFieldIds.addAll(
-                    collectEqualityDeleteFieldIds(value.getDeleteFiles()));
+        for (FileScanTask task : tasks) {
+            equalityDeleteFieldIds.addAll(collectEqualityDeleteFieldIds(task.deletes()));
         }
         return equalityDeleteFieldIds;
     }
@@ -1269,7 +1272,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         return null;
     }
 
-    private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
+    @VisibleForTesting
+    CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
             return splitFiles(scan);
         }
