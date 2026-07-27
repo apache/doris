@@ -201,6 +201,22 @@ public:
         return Status::OK();
     }
 
+    virtual Status read_dictionary_filter(const IColumn::Filter&, FilterMap&, size_t,
+                                          const IColumn*, IColumn*, ColumnInt32*,
+                                          IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
+                                          bool* projected_directly, bool* used_filter) {
+        DORIS_CHECK(row_filter != nullptr);
+        DORIS_CHECK(read_rows != nullptr);
+        DORIS_CHECK(eof != nullptr);
+        DORIS_CHECK(projected_directly != nullptr);
+        DORIS_CHECK(used_filter != nullptr);
+        row_filter->clear();
+        *read_rows = 0;
+        *projected_directly = false;
+        *used_filter = false;
+        return Status::OK();
+    }
+
     // Consume a nested batch while retaining only definition/repetition levels. This is used when
     // schema evolution makes every projected STRUCT child synthetic: the parent still needs one
     // physical leaf's shape, but decoding that leaf's strings or other payload would be wasted.
@@ -211,6 +227,12 @@ public:
                                                                    const DataTypePtr& target_type) {
         throw Exception(
                 Status::FatalError("Method materialize_dictionary_values is not supported"));
+    }
+    virtual Status append_dictionary_values(const ColumnInt32*, const DataTypePtr&, IColumn*) {
+        return Status::NotSupported("Appending parquet dictionary values is not supported");
+    }
+    virtual Status prepare_typed_dictionary(const DataTypePtr&, const IColumn**) {
+        return Status::NotSupported("Typed parquet dictionary is not supported");
     }
     virtual Result<MutableColumnPtr> dictionary_values(const DataTypePtr& target_type) {
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
@@ -283,10 +305,19 @@ public:
                                    FilterMap& filter_map, size_t batch_size,
                                    IColumn* projected_column, IColumn::Filter* row_filter,
                                    size_t* read_rows, bool* eof, bool* used_filter) override;
+    Status read_dictionary_filter(const IColumn::Filter& dictionary_filter, FilterMap& filter_map,
+                                  size_t batch_size, const IColumn* typed_dictionary,
+                                  IColumn* projected_values, ColumnInt32* matched_dictionary_ids,
+                                  IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
+                                  bool* projected_directly, bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
                                                            const DataTypePtr& target_type) override;
+    Status append_dictionary_values(const ColumnInt32* dict_column, const DataTypePtr& target_type,
+                                    IColumn* destination) override;
+    Status prepare_typed_dictionary(const DataTypePtr& target_type,
+                                    const IColumn** dictionary) override;
     Result<MutableColumnPtr> dictionary_values(const DataTypePtr& target_type) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
@@ -300,6 +331,9 @@ public:
 #ifdef BE_TEST
     void reserve_batch_scratch_for_test(size_t elements);
     size_t retained_batch_scratch_bytes_for_test() const;
+    size_t dictionary_materialization_count_for_test() const {
+        return _dictionary_materialization_count;
+    }
 #endif
 
     void reset_filter_map_index() override {
@@ -311,6 +345,9 @@ private:
     const tparquet::OffsetIndex* _offset_index = nullptr;
     std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
     std::unique_ptr<ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>> _chunk_reader;
+#ifdef BE_TEST
+    size_t _dictionary_materialization_count = 0;
+#endif
     // rep def levels buffer.
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
@@ -402,9 +439,16 @@ private:
     Status _read_fixed_width_filter_values(size_t num_values, const VExprSPtrs& conjuncts,
                                            int column_id, FilterMap& filter_map,
                                            IColumn* projected_column, IColumn::Filter* row_filter);
+    Status _read_dictionary_filter_values(size_t num_values,
+                                          const IColumn::Filter& dictionary_filter,
+                                          FilterMap& filter_map, const IColumn* typed_dictionary,
+                                          IColumn* projected_values,
+                                          ColumnInt32* matched_dictionary_ids,
+                                          IColumn::Filter* row_filter, bool* projected_directly);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);
+    Status _ensure_typed_dictionary(const DataTypePtr& target_type);
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 

@@ -46,7 +46,11 @@ under the License.
     <modules>
         <module>fe-filesystem-api</module>
         <module>fe-filesystem-spi</module>
+        <module>fe-filesystem-s3-base</module>
         <module>fe-filesystem-s3</module>
+        <module>fe-filesystem-gcs</module>
+        <module>fe-filesystem-minio</module>
+        <module>fe-filesystem-ozone</module>
         <module>fe-filesystem-oss</module>
         <module>fe-filesystem-cos</module>
         <module>fe-filesystem-obs</module>

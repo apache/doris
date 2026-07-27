@@ -46,11 +46,13 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
@@ -232,6 +234,8 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    bool is_constant() const override { return false; }
+
     Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
         DORIS_CHECK(block != nullptr);
@@ -389,7 +393,8 @@ VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::
 }
 
 VExprContextSPtr create_int32_function_conjunct(int column_id, const std::string& function_name,
-                                                TExprOpcode::type opcode, int32_t value) {
+                                                TExprOpcode::type opcode, int32_t value,
+                                                bool mark_prepared = true) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto nullable_int_type = make_nullable(int_type);
     const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
@@ -415,9 +420,73 @@ VExprContextSPtr create_int32_function_conjunct(int column_id, const std::string
     auto context = VExprContext::create_shared(std::move(root));
     // Direct evaluation does not execute the expression, but a fallback must still fail this test
     // instead of silently using an unprepared test-only context.
-    context->_prepared = true;
-    context->_opened = true;
+    if (mark_prepared) {
+        context->_prepared = true;
+        context->_opened = true;
+    }
     return context;
+}
+
+VExprContextSPtr create_int64_function_conjunct(int column_id, const std::string& function_name,
+                                                TExprOpcode::type opcode, int64_t value) {
+    const auto bigint_type = std::make_shared<DataTypeInt64>();
+    const auto nullable_bigint_type = make_nullable(bigint_type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({nullable_bigint_type->to_thrift(), bigint_type->to_thrift()});
+    fn.__set_ret_type(result_type->to_thrift());
+    fn.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(result_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto root = VectorizedFnCall::create_shared(node);
+    root->add_child(
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_bigint_type, "dict_bigint"));
+    root->add_child(VLiteral::create_shared(bigint_type, Field::create_field<TYPE_BIGINT>(value)));
+    return VExprContext::create_shared(std::move(root));
+}
+
+VExprContextSPtr create_string_function_conjunct(int column_id, const std::string& function_name,
+                                                 TExprOpcode::type opcode, const std::string& value,
+                                                 bool literal_on_left = false) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({nullable_string_type->to_thrift(), string_type->to_thrift()});
+    fn.__set_ret_type(result_type->to_thrift());
+    fn.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(result_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto root = VectorizedFnCall::create_shared(node);
+    auto slot =
+            VSlotRef::create_shared(column_id, column_id, -1, nullable_string_type, "dict_text");
+    auto literal = VLiteral::create_shared(string_type, Field::create_field<TYPE_STRING>(value));
+    if (literal_on_left) {
+        root->add_child(std::move(literal));
+        root->add_child(std::move(slot));
+    } else {
+        root->add_child(std::move(slot));
+        root->add_child(std::move(literal));
+    }
+    return VExprContext::create_shared(std::move(root));
 }
 
 VExprContextSPtr create_int32_mod_greater_than_conjunct(int column_id) {
@@ -470,6 +539,59 @@ VExprContextSPtr create_int32_pair_sum_conjunct(int left_column_id, int right_co
             std::make_shared<Int32PairSumExpr>(left_column_id, right_column_id, upper_bound));
 }
 
+VExprContextSPtr create_and_conjunct(VExprSPtr left, VExprSPtr right) {
+    const auto result_type = left->data_type()->is_nullable() || right->data_type()->is_nullable()
+                                     ? make_nullable(std::make_shared<DataTypeUInt8>())
+                                     : std::make_shared<DataTypeUInt8>();
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    node.__set_opcode(TExprOpcode::COMPOUND_AND);
+    node.__set_type(result_type->to_thrift());
+    node.__set_num_children(2);
+    node.__set_is_nullable(result_type->is_nullable());
+    auto compound = VCompoundPred::create_shared(node);
+    compound->add_child(std::move(left));
+    compound->add_child(std::move(right));
+    return VExprContext::create_shared(std::move(compound));
+}
+
+VExprSPtr create_binary_predicate(const std::string& function_name, TExprOpcode::type opcode,
+                                  VExprSPtr left, VExprSPtr right) {
+    const auto result_type = left->data_type()->is_nullable() || right->data_type()->is_nullable()
+                                     ? make_nullable(std::make_shared<DataTypeUInt8>())
+                                     : std::make_shared<DataTypeUInt8>();
+    TFunctionName name;
+    name.__set_function_name(function_name);
+    TFunction function;
+    function.__set_name(name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({left->data_type()->to_thrift(), right->data_type()->to_thrift()});
+    function.__set_ret_type(result_type->to_thrift());
+    function.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(result_type->to_thrift());
+    node.__set_fn(function);
+    node.__set_num_children(2);
+    node.__set_is_nullable(result_type->is_nullable());
+    auto predicate = VectorizedFnCall::create_shared(node);
+    predicate->add_child(std::move(left));
+    predicate->add_child(std::move(right));
+    return predicate;
+}
+
+VExprSPtr create_int32_slot_comparison(const std::string& function_name, TExprOpcode::type opcode,
+                                       int left_column_id, int right_column_id,
+                                       const DataTypePtr& type) {
+    return create_binary_predicate(
+            function_name, opcode,
+            VSlotRef::create_shared(left_column_id, left_column_id, -1, type,
+                                    "c" + std::to_string(left_column_id)),
+            VSlotRef::create_shared(right_column_id, right_column_id, -1, type,
+                                    "c" + std::to_string(right_column_id)));
+}
+
 VExprContextSPtr create_int32_direct_greater_conjunct(int column_id, int32_t lower_bound) {
     return VExprContext::create_shared(
             std::make_shared<Int32DirectGreaterExpr>(column_id, lower_bound));
@@ -498,6 +620,14 @@ std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
 
 std::shared_ptr<arrow::Array> build_int32_array(const std::vector<int32_t>& values) {
     arrow::Int32Builder builder;
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_int64_array(const std::vector<int64_t>& values) {
+    arrow::Int64Builder builder;
     for (const auto value : values) {
         EXPECT_TRUE(builder.Append(value).ok());
     }
@@ -633,6 +763,72 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
                                              build_int32_array({10, 20, 30, 40, 50, 60})});
     write_table(file_path, table, row_group_size, false, false, enable_statistics, encoding);
+}
+
+void write_dictionary_int_pair_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                                             build_int32_array({10, 20, 30, 40, 50, 60})});
+    write_table(file_path, table, 6, true, false, false);
+}
+
+void write_dictionary_bigint_pair_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int64(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int64_array({1, 2, 3, 4, 5, 6}),
+                                             build_int32_array({10, 20, 30, 40, 50, 60})});
+    write_table(file_path, table, 6, true, false, false);
+}
+
+void write_dictionary_string_pair_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("text", arrow::utf8(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table =
+            arrow::Table::Make(schema, {build_string_array({"alpha", "bravo", "charlie", "delta"}),
+                                        build_int32_array({10, 20, 30, 40})});
+    write_table(file_path, table, 4, true, false, false);
+}
+
+void write_int_triple_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({
+            arrow::field("left", arrow::int32(), false),
+            arrow::field("middle", arrow::int32(), false),
+            arrow::field("right", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
+                                             build_int32_array({10, 20, 30, 0, 0, 0}),
+                                             build_int32_array({100, 200, 300, 400, 500, 600})});
+    write_table(file_path, table, 6, false, false, false);
+}
+
+void write_int_columns_parquet_file(const std::string& file_path, int column_count) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    std::vector<std::shared_ptr<arrow::Array>> columns;
+    fields.reserve(column_count);
+    columns.reserve(column_count);
+    for (int column = 0; column < column_count; ++column) {
+        fields.push_back(arrow::field("c" + std::to_string(column), arrow::int32(), false));
+        columns.push_back(build_int32_array({1, 2, 3, 4, 5, 6}));
+    }
+    write_table(file_path, arrow::Table::Make(arrow::schema(std::move(fields)), std::move(columns)),
+                6, false, false, false);
+}
+
+void write_int_pair_and_string_parquet_file(const std::string& file_path) {
+    auto schema = arrow::schema({arrow::field("left", arrow::int32(), false),
+                                 arrow::field("right", arrow::int32(), false),
+                                 arrow::field("text", arrow::utf8(), false)});
+    auto table =
+            arrow::Table::Make(schema, {build_int32_array({1, 2, 3}), build_int32_array({0, 3, 4}),
+                                        build_string_array({"bad", "2", "3"})});
+    write_table(file_path, table, 3, false, false, false);
 }
 
 void write_uint32_pair_parquet_file(const std::string& file_path) {
@@ -926,6 +1122,14 @@ TEST(ParquetScanAdaptivePredicateTest, SamplesWarmupThenAtLowFrequency) {
     EXPECT_TRUE(should_sample_adaptive_predicate(8, 16));
     EXPECT_FALSE(should_sample_adaptive_predicate(9, 17));
     EXPECT_TRUE(should_sample_adaptive_predicate(9, 32));
+}
+
+TEST(ParquetScanDeleteConjunctTest, RejectsInputColumnAsEphemeralResult) {
+    EXPECT_TRUE(format::parquet::detail::validate_ephemeral_expr_result_column(2, 0, 2)
+                        .is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_TRUE(format::parquet::detail::validate_ephemeral_expr_result_column(2, 2, 3).ok());
+    EXPECT_TRUE(format::parquet::detail::validate_ephemeral_expr_result_column(2, 3, 3)
+                        .is<ErrorCode::INTERNAL_ERROR>());
 }
 
 TEST(ParquetScanAdaptivePredicateTest, ThrowingNestedFunctionDisablesSelectedRowReordering) {
@@ -1341,8 +1545,7 @@ TEST_F(ParquetScanTest, PredicateOnlyGlobalRowIdKeepsSignedFileLocalId) {
     Block block = build_file_block(schema);
     size_t rows = 0;
     bool eof = false;
-    const auto status = reader->get_block(&block, &rows, &eof);
-    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_EQ(rows, 6);
     EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
               (ColumnInt32::Container {1, 2, 3, 4, 5, 6}));
@@ -1364,7 +1567,8 @@ TEST_F(ParquetScanTest, EmptyScanPlanReturnsEofWithoutReadingColumns) {
     Block block = build_file_block(schema);
     size_t rows = 0;
     bool eof = false;
-    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
     EXPECT_EQ(rows, 0);
     EXPECT_TRUE(eof);
 }
@@ -1477,6 +1681,149 @@ TEST_F(ParquetScanTest, PredicateColumnsSkipUnreadColumnsWhenFirstPredicateFilte
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 6);
 }
 
+TEST_F(ParquetScanTest, ComplexResidualSkipsColumnsAfterEarlierAndChildFiltersAll) {
+    write_int_triple_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(2)).ok());
+    auto context = create_and_conjunct(
+            create_int32_slot_comparison("eq", TExprOpcode::EQ, 0, 1, schema[0].type),
+            create_int32_slot_comparison("lt", TExprOpcode::LT, 1, 2, schema[1].type));
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    request->conjuncts.push_back(context);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 12);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 0);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 6);
+    context->close();
+}
+
+TEST_F(ParquetScanTest, ComplexResidualSelectsLaterColumnsForSurvivingRows) {
+    write_int_triple_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(2)).ok());
+    auto context = create_and_conjunct(
+            create_int32_slot_comparison("gt", TExprOpcode::GT, 1, 0, schema[1].type),
+            create_int32_slot_comparison("lt", TExprOpcode::LT, 1, 2, schema[1].type));
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    request->conjuncts.push_back(context);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 3);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {1, 2, 3}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(2).column).get_data(),
+              (ColumnInt32::Container {100, 200, 300}));
+    EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 15);
+    EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 3);
+    EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 3);
+    context->close();
+}
+
+TEST_F(ParquetScanTest, AllPassResidualChainAlignsEachColumnOnce) {
+    write_int_columns_parquet_file(_file_path, 6);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    for (int column = 0; column < 6; ++column) {
+        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column)).ok());
+    }
+    for (int column = 0; column < 6; column += 2) {
+        auto context = VExprContext::create_shared(create_int32_slot_comparison(
+                "eq", TExprOpcode::EQ, column, column + 1, schema[column].type));
+        ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(context->open(&state).ok());
+        request->conjuncts.push_back(std::move(context));
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 6);
+    auto* alignment_columns = profile.get_counter("PredicateAlignmentColumns");
+    ASSERT_NE(alignment_columns, nullptr);
+    EXPECT_EQ(alignment_columns->value(), 6);
+}
+
+TEST_F(ParquetScanTest, LocalizedStrictCastPreservesRejectedRowError) {
+    write_int_pair_and_string_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    TQueryOptions query_options;
+    query_options.__set_enable_strict_cast(true);
+    RuntimeState state {query_options, TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    for (int column = 0; column < 3; ++column) {
+        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(column)).ok());
+    }
+
+    auto cast = format::Cast::create_shared(make_nullable(std::make_shared<DataTypeInt32>()));
+    cast->add_child(VSlotRef::create_shared(2, 2, -1, schema[2].type, "text"));
+    auto first = create_int32_slot_comparison("lt", TExprOpcode::LT, 0, 1, schema[0].type);
+    auto second =
+            create_binary_predicate("eq", TExprOpcode::EQ, std::move(cast),
+                                    VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                                            Field::create_field<TYPE_INT>(2)));
+    auto context = create_and_conjunct(std::move(first), std::move(second));
+    EXPECT_FALSE(context->root()->is_safe_to_execute_on_selected_rows());
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    request->conjuncts.push_back(context);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    context->close();
+}
+
 TEST_F(ParquetScanTest, PredicateOnlyColumnDropsPayloadAfterFiltering) {
     write_int_pair_parquet_file(_file_path, 6, false);
     RuntimeProfile profile("profile");
@@ -1535,6 +1882,185 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainComparisonUsesPhysicalDirectPath) {
     EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyDictionaryRangeSkipsTypedValueMaterialization) {
+    write_dictionary_int_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    auto conjunct = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2, false);
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(block.get_by_position(0).column->size(), rows);
+    EXPECT_EQ(counter_value(profile, "DictFilterCandidateColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 2);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 0);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, ProjectedDictionaryRangeGathersOnlySurvivors) {
+    write_dictionary_int_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    auto conjunct = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 2, false);
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {3, 4, 5, 6}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 6);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 4);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, ProjectedBigIntDictionaryRangeUsesFusedGather) {
+    write_dictionary_bigint_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    auto conjunct = create_int64_function_conjunct(0, "gt", TExprOpcode::GT, 2);
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4);
+    EXPECT_EQ(int64_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt64::Container {3, 4, 5, 6}));
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40, 50, 60}));
+    auto* fused_rows = profile.get_counter("DictionaryPredicateFusedProjectedRows");
+    ASSERT_NE(fused_rows, nullptr);
+    EXPECT_EQ(fused_rows->value(), 4);
+    auto* typed_filter_columns = profile.get_counter("DictFilterTypedCompareColumns");
+    ASSERT_NE(typed_filter_columns, nullptr);
+    EXPECT_EQ(typed_filter_columns->value(), 1);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, ProjectedStringDictionaryRangeGathersOnlySurvivors) {
+    write_dictionary_string_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    auto conjunct = create_string_function_conjunct(0, "gt", TExprOpcode::GT, "bravo");
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    const auto& text = string_data_column(*block.get_by_position(0).column);
+    EXPECT_EQ(text.get_data_at(0).to_string(), "charlie");
+    EXPECT_EQ(text.get_data_at(1).to_string(), "delta");
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40}));
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 2);
+    EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    auto* string_filter_columns = profile.get_counter("DictFilterStringCompareColumns");
+    ASSERT_NE(string_filter_columns, nullptr);
+    EXPECT_EQ(string_filter_columns->value(), 1);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, StringDictionaryRangeNormalizesLiteralOnLeft) {
+    write_dictionary_string_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    auto conjunct = create_string_function_conjunct(0, "lt", TExprOpcode::LT, "bravo", true);
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    const auto& text = string_data_column(*block.get_by_position(0).column);
+    EXPECT_EQ(text.get_data_at(0).to_string_view(), "charlie");
+    EXPECT_EQ(text.get_data_at(1).to_string_view(), "delta");
+    EXPECT_EQ(counter_value(profile, "DictFilterStringCompareColumns"), 1);
+    conjunct->close();
 }
 
 TEST_F(ParquetScanTest, ProjectedPlainComparisonUsesPhysicalFilterAndProjectPath) {
@@ -1628,6 +2154,48 @@ TEST_F(ParquetScanTest, ProjectedDeltaBinaryPackedUsesFixedWidthFilterAndProject
     EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionBytes"), 0);
+}
+
+TEST_F(ParquetScanTest, PlainPredicateDirectPathCrossesScratchProbeCadence) {
+    constexpr int64_t ROWS = 32;
+    std::vector<int32_t> ids(ROWS);
+    std::vector<int32_t> scores(ROWS);
+    std::iota(ids.begin(), ids.end(), 1);
+    std::iota(scores.begin(), scores.end(), 10);
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids), build_int32_array(scores)});
+    write_table(_file_path, table, ROWS, false, false, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> file_schema;
+    ASSERT_TRUE(reader->get_schema(&file_schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(file_schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, ROWS);
+    // Direct predicate evaluation must survive multiple 16-batch scratch probes; otherwise this
+    // path can retain a previous outlier for the whole row group without ever aging its capacity.
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), ROWS);
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyUint32FallsBackBeforeRawPlainDecode) {

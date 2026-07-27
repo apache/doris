@@ -94,8 +94,28 @@ public class ConfigTest {
 
     @Test
     public void testSetEmptyArray() throws ConfigException {
-        ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "a,b,c");
-        ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "");
-        Assert.assertEquals("array length should be 0", 0, Config.s3_load_endpoint_white_list.length);
+        ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
+        ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");
+        Assert.assertEquals("array length should be 0", 0, Config.mysql_compat_var_whitelist.length);
+    }
+
+    // File-path and jdbc-driver security configs must only be settable in fe.conf (ops), never at runtime
+    // via ADMIN SET FRONTEND CONFIG. setMutableConfig is exactly that runtime entrypoint, so it must reject them.
+    @Test
+    public void testSecurityPathConfigsAreNotRuntimeMutable() {
+        String[] opsOnlyConfigs = {
+                "jdbc_driver_url_white_list",
+                "jdbc_drivers_dir",
+                "jdbc_driver_secure_path",
+                "tmp_dir",
+                "plugin_dir",
+                "s3_load_endpoint_white_list",
+                "force_sqlserver_jdbc_encrypt_false",
+        };
+        for (String key : opsOnlyConfigs) {
+            ConfigException e = Assert.assertThrows(key + " should not be runtime-mutable",
+                    ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"));
+            Assert.assertTrue(e.getMessage().contains("is not mutable"));
+        }
     }
 }

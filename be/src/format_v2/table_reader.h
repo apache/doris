@@ -94,6 +94,7 @@ struct ProjectedColumnBuildContext {
     const TFileScanRangeParams* scan_params = nullptr;
     const TFileRangeDesc* range = nullptr;
     RuntimeState* runtime_state = nullptr;
+    const SlotDescriptor* slot_desc = nullptr;
     std::optional<ColumnDefinition> schema_column = std::nullopt;
     size_t next_file_column_idx = 0;
 };
@@ -206,6 +207,7 @@ public:
 
 #ifdef BE_TEST
     size_t TEST_batch_size() const { return _batch_size; }
+    void TEST_set_condition_cache_hit_count(int64_t hits) { _condition_cache_hit_count = hits; }
     bool TEST_current_data_file_is_immutable() const {
         DORIS_CHECK(_current_task != nullptr);
         DORIS_CHECK(_current_task->data_file != nullptr);
@@ -355,7 +357,7 @@ public:
         return Status::OK();
     }
 
-    int64_t condition_cache_hit_count() const { return _condition_cache_hit_count; }
+    virtual int64_t condition_cache_hit_count() const { return _condition_cache_hit_count; }
 
     virtual std::string debug_string() const;
 

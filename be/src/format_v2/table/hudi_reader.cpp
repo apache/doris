@@ -125,6 +125,13 @@ void HudiHybridReader::set_batch_size(size_t batch_size) {
     }
 }
 
+int64_t HudiHybridReader::condition_cache_hit_count() const {
+    // Keep the wrapper count cumulative across native/JNI dispatch so scanner-level delta
+    // accounting neither loses a child hit nor observes a counter reset on a split switch.
+    return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+}
+
 Status HudiHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     DORIS_CHECK(_scan_params != nullptr);
     if (_is_jni_split(*_scan_params, options.current_range)) {

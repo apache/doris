@@ -220,6 +220,7 @@ enum TSchemaTableType {
     SCH_BE_COMPACTION_TASKS = 70;
     SCH_ROLE_MAPPINGS = 71;
     SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 72;
+    SCH_EXTENSIONS = 73;
 }
 
 enum THdfsCompression {

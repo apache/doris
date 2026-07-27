@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "format_v2/parquet/native_schema_desc.h"
@@ -604,6 +605,117 @@ TEST(ParquetSchemaTest, NativeMetadataRejectsRowGroupChunkCardinalityAndMissingM
         NativeParquetMetadata metadata(std::move(thrift), 0);
         EXPECT_FALSE(metadata.init_schema(true, false).ok());
     }
+}
+
+TEST(ParquetSchemaTest, NativeProjectionUsesResolvedIdentityBeforeCaseInsensitiveFallback) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement group;
+    group.__set_name("s");
+    group.__set_num_children(3);
+    group.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    tparquet::SchemaElement upper;
+    upper.__set_name("Value");
+    upper.__set_type(tparquet::Type::INT32);
+    upper.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    upper.__set_field_id(1);
+    tparquet::SchemaElement lower = upper;
+    lower.__set_name("value");
+    lower.__set_field_id(2);
+    tparquet::SchemaElement other = upper;
+    other.__set_name("other");
+    other.__set_field_id(3);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, group, upper, lower, other}).ok());
+    descriptor.assign_ids();
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    std::shared_ptr<NativeSchemaNode> mapping;
+    auto other_only = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"other"}));
+    ASSERT_TRUE(build_native_schema_node(other_only, *fields[0], &mapping).ok());
+    EXPECT_TRUE(mapping->has_child("other"));
+
+    auto exact_case = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"Value"}));
+    ASSERT_TRUE(build_native_schema_node(exact_case, *fields[0], &mapping).ok());
+    EXPECT_EQ(mapping->file_child_name("Value"), "Value");
+
+    auto ambiguous_fallback = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"VALUE"}));
+    const auto status = build_native_schema_node(ambiguous_fallback, *fields[0], &mapping);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+}
+
+TEST(ParquetSchemaTest, NativeSetMapKeyValueWrapperRemainsSingleListElement) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement set;
+    set.__set_name("tags");
+    set.__set_num_children(1);
+    set.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    set.__set_converted_type(tparquet::ConvertedType::MAP);
+    tparquet::SchemaElement wrapper;
+    wrapper.__set_name("key_value");
+    wrapper.__set_num_children(1);
+    wrapper.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    wrapper.__set_converted_type(tparquet::ConvertedType::MAP_KEY_VALUE);
+    tparquet::SchemaElement key;
+    key.__set_name("key");
+    key.__set_type(tparquet::Type::INT32);
+    key.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, set, wrapper, key}).ok());
+    const auto* column = descriptor.get_column(0);
+    EXPECT_EQ(remove_nullable(column->data_type)->get_primitive_type(), TYPE_ARRAY);
+    ASSERT_EQ(column->children.size(), 1);
+    EXPECT_EQ(remove_nullable(column->children[0].data_type)->get_primitive_type(), TYPE_INT);
+}
+
+TEST(ParquetSchemaTest, NativeListPreservesLegacyMapKeyValueElement) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement list;
+    list.__set_name("entries");
+    list.__set_num_children(1);
+    list.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    list.__set_converted_type(tparquet::ConvertedType::LIST);
+    tparquet::SchemaElement element;
+    element.__set_name("element");
+    element.__set_num_children(1);
+    element.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    element.__set_converted_type(tparquet::ConvertedType::MAP_KEY_VALUE);
+    tparquet::SchemaElement map;
+    map.__set_name("map");
+    map.__set_num_children(2);
+    map.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement key;
+    key.__set_name("key");
+    key.__set_type(tparquet::Type::INT32);
+    key.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    tparquet::SchemaElement value;
+    value.__set_name("value");
+    value.__set_type(tparquet::Type::BYTE_ARRAY);
+    value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    NativeFieldDescriptor descriptor;
+    ASSERT_TRUE(descriptor.parse_from_thrift({root, list, element, map, key, value}).ok());
+    const auto* column = descriptor.get_column(0);
+    EXPECT_EQ(remove_nullable(column->data_type)->get_primitive_type(), TYPE_ARRAY);
+    ASSERT_EQ(column->children.size(), 1);
+    EXPECT_EQ(remove_nullable(column->children[0].data_type)->get_primitive_type(), TYPE_MAP);
+    ASSERT_EQ(column->children[0].children.size(), 2);
+    EXPECT_EQ(remove_nullable(column->children[0].children[0].data_type)->get_primitive_type(),
+              TYPE_INT);
+    EXPECT_EQ(remove_nullable(column->children[0].children[1].data_type)->get_primitive_type(),
+              TYPE_STRING);
 }
 
 } // namespace doris::format::parquet

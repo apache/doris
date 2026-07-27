@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/value/bitmap_value.h"
 #include "storage/iterator/olap_data_convertor.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
@@ -915,7 +916,7 @@ Status BlockAggregator::aggregate_rows(
             // Discard all the rows whose seq value is smaller than previous_encoded_seq_value.
             if (row_has_sequence_col) {
                 std::string seq_val {};
-                _writer._encode_seq_column(seq_column, pos, &seq_val);
+                _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
                 if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) < 0) {
                     continue;
                 }
@@ -932,7 +933,7 @@ Status BlockAggregator::aggregate_rows(
         if (row_has_sequence_col) {
             std::string seq_val {};
             // for rows that don't specify seqeunce col, seq_val will be encoded to minial value
-            _writer._encode_seq_column(seq_column, pos, &seq_val);
+            _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, pos);
             cur_seq_val = std::move(seq_val);
         } else {
             cur_seq_val.clear();
@@ -950,7 +951,7 @@ Status BlockAggregator::aggregate_rows(
             append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
         } else {
             std::string seq_val {};
-            _writer._encode_seq_column(seq_column, rid, &seq_val);
+            _writer._key_encoder.append_seq_suffix(&seq_val, seq_column, rid);
             if (Slice {seq_val}.compare(Slice {cur_seq_val}) >= 0) {
                 append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
                 cur_seq_val = std::move(seq_val);
@@ -981,7 +982,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
     int same_key_rows {0};
     std::string previous_key {};
     for (int block_pos {0}; block_pos < num_rows; block_pos++) {
-        std::string key = _writer._full_encode_keys(key_columns, block_pos);
+        std::string key = _writer._key_encoder.full_encode(key_columns, block_pos);
         if (block_pos > 0 && previous_key == key) {
             same_key_rows++;
         } else {
@@ -1061,7 +1062,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
     for (size_t block_pos {0}; block_pos < num_rows; block_pos++) {
         size_t delta_pos = block_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
-        std::string key = _writer._full_encode_keys(key_columns, delta_pos);
+        std::string key = _writer._key_encoder.full_encode(key_columns, delta_pos);
         bool have_delete_sign =
                 (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
         if (delta_pos > 0 && previous_key == key) {

@@ -28,7 +28,6 @@
 #include <ostream>
 #include <set>
 
-#include "common/compare.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -67,6 +66,7 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
+#include "util/simd/parquet_kernels.h"
 
 namespace doris {
 class RowDescriptor;
@@ -86,7 +86,7 @@ const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
 
 namespace {
 
-enum class RawComparisonOp : uint8_t { EQ, NE, LT, LE, GT, GE };
+using simd::RawComparisonOp;
 
 std::optional<RawComparisonOp> raw_comparison_op(std::string_view function_name, bool reverse) {
     RawComparisonOp op;
@@ -128,34 +128,7 @@ template <typename T, PrimitiveType PT>
 void execute_raw_comparison(const uint8_t* values, size_t num_values, const Field& literal,
                             RawComparisonOp op, uint8_t* matches) {
     const T rhs = literal.get<PT>();
-    for (size_t row = 0; row < num_values; ++row) {
-        if (matches[row] == 0) {
-            continue;
-        }
-        const T lhs = unaligned_load<T>(values + row * sizeof(T));
-        bool keep = false;
-        switch (op) {
-        case RawComparisonOp::EQ:
-            keep = Compare::equal(lhs, rhs);
-            break;
-        case RawComparisonOp::NE:
-            keep = Compare::not_equal(lhs, rhs);
-            break;
-        case RawComparisonOp::LT:
-            keep = Compare::less(lhs, rhs);
-            break;
-        case RawComparisonOp::LE:
-            keep = Compare::less_equal(lhs, rhs);
-            break;
-        case RawComparisonOp::GT:
-            keep = Compare::greater(lhs, rhs);
-            break;
-        case RawComparisonOp::GE:
-            keep = Compare::greater_equal(lhs, rhs);
-            break;
-        }
-        matches[row] = static_cast<uint8_t>(keep);
-    }
+    simd::raw_compare(values, num_values, rhs, op, matches);
 }
 
 } // namespace
