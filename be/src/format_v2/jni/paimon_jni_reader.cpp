@@ -28,8 +28,8 @@ namespace {
 
 constexpr std::string_view PAIMON_OPTION_PREFIX = "paimon.";
 constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
-constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
-constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
 
 const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,

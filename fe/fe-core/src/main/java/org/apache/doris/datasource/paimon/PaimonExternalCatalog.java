@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -114,12 +115,11 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
+    public Table getPaimonTable(NameMapping nameMapping) {
         return getPaimonTable(nameMapping, null, null);
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String branch,
-            String queryType) {
+    public Table getPaimonTable(NameMapping nameMapping, String branch, String queryType) {
         makeSureInitialized();
         try {
             Identifier identifier;
@@ -135,7 +135,12 @@ public class PaimonExternalCatalog extends ExternalCatalog {
             } else {
                 identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
             }
-            return executionAuthenticator.execute(() -> catalog.getTable(identifier));
+            return executionAuthenticator.execute(() -> {
+                Table table = catalog.getTable(identifier);
+                Map<String, String> tableOptions =
+                        paimonProperties.getTableOptionsForCopy(table.options());
+                return tableOptions.isEmpty() ? table : table.copy(tableOptions);
+            });
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
@@ -174,7 +179,8 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
         if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, PaimonExternalMetaCache.ENGINE))) {
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, PaimonExternalMetaCache.ENGINE)
+                        || AbstractPaimonProperties.isTableOptionProperty(key))) {
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), PaimonExternalMetaCache.ENGINE);
         }
     }
