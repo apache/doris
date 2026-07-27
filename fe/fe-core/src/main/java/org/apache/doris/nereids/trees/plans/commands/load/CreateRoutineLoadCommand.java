@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -67,7 +68,7 @@ import java.util.Objects;
       type of routine load:
           KAFKA
 */
-public class CreateRoutineLoadCommand extends Command implements ForwardWithSync {
+public class CreateRoutineLoadCommand extends Command implements ForwardWithSync, NeedAuditEncryption {
     CreateRoutineLoadInfo createRoutineLoadInfo;
 
     public CreateRoutineLoadCommand(CreateRoutineLoadInfo createRoutineLoadInfo) {
@@ -93,5 +94,10 @@ public class CreateRoutineLoadCommand extends Command implements ForwardWithSync
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateRoutineLoadCommand(this, context);
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

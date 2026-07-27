@@ -119,7 +119,8 @@ public class BaseController {
         cookie.setHttpOnly(true);
         response.addCookie(cookie);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
+            // Do not log the session cookie value.
+            LOG.debug("add session cookie: {}", PALO_SESSION_ID);
         }
         HttpAuthManager.getInstance().addSessionValue(key, value);
     }
@@ -283,8 +284,9 @@ public class BaseController {
             throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
-            LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeader("Authorization"), request.getRequestURI());
+            // Do not log the raw Authorization header when parsing fails.
+            LOG.info("parse auth info failed, hasAuthorizationHeader={}, url={}",
+                    request.getHeader("Authorization") != null, request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
         if (LOG.isDebugEnabled()) {

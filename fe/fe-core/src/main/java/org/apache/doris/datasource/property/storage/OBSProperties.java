@@ -70,6 +70,7 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"obs.session_token", "s3.session_token", "s3.session-token", "session_token"},
             required = false,
+            sensitive = true,
             description = "The session token of OBS.")
     protected String sessionToken = "";
 

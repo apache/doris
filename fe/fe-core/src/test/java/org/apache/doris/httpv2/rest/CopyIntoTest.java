@@ -41,6 +41,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -178,5 +180,41 @@ public class CopyIntoTest extends DorisHttpTestCase {
         JSONObject result = (JSONObject) data.get("result");
         String copyId = (String) result.get("copyId");
         Assert.assertEquals(copyId, "copy_1296997def6d4887_9e7ff31a7f3842cc");
+    }
+
+    @Test
+    public void testBuildRequestSummaryMasksSensitiveHeadersAndKeepsSafeMetadata() throws Exception {
+        jakarta.servlet.http.HttpServletRequest request = Mockito.mock(jakarta.servlet.http.HttpServletRequest.class);
+        Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(
+                java.util.Arrays.asList("Authorization", "Cookie", "token", "fileName", "Content-Type")));
+        Mockito.when(request.getHeader("Authorization")).thenReturn("Basic secret-auth");
+        Mockito.when(request.getHeader("Cookie")).thenReturn("session=secret-cookie");
+        Mockito.when(request.getHeader("token")).thenReturn("secret-token");
+        Mockito.when(request.getHeader("fileName")).thenReturn("file.csv");
+        Mockito.when(request.getHeader("Content-Type")).thenReturn("application/json");
+        Map<String, String[]> parameterMap = new HashMap<>();
+        parameterMap.put("cluster", new String[] {"default_cluster"});
+        parameterMap.put("secret_param_name", new String[] {"secret-param-value"});
+        Mockito.when(request.getParameterMap()).thenReturn(parameterMap);
+        String body = "{\"sql\":\"copy into tbl from @~('{file.csv}')\",\"secret\":\"body-secret\"}";
+
+        Method buildRequestSummary = CopyIntoAction.class.getDeclaredMethod(
+                "buildRequestSummary", jakarta.servlet.http.HttpServletRequest.class, String.class);
+        buildRequestSummary.setAccessible(true);
+        String summary = (String) buildRequestSummary.invoke(null, request, body);
+
+        Assert.assertTrue(summary.contains("cluster"));
+        Assert.assertTrue(summary.contains("secret_param_name"));
+        Assert.assertTrue(summary.contains("Authorization=***MASKED***"));
+        Assert.assertTrue(summary.contains("Cookie=***MASKED***"));
+        Assert.assertTrue(summary.contains("token=***MASKED***"));
+        Assert.assertTrue(summary.contains("fileName=file.csv"));
+        Assert.assertTrue(summary.contains("Content-Type=application/json"));
+        Assert.assertTrue(summary.contains("bodyLength=" + body.length()));
+        Assert.assertFalse(summary.contains("secret-param-value"));
+        Assert.assertFalse(summary.contains("secret-auth"));
+        Assert.assertFalse(summary.contains("secret-cookie"));
+        Assert.assertFalse(summary.contains("secret-token"));
+        Assert.assertFalse(summary.contains("body-secret"));
     }
 }

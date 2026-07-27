@@ -24,6 +24,8 @@ import org.apache.doris.cloud.proto.Cloud;
  * Extracted from {@code RemoteBase.ObjectInfo}.
  */
 public class ObjectInfo {
+    private static final String MASKED_VALUE = "******";
+
     private final Cloud.ObjectStoreInfoPB.Provider provider;
     private final String ak;
     private final String sk;
@@ -130,8 +132,8 @@ public class ObjectInfo {
     public String toString() {
         return "Obj{"
             + "provider=" + provider
-            + ", ak='" + ak + '\''
-            + ", sk='******" + '\''
+            + ", ak='" + MASKED_VALUE + '\''
+            + ", sk='" + MASKED_VALUE + '\''
             + ", bucket='" + bucket + '\''
             + ", endpoint='" + endpoint + '\''
             + ", region='" + region + '\''
@@ -139,7 +141,7 @@ public class ObjectInfo {
             + ", roleName='" + roleName + '\''
             + ", arn='" + arn + '\''
             + ", externalId='" + externalId + '\''
-            + ", token='" + token + '\''
+            + ", token='" + MASKED_VALUE + '\''
             + '}';
     }
 }

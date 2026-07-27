@@ -33,6 +33,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -332,7 +333,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             execConfig.setTimerDefinition(timerDefinition);
             recomputeDerivedFields();
         } catch (AnalysisException ae) {
-            log.warn("parse streaming insert job failed, props: {}", properties, ae);
+            log.warn("parse streaming insert job failed, properties: {}",
+                    new DatasourcePrintableMap<>(properties, "=", true, false, true), ae);
             throw new RuntimeException(ae.getMessage());
         }
     }
@@ -529,7 +531,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         // update properties
         if (!alterJobCommand.getProperties().isEmpty()) {
             modifyPropertiesInternal(alterJobCommand.getProperties());
-            logParts.add("properties: " + alterJobCommand.getProperties());
+            logParts.add("properties: " + new DatasourcePrintableMap<>(
+                    alterJobCommand.getProperties(), "=", true, false, true));
         }
 
         // update source properties
@@ -542,13 +545,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     buildConvertedSourceProperties(mergedSourceProperties);
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
-            logParts.add("source properties: " + alterJobCommand.getSourceProperties());
+            logParts.add("source properties: " + new DatasourcePrintableMap<>(
+                    alterJobCommand.getSourceProperties(), "=", true, false, true));
         }
 
         // update target properties
         if (!alterJobCommand.getTargetProperties().isEmpty()) {
             this.targetProperties.putAll(alterJobCommand.getTargetProperties());
-            logParts.add("target properties: " + alterJobCommand.getTargetProperties());
+            logParts.add("target properties: " + new DatasourcePrintableMap<>(
+                    alterJobCommand.getTargetProperties(), "=", true, false, true));
         }
         log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
     }

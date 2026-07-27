@@ -63,7 +63,6 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Optional;
 
@@ -103,7 +102,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
+        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getHeadersForLogging(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
@@ -131,7 +130,7 @@ public class LoadAction extends RestBaseController {
         // if auth token is not null, check it first
         if (!Strings.isNullOrEmpty(authToken)) {
             if (!checkClusterToken(authToken)) {
-                throw new UnauthorizedException("Invalid token: " + authToken);
+                throw new UnauthorizedException("Invalid token");
             }
             return executeWithClusterToken(request, response, db, table, true);
         } else {
@@ -238,7 +237,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad2PC(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db) {
-        LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
+        LOG.info("streamload action 2PC, db: {}, headers: {}", db, getHeadersForLogging(request));
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -248,7 +247,8 @@ public class LoadAction extends RestBaseController {
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db,
             @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
+        LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}",
+                db, table, getHeadersForLogging(request));
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -660,17 +660,6 @@ public class LoadAction extends RestBaseController {
         }
     }
 
-    private String getAllHeaders(HttpServletRequest request) {
-        StringBuilder headers = new StringBuilder();
-        Enumeration<String> headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String headerName = headerNames.nextElement();
-            String headerValue = isSensitiveHeader(headerName) ? "***MASKED***" : request.getHeader(headerName);
-            headers.append(headerName).append(":").append(headerValue).append(", ");
-        }
-        return headers.toString();
-    }
-
     private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
             TNetworkAddress redirectAddr, boolean isStreamLoad, String dbName, String tableName, String label)
             throws IOException {
@@ -744,15 +733,6 @@ public class LoadAction extends RestBaseController {
         SKIP_NO_REQUEST_BODY,
         SKIP_CONTENT_LENGTH_EXCEEDS_MAX_BYTES,
         DRAIN
-    }
-
-    private boolean isSensitiveHeader(String headerName) {
-        return "Authorization".equalsIgnoreCase(headerName)
-                || "Proxy-Authorization".equalsIgnoreCase(headerName)
-                || "Cookie".equalsIgnoreCase(headerName)
-                || "Set-Cookie".equalsIgnoreCase(headerName)
-                || "token".equalsIgnoreCase(headerName)
-                || "Auth-Token".equalsIgnoreCase(headerName);
     }
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)

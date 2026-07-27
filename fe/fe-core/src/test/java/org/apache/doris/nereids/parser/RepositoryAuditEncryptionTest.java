@@ -19,15 +19,30 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies that CREATE / ALTER REPOSITORY statements have their credential properties masked
- * before they reach the audit log, via {@link NeedAuditEncryption#geneEncryptionSQL(String)}.
+ * Verifies that NeedAuditEncryption statements mask credential properties before they reach the audit log.
  */
 public class RepositoryAuditEncryptionTest {
+
+    @BeforeEach
+    public void setUpConnectContext() {
+        // Some Nereids command parsing paths read the current database from thread-local context.
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setDatabase("");
+        connectContext.setThreadLocalInfo();
+    }
+
+    @AfterEach
+    public void tearDownConnectContext() {
+        ConnectContext.remove();
+    }
 
     private String encrypt(String sql) {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
@@ -59,5 +74,83 @@ public class RepositoryAuditEncryptionTest {
         String masked = encrypt(sql);
         Assertions.assertFalse(masked.contains("SUPERSECRET"), "secret_key must be masked: " + masked);
         Assertions.assertTrue(masked.contains("*XXX"), "expected mask token: " + masked);
+    }
+
+    @Test
+    public void testCreateDatabaseMasksJdbcPassword() {
+        String sql = "CREATE DATABASE test_db PROPERTIES ("
+                + "\"iceberg.jdbc.password\" = \"jdbc-secret\", "
+                + "\"iceberg.jdbc.user\" = \"root\")";
+        String masked = encrypt(sql);
+        Assertions.assertFalse(masked.contains("jdbc-secret"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+        Assertions.assertTrue(masked.contains("root"), masked);
+    }
+
+    @Test
+    public void testCreateStageMasksAkSk() {
+        String sql = "CREATE STAGE ex_stage PROPERTIES ("
+                + "\"bucket\" = \"tmp-bucket\", "
+                + "\"endpoint\" = \"cos.ap-beijing.myqcloud.com\", "
+                + "\"provider\" = \"cos\", "
+                + "\"prefix\" = \"tmp_prefix\", "
+                + "\"sk\" = \"tmp_sk\", "
+                + "\"ak\" = \"tmp_ak\", "
+                + "\"access_type\" = \"aksk\", "
+                + "\"region\" = \"ap-beijing\")";
+        String masked = encrypt(sql);
+        Assertions.assertFalse(masked.contains("tmp_ak"), masked);
+        Assertions.assertFalse(masked.contains("tmp_sk"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+    }
+
+    @Test
+    public void testCreateRoutineLoadMasksKafkaSecrets() {
+        String sql = "CREATE ROUTINE LOAD test_db.job1 ON tbl1 "
+                + "PROPERTIES(\"desired_concurrent_number\" = \"1\") "
+                + "FROM KAFKA("
+                + "\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                + "\"kafka_topic\" = \"topic1\", "
+                + "\"property.sasl.jaas.config\" = \"plain-secret\", "
+                + "\"property.aws.secret_key\" = \"aws-secret\")";
+        String masked = encrypt(sql);
+        Assertions.assertFalse(masked.contains("plain-secret"), masked);
+        Assertions.assertFalse(masked.contains("aws-secret"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+    }
+
+    @Test
+    public void testAlterRoutineLoadMasksKafkaSecrets() {
+        String sql = "ALTER ROUTINE LOAD FOR job1 FROM KAFKA("
+                + "\"property.aws.access_key\" = \"aws-ak\", "
+                + "\"property.aws.secret_key\" = \"aws-sk\", "
+                + "\"property.aws.external_id\" = \"external-id\")";
+        String masked = encrypt(sql);
+        Assertions.assertFalse(masked.contains("aws-ak"), masked);
+        Assertions.assertFalse(masked.contains("aws-sk"), masked);
+        Assertions.assertTrue(masked.contains("external-id"), masked);
+        Assertions.assertTrue(masked.contains("*XXX"), masked);
+    }
+
+    @Test
+    public void testCreateRoutineLoadKeepsKinesisExternalId() {
+        String sql = "CREATE ROUTINE LOAD test_db.job_kinesis ON tbl1 "
+                + "PROPERTIES(\"desired_concurrent_number\" = \"1\") "
+                + "FROM KINESIS("
+                + "\"aws.region\" = \"ap-southeast-1\", "
+                + "\"kinesis_stream\" = \"stream1\", "
+                + "\"property.aws.role_arn\" = \"arn:aws:iam::123456789012:role/test\", "
+                + "\"property.aws.external.id\" = \"kinesis-external-id\")";
+        String masked = encrypt(sql);
+        Assertions.assertTrue(masked.contains("kinesis-external-id"), masked);
+    }
+
+    @Test
+    public void testAlterRoutineLoadKeepsKinesisExternalId() {
+        String sql = "ALTER ROUTINE LOAD FOR job1 FROM KINESIS("
+                + "\"property.aws.role_arn\" = \"arn:aws:iam::123456789012:role/test\", "
+                + "\"property.aws.external.id\" = \"kinesis-external-id\")";
+        String masked = encrypt(sql);
+        Assertions.assertTrue(masked.contains("kinesis-external-id"), masked);
     }
 }

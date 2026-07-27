@@ -56,7 +56,6 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,23 +110,12 @@ public class CopyIntoAction extends RestBaseController {
         return mat.find();
     }
 
-    private static Map<String, String> getHeadersInfo(HttpServletRequest request) {
-        Map<String, String> map = new HashMap<>();
-        try {
-            Enumeration<String> headerNames = request.getHeaderNames();
-            if (headerNames == null) {
-                return map;
-            }
-            while (headerNames.hasMoreElements()) {
-                String key = headerNames.nextElement();
-                String value = request.getHeader(key);
-                map.put(key, value);
-            }
-            return map;
-        } catch (Exception ignore) {
-            LOG.warn("get request header info failed.");
-        }
-        return map;
+    // Keep safe request metadata while avoiding credential-bearing payloads and arbitrary parameter values.
+    private static String buildRequestSummary(HttpServletRequest request, String body) {
+        return "parameterKeys=" + request.getParameterMap().keySet()
+                + ", headers=" + getHeadersForLogging(request)
+                + ", bodyLength=" + (body == null ? 0 : body.length())
+                + ", hasBody=" + (body != null);
     }
 
     private boolean internalEndpoint(String host) throws DdlException {
@@ -138,7 +126,8 @@ public class CopyIntoAction extends RestBaseController {
     @RequestMapping(path = "/upload", method = RequestMethod.PUT)
     public Object copy(HttpServletRequest request, HttpServletResponse response) {
         MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST.increase(1L);
-        LOG.info("upload request parameter {} header {}", request.getParameterMap(), getHeadersInfo(request));
+        // Do not log raw COPY request headers or payloads.
+        LOG.info("upload request {}", buildRequestSummary(request, null));
         Map<String, Object> resultMap = new HashMap<>(3);
         try {
             long startTime = System.currentTimeMillis();
@@ -183,10 +172,9 @@ public class CopyIntoAction extends RestBaseController {
                 obj.setEndpoint(endpoint);
                 objPb = obj.build();
             }
-            LOG.debug("obj info : {}, isInternal {}", objPb.toString(), isInternal);
-
             // 2. use ObjFileSystem to get pre-signedUrl
             ObjectInfo objectInfo = new ObjectInfo(objPb);
+            LOG.debug("obj info: {}, isInternal {}", objectInfo, isInternal);
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
             ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
             String signedUrl = fs.getPresignedUrl(fileName);
@@ -217,8 +205,7 @@ public class CopyIntoAction extends RestBaseController {
             throws InterruptedException, IOException {
         MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_REQUEST.increase(1L);
         String postContent = HttpUtils.getBody(request);
-        LOG.info("query request parameter {} header {} body {}", request.getParameterMap(), getHeadersInfo(request),
-                postContent);
+        LOG.info("query request {}", buildRequestSummary(request, postContent));
         Map<String, Object> resultMap = new HashMap<>(3);
         try {
             long startTime = System.currentTimeMillis();
@@ -228,7 +215,7 @@ public class CopyIntoAction extends RestBaseController {
             }
             JSONObject jsonObject = (JSONObject) JSONValue.parse(postContent);
             if (jsonObject == null) {
-                return ResponseEntityBuilder.badRequest("malformed json: " + postContent);
+                return ResponseEntityBuilder.badRequest("malformed json request body");
             }
 
             String copyIntoSql = (String) jsonObject.get("sql");
@@ -240,7 +227,7 @@ public class CopyIntoAction extends RestBaseController {
             String clusterName = (String) jsonObject.getOrDefault("cluster", "");
             LogicalPlan logicalPlan = analyzeStmt(copyIntoSql);
             if (!(logicalPlan instanceof CopyIntoCommand)) {
-                return ResponseEntityBuilder.badRequest("just support copy into sql: " + copyIntoSql);
+                return ResponseEntityBuilder.badRequest("just support copy into sql");
             }
 
             LOG.info("copy into stmt: {}", copyIntoSql);

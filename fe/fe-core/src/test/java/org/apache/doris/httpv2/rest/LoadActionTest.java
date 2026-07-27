@@ -41,6 +41,7 @@ import org.springframework.web.servlet.view.RedirectView;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 
 public class LoadActionTest {
     private final boolean originalEnableDebugPoints = Config.enable_debug_points;
@@ -236,22 +237,27 @@ public class LoadActionTest {
     }
 
     @Test
-    public void testGetAllHeadersMasksSensitiveHeaders() throws Exception {
-        LoadAction loadAction = new LoadAction();
+    public void testGetHeadersForLoggingMasksOnlySensitiveHeaders() {
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getHeaderNames()).thenReturn(Collections.enumeration(Arrays.asList(
-                "Authorization", "Cookie", "Set-Cookie", "token", "label")));
+                "Authorization", "Cookie", "Set-Cookie", "token", "X-Api-Key", "label", "format")));
+        Mockito.when(request.getHeader("Authorization")).thenReturn("Basic secret-auth");
+        Mockito.when(request.getHeader("Cookie")).thenReturn("session=secret-cookie");
+        Mockito.when(request.getHeader("Set-Cookie")).thenReturn("session=secret-set-cookie");
+        Mockito.when(request.getHeader("token")).thenReturn("secret-token");
+        Mockito.when(request.getHeader("X-Api-Key")).thenReturn("secret-api-key");
         Mockito.when(request.getHeader("label")).thenReturn("load_label");
+        Mockito.when(request.getHeader("format")).thenReturn("json");
 
-        Method method = LoadAction.class.getDeclaredMethod("getAllHeaders", HttpServletRequest.class);
-        method.setAccessible(true);
-        String headers = (String) method.invoke(loadAction, request);
+        Map<String, String> headers = RestBaseController.getHeadersForLogging(request);
 
-        Assertions.assertTrue(headers.contains("Authorization:***MASKED***"));
-        Assertions.assertTrue(headers.contains("Cookie:***MASKED***"));
-        Assertions.assertTrue(headers.contains("Set-Cookie:***MASKED***"));
-        Assertions.assertTrue(headers.contains("token:***MASKED***"));
-        Assertions.assertTrue(headers.contains("label:load_label"));
+        Assertions.assertEquals("***MASKED***", headers.get("Authorization"));
+        Assertions.assertEquals("***MASKED***", headers.get("Cookie"));
+        Assertions.assertEquals("***MASKED***", headers.get("Set-Cookie"));
+        Assertions.assertEquals("***MASKED***", headers.get("token"));
+        Assertions.assertEquals("***MASKED***", headers.get("X-Api-Key"));
+        Assertions.assertEquals("load_label", headers.get("label"));
+        Assertions.assertEquals("json", headers.get("format"));
     }
 
     @Test

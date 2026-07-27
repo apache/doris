@@ -60,6 +60,9 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 import javax.net.ssl.HttpsURLConnection;
 
@@ -75,6 +78,33 @@ public class RestBaseController extends BaseController {
     protected static final String SINGLE_REPLICA_KEY = "single_replica";
     protected static final String FORWARD_MASTER_UT_TEST = "forward_master_ut_test";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
+    private static final String MASKED_HEADER_VALUE = "***MASKED***";
+
+    protected static Map<String, String> getHeadersForLogging(HttpServletRequest request) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        Enumeration<String> headerNames = request.getHeaderNames();
+        if (headerNames == null) {
+            return headers;
+        }
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            headers.put(headerName, isSensitiveHeader(headerName)
+                    ? MASKED_HEADER_VALUE : request.getHeader(headerName));
+        }
+        return headers;
+    }
+
+    private static boolean isSensitiveHeader(String headerName) {
+        return "Authorization".equalsIgnoreCase(headerName)
+                || "Proxy-Authorization".equalsIgnoreCase(headerName)
+                || "Cookie".equalsIgnoreCase(headerName)
+                || "Set-Cookie".equalsIgnoreCase(headerName)
+                || "token".equalsIgnoreCase(headerName)
+                || "Auth-Token".equalsIgnoreCase(headerName)
+                || "X-Auth-Token".equalsIgnoreCase(headerName)
+                || "X-Api-Key".equalsIgnoreCase(headerName)
+                || "X-Amz-Security-Token".equalsIgnoreCase(headerName);
+    }
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
                                                         HttpServletResponse response) throws UnauthorizedException {

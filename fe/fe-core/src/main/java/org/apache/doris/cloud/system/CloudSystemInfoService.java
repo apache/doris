@@ -28,7 +28,6 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
-import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -238,7 +237,11 @@ public class CloudSystemInfoService extends SystemInfoService {
         private boolean same(long otherFingerprint, int otherBucketNum) {
             return fingerprint == otherFingerprint && bucketNum == otherBucketNum;
         }
+    }
 
+    // cloudUniqueId is a non-sensitive tenant and cluster locator that helps correlate Cloud RPC logs.
+    static Cloud.AlterClusterRequest getAlterClusterRequestForLogging(Cloud.AlterClusterRequest request) {
+        return request.toBuilder().build();
     }
 
     public void addVirtualClusterInfoToMapsNoLock(String clusterId, String clusterName) {
@@ -705,7 +708,8 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("update file cache jobIds, request: {}, response: {}", request, response);
+            LOG.info("update file cache jobIds, request: {}, response: {}",
+                    getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("update file cache jobIds, response: {}", response);
                 return false;
@@ -753,7 +757,8 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("switch compute group, request: {}, response: {}", request, response);
+            LOG.info("switch compute group, request: {}, response: {}",
+                    getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to switch compute group, response: {}", response);
                 /*
@@ -799,7 +804,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            LOG.info("alter cluster, request: {}, response: {}", getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("alter backends not ok, response: {}", response);
                 throw new DdlException("failed to alter backends errorCode: " + response.getStatus().getCode()
@@ -868,7 +873,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("add backends, request: {}, response: {}", request, response);
+            LOG.info("add backends, request: {}, response: {}", getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("add backends not ok, response: {}", response);
                 throw new DdlException("failed to add backends errorCode: " + response.getStatus().getCode()
@@ -1487,7 +1492,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            LOG.info("alter cluster, request: {}, response: {}", getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("alter frontend not ok, response: {}", response);
                 throw new DdlException("failed to alter frontend errorCode: " + response.getStatus().getCode()
@@ -1531,7 +1536,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.AlterClusterResponse response;
         try {
             response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            LOG.info("alter cluster, request: {}, response: {}", getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
                     && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
                 LOG.warn("create cluster not ok, response: {}", response);
@@ -1734,7 +1739,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             Cloud.AlterClusterRequest request = builder.build();
             Cloud.AlterClusterResponse response = MetaServiceProxy.getInstance().alterCluster(request);
-            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            LOG.info("alter cluster, request: {}, response: {}", getAlterClusterRequestForLogging(request), response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("notify to resume cluster not ok, cluster {}, response: {}", clusterName, response);
             }
@@ -1885,10 +1890,11 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             Cloud.GetInstanceRequest request = builder.build();
             response = MetaServiceProxy.getInstance().getInstance(request);
-            response = hideAkSkForStorageVault(response.toBuilder());
-            LOG.info("get instance info, request: {}, response: {}", request, response);
+            LOG.info("get instance info, cloudUniqueId={}, requestIp={}, response={}",
+                    request.getCloudUniqueId(), request.getRequestIp(),
+                    getInstanceResponseForLogging(response));
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("Failed to get instance info, response: {}", response);
+                LOG.warn("Failed to get instance info, response: {}", getInstanceResponseForLogging(response));
                 throw new IOException("Failed to get instance info");
             }
             return response.getInstance().getInstanceId();
@@ -1898,59 +1904,27 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
-    private String hideKey(String key) {
-        if (key == null || key.isEmpty()) {
-            return "";
+    static Cloud.GetInstanceResponse getInstanceResponseForLogging(Cloud.GetInstanceResponse response) {
+        Cloud.GetInstanceResponse.Builder responseBuilder = response.toBuilder();
+        if (!response.hasInstance()) {
+            return responseBuilder.build();
         }
-
-        int keyLen = key.length();
-        int reservedCount = (keyLen > 6) ? 6 : (keyLen > 2 ? keyLen - 2 : 0);
-        int xCount = keyLen - reservedCount;
-
-        int leftXCount = xCount / 2;
-        StringBuilder result = new StringBuilder();
-
-        for (int i = 0; i < leftXCount; i++) {
-            result.append('x');
+        InstanceInfoPB.Builder instanceBuilder = responseBuilder.getInstanceBuilder();
+        for (int i = 0; i < instanceBuilder.getObjInfoCount(); i++) {
+            instanceBuilder.getObjInfoBuilder(i).clearAk().clearSk();
         }
-
-        int startIndex = leftXCount;
-        int endIndex = startIndex + reservedCount;
-        result.append(key.substring(startIndex, endIndex));
-
-        int rightXCount = xCount - leftXCount;
-        for (int i = 0; i < rightXCount; i++) {
-            result.append('x');
-        }
-        return result.toString();
-    }
-
-    public Cloud.GetInstanceResponse hideAkSkForStorageVault(Cloud.GetInstanceResponse.Builder resp) {
-        if (resp == null) {
-            return null;
-        }
-
-        if (resp.getInstance().getObjInfoCount() == 0) {
-            return resp.build();
-        }
-
-        for (int i = 0; i < resp.getInstance().getObjInfoCount(); i++) {
-            ObjectStoreInfoPB objInfo = resp.getInstance().getObjInfo(i);
-            if (objInfo == null) {
-                continue;
-            }
-            if (objInfo.hasAk()) {
-                String ak = objInfo.getAk();
-                String hiddenAk = hideKey(ak);
-                resp.getInstanceBuilder().getObjInfoBuilder(i).setAk(hiddenAk);
-            }
-            if (objInfo.hasSk()) {
-                String sk = objInfo.getSk();
-                String hiddenSk = hideKey(sk);
-                resp.getInstanceBuilder().getObjInfoBuilder(i).setSk(hiddenSk);
+        for (int i = 0; i < instanceBuilder.getStagesCount(); i++) {
+            if (instanceBuilder.getStages(i).hasObjInfo()) {
+                instanceBuilder.getStagesBuilder(i).getObjInfoBuilder().clearAk().clearSk();
             }
         }
-        return resp.build();
+        if (instanceBuilder.hasRamUser()) {
+            instanceBuilder.getRamUserBuilder().clearAk().clearSk();
+        }
+        if (instanceBuilder.hasIamUser()) {
+            instanceBuilder.getIamUserBuilder().clearAk().clearSk();
+        }
+        return responseBuilder.build();
     }
 
     public void renameComputeGroup(String originalName, String newGroupName) throws UserException {
@@ -1997,7 +1971,8 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.warn("alter rename compute group rpc exception");
             throw new UserException("failed to alter rename compute group", e);
         } finally {
-            LOG.info("alter rename compute group, request: {}, response: {}", request, response);
+            LOG.info("alter rename compute group, request: {}, response: {}",
+                    getAlterClusterRequestForLogging(request), response);
         }
     }
 
@@ -2042,7 +2017,8 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.warn("alter compute group properties rpc exception");
             throw new UserException("failed to alter compute group properties", e);
         } finally {
-            LOG.info("alter compute group properties, request: {}, response: {}", request, response);
+            LOG.info("alter compute group properties, request: {}, response: {}",
+                    getAlterClusterRequestForLogging(request), response);
         }
     }
 }

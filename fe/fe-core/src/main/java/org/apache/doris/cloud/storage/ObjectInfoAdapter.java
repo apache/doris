@@ -111,9 +111,10 @@ public class ObjectInfoAdapter {
         try {
             ObjectStoreInfoPB infoPB = stagePB.getObjInfo();
             String encodedExternalId = encodeExternalId(stagePB.getExternalId());
-            LOG.info("Before parse object storage info={}, encodedExternalId={}", stagePB, encodedExternalId);
             ObjectInfo arnObj = new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null);
+            LOG.info("Before parse object storage info, stageId={}, stageName={}, accessType={}, objectInfo={}",
+                    stagePB.getStageId(), stagePB.getName(), stagePB.getAccessType(), arnObj);
             StorageProperties props = toStorageProperties(arnObj);
             try (ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(props)) {
                 StsCredentials stsToken = fs.getStsToken();
@@ -121,11 +122,15 @@ public class ObjectInfoAdapter {
                         stsToken.getSecretKey(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
                         infoPB.getPrefix(), stagePB.getRoleName(), stagePB.getArn(), encodedExternalId,
                         stsToken.getSecurityToken());
-                LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
+                LOG.info("Parse object storage info, stageId={}, before={}, after={}",
+                        stagePB.getStageId(), arnObj, objInfo);
                 return objInfo;
             }
         } catch (Throwable e) {
-            LOG.warn("Failed analyze stagePB={}", stagePB, e);
+            ObjectInfo safeObjectInfo = new ObjectInfo(stagePB.getObjInfo(), stagePB.getRoleName(), stagePB.getArn(),
+                    stagePB.getExternalId(), null);
+            LOG.warn("Failed analyze stage, stageId={}, stageName={}, accessType={}, objectInfo={}",
+                    stagePB.getStageId(), stagePB.getName(), stagePB.getAccessType(), safeObjectInfo, e);
             throw new AnalysisException("Failed analyze object info of stagePB, " + e.getMessage());
         }
     }

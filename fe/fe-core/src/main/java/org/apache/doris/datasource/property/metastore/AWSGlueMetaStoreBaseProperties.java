@@ -76,6 +76,7 @@ public class AWSGlueMetaStoreBaseProperties {
     protected String glueSecretKey = "";
 
     @ConnectorProperty(names = {"aws.glue.session-token"},
+            sensitive = true,
             description = "The session token of the AWS Glue.")
     protected String glueSessionToken = "";
 
@@ -208,5 +209,4 @@ public class AWSGlueMetaStoreBaseProperties {
                 ProfileCredentialsProvider.create());
     }
 }
-
 

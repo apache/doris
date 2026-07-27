@@ -274,7 +274,7 @@ public class CreateTableTest extends TestWithFeService {
     @Test
     public void testAbnormal() throws DdlException, ConfigException {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown properties: {aa=bb}",
+                "Unknown properties: [aa]",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1','aa'='bb'); "));
 

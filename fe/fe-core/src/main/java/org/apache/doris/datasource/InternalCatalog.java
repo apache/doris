@@ -3069,7 +3069,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
                     // here, all properties should be checked
-                    throw new DdlException("Unknown properties: " + properties);
+                    throw new DdlException("Unknown properties: " + properties.keySet());
                 }
                 // this is a 1-level partitioned table
                 // use table name as partition name
@@ -3114,7 +3114,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
                     if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
-                        throw new DdlException("Unknown properties: " + propertiesCheck);
+                        throw new DdlException("Unknown properties: " + propertiesCheck.keySet());
                     }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
@@ -4000,7 +4000,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (properties != null && !properties.isEmpty()) {
                     // before here, all properties should be checked
-                    throw new DdlException("Unknown properties: " + properties);
+                    throw new DdlException("Unknown properties: " + properties.keySet());
                 }
                 newStream.setId((Env.getCurrentEnv().getNextId()));
             } finally {
