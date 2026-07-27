@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/paimon_table_writer.h"
 
 #include "common/check.h"
 #include "common/logging.h"
@@ -24,15 +24,15 @@
 
 namespace doris {
 
-VPaimonTableWriter::VPaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                                       std::shared_ptr<Dependency> dep,
-                                       std::shared_ptr<Dependency> fin_dep)
+PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
+                                     std::shared_ptr<Dependency> dep,
+                                     std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_exprs, std::move(dep), std::move(fin_dep)),
           _t_sink(std::move(t_sink)) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
 
-Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _operator_profile = profile;
 
@@ -61,12 +61,12 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_backend->create_writer(&_writer));
     DCHECK(_writer);
 
-    LOG(INFO) << "VPaimonTableWriter opened: backend=" << static_cast<int>(_backend->type())
+    LOG(INFO) << "PaimonTableWriter opened: backend=" << static_cast<int>(_backend->type())
               << ", writer_scope=local_state";
     return Status::OK();
 }
 
-Status VPaimonTableWriter::write(RuntimeState* state, Block& block) {
+Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -96,7 +96,7 @@ Status VPaimonTableWriter::write(RuntimeState* state, Block& block) {
     return Status::OK();
 }
 
-Status VPaimonTableWriter::close(Status status) {
+Status PaimonTableWriter::close(Status status) {
     SCOPED_TIMER(_close_timer);
 
     // On success: prepare commit messages via the SDK writer.

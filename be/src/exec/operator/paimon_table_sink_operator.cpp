@@ -30,7 +30,7 @@ Status PaimonTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block,
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), static_cast<int64_t>(in_block->rows()));
 
-    // Delegate to AsyncWriterSink → VPaimonTableWriter for this pipeline instance.
+    // Delegate to AsyncWriterSink → PaimonTableWriter for this pipeline instance.
     // Each pipeline instance has its own writer session; partition and bucket
     // routing is handled internally by the Paimon SDK inside IPaimonWriter::write().
     return local_state.sink(state, in_block, eos);

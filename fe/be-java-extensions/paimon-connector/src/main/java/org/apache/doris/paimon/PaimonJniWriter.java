@@ -64,7 +64,7 @@ import java.util.Set;
  * JNI entry point for Paimon write operations.
  *
  * <p>Called from C++ ({@code JniPaimonWriter}) via JNI. One instance per BE pipeline
- * fragment (one per {@code VPaimonTableWriter}). Data path:
+ * fragment (one per {@code PaimonTableWriter}). Data path:
  *
  * <pre>
  *   C++ Block → Arrow IPC Stream → JNI direct ByteBuffer
@@ -78,7 +78,7 @@ import java.util.Set;
  * <p>Commit path:
  *
  * <pre>
- *   VPaimonTableWriter::close() → JNI → PaimonJniWriter.prepareCommit()
+ *   PaimonTableWriter::close() → JNI → PaimonJniWriter.prepareCommit()
  *   → TableWriteImpl.prepareCommit()
  *   → PaimonCommitCodec.encode() → DPCM-framed byte[][]
  *   → C++ collects TPaimonCommitMessage[] → RPC to FE → PaimonTransaction

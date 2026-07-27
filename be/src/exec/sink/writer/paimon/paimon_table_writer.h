@@ -33,7 +33,7 @@ namespace doris {
 
 class RuntimeState;
 
-/// Each PaimonTableSinkLocalState owns one VPaimonTableWriter, which in turn
+/// Each PaimonTableSinkLocalState owns one PaimonTableWriter, which in turn
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
 /// therefore determines the number of independent Paimon writer sessions;
 /// each writer session delegates partition and bucket routing to the Paimon
@@ -48,7 +48,7 @@ class RuntimeState;
 ///   PaimonTableSinkOperatorX
 ///     │  sink_impl() → AsyncWriterSink::sink()  (no routing)
 ///     ▼
-///   VPaimonTableWriter (one per LocalState / pipeline instance)
+///   PaimonTableWriter (one per LocalState / pipeline instance)
 ///     │  owns IPaimonWriteBackend (JNI or FFI)
 ///     │    └─ create_writer() → IPaimonWriter
 ///     │  write()
@@ -66,12 +66,12 @@ class RuntimeState;
 ///          → collect TPaimonCommitMessage[] (DPCM-framed serialized messages)
 ///          → RuntimeState::add_paimon_commit_messages()
 ///          → RPC to FE Coordinator → PaimonTransaction
-class VPaimonTableWriter final : public AsyncResultWriter {
+class PaimonTableWriter final : public AsyncResultWriter {
 public:
-    VPaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                       std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
+    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
+                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
-    ~VPaimonTableWriter() override = default;
+    ~PaimonTableWriter() override = default;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
@@ -84,7 +84,7 @@ private:
     RuntimeState* _state = nullptr;
 
     // Backend owns the JNI/FFI connection and creates the writer adapter.
-    // Both are scoped to this VPaimonTableWriter (one per LocalState).
+    // Both are scoped to this PaimonTableWriter (one per LocalState).
     std::unique_ptr<IPaimonWriteBackend> _backend;
     std::unique_ptr<IPaimonWriter> _writer;
 

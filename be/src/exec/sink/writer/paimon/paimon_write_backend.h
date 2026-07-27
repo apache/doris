@@ -35,7 +35,7 @@ enum class PaimonBackendType {
 };
 
 /// Writer contract implemented by one SDK writer adapter. Each
-/// VPaimonTableWriter owns one IPaimonWriter, which delegates to the
+/// PaimonTableWriter owns one IPaimonWriter, which delegates to the
 /// underlying Paimon SDK (Java JNI or Rust FFI). Partition and bucket
 /// routing happens inside the selected SDK backend.
 ///

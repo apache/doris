@@ -25,14 +25,14 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/operator.h"
-#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/paimon_table_writer.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 
 /// Paimon table sink operator — simple pass-through to AsyncWriterSink.
 ///
-/// Each pipeline instance (LocalState) owns one VPaimonTableWriter, which in
+/// Each pipeline instance (LocalState) owns one PaimonTableWriter, which in
 /// turn owns one IPaimonWriteBackend + IPaimonWriter. Pipeline parallelism
 /// determines the number of concurrent Paimon writer sessions per table.
 ///
@@ -47,9 +47,9 @@ namespace doris {
 class PaimonTableSinkOperatorX;
 
 class PaimonTableSinkLocalState final
-        : public AsyncWriterSink<VPaimonTableWriter, PaimonTableSinkOperatorX> {
+        : public AsyncWriterSink<PaimonTableWriter, PaimonTableSinkOperatorX> {
 public:
-    using Base = AsyncWriterSink<VPaimonTableWriter, PaimonTableSinkOperatorX>;
+    using Base = AsyncWriterSink<PaimonTableWriter, PaimonTableSinkOperatorX>;
     using Parent = PaimonTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(PaimonTableSinkLocalState);
     PaimonTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
