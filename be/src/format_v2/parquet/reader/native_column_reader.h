@@ -87,7 +87,7 @@ public:
                                          int64_t batch_rows,
                                          const IColumn::Filter& dictionary_filter,
                                          IColumn* projected_column, IColumn::Filter* row_filter,
-                                         bool* used_filter) override;
+                                         uint16_t* survivor_count, bool* used_filter) override;
     Status select_with_fixed_width_filter(const SelectionVector& selection, uint16_t selected_rows,
                                           int64_t batch_rows, const VExprSPtrs& conjuncts,
                                           int column_id, IColumn* projected_column,
@@ -120,8 +120,9 @@ private:
                                        const IColumn::Filter& dictionary_filter,
                                        const IColumn* typed_dictionary, IColumn* projected_values,
                                        ColumnInt32* matched_dictionary_ids,
-                                       IColumn::Filter* row_filter, int64_t* rows_read,
-                                       bool* projected_directly, bool* used_filter);
+                                       IColumn::Filter* row_filter, int64_t* survivor_count,
+                                       int64_t* rows_read, bool* projected_directly,
+                                       bool* used_filter);
     void release_batch_scratch_if_needed();
     int64_t sync_native_profile();
     void record_page_fragments(int64_t page_fragments);
