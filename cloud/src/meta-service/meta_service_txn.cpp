@@ -2652,7 +2652,7 @@ void MetaServiceImpl::commit_txn_eventually(
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
         } else {
-            response->clear_is_lazy_commit_incomplete();
+            response->set_is_lazy_commit_incomplete(false);
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -3286,6 +3286,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_txn, get, put, del);
+    response->set_is_lazy_commit_incomplete(false);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";
@@ -3323,13 +3324,17 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     TxnErrorCode err = TxnErrorCode::TXN_OK;
-    bool enable_txn_lazy_commit_feature =
+    const bool supports_incomplete_lazy_commit_response =
+            request->has_supports_incomplete_lazy_commit_response() &&
+            request->supports_incomplete_lazy_commit_response();
+    const bool enable_txn_lazy_commit_feature =
             (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
-             request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
+             request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit &&
+             supports_incomplete_lazy_commit_response);
 
     while ((!enable_txn_lazy_commit_feature ||
             (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
-        if (force_txn_lazy_commit()) {
+        if (enable_txn_lazy_commit_feature && force_txn_lazy_commit()) {
             LOG(INFO) << "fuzzy test force_txn_lazy_commit, txn_id=" << txn_id
                       << " force_posibility=" << config::cloud_txn_lazy_commit_fuzzy_possibility;
             break;

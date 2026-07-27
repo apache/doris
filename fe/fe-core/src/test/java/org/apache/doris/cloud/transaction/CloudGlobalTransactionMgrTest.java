@@ -206,11 +206,15 @@ public class CloudGlobalTransactionMgrTest {
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
             masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
                     transactionId, null, null);
+            ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
+                    ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
+            Assert.assertTrue(requestCaptor.getValue().getSupportsIncompleteLazyCommitResponse());
         }
     }
 
     @Test
-    public void testSkipMakeTmpRsVisibleForIncompleteLazyCommit() throws Exception {
+    public void testMakeTmpRsVisibleRequiresConfirmedCompleteLazyCommit() throws Exception {
         boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
         try {
             Config.enable_notify_be_after_load_txn_commit = true;
@@ -240,6 +244,11 @@ public class CloudGlobalTransactionMgrTest {
 
             notifyMethod.invoke(transactionMgr,
                     incompleteLazyCommitResponse.toBuilder().clearIsLazyCommitIncomplete().build(),
+                    tabletCommitInfos);
+            Assert.assertFalse(notified.get());
+
+            notifyMethod.invoke(transactionMgr,
+                    incompleteLazyCommitResponse.toBuilder().setIsLazyCommitIncomplete(false).build(),
                     tabletCommitInfos);
             Assert.assertTrue(notified.get());
         } finally {

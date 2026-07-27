@@ -135,6 +135,11 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(std::shared_ptr<TxnKv> txn_kv
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
+static void enable_lazy_commit_for_capable_client(CommitTxnRequest& request) {
+    request.set_enable_txn_lazy_commit(true);
+    request.set_supports_incomplete_lazy_commit_response(true);
+}
+
 static std::string next_rowset_id() {
     static int cnt = 0;
     return std::to_string(++cnt);
@@ -637,7 +642,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         for (int i = 0; i < 2999; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
@@ -735,7 +740,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
@@ -829,7 +834,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
@@ -940,7 +945,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
@@ -1092,7 +1097,7 @@ TEST(TxnLazyCommitVersionedReadTest, DISABLED_CommitTxnEventuallyWithoutDbIdTest
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
@@ -1186,13 +1191,13 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_TRUE(commit_txn_immediatelly_hit);
-        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
@@ -1268,7 +1273,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     commit_req.set_db_id(db_id);
     commit_req.set_txn_id(txn_id);
     commit_req.set_is_2pc(false);
-    commit_req.set_enable_txn_lazy_commit(true);
+    enable_lazy_commit_for_capable_client(commit_req);
     CommitTxnResponse commit_res;
     meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                              &commit_req, &commit_res, nullptr);
@@ -1284,7 +1289,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     check_rowset_meta_not_exist(txn, tablet_id, 2);
 }
 
-TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
+TEST(TxnLazyCommitTest, LegacyClientDoesNotFallThroughCommitTxnEventuallyTest) {
     auto txn_kv = get_mem_txn_kv();
     int64_t db_id = 415413556;
     int64_t table_id = 34184234;
@@ -1292,6 +1297,8 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
     int64_t partition_id = 8934984;
     bool commit_txn_immediatelly_hit = false;
     bool commit_txn_eventually_finish_hit = false;
+    int32_t original_fuzzy_possibility = config::cloud_txn_lazy_commit_fuzzy_possibility;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 100;
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("commit_txn_immediately::before_commit", [&](auto&& args) {
@@ -1313,6 +1320,7 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
     });
     sp->enable_processing();
     DORIS_CLOUD_DEFER {
+        config::cloud_txn_lazy_commit_fuzzy_possibility = original_fuzzy_possibility;
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
@@ -1354,6 +1362,7 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
+        req.set_enable_txn_lazy_commit(true);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
@@ -1445,7 +1454,7 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
@@ -1608,7 +1617,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id1);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -1662,7 +1671,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id2);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -1866,7 +1875,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id1);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2026,7 +2035,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
             req.set_db_id(db_id);
             req.set_txn_id(tmp_txn_id);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2142,7 +2151,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id1);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2296,7 +2305,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2480,7 +2489,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id1);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2667,7 +2676,7 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
             req.set_db_id(db_id);
             req.set_txn_id(tmp_txn_id);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2838,7 +2847,7 @@ TEST(TxnLazyCommitTest, RecyclePartitions) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -2987,7 +2996,7 @@ TEST(TxnLazyCommitTest, RecycleIndexes) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -3103,7 +3112,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
@@ -3206,7 +3215,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
@@ -3343,7 +3352,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
             req.set_db_id(db_id);
             req.set_txn_id(txn_id);
             req.set_is_2pc(false);
-            req.set_enable_txn_lazy_commit(true);
+            enable_lazy_commit_for_capable_client(req);
             CommitTxnResponse res;
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -3474,7 +3483,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
@@ -3483,7 +3492,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
@@ -3494,7 +3503,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
@@ -3503,7 +3512,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
@@ -3586,7 +3595,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithManyPartitions) {
         req.set_db_id(db_id);
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
-        req.set_enable_txn_lazy_commit(true);
+        enable_lazy_commit_for_capable_client(req);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
