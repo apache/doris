@@ -54,15 +54,20 @@ import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
+    private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
+    private static final Comparator<String> UTF8_BINARY_ORDER = S3Util::compareUtf8Binary;
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
         AwsCredentials awsCredential;
@@ -300,6 +305,269 @@ public class S3Util {
         }
 
         return globPattern.substring(0, earliestSpecialCharIndex);
+    }
+
+    /**
+     * Returns object-store list prefixes that are safe to push down for a glob pattern.
+     * Bounded brace alternatives and positive character classes are expanded before the first
+     * unbounded wildcard. Unsafe or oversized expansions fall back to the longest static prefix.
+     */
+    public static List<String> getGlobListPrefixes(String globPattern) {
+        List<String> prefixes = expandGlobListPrefixes(globPattern, true);
+        return prefixes == null ? Collections.singletonList(getLongestPrefix(globPattern)) : prefixes;
+    }
+
+    private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
+        List<String> prefixes = new ArrayList<>();
+        prefixes.add("");
+        int i = 0;
+        while (i < globPattern.length()) {
+            char c = globPattern.charAt(i);
+            if (c == '*' || c == '?') {
+                return allowPartialPrefix ? compactPrefixes(prefixes) : null;
+            }
+            if (c == '\\') {
+                if (i + 1 < globPattern.length()) {
+                    appendLiteral(prefixes, globPattern.charAt(i + 1));
+                    i += 2;
+                } else {
+                    appendLiteral(prefixes, c);
+                    i++;
+                }
+                continue;
+            }
+            if (c == '[') {
+                PrefixExpansion charClass = expandCharacterClass(globPattern, i);
+                if (charClass == null) {
+                    return allowPartialPrefix ? compactPrefixes(prefixes) : null;
+                }
+                prefixes = appendAlternatives(prefixes, charClass.values);
+                if (prefixes == null) {
+                    return null;
+                }
+                i = charClass.nextIndex;
+                continue;
+            }
+            if (c == '{') {
+                PrefixExpansion brace = expandBraceGroup(globPattern, i);
+                if (brace == null) {
+                    return allowPartialPrefix ? compactPrefixes(prefixes) : null;
+                }
+                prefixes = appendAlternatives(prefixes, brace.values);
+                if (prefixes == null) {
+                    return null;
+                }
+                i = brace.nextIndex;
+                continue;
+            }
+            appendLiteral(prefixes, c);
+            i++;
+        }
+        return compactPrefixes(prefixes);
+    }
+
+    private static void appendLiteral(List<String> prefixes, char c) {
+        for (int i = 0; i < prefixes.size(); i++) {
+            prefixes.set(i, prefixes.get(i) + c);
+        }
+    }
+
+    private static List<String> appendAlternatives(List<String> prefixes, List<String> alternatives) {
+        long expandedSize = (long) prefixes.size() * alternatives.size();
+        if (expandedSize > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+            return null;
+        }
+        List<String> expanded = new ArrayList<>((int) expandedSize);
+        for (String prefix : prefixes) {
+            for (String alternative : alternatives) {
+                expanded.add(prefix + alternative);
+            }
+        }
+        return expanded;
+    }
+
+    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex) {
+        int closeIndex = findClosingBracket(globPattern, openIndex);
+        if (closeIndex < 0 || closeIndex == openIndex + 1) {
+            return null;
+        }
+        int i = openIndex + 1;
+        char first = globPattern.charAt(i);
+        if (first == '!' || first == '^') {
+            return null;
+        }
+        if (containsSurrogate(globPattern, i, closeIndex)) {
+            return null;
+        }
+        List<String> values = new ArrayList<>();
+        while (i < closeIndex) {
+            char current = globPattern.charAt(i);
+            if (current == '\\') {
+                if (i + 1 >= closeIndex) {
+                    return null;
+                }
+                values.add(String.valueOf(globPattern.charAt(i + 1)));
+                i += 2;
+                continue;
+            }
+            if (i + 2 < closeIndex && globPattern.charAt(i + 1) == '-') {
+                char rangeEnd = globPattern.charAt(i + 2);
+                int step = current <= rangeEnd ? 1 : -1;
+                for (char ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
+                    values.add(String.valueOf(ch));
+                    if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                        return null;
+                    }
+                }
+                i += 3;
+                continue;
+            }
+            values.add(String.valueOf(current));
+            i++;
+        }
+        return new PrefixExpansion(values, closeIndex + 1);
+    }
+
+    private static int findClosingBracket(String globPattern, int openIndex) {
+        for (int i = openIndex + 1; i < globPattern.length(); i++) {
+            char c = globPattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == ']') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean containsSurrogate(String text, int start, int end) {
+        for (int i = start; i < end; i++) {
+            if (Character.isSurrogate(text.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex) {
+        int closeIndex = findClosingBrace(globPattern, openIndex);
+        if (closeIndex < 0) {
+            return null;
+        }
+        List<String> alternatives = splitBraceAlternatives(
+                globPattern.substring(openIndex + 1, closeIndex));
+        if (alternatives.isEmpty()) {
+            return null;
+        }
+        List<String> values = new ArrayList<>();
+        for (String alternative : alternatives) {
+            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false);
+            if (expandedAlternative == null) {
+                return null;
+            }
+            values.addAll(expandedAlternative);
+            if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                return null;
+            }
+        }
+        return new PrefixExpansion(values, closeIndex + 1);
+    }
+
+    private static int findClosingBrace(String globPattern, int openIndex) {
+        int depth = 0;
+        for (int i = openIndex; i < globPattern.length(); i++) {
+            char c = globPattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static List<String> splitBraceAlternatives(String content) {
+        List<String> alternatives = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                if (depth == 0) {
+                    return Collections.emptyList();
+                }
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                alternatives.add(content.substring(start, i));
+                start = i + 1;
+            }
+        }
+        if (depth != 0) {
+            return Collections.emptyList();
+        }
+        alternatives.add(content.substring(start));
+        return alternatives;
+    }
+
+    private static List<String> compactPrefixes(List<String> prefixes) {
+        List<String> sorted = new ArrayList<>(prefixes);
+        sorted.sort(UTF8_BINARY_ORDER);
+        List<String> compact = new ArrayList<>();
+        for (String prefix : sorted) {
+            if (prefix.isEmpty()) {
+                return Collections.singletonList("");
+            }
+            boolean covered = false;
+            for (String existing : compact) {
+                if (prefix.startsWith(existing)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) {
+                compact.add(prefix);
+            }
+        }
+        return compact;
+    }
+
+    private static int compareUtf8Binary(String left, String right) {
+        byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
+        byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
+        int commonLength = Math.min(leftBytes.length, rightBytes.length);
+        for (int i = 0; i < commonLength; i++) {
+            int result = Integer.compare(
+                    Byte.toUnsignedInt(leftBytes[i]), Byte.toUnsignedInt(rightBytes[i]));
+            if (result != 0) {
+                return result;
+            }
+        }
+        return Integer.compare(leftBytes.length, rightBytes.length);
+    }
+
+    private static class PrefixExpansion {
+        private final List<String> values;
+        private final int nextIndex;
+
+        private PrefixExpansion(List<String> values, int nextIndex) {
+            this.values = values;
+            this.nextIndex = nextIndex;
+        }
     }
 
     // Apply some rules to extend the globs parsing behavior
