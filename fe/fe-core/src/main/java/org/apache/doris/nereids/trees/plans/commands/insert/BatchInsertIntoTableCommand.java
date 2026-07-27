@@ -117,9 +117,8 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
         }
 
         PhysicalOlapTableSink<?> sink;
-        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         OlapTableSink.waitForAutoStartBeforeCreatingDummyLocation(ctx);
-        targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         targetTableIf.readLock();
         try {
             StatementContext statementContext = ctx.getStatementContext();
