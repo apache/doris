@@ -4924,6 +4924,28 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+void check_delete_bitmap_lock_id(MetaServiceProxy* meta_service, int64_t table_id,
+                                 int64_t expected_lock_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_instance", table_id, -1});
+    std::string lock_val;
+    ASSERT_EQ(txn->get(lock_key, &lock_val), TxnErrorCode::TXN_OK);
+    DeleteBitmapUpdateLockPB lock_info;
+    ASSERT_TRUE(lock_info.ParseFromString(lock_val));
+    EXPECT_EQ(lock_info.lock_id(), expected_lock_id);
+}
+
+void check_mow_tablet_job(MetaServiceProxy* meta_service, int64_t table_id, int64_t initiator,
+                          bool expected_exists) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key = mow_tablet_job_key({"test_instance", table_id, initiator});
+    std::string job_val;
+    EXPECT_EQ(txn->get(job_key, &job_val),
+              expected_exists ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
@@ -5223,6 +5245,70 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+}
+
+void testUrgentLoadDeleteBitmapLock(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
+    auto meta_service = get_meta_service();
+    int64_t table_id = 90 + lock_version;
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.add_partition_ids(123);
+
+    auto get_lock = [&](int64_t lock_id, int64_t initiator, int64_t expiration, bool urgent) {
+        req.set_lock_id(lock_id);
+        req.set_initiator(initiator);
+        req.set_expiration(expiration);
+        req.set_urgent(urgent);
+        res.Clear();
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        return res.status().code();
+    };
+
+    // An urgent load must preserve an active schema change lock.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 100, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+    if (lock_version == 2) {
+        check_mow_tablet_job(meta_service.get(), table_id, 100, true);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // Expired schema change locks still follow the ordinary stale-lock cleanup path.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 101, 1, false), MetaServiceCode::OK);
+    sleep(2);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job(meta_service.get(), table_id, 101, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for compaction locks is unchanged.
+    ASSERT_EQ(get_lock(COMPACTION_DELETE_BITMAP_LOCK_ID, 102, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job(meta_service.get(), table_id, 102, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for another load lock is unchanged.
+    ASSERT_EQ(get_lock(777, -1, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+}
+
+TEST(MetaServiceTest, UrgentLoadDeleteBitmapLock) {
+    testUrgentLoadDeleteBitmapLock(2);
+    testUrgentLoadDeleteBitmapLock(1);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
