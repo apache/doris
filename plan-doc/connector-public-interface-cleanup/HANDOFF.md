@@ -72,10 +72,13 @@ fail-loud，classpath 撞名 = 构建错误）。若照抄上游把它一起包�
    （`ConnectorPluginManagerTest` 的 16 个用例全是直接调 `registerDiscovered`，不走这两个入口；
    要压住得往 fe-core 测试 classpath 塞 `META-INF/services` 或造插件目录，代价远超收益）。
    **本轮靠对照兄弟类 `FileSystemPluginManager` 逐行读来确认**，不是靠测试。改这两段时要知道这点。
-2. **`discard` 不对称（一行的事，本轮故意没动）**：合并后 `loadPlugins` 有两条拒绝路径，
-   上游那条（同名）调 `runtimeManager.discard` 关掉 classloader，我这条（`registerDiscovered` 返回 false）**没调**。
-   `FileSystemPluginManager` 的惯例是每条拒绝路径都 `discard`。后果只是**误配部署时**多留一个 classloader
-   （启动期一次性、有界），不是正确性问题；但它是 rebase 合出来的不一致，不是任何一方原本的样子。
+2. ~~**`discard` 不对称**~~ **已补齐（用户拍板）**：合并后 `loadPlugins` 的两条拒绝路径现在都调
+   `runtimeManager.discard(handle.getPluginName())` 关掉插件 classloader，对齐 `FileSystemPluginManager`
+   「每条拒绝路径都 discard」的惯例。**安全性依据**：`registerDiscovered` 返回 `false` 时
+   `claimedTypes.add` 被 `problem == null &&` 短路（或本就返回 false = 名字是别人占的），
+   `claimedEngineNames` 未写、`providers` 未加 ⇒ 管理器里没有任何东西引用那个 classloader，关掉是安全的；
+   `discard` 自身 `handlesByName.remove` 后判空，可重入。不额外打日志——`registerDiscovered` 已经
+   `LOG.error` 过拒绝理由，再记一条就是重复。
 
 ---
 

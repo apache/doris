@@ -231,6 +231,12 @@ public class ConnectorPluginManager {
                 LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
                         handle.getPluginName(), handle.getPluginDir(),
                         handle.getResolvedJars().size());
+            } else {
+                // registerDiscovered already logged why it refused. Release the runtime here too, so
+                // every "loaded from a directory but not admitted" exit discards the plugin's
+                // classloader — the same pairing the name-conflict path above and both of
+                // FileSystemPluginManager's reject paths follow.
+                runtimeManager.discard(handle.getPluginName());
             }
         }
     }
