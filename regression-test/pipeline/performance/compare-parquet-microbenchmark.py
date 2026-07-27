@@ -85,7 +85,7 @@ def load_samples(path):
         case["raw_rows"].add(counters["raw_rows"])
         case["selected_rows"].add(counters["selected_rows"])
     if not samples:
-        raise ValueError(f"{path}: no iteration samples")
+        raise ValueError("{0}: no iteration samples".format(path))
     return samples
 
 
