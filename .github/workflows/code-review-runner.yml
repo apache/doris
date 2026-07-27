@@ -74,6 +74,20 @@ jobs:
           unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
+      - name: Prepare Codex auth state helper
+        run: |
+          helper="$RUNNER_TEMP/codex_auth_state.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/codex_auth_state.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+          printf 'CODEX_AUTH_STATE_HELPER=%s\n' "$helper" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+
       - name: Install Codex goal binary
         run: |
           codex_cmd="$(command -v codex)"
@@ -101,14 +115,84 @@ jobs:
           OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
 
       - name: Configure Codex auth
+        id: configure_auth
         run: |
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
-          auth_object="$(printf '%s\n' \
-            'oss://doris-community-ci/codex/auth.json.1' \
-            'oss://doris-community-ci/codex/auth.json.2' \
-            | shuf -n 1)"
+          auth_prefix='oss://doris-community-ci/codex/auth.json.'
+          auth_listing="$RUNNER_TEMP/codex-auth-objects.list"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls "$auth_prefix" -s > "$auth_listing"; then
+            echo 'Failed to list Codex auth objects from OSS.'
+            exit 1
+          fi
+
+          auth_objects_file="$RUNNER_TEMP/codex-home/auth-objects.txt"
+          candidate_auth_file="$(mktemp "$RUNNER_TEMP/codex-auth.XXXXXX")"
+          trap 'rm -f "$candidate_auth_file"' EXIT
+          while IFS= read -r candidate; do
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate" "$candidate_auth_file" \
+              && test -s "$candidate_auth_file" \
+              && jq -e '
+                .auth_mode == "chatgpt"
+                and (.tokens.access_token | type == "string" and length > 0)
+                and (.tokens.refresh_token | type == "string" and length > 0)
+              ' "$candidate_auth_file" >/dev/null; then
+              printf '%s\n' "$candidate" >> "$auth_objects_file"
+            else
+              echo "Skipping invalid Codex auth object: ${candidate##*/}"
+            fi
+          done < <(
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | shuf
+          )
+
+          if [ ! -s "$auth_objects_file" ]; then
+            echo 'No valid Codex auth object found in OSS.'
+            exit 1
+          fi
+          chmod 600 "$auth_objects_file"
+
+          auth_object_args=()
+          while IFS= read -r auth_object; do
+            auth_object_args+=(--auth-object "$auth_object")
+          done < "$auth_objects_file"
+
+          state_file="$RUNNER_TEMP/codex-home/auth-status.json"
+          set +e
+          state_stat_output="$(ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" stat "$OSS_CODEX_AUTH_STATUS_OBJECT" 2>&1)"
+          state_stat_status=$?
+          set -e
+          if [ "$state_stat_status" -eq 0 ]; then
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_AUTH_STATUS_OBJECT" "$state_file"
+          elif grep -Eqi 'NoSuchKey|NoSuchObject|404' <<<"$state_stat_output"; then
+            "$CODEX_AUTH_STATE_HELPER" initialize \
+              --state "$state_file" \
+              "${auth_object_args[@]}"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$state_file" "$OSS_CODEX_AUTH_STATUS_OBJECT"
+            echo "Created Codex auth status file in OSS."
+          else
+            echo "Unable to determine whether the Codex auth status file exists." >&2
+            exit 1
+          fi
+
+          selection_json="$("$CODEX_AUTH_STATE_HELPER" select \
+            --state "$state_file" \
+            "${auth_object_args[@]}")"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$state_file" "$OSS_CODEX_AUTH_STATUS_OBJECT"
+          chmod 600 "$state_file"
+          printf 'CODEX_AUTH_OBJECTS_FILE=%s\n' "$auth_objects_file" >> "$GITHUB_ENV"
+          printf 'CODEX_AUTH_STATE_FILE=%s\n' "$state_file" >> "$GITHUB_ENV"
+
+          auth_object="$(jq -r '.auth_object // empty' <<<"$selection_json")"
+          all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$selection_json")"
+          printf 'all_quota_exhausted=%s\n' "$all_quota_exhausted" >> "$GITHUB_OUTPUT"
+          if [ -z "$auth_object" ]; then
+            next_retry_at="$(jq -r '.next_retry_at // "unknown"' <<<"$selection_json")"
+            echo "No Codex auth account is currently eligible; next retry: $next_retry_at"
+            printf 'auth_unavailable=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
@@ -145,6 +229,7 @@ jobs:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_AUTH_STATUS_OBJECT: oss://doris-community-ci/codex/auth-status.json
 
       - name: Sync Codex memories from OSS
         run: |
@@ -493,44 +578,186 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_AUTH_STATUS_OBJECT: oss://doris-community-ci/codex/auth-status.json
+          AUTH_UNAVAILABLE: ${{ steps.configure_auth.outputs.auth_unavailable }}
+          CONFIGURED_ALL_QUOTA_EXHAUSTED: ${{ steps.configure_auth.outputs.all_quota_exhausted }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ inputs.head_sha }}
         run: |
+          write_review_output() {
+            local key="$1"
+            local value="$2"
+            {
+              echo "${key}<<EOF"
+              printf '%s\n' "$value"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          auth_object_args=()
+          known_auth_object_args=()
+          while IFS= read -r auth_object; do
+            auth_object_args+=(--auth-object "$auth_object")
+            known_auth_object_args+=(--known-auth-object "$auth_object")
+          done < "$CODEX_AUTH_OBJECTS_FILE"
+          if [ "${#auth_object_args[@]}" -eq 0 ]; then
+            write_review_output "all_quota_exhausted" "false"
+            write_review_output "failure_reason" "No valid Codex auth account is available for review."
+            exit 1
+          fi
+
+          sync_auth_state() {
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$CODEX_AUTH_STATE_FILE" "$OSS_CODEX_AUTH_STATUS_OBJECT"
+          }
+
+          sync_current_auth() {
+            if [ -s "$CODEX_HOME/auth.json" ] && jq -e '
+              .auth_mode == "chatgpt"
+              and (.tokens.access_token | type == "string" and length > 0)
+              and (.tokens.refresh_token | type == "string" and length > 0)
+            ' "$CODEX_HOME/auth.json" >/dev/null; then
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+                "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
+            else
+              echo "The current Codex auth file is invalid; it will not be synced to OSS."
+            fi
+          }
+
+          record_auth_result() {
+            local result="$1"
+            local http_status="$2"
+            local record_args=(
+              record
+              --state "$CODEX_AUTH_STATE_FILE"
+              --auth-object "$CODEX_AUTH_OSS_OBJECT"
+              "${known_auth_object_args[@]}"
+              --result "$result"
+            )
+            if [ -n "$http_status" ]; then
+              record_args+=(--http-status "$http_status")
+            fi
+            "$CODEX_AUTH_STATE_HELPER" "${record_args[@]}"
+          }
+
+          select_next_auth() {
+            local selection_json
+            selection_json="$("$CODEX_AUTH_STATE_HELPER" select \
+              --state "$CODEX_AUTH_STATE_FILE" \
+              "${auth_object_args[@]}")"
+            sync_auth_state
+            selected_auth_object="$(jq -r '.auth_object // empty' <<<"$selection_json")"
+            all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$selection_json")"
+            next_retry_at="$(jq -r '.next_retry_at // empty' <<<"$selection_json")"
+          }
+
+          if [ "$AUTH_UNAVAILABLE" = "true" ]; then
+            write_review_output "all_quota_exhausted" "$CONFIGURED_ALL_QUOTA_EXHAUSTED"
+            write_review_output "failure_reason" "No Codex auth account is currently eligible for review."
+            exit 1
+          fi
+
           GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
-          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          set +e
-          # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
-          # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-          codex exec --goal "$GOAL_PROMPT" \
-            --cd "$GITHUB_WORKSPACE" \
-            --model "gpt-5.6-sol" \
-            --config "model_reasoning_effort=xhigh" \
-            --sandbox danger-full-access \
-            --color never \
-            --json \
-            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
-            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
-            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
-          status=$?
-          set -e
-
           failure_reason=""
-          if [ "$status" -ne 0 ]; then
-            if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
-              failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+          all_quota_exhausted="${CONFIGURED_ALL_QUOTA_EXHAUSTED:-false}"
+          transient_attempt=0
+          while :; do
+            review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            events_file="$REVIEW_CONTEXT_DIR/codex-events.jsonl"
+            stderr_file="$REVIEW_CONTEXT_DIR/codex-stderr.log"
+
+            set +e
+            # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
+            # Codex uses bubblewrap for that mode and uid maps can be unavailable.
+            codex exec --goal "$GOAL_PROMPT" \
+              --cd "$GITHUB_WORKSPACE" \
+              --model "gpt-5.6-sol" \
+              --config "model_reasoning_effort=xhigh" \
+              --sandbox danger-full-access \
+              --color never \
+              --json \
+              --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+              > "$events_file" \
+              2> >(tee "$stderr_file" >&2)
+            status=$?
+            set -e
+
+            if [ "$status" -eq 0 ]; then
+              state_result="$(record_auth_result available "")"
+              sync_auth_state
+              all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$state_result")"
+              break
+            fi
+
+            if [ -s "$events_file" ]; then
+              failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$events_file" | tail -n 1)"
               if [ -z "$failure_reason" ]; then
-                failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+                failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$events_file" | tail -n 1)"
               fi
             fi
-            if [ -z "$failure_reason" ] && [ -s "$REVIEW_CONTEXT_DIR/codex-stderr.log" ]; then
-              failure_reason="$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/codex-stderr.log")"
+            if [ -z "$failure_reason" ] && [ -s "$stderr_file" ]; then
+              failure_reason="$(awk 'NF { line = $0 } END { print line }' "$stderr_file")"
             fi
             if [ -z "$failure_reason" ]; then
               failure_reason="Codex exited with status $status"
             fi
-          fi
+
+            classification="$("$CODEX_AUTH_STATE_HELPER" classify --input "$events_file" --input "$stderr_file")"
+            failure_kind="$(jq -r '.kind' <<<"$classification")"
+            http_status="$(jq -r '.http_status // empty' <<<"$classification")"
+            if [ "$failure_kind" = "transient_failure" ]; then
+              state_result="$(record_auth_result "$failure_kind" "$http_status")"
+              sync_auth_state
+              transient_attempt=$((transient_attempt + 1))
+              if [ "$transient_attempt" -ge 4 ]; then
+                break
+              fi
+              retry_delay=$((5 * (2 ** (transient_attempt - 1))))
+              echo "Codex transient failure; retrying the same account in ${retry_delay}s (attempt ${transient_attempt}/4)."
+              sleep "$retry_delay"
+              failure_reason=""
+              continue
+            fi
+
+            if [ "$failure_kind" != "quota_exhausted" ] && [ "$failure_kind" != "rate_limited" ] && [ "$failure_kind" != "authentication_failed" ]; then
+              break
+            fi
+
+            state_result="$(record_auth_result "$failure_kind" "$http_status")"
+            sync_auth_state
+            all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$state_result")"
+            sync_current_auth
+
+            select_next_auth
+            if [ -z "$selected_auth_object" ]; then
+              if [ -n "$next_retry_at" ]; then
+                failure_reason="Codex ${failure_kind}; no auth account is eligible before ${next_retry_at}."
+              else
+                failure_reason="Codex ${failure_kind}; no auth account is eligible."
+              fi
+              break
+            fi
+
+            printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$selected_auth_object" >> "$GITHUB_ENV"
+            CODEX_AUTH_OSS_OBJECT="$selected_auth_object"
+            echo "Retrying code review with ${CODEX_AUTH_OSS_OBJECT##*/} after ${failure_kind}."
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$CODEX_AUTH_OSS_OBJECT" "$CODEX_HOME/auth.json"
+            chmod 600 "$CODEX_HOME/auth.json"
+            jq -e '
+              .auth_mode == "chatgpt"
+              and (.tokens.access_token | type == "string" and length > 0)
+              and (.tokens.refresh_token | type == "string" and length > 0)
+            ' "$CODEX_HOME/auth.json" >/dev/null
+            transient_attempt=0
+            failure_reason=""
+          done
+
+          write_review_output "all_quota_exhausted" "$all_quota_exhausted"
 
           if [ -z "$failure_reason" ]; then
             reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
@@ -566,6 +793,36 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+      - name: Alert when all Codex accounts lack quota
+        if: ${{ always() && (steps.configure_auth.outputs.all_quota_exhausted == 'true' || steps.review.outputs.all_quota_exhausted == 'true') }}
+        continue-on-error: true
+        env:
+          FEISHU_CODEX_QUOTA_ALERT_WEBHOOK_1: ${{ secrets.FEISHU_CODEX_QUOTA_ALERT_WEBHOOK_1 }}
+          FEISHU_CODEX_QUOTA_ALERT_WEBHOOK_2: ${{ secrets.FEISHU_CODEX_QUOTA_ALERT_WEBHOOK_2 }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          payload="$(jq -nc \
+            --arg text "Code review cannot start because all discovered Codex accounts are marked quota exhausted. Repository: ${REPO}; PR: #${PR_NUMBER}; run: ${RUN_URL}" \
+            '{msg_type: "text", content: {text: $text}}')"
+          failed=0
+          for webhook in "$FEISHU_CODEX_QUOTA_ALERT_WEBHOOK_1" "$FEISHU_CODEX_QUOTA_ALERT_WEBHOOK_2"; do
+            if [ -z "$webhook" ]; then
+              echo "A Codex quota alert webhook secret is not configured."
+              failed=1
+              continue
+            fi
+            if ! curl --fail --silent --show-error --retry 2 --retry-all-errors \
+              --header 'Content-Type: application/json' \
+              --data "$payload" \
+              "$webhook"; then
+              echo "Failed to send a Codex quota alert."
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
