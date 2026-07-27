@@ -97,16 +97,6 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
     FileSystem create(Map<String, String> properties) throws IOException;
 
     /**
-     * Creates a FileSystem with engine-level client settings.
-     *
-     * <p>The default implementation preserves compatibility for providers that only need
-     * user-provided properties.
-     */
-    default FileSystem create(Map<String, String> properties, FileSystemContext context) throws IOException {
-        return create(properties);
-    }
-
-    /**
      * Returns the raw property key aliases this provider treats as sensitive credentials.
      *
      * <p>Framework code (e.g. {@code DatasourcePrintableMap}) aggregates these from all loaded

@@ -128,7 +128,7 @@ public class FileSystemPluginManager {
     public FileSystem createFileSystem(Map<String, String> properties) throws IOException {
         for (FileSystemProvider provider : providers) {
             if (provider.supports(properties)) {
-                return provider.create(properties, FileSystemFactory.createContext());
+                return provider.create(properties);
             }
         }
         throw new IOException("No FileSystemProvider supports the given properties: "

@@ -26,7 +26,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.FileSystemContext;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.service.FrontendOptions;
 
@@ -96,7 +95,7 @@ public final class FileSystemFactory {
             if (provider.supports(properties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                return provider.create(properties, createContext());
+                return provider.create(properties);
             }
             tried.add(provider.name());
         }
@@ -104,10 +103,6 @@ public final class FileSystemFactory {
                 "No FileSystemProvider found for properties %s. Tried: %s. "
                         + "Ensure the corresponding fe-filesystem-xxx jar is on the classpath.",
                 properties.keySet(), tried));
-    }
-
-    static FileSystemContext createContext() {
-        return new FileSystemContext(Config.s3_client_http_scheme);
     }
 
     /**

@@ -96,7 +96,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final S3FileSystemProperties s3Properties;
-    private final String clientHttpScheme;
     private final boolean usePathStyle;
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
@@ -105,11 +104,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private volatile S3Client client;
 
     public S3ObjStorage(S3FileSystemProperties properties) {
-        this(properties, properties.getSupportedSchemes(), "https");
-    }
-
-    public S3ObjStorage(S3FileSystemProperties properties, String clientHttpScheme) {
-        this(properties, properties.getSupportedSchemes(), clientHttpScheme);
+        this(properties, properties.getSupportedSchemes());
     }
 
     /**
@@ -120,13 +115,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * rejects the dialect's native URIs.
      */
     public S3ObjStorage(S3FileSystemProperties properties, Set<String> supportedSchemes) {
-        this(properties, supportedSchemes, "https");
-    }
-
-    public S3ObjStorage(S3FileSystemProperties properties, Set<String> supportedSchemes,
-            String clientHttpScheme) {
         this.s3Properties = properties;
-        this.clientHttpScheme = clientHttpScheme;
         this.usePathStyle = properties.isUsePathStyle();
         this.bucket = properties.getBucket();
         this.supportedSchemes = supportedSchemes;
@@ -189,8 +178,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         // endpointOverride is only set for non-AWS endpoints (MinIO, COS, OSS, etc.).
         // Standard AWS S3 access uses region-only routing without an explicit endpoint.
         if (StringUtils.isNotBlank(endpointStr)) {
-            if (!endpointStr.startsWith("http://") && !endpointStr.startsWith("https://")) {
-                endpointStr = clientHttpScheme + "://" + endpointStr;
+            if (!endpointStr.contains("://")) {
+                endpointStr = "https://" + endpointStr;
             }
             builder.endpointOverride(URI.create(endpointStr));
         }

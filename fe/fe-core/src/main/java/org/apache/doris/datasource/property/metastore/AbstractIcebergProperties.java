@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.iceberg.DorisS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
@@ -255,7 +254,6 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
                 fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
             }
         }
-        DorisS3FileIOAwsClientFactory.configure(fileIOProperties);
     }
 
     /**
@@ -292,7 +290,6 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     }
 
     protected Catalog buildIcebergCatalog(String catalogName, Map<String, String> options, Configuration conf) {
-        DorisS3FileIOAwsClientFactory.configure(options);
         // For Iceberg SDK, "type" means catalog type, such as hive, jdbc, rest.
         // But in Doris, "type" is "iceberg".
         // And Iceberg SDK does not allow with both "type" and "catalog-impl" properties,

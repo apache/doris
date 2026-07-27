@@ -286,10 +286,9 @@ public class S3Resource extends Resource {
         String token = properties.getOrDefault(S3Properties.SESSION_TOKEN,
                 this.properties.get(S3Properties.SESSION_TOKEN));
         String endpoint = properties.getOrDefault(S3Properties.ENDPOINT, this.properties.get(S3Properties.ENDPOINT));
-        String pingEndpoint = S3Util.buildEndpointUrl(endpoint);
-        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
+        String region = S3Properties.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
-        return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
+        return new CloudCredentialWithEndpoint(endpoint, region, ak, sk, token);
     }
 
     private boolean isNeedCheck(Map<String, String> newProperties) {

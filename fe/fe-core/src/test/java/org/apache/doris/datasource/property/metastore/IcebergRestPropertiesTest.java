@@ -28,7 +28,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
-import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.AuthProperties;
@@ -36,7 +35,6 @@ import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -959,8 +957,7 @@ public class IcebergRestPropertiesTest {
         restProps.toFileIOProperties(storageList, fileIOProperties, conf);
 
         // OSSProperties should be used, not S3Properties
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
-                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
         Assertions.assertEquals("ossSecretKey", fileIOProperties.get(S3FileIOProperties.SECRET_ACCESS_KEY));
     }
@@ -991,33 +988,6 @@ public class IcebergRestPropertiesTest {
         Assertions.assertEquals("https://s3.us-east-1.amazonaws.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("s3AccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
         Assertions.assertEquals("us-east-1", fileIOProperties.get(AwsClientProperties.CLIENT_REGION));
-    }
-
-    @Test
-    public void testBareS3CompatibleEndpointBuildsRealS3FileIOClient() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
-        ossProps.put("oss.region", "cn-beijing");
-        ossProps.put("oss.access_key", "ossAccessKey");
-        ossProps.put("oss.secret_key", "ossSecretKey");
-        ossProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss = (OSSProperties) StorageProperties.createPrimary(ossProps);
-
-        Map<String, String> restPropsMap = new HashMap<>();
-        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
-        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
-        restProps.initNormalizeAndCheckProps();
-
-        Map<String, String> fileIOProperties = new HashMap<>();
-        restProps.toFileIOProperties(List.of(oss), fileIOProperties, new Configuration());
-
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
-                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
-        try (S3FileIO fileIO = new S3FileIO()) {
-            fileIO.initialize(fileIOProperties);
-            Assertions.assertEquals(URI.create("https://oss-cn-beijing.aliyuncs.com"),
-                    fileIO.client().serviceClientConfiguration().endpointOverride().orElseThrow());
-        }
     }
 
     @Test
@@ -1060,8 +1030,7 @@ public class IcebergRestPropertiesTest {
         restProps.toFileIOProperties(storageList, fileIOProperties, conf);
 
         // First non-S3Properties (oss1) should be used
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
-                fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
     }
 

@@ -22,7 +22,6 @@ import org.apache.doris.filesystem.s3.S3CompatSignals;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystemProperties;
 import org.apache.doris.filesystem.s3.S3ObjStorage;
-import org.apache.doris.filesystem.spi.FileSystemContext;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -69,15 +68,6 @@ public class MinioFileSystemProvider implements FileSystemProvider<MinioFileSyst
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
         return create(bind(properties));
-    }
-
-    @Override
-    public FileSystem create(Map<String, String> properties, FileSystemContext context) throws IOException {
-        MinioFileSystemProperties boundProperties = bind(properties);
-        S3FileSystemProperties delegate = S3FileSystemProperties.of(boundProperties.toS3CompatibleKv());
-        return new S3FileSystem(delegate,
-                new S3ObjStorage(delegate, boundProperties.getSupportedSchemes(),
-                        context.getS3ClientHttpScheme()));
     }
 
     @Override

@@ -261,5 +261,4 @@ class S3FileSystemPropertiesTest {
         Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
         Assertions.assertTrue(exception.getMessage().contains("Unsupported s3.credentials_provider_type"));
     }
-
 }
