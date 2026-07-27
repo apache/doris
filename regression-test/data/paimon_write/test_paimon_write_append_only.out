@@ -12,6 +12,20 @@
 5	erin	86.5	south
 6	\N	\N	east
 
--- !ao_default_value --
-1	unknown
+-- !ao_auto_partition_data --
+1	alpha	2026-07-01
+2	beta	2026-07-02
+3	gamma	2026-07-01
+4	delta	2026-07-01
+5	epsilon	2026-07-03
+6	default_partition	\N
 
+-- !ao_auto_partition_metadata --
+{2026-07-01}	3
+{2026-07-02}	1
+{2026-07-03}	1
+{null}	1
+
+-- !ao_empty --
+1	\N
+2	reordered

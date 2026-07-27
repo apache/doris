@@ -215,6 +215,10 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
                    concat('fixed_', CAST(number AS STRING))
             FROM numbers("number" = "16")
         """
+        qt_bucket_hash_fixed """
+            SELECT COUNT(*), MIN(id), MAX(id), COUNT(DISTINCT pt)
+            FROM t_hash_fixed
+        """
         assertTableEquals("t_hash_fixed", "ORDER BY pt, id")
         def fixedBuckets = assertBucketsInRange("t_hash_fixed", 0, 3)
         assertTrue(fixedBuckets.size() > 1)
@@ -242,6 +246,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             ('p1', 4, 'v4_updated'),
             ('p2', 2, 'p2_v2_updated')
         """
+        order_qt_bucket_hash_dynamic """
+            SELECT pt, id, name FROM t_hash_dynamic ORDER BY pt, id
+        """
         assertTableEquals("t_hash_dynamic", "ORDER BY pt, id")
         assertEquals(dynamicBucketsBeforeUpdate, bucketIds("t_hash_dynamic"))
 
@@ -254,6 +261,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             ('p1', 1, 15),
             ('p1', 3, 30)
         """
+        order_qt_bucket_hash_dynamic_partial """
+            SELECT pt, id, name, score FROM t_hash_dynamic_partial ORDER BY pt, id
+        """
         assertTableEquals("t_hash_dynamic_partial", "ORDER BY pt, id")
         assertBucketsInRange("t_hash_dynamic_partial", 0, Integer.MAX_VALUE)
 
@@ -264,6 +274,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         """
         sql """INSERT OVERWRITE TABLE t_hash_dynamic_overwrite VALUES
             (10, 'new_10'), (11, 'new_11'), (12, 'new_12')
+        """
+        order_qt_bucket_hash_dynamic_overwrite """
+            SELECT id, name FROM t_hash_dynamic_overwrite ORDER BY id
         """
         assertTableEquals("t_hash_dynamic_overwrite", "ORDER BY id")
         def overwriteRows = sql """
@@ -288,6 +301,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             ('p3', 3, 'id3_moved'),
             ('p2', 4, 'id4_added')
         """
+        order_qt_bucket_key_dynamic """
+            SELECT pt, id, name FROM t_key_dynamic ORDER BY id
+        """
         assertTableEquals("t_key_dynamic", "ORDER BY id")
         def keyDynamicRows = sql """
             SELECT pt, id, name FROM t_key_dynamic ORDER BY id
@@ -310,6 +326,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             ('p9', 10, 15),
             ('p3', 30, 30)
         """
+        order_qt_bucket_key_dynamic_partial """
+            SELECT pt, id, name, score FROM t_key_dynamic_partial ORDER BY id
+        """
         assertTableEquals("t_key_dynamic_partial", "ORDER BY id")
         def keyDynamicPartialRows = sql """
             SELECT pt, id, name, score FROM t_key_dynamic_partial ORDER BY id
@@ -328,6 +347,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             ('p2', 1, 'ignored_1'),
             ('p2', 2, 'first_2')
         """
+        order_qt_bucket_key_dynamic_first_row """
+            SELECT pt, id, name FROM t_key_dynamic_first_row ORDER BY id
+        """
         assertTableEquals("t_key_dynamic_first_row", "ORDER BY id")
         def keyDynamicFirstRowRows = sql """
             SELECT pt, id, name FROM t_key_dynamic_first_row ORDER BY id
@@ -344,6 +366,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         sql """INSERT INTO t_key_dynamic_aggregation VALUES
             ('p9', 1, 7),
             ('p2', 2, 20)
+        """
+        order_qt_bucket_key_dynamic_aggregation """
+            SELECT pt, id, total FROM t_key_dynamic_aggregation ORDER BY id
         """
         assertTableEquals("t_key_dynamic_aggregation", "ORDER BY id")
         def keyDynamicAggregationRows = sql """
@@ -364,6 +389,10 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             FROM numbers("number" = "32")
         """
         sql """SET parallel_pipeline_task_num = 0"""
+        qt_bucket_unaware """
+            SELECT COUNT(*), MIN(id), MAX(id), COUNT(DISTINCT pt)
+            FROM t_bucket_unaware
+        """
         assertTableEquals("t_bucket_unaware", "ORDER BY pt, id")
         assertEquals([0], bucketIds("t_bucket_unaware"))
 
@@ -394,6 +423,7 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             FROM paimon.${dbName}.`t_postpone\$snapshots`
         """
         assertEquals(2, postponeSnapshots[0][0].toString().toInteger())
+        qt_bucket_postpone """SELECT COUNT(*) FROM t_postpone"""
     } finally {
         sql """SET parallel_pipeline_task_num = 0"""
         sql """drop catalog if exists ${catalogName}"""

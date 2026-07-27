@@ -75,6 +75,20 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
             'changelog-producer' = 'full-compaction',
             'changelog-producer.row-deduplicate' = 'true'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_full_compaction_dynamic;
+        CREATE TABLE paimon.${dbName}.t_full_compaction_dynamic (
+            pt STRING, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'pt,id',
+            'bucket' = '-1',
+            'dynamic-bucket.target-row-num' = '2',
+            'dynamic-bucket.max-buckets' = '4',
+            'changelog-producer' = 'full-compaction',
+            'changelog-producer.row-deduplicate' = 'true'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -142,6 +156,9 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
                 ["+I", 1, null, 15],
                 ["+I", 3, null, 30]
         ], inputChanges)
+        order_qt_changelog_input_partial """
+            SELECT id, name, score FROM t_input_partial ORDER BY id
+        """
         assertTableEquals("t_input_partial", "ORDER BY id")
 
         // Lookup producer resolves previous values and emits complete before/after rows.
@@ -164,6 +181,9 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
                 ["+U", 1, "new", 11],
                 ["+I", 3, "added", 30]
         ], lookupChanges)
+        order_qt_changelog_lookup """
+            SELECT id, name, score FROM t_lookup ORDER BY id
+        """
         assertTableEquals("t_lookup", "ORDER BY id")
 
         // Lookup producer reports the values before and after aggregation.
@@ -187,6 +207,9 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
                 ["+U", 1, 17L],
                 ["+I", 3, 30L]
         ], aggregationChanges)
+        order_qt_changelog_lookup_aggregation """
+            SELECT id, total FROM t_lookup_aggregation ORDER BY id
+        """
         assertTableEquals("t_lookup_aggregation", "ORDER BY id")
 
         // Full-compaction producer must compact every partition/bucket touched by the batch.
@@ -210,6 +233,9 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
                 ["+U", "p1", 1, "new"],
                 ["+I", "p2", 3, "added"]
         ], fullCompactionChanges)
+        order_qt_changelog_full_compaction """
+            SELECT pt, id, name FROM t_full_compaction ORDER BY pt, id
+        """
         assertTableEquals("t_full_compaction", "ORDER BY pt, id")
 
         def fullCompactionSnapshot = spark_paimon """
@@ -218,6 +244,49 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
             WHERE snapshot_id = ${fullCompactionAfter}
         """
         assertEquals([["COMPACT", 3L]], fullCompactionSnapshot)
+
+        // HASH_DYNAMIC uses writer.write(row, assignedBucket). Combining it with
+        // full-compaction exercises the explicit-bucket writeAndReturn path and
+        // compacts every dynamically assigned partition/bucket touched by Doris.
+        sql """INSERT INTO t_full_compaction_dynamic VALUES
+            ('p1', 1, 'old_1'),
+            ('p1', 2, 'stable_2'),
+            ('p2', 3, 'old_3')
+        """
+        String dynamicCompactionBefore = latestSnapshotId("t_full_compaction_dynamic")
+        sql """INSERT INTO t_full_compaction_dynamic VALUES
+            ('p1', 1, 'new_1'),
+            ('p1', 4, 'added_4'),
+            ('p2', 3, 'new_3'),
+            ('p2', 5, 'added_5')
+        """
+        String dynamicCompactionAfter = latestSnapshotId("t_full_compaction_dynamic")
+        def dynamicCompactionChanges = incrementalAuditLog(
+                "t_full_compaction_dynamic", "rowkind, pt, id, name",
+                dynamicCompactionBefore, dynamicCompactionAfter,
+                """ORDER BY pt, id,
+                    CASE rowkind WHEN '-U' THEN 0 WHEN '+U' THEN 1 ELSE 2 END""")
+        assertEquals([
+                ["-U", "p1", 1, "old_1"],
+                ["+U", "p1", 1, "new_1"],
+                ["+I", "p1", 4, "added_4"],
+                ["-U", "p2", 3, "old_3"],
+                ["+U", "p2", 3, "new_3"],
+                ["+I", "p2", 5, "added_5"]
+        ], dynamicCompactionChanges)
+        order_qt_changelog_full_compaction_dynamic """
+            SELECT pt, id, name
+            FROM t_full_compaction_dynamic
+            ORDER BY pt, id
+        """
+        assertTableEquals("t_full_compaction_dynamic", "ORDER BY pt, id")
+
+        def dynamicCompactionSnapshot = spark_paimon """
+            SELECT commit_kind, changelog_record_count
+            FROM paimon.${dbName}.`t_full_compaction_dynamic\$snapshots`
+            WHERE snapshot_id = ${dynamicCompactionAfter}
+        """
+        assertEquals([["COMPACT", 6L]], dynamicCompactionSnapshot)
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

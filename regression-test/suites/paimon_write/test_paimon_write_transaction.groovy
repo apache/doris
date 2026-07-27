@@ -88,6 +88,16 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             id BIGINT, name STRING
         ) USING paimon;
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_multi_block;
+        CREATE TABLE paimon.${dbName}.t_multi_block (
+            id BIGINT,
+            group_id INT,
+            payload STRING,
+            nullable_value BIGINT,
+            pt STRING
+        ) USING paimon
+        PARTITIONED BY (pt);
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_spill;
         CREATE TABLE paimon.${dbName}.t_spill (
             id BIGINT, payload STRING
@@ -271,6 +281,55 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
         qt_txn_parallel_writers """SELECT COUNT(*), MIN(id), MAX(id), SUM(id) FROM t_parallel"""
         assertTableEquals("t_parallel", "ORDER BY id")
         sql """SET parallel_pipeline_task_num = 0"""
+
+        // A single JNI writer receives many native Blocks, each serialized as an
+        // independent Arrow stream. Every row must survive repeated write() calls,
+        // partition routing and prepareCommit().
+        sql """SET parallel_pipeline_task_num = 1"""
+        sql """INSERT INTO t_multi_block
+            SELECT number,
+                   CAST(number % 97 AS INT),
+                   concat('payload_', CAST(number AS STRING)),
+                   IF(number % 11 = 0, NULL, number * 3),
+                   concat('p', CAST(number % 8 AS STRING))
+            FROM numbers("number" = "16384")"""
+
+        // Opening a fresh writer in the next Doris transaction must append to the
+        // existing snapshot without losing or duplicating the first transaction.
+        sql """INSERT INTO t_multi_block
+            SELECT number + 16384,
+                   CAST((number + 16384) % 97 AS INT),
+                   concat('payload_', CAST(number + 16384 AS STRING)),
+                   IF((number + 16384) % 11 = 0, NULL, (number + 16384) * 3),
+                   concat('p', CAST((number + 16384) % 8 AS STRING))
+            FROM numbers("number" = "4096")"""
+        sql """SET parallel_pipeline_task_num = 0"""
+
+        qt_txn_multi_block """
+            SELECT COUNT(*), MIN(id), MAX(id), SUM(id),
+                   COUNT(nullable_value), COUNT(DISTINCT pt)
+            FROM t_multi_block
+        """
+        order_qt_txn_multi_block_samples """
+            SELECT id, group_id, payload, nullable_value, pt
+            FROM t_multi_block
+            WHERE id IN (0, 4095, 4096, 8191, 8192, 16383, 16384, 20479)
+            ORDER BY id
+        """
+        qt_txn_multi_block_snapshots """
+            SELECT COUNT(*) FROM t_multi_block\$snapshots
+        """
+        def sparkMultiBlock = spark_paimon """
+            SELECT COUNT(*), MIN(id), MAX(id), SUM(id),
+                   COUNT(nullable_value), COUNT(DISTINCT pt)
+            FROM paimon.${dbName}.t_multi_block
+        """
+        def dorisMultiBlock = sql """
+            SELECT COUNT(*), MIN(id), MAX(id), SUM(id),
+                   COUNT(nullable_value), COUNT(DISTINCT pt)
+            FROM t_multi_block
+        """
+        assertSparkDorisResultEquals(sparkMultiBlock, dorisMultiBlock)
 
         // FT-018: The payload is larger than the 256 KB write buffer while each
         // individual row still fits, forcing Paimon's spillable buffer path.

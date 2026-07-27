@@ -81,6 +81,22 @@
 -- !txn_parallel_writers --
 256	0	255	32640
 
+-- !txn_multi_block --
+20480	0	20479	209704960	18618	8
+
+-- !txn_multi_block_samples --
+0	0	payload_0	\N	p0
+16383	87	payload_16383	49149	p7
+16384	88	payload_16384	49152	p0
+20479	12	payload_20479	61437	p7
+4095	21	payload_4095	12285	p7
+4096	22	payload_4096	12288	p0
+8191	43	payload_8191	24573	p7
+8192	44	payload_8192	24576	p0
+
+-- !txn_multi_block_snapshots --
+2
+
 -- !txn_spill --
 2048	0	2047	2096128
 
