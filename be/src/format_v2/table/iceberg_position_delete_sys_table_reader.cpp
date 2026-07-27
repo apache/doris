@@ -316,12 +316,10 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
 
     static constexpr const char* kPositionReaderProfile = "IcebergPositionDeleteFileReader";
     if (_position_reader_profile == nullptr) {
-        _position_reader_profile = _scanner_profile->get_child(kPositionReaderProfile);
-        if (_position_reader_profile == nullptr) {
-            // The outer system-table reader calls the inner reader synchronously. Giving both the
-            // same profile would nest identical counter pointers and double-count every timer.
-            _position_reader_profile = _scanner_profile->create_child(kPositionReaderProfile);
-        }
+        // The nested reader needs a distinct profile to avoid double-counting its timers. Split
+        // readers share the scanner profile and initialize concurrently, so lookup and creation
+        // must also be atomic to preserve the unique child-name invariant.
+        _position_reader_profile = _scanner_profile->get_or_create_child(kPositionReaderProfile);
     }
     _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
