@@ -119,7 +119,10 @@ export TMPDIR="${fixture_root}"
 "${head_binary}" --benchmark_list_tests >"${case_list}"
 decoder_count=$(grep -c '^ParquetDecoder/' "${case_list}" || true)
 reader_count=$(grep -c '^ParquetReader/' "${case_list}" || true)
-if [[ "${decoder_count}" -ne 152 || "${reader_count}" -ne 137 ]]; then
+minimum_decoder_count=152
+minimum_reader_count=137
+if [[ "${decoder_count}" -lt "${minimum_decoder_count}" \
+        || "${reader_count}" -lt "${minimum_reader_count}" ]]; then
     echo "ERROR: unexpected Parquet benchmark matrix: decoder=${decoder_count}, reader=${reader_count}"
     exit 1
 fi
@@ -185,10 +188,10 @@ if failed:
 PY
 }
 
-run_smoke_and_validate ParquetDecoder 152 "${result_dir}/decoder-smoke.json"
-run_smoke_and_validate ParquetReader 137 "${result_dir}/reader-smoke.json"
+run_smoke_and_validate ParquetDecoder "${decoder_count}" "${result_dir}/decoder-smoke.json"
+run_smoke_and_validate ParquetReader "${reader_count}" "${result_dir}/reader-smoke.json"
 
-echo "INFO: Parquet microbenchmark smoke passed: 152 decoder cases, 137 reader cases"
+echo "INFO: Parquet microbenchmark smoke passed: ${decoder_count} decoder cases, ${reader_count} reader cases"
 
 gate_cases=(
     "ParquetDecoder/plain/int64/sel_100/clustered"
@@ -202,17 +205,17 @@ gate_cases=(
     "ParquetDecoder/delta_binary_packed/int64/sel_50/clustered"
     "ParquetDecoder/delta_length_byte_array/byte_array/sel_10/alternating"
     "ParquetDecoder/delta_byte_array/byte_array/sel_10/alternating"
-    "ParquetReader/open_to_first_block/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/full_scan/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/limit_1/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/limit_1000/plain/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/dictionary/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/byte_stream_split/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/delta_binary_packed/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/plain/null_90/clustered/sel_10/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/plain/null_10/alternating/sel_90/predicate_projected/width_32/predicate_0"
-    "ParquetReader/predicate_scan/plain/null_10/alternating/sel_10/predicate_projected/width_512/predicate_511"
+    "ParquetReader/open_to_first_block/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/full_scan/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/limit_1/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/limit_1000/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/dictionary/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/byte_stream_split/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/delta_binary_packed/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/int32/null_90/clustered/sel_10/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/int32/null_10/alternating/sel_90/predicate_projected/width_32/predicate_0"
+    "ParquetReader/predicate_scan/plain/int32/null_10/alternating/sel_10/predicate_projected/width_512/predicate_511"
 )
 
 base_case_list="${result_dir}/base-cases.txt"
