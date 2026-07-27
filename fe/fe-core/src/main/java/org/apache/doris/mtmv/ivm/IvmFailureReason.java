@@ -31,7 +31,8 @@ public enum IvmFailureReason {
     AGG_UNSUPPORTED,
     MIN_MAX_BOUNDARY_HIT,
     BITMAP_AGG_DELETE,
-    PLAN_SIGNATURE_MISMATCH;
+    PLAN_SIGNATURE_MISMATCH,
+    MV_PARTITION_NOT_FOUND;
 
     public boolean requiresCompleteRefresh() {
         return this == BINLOG_BROKEN
