@@ -2655,7 +2655,7 @@ public class DynamicPartitionTableTest {
 
         // 1. Without currentUtcBorder: name-based cannot identify the current partition.
         List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                table, wrongNowPartitionName, null);
+                table, wrongNowPartitionName);
         boolean currentFoundByName = false;
         for (Partition p : historicalNoUtc) {
             RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
@@ -2682,7 +2682,7 @@ public class DynamicPartitionTableTest {
         }
         Assert.assertNotNull("Should find the current partition", currentPartitionName);
         List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
-                table, currentPartitionName, currentUtcBorder);
+                table, currentPartitionName);
         boolean currentFoundByName2 = false;
         for (Partition p : historicalWithName) {
             RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
@@ -3509,7 +3509,7 @@ public class DynamicPartitionTableTest {
             // partition when nowPartitionName does not match.
             String wrongNowPartitionName = "p_nonexistent";
             List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, wrongNowPartitionName, null);
+                    table, wrongNowPartitionName);
             boolean currentFoundByName = false;
             for (Partition p : historicalNoUtc) {
                 RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
@@ -3536,7 +3536,7 @@ public class DynamicPartitionTableTest {
             }
             Assert.assertNotNull("Should find the current partition", currentPartitionName);
             List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, currentPartitionName, currentUtcBorder);
+                    table, currentPartitionName);
             boolean currentFoundByNameCorrect = false;
             for (Partition p : historicalWithName) {
                 RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
@@ -3626,7 +3626,7 @@ public class DynamicPartitionTableTest {
             // 1. Without currentUtcBorder: name-based fails to exclude the
             //    current partition because the name "q_nonexistent" matches nothing.
             List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, newPrefixNowName, null);
+                    table, newPrefixNowName);
             boolean currentFoundByName = false;
             for (Partition p : historicalNoUtc) {
                 RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
@@ -3653,7 +3653,7 @@ public class DynamicPartitionTableTest {
             Assert.assertNotNull("Should find the current partition", currentPartitionName);
             Assert.assertTrue("Current partition should start with 'p'", currentPartitionName.startsWith("p"));
             List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, currentPartitionName, currentUtcBorder);
+                    table, currentPartitionName);
             boolean currentFoundByName2 = false;
             for (Partition p : historicalWithName) {
                 RangePartitionItem item = (RangePartitionItem) info.getItem(p.getId());
@@ -3751,14 +3751,14 @@ public class DynamicPartitionTableTest {
 
             // 1. Without currentUtcBorder: name-based fallback returns both.
             List<Partition> historicalNoUtc = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, wrongNowPartitionName, null);
+                    table, wrongNowPartitionName);
             Assert.assertEquals("Name-based fallback returns all partitions",
                     2, historicalNoUtc.size());
 
             // 2. With the correct nowPartitionName matching p_legacy,
             //    name-based exclusion removes it.
             List<Partition> historicalWithName = DynamicPartitionScheduler.getHistoricalPartitions(
-                    table, "p_legacy", currentUtcBorder);
+                    table, "p_legacy");
             Assert.assertEquals("Name-based exclusion removes exactly one partition",
                     1, historicalWithName.size());
             Assert.assertFalse("p_legacy must be excluded by name match",

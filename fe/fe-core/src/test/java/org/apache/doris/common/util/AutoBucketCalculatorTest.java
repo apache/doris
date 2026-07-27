@@ -70,27 +70,16 @@ public class AutoBucketCalculatorTest {
     }
 
     @Test
-    public void testAutoBucketContextWithCurrentUtcBorder() {
+    public void testAutoBucketContextConstructor() {
         Mockito.when(table.getName()).thenReturn("test_table");
         Mockito.when(table.getId()).thenReturn(1L);
 
-        String currentUtcBorder = "2026-07-06 00:00:00+00:00";
-
-        // 6-param constructor: currentUtcBorder is explicitly provided.
-        AutoBucketContext contextWithUtc = new AutoBucketContext(
-                table, "p1", "p2", false, 10, currentUtcBorder);
-        Assertions.assertEquals(currentUtcBorder, contextWithUtc.getCurrentUtcBorder());
-        Assertions.assertEquals("p1", contextWithUtc.getPartitionName());
-        Assertions.assertEquals("p2", contextWithUtc.getNowPartitionName());
-        Assertions.assertFalse(contextWithUtc.isExecuteFirstTime());
-        Assertions.assertEquals(10, contextWithUtc.getDefaultBuckets());
-
-        // 5-param backward-compat constructor: currentUtcBorder defaults to null.
-        AutoBucketContext contextNoUtc = new AutoBucketContext(
+        // 5-param constructor
+        AutoBucketContext context = new AutoBucketContext(
                 table, "p3", "p4", true, 5);
-        Assertions.assertNull(contextNoUtc.getCurrentUtcBorder());
-        Assertions.assertEquals("p3", contextNoUtc.getPartitionName());
-        Assertions.assertTrue(contextNoUtc.isExecuteFirstTime());
-        Assertions.assertEquals(5, contextNoUtc.getDefaultBuckets());
+        Assertions.assertEquals("p3", context.getPartitionName());
+        Assertions.assertEquals("p4", context.getNowPartitionName());
+        Assertions.assertTrue(context.isExecuteFirstTime());
+        Assertions.assertEquals(5, context.getDefaultBuckets());
     }
 }

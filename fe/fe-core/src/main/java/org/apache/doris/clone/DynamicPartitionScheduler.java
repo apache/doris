@@ -214,41 +214,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private static Pair<Integer, Integer> getBucketsNum(DynamicPartitionProperty property, OlapTable table,
-            String partitionName, String nowPartitionName, boolean executeFirstTime, String nowPartitionPrevBorder) {
+            String partitionName, String nowPartitionName, boolean executeFirstTime) {
         AutoBucketCalculator.AutoBucketContext context = new AutoBucketCalculator.AutoBucketContext(
-                table, partitionName, nowPartitionName, executeFirstTime, property.getBuckets(),
-                nowPartitionPrevBorder);
+                table, partitionName, nowPartitionName, executeFirstTime, property.getBuckets());
 
         AutoBucketCalculator.AutoBucketResult result = AutoBucketCalculator.calculateAutoBuckets(context);
         return Pair.of(result.getBuckets(), result.getPreviousBuckets());
     }
 
     /**
-     * Get all partitions except the current one. When currentKey is non-null,
-     * the current partition is identified by checking if its range
-     * <em>contains</em> currentKey (i.e. lower <= currentKey < upper).
-     * When currentKey is null, fall back to name-based exclusion against
-     * nowPartitionName.
-     *
-     * <p>Using range containment instead of exact lower-bound equality
-     * handles non‑canonical current partitions whose lower endpoint does
-     * not coincide with the captured UTC‑midnight instant — for example a
-     * pre‑fix Asia/Shanghai partition p20260720 = [2026-07-19 16:00Z,
-     * 2026-07-20 16:00Z) where currentKey = 2026-07-22 00:00Z falls inside
-     * the range but does not equal the lower endpoint.  Without containment
-     * such a populated, still‑growing partition would be treated as history
-     * and distort auto‑bucket calculations.
-     *
-     * <p>The two filters are mutually exclusive — when a range key is available
-     * it alone identifies the current partition.  Applying both filters on top
-     * of each other would double‑exclude: after the range match removes the
-     * current partition (whose name may use an old prefix after a prefix change),
-     * the name filter could then catch a <em>different</em> partition whose name
-     * happens to match the new prefix, losing two partitions and corrupting
-     * auto‑bucket calculations.
+     * Get all partitions except the current one. The current partition is
+     * identified by name-based exclusion against nowPartitionName.
      */
-    public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName,
-            String nowPartitionPrevBorder) {
+    public static List<Partition> getHistoricalPartitions(OlapTable table, String nowPartitionName) {
         table.readLock();
         try {
             RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
@@ -439,7 +417,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             DistributionDesc distributionDesc = null;
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             Pair<Integer, Integer> ret = getBucketsNum(dynamicPartitionProperty, olapTable, partitionName,
-                    nowPartitionName, executeFirstTime, nowPartitionPrevBorder);
+                    nowPartitionName, executeFirstTime);
             int bucketsNum = ret.first;
             int previousPartitionBucketsNum = ret.second;
             if (olapTable.isAutoBucket()) {
