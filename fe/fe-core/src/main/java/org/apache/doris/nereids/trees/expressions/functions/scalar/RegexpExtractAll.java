@@ -74,7 +74,7 @@ public class RegexpExtractAll extends ScalarFunction
      */
     @Override
     public RegexpExtractAll withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        Preconditions.checkArgument(children.size() == 3);
         return new RegexpExtractAll(getFunctionParams(children));
     }
 

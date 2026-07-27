@@ -77,7 +77,7 @@ public class RegexpExtractAllArray extends ScalarFunction
      */
     @Override
     public RegexpExtractAllArray withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        Preconditions.checkArgument(children.size() == 3);
         return new RegexpExtractAllArray(getFunctionParams(children));
     }
 
