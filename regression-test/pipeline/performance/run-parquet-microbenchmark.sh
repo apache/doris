@@ -97,6 +97,15 @@ else
     exit 1
 fi
 
+jvm_search_root="${JAVA_HOME:-/usr/lib/jvm}"
+jvm_library=$(find "${jvm_search_root}" -type f -name libjvm.so -print -quit 2>/dev/null || true)
+if [[ -z "${jvm_library}" ]]; then
+    echo "ERROR: libjvm.so not found under ${jvm_search_root}"
+    exit 1
+fi
+jvm_library_dir=$(dirname "${jvm_library}")
+export LD_LIBRARY_PATH="${jvm_library_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
 mkdir -p "${result_dir}"
 fixture_root=$(mktemp -d "${result_dir}/tmp.XXXXXX")
 rm -f "${case_list}" "${result_dir}/decoder-smoke.json" "${result_dir}/reader-smoke.json"
