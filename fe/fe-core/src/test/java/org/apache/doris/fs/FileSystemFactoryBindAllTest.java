@@ -74,6 +74,14 @@ public class FileSystemFactoryBindAllTest {
             }
 
             @Override
+            public boolean supportsGuess(Map<String, String> properties) {
+                // Out-of-tree providers are selected by supportsExplicit/supportsGuess since upstream
+                // #66004 tightened FileSystemPluginManager.bindAll; supports() alone only feeds
+                // createFileSystem(Map) and is warned about, so it would never reach bind() here.
+                return true;
+            }
+
+            @Override
             public FileSystemProperties bind(Map<String, String> properties) {
                 return bound;
             }

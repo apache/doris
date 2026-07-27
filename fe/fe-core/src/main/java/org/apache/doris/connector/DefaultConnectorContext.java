@@ -34,7 +34,8 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.credentials.CredentialUtils;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
@@ -94,7 +95,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     // Lazily supplies the catalog's static storage-properties map for storage-URI normalization
     // (FIX-URI-NORMALIZE). Invoked at scan time only (catalog fully initialized). Empty for ctors
     // that do not wire it — those callers (non-plugin catalogs) never invoke normalizeStorageUri.
-    private final Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier;
+    private final Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier;
     // Supplies the catalog's effective raw storage map (persisted props + derived defaults, empty when the
     // connector supplies vended credentials) for direct fe-filesystem binding in getStorageProperties()
     // (design S2): no fe-core StorageProperties parse on the connector storage path. Empty for ctors that do
@@ -133,13 +134,13 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier,
-            Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier) {
+            Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier) {
         this(catalogName, catalogId, authSupplier, storagePropertiesSupplier, Collections::emptyMap);
     }
 
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier,
-            Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier,
+            Supplier<Map<StorageTypeId, StorageAdapter>> storagePropertiesSupplier,
             Supplier<Map<String, String>> rawStoragePropsSupplier) {
         this.catalogName = Objects.requireNonNull(catalogName, "catalogName");
         this.catalogId = catalogId;
@@ -210,7 +211,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // fail-soft boundary is byte-identical to the pre-refactor method; buildVendedStorageMap shares
         // the typed-map build with normalizeStorageUri (single source of truth — no drift).
         try {
-            Map<StorageProperties.Type, StorageProperties> map = buildVendedStorageMap(rawVendedCredentials);
+            Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
             return map == null ? Collections.emptyMap()
                     : CredentialUtils.getBackendPropertiesFromStorageMap(map);
         } catch (Exception e) {
@@ -220,16 +221,16 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     }
 
     /**
-     * Builds the vended {@link StorageProperties} typed map from a raw per-table token: filter to
-     * cloud-storage props, run {@link StorageProperties#createAll} (normalizes arbitrary token key
-     * shapes + derives region/endpoint), then index by {@link StorageProperties.Type}. Mirrors the
+     * Builds the vended {@link StorageAdapter} typed map from a raw per-table token: filter to
+     * cloud-storage props, run {@link StorageAdapter#ofAll} (normalizes arbitrary token key
+     * shapes + derives region/endpoint), then index by {@link StorageTypeId}. Mirrors the
      * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
      * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
      * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
      * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
      * legacy "return null → fall back to the base/static map" contract.
      */
-    private Map<StorageProperties.Type, StorageProperties> buildVendedStorageMap(
+    private Map<StorageTypeId, StorageAdapter> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
         if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
             return null;
@@ -239,9 +240,9 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             if (filtered.isEmpty()) {
                 return null;
             }
-            List<StorageProperties> vended = StorageProperties.createAll(filtered);
+            List<StorageAdapter> vended = StorageAdapter.ofAll(filtered);
             return vended.stream()
-                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+                    .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
         } catch (Exception e) {
             LOG.warn("Failed to normalize vended credentials", e);
             return null;
@@ -251,7 +252,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public Map<String, String> getBackendStorageProperties() {
         // Mirror legacy PaimonScanNode.getLocationProperties(): translate the catalog's parsed
-        // StorageProperties map into BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for
+        // storage-adapter map into BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for
         // HDFS) via the SAME CredentialUtils.getBackendPropertiesFromStorageMap legacy/iceberg/hive use
         // — single source of truth, no drift. The map is already validated at catalog creation, so this
         // does not throw; an empty map (non-plugin ctor / local-FS warehouse) yields an empty result
@@ -349,7 +350,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                 return null;
             }
             if (catalogFileSystem == null) {
-                Map<StorageProperties.Type, StorageProperties> storageProps = storagePropertiesSupplier.get();
+                Map<StorageTypeId, StorageAdapter> storageProps = storagePropertiesSupplier.get();
                 if (storageProps == null || storageProps.isEmpty()) {
                     return null;
                 }
@@ -365,7 +366,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
      * used elsewhere in this class).
      */
     @VisibleForTesting
-    FileSystem buildCatalogFileSystem(Map<StorageProperties.Type, StorageProperties> storageProps) {
+    FileSystem buildCatalogFileSystem(Map<StorageTypeId, StorageAdapter> storageProps) {
         return new SpiSwitchingFileSystem(storageProps);
     }
 
@@ -409,10 +410,10 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // propagates) — a path that cannot be normalized would otherwise silently corrupt reads (esp. a
         // deletion-vector path on merge-on-read). Single source of truth: the SAME LocationPath
         // normalization legacy/iceberg/hive use, so no drift.
-        Map<StorageProperties.Type, StorageProperties> vended = buildVendedStorageMap(rawVendedCredentials);
-        Map<StorageProperties.Type, StorageProperties> effective =
+        Map<StorageTypeId, StorageAdapter> vended = buildVendedStorageMap(rawVendedCredentials);
+        Map<StorageTypeId, StorageAdapter> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
-        return LocationPath.of(rawUri, effective).toStorageLocation().toString();
+        return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
     }
 
     @Override
@@ -427,7 +428,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // normalizer is single-threaded per scan (the streaming pump drives one thread; the synchronous and
         // position-delete loops are single-threaded), so the memo needs no lock.
         return new UnaryOperator<String>() {
-            private Map<StorageProperties.Type, StorageProperties> effective;
+            private Map<StorageTypeId, StorageAdapter> effective;
             private boolean built;
 
             @Override
@@ -436,12 +437,12 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                     return rawUri;
                 }
                 if (!built) {
-                    Map<StorageProperties.Type, StorageProperties> vended =
+                    Map<StorageTypeId, StorageAdapter> vended =
                             buildVendedStorageMap(rawVendedCredentials);
                     effective = vended != null ? vended : storagePropertiesSupplier.get();
                     built = true;
                 }
-                return LocationPath.of(rawUri, effective).toStorageLocation().toString();
+                return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
             }
         };
     }
@@ -453,10 +454,10 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // the storage properties. Returns the TFileType enum NAME (the SPI stays Thrift-free). Mirrors
         // legacy IcebergTableSink.bindDataSink's
         // LocationPath.of(originalLocation, storagePropertiesMap).getTFileTypeForBE().
-        Map<StorageProperties.Type, StorageProperties> vended = buildVendedStorageMap(rawVendedCredentials);
-        Map<StorageProperties.Type, StorageProperties> effective =
+        Map<StorageTypeId, StorageAdapter> vended = buildVendedStorageMap(rawVendedCredentials);
+        Map<StorageTypeId, StorageAdapter> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
-        return LocationPath.of(rawUri, effective).getTFileTypeForBE().name();
+        return LocationPath.ofAdapters(rawUri, effective).getTFileTypeForBE().name();
     }
 
     @Override
@@ -494,7 +495,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         if (Strings.isNullOrEmpty(location)) {
             return;
         }
-        Map<StorageProperties.Type, StorageProperties> storageProperties = storagePropertiesSupplier.get();
+        Map<StorageTypeId, StorageAdapter> storageProperties = storagePropertiesSupplier.get();
         if (storageProperties == null || storageProperties.isEmpty()) {
             return;
         }

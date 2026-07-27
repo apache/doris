@@ -204,7 +204,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // teardown (onClose / connector replacement). The connector — and any sibling it builds — shares this
         // one context instance, so there is a single cached FS per catalog.
         DefaultConnectorContext context = new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
-                () -> catalogProperty.getStoragePropertiesMap(),
+                () -> catalogProperty.getStorageAdaptersMap(),
                 catalogProperty::getEffectiveRawStorageProperties);
         this.connectorContext = context;
         // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the

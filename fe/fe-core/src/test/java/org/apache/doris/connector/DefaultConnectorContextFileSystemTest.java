@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
@@ -58,21 +59,21 @@ public class DefaultConnectorContextFileSystemTest {
         private final RecordingFileSystem fs = new RecordingFileSystem();
         private int buildCount;
 
-        private RecordingContext(Supplier<Map<StorageProperties.Type, StorageProperties>> storageSupplier) {
+        private RecordingContext(Supplier<Map<StorageTypeId, StorageAdapter>> storageSupplier) {
             super("c", 1L, NOOP_AUTH, storageSupplier);
         }
 
         @Override
-        FileSystem buildCatalogFileSystem(Map<StorageProperties.Type, StorageProperties> storageProps) {
+        FileSystem buildCatalogFileSystem(Map<StorageTypeId, StorageAdapter> storageProps) {
             buildCount++;
             return fs;
         }
     }
 
-    private static Map<StorageProperties.Type, StorageProperties> nonEmptyStorage() {
+    private static Map<StorageTypeId, StorageAdapter> nonEmptyStorage() {
         // The value is irrelevant — RecordingContext overrides the actual FS build; only non-emptiness matters,
         // because getFileSystem returns null on an empty storage map.
-        return Collections.singletonMap(StorageProperties.Type.HDFS, (StorageProperties) null);
+        return Collections.singletonMap(StorageTypeId.HDFS, (StorageAdapter) null);
     }
 
     @Test

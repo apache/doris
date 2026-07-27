@@ -22,7 +22,6 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
-import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -60,7 +59,7 @@ public class FileSystemPluginManagerTest {
                 DatasourcePrintableMap.SENSITIVE_KEY.contains("PLUGIN_MANAGER_TEST_SECRET_ALIAS"));
     }
 
-    // ---- bindAll (P0-T02 / D-009): raw map -> List<fe-filesystem StorageProperties> ----
+    // ---- bindAll (P0-T02 / D-009): raw map -> List<fe-filesystem FileSystemProperties> ----
 
     @Test
     public void bindAll_collectsTypedPropertiesFromEverySupportingProvider() {
@@ -70,7 +69,7 @@ public class FileSystemPluginManagerTest {
         manager.registerProvider(bindingProvider("A", s3Props));
         manager.registerProvider(bindingProvider("B", hdfsLikeProps));
 
-        List<StorageProperties> bound = manager.bindAll(new HashMap<>());
+        List<FileSystemProperties> bound = manager.bindAll(new HashMap<>());
 
         // bindAll returns ALL supporting providers' bound props (unlike createFileSystem's first-match).
         Assertions.assertEquals(2, bound.size());
@@ -85,7 +84,7 @@ public class FileSystemPluginManagerTest {
         manager.registerProvider(bindingProvider("supports", supported));
         manager.registerProvider(nonSupportingProvider("ignored"));
 
-        List<StorageProperties> bound = manager.bindAll(new HashMap<>());
+        List<FileSystemProperties> bound = manager.bindAll(new HashMap<>());
 
         Assertions.assertEquals(1, bound.size());
         Assertions.assertSame(supported, bound.get(0));
@@ -93,8 +92,8 @@ public class FileSystemPluginManagerTest {
 
     @Test
     public void bindAll_skipsLegacyProvidersWithoutTypedBinding() {
-        // HDFS/broker/local providers support() their props but have not migrated bind() -> the
-        // default throws UnsupportedOperationException. They contribute no typed StorageProperties
+        // HDFS/broker/local providers match their props but have not migrated bind() -> the
+        // default throws UnsupportedOperationException. They contribute no typed FileSystemProperties
         // (the connector covers them via raw fs./dfs./hadoop. passthrough), so bindAll must skip
         // them rather than blow up -- matching legacy createAll's object-store-only Hadoop scope.
         FileSystemPluginManager manager = new FileSystemPluginManager();
@@ -102,7 +101,7 @@ public class FileSystemPluginManagerTest {
         manager.registerProvider(bindingProvider("typed", typed));
         manager.registerProvider(legacyProviderThatSupportsButCannotBind("legacyHdfs"));
 
-        List<StorageProperties> bound = manager.bindAll(new HashMap<>());
+        List<FileSystemProperties> bound = manager.bindAll(new HashMap<>());
 
         Assertions.assertEquals(1, bound.size());
         Assertions.assertSame(typed, bound.get(0));
@@ -114,7 +113,7 @@ public class FileSystemPluginManagerTest {
         manager.registerProvider(nonSupportingProvider("none1"));
         manager.registerProvider(nonSupportingProvider("none2"));
 
-        List<StorageProperties> bound = manager.bindAll(new HashMap<>());
+        List<FileSystemProperties> bound = manager.bindAll(new HashMap<>());
 
         Assertions.assertTrue(bound.isEmpty());
     }
@@ -131,6 +130,13 @@ public class FileSystemPluginManagerTest {
         return new FileSystemProvider<FileSystemProperties>() {
             @Override
             public boolean supports(Map<String, String> properties) {
+                return true;
+            }
+
+            @Override
+            public boolean supportsGuess(Map<String, String> properties) {
+                // Out-of-tree providers are selected by supportsExplicit/supportsGuess since upstream
+                // #66004; supports() alone only feeds createFileSystem(Map) and is warned about.
                 return true;
             }
 
@@ -176,6 +182,13 @@ public class FileSystemPluginManagerTest {
         return new FileSystemProvider<FileSystemProperties>() {
             @Override
             public boolean supports(Map<String, String> properties) {
+                return true;
+            }
+
+            @Override
+            public boolean supportsGuess(Map<String, String> properties) {
+                // Out-of-tree providers are selected by supportsExplicit/supportsGuess since upstream
+                // #66004; supports() alone only feeds createFileSystem(Map) and is warned about.
                 return true;
             }
 
