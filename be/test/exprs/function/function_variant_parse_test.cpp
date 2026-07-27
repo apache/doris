@@ -90,7 +90,7 @@ ExecutionResult execute_parse(std::string_view function_name, ColumnPtr input,
         } else {
             result_type = std::make_shared<DataTypeVariant>();
         }
-        if (function_name == "parse_to_variant_error_to_null" || input_type->is_nullable()) {
+        if (function_name == "try_parse_to_variant" || input_type->is_nullable()) {
             result_type = make_nullable(result_type);
         }
     }
@@ -195,7 +195,7 @@ TEST(FunctionVariantParseTest, LegacyPathPreservesSqlNullAndErrorToNull) {
     EXPECT_FALSE(static_cast<bool>(failure.output));
 
     ExecutionResult recoverable =
-            execute_parse("parse_to_variant_error_to_null",
+            execute_parse("try_parse_to_variant",
                           make_strings({R"({"before":1})", invalid_utf8, R"({"after":2})"}),
                           string_type, 3, false);
     ASSERT_TRUE(recoverable.status.ok()) << recoverable.status.to_string();
@@ -216,8 +216,8 @@ TEST(FunctionVariantParseTest, FunctionsAreRegistered) {
     EXPECT_NE(SimpleFunctionFactory::instance().get_function("parse_to_variant", arguments,
                                                              result_type),
               nullptr);
-    EXPECT_NE(SimpleFunctionFactory::instance().get_function("parse_to_variant_error_to_null",
-                                                             arguments, result_type),
+    EXPECT_NE(SimpleFunctionFactory::instance().get_function("try_parse_to_variant", arguments,
+                                                             result_type),
               nullptr);
 }
 
@@ -248,9 +248,8 @@ TEST(FunctionVariantParseTest, ConfiguredVariantReturnTypeBuildsAndExecutes) {
 
     const DataTypePtr nullable_max_subcolumns_variant =
             make_nullable(std::make_shared<DataTypeVariantV2>(2048, false));
-    ExecutionResult error_to_null =
-            execute_parse("parse_to_variant_error_to_null", make_strings({"true"}), string_type, 1,
-                          nullable_max_subcolumns_variant);
+    ExecutionResult error_to_null = execute_parse("try_parse_to_variant", make_strings({"true"}),
+                                                  string_type, 1, nullable_max_subcolumns_variant);
     ASSERT_TRUE(error_to_null.status.ok()) << error_to_null.status.to_string();
     ASSERT_TRUE(static_cast<bool>(error_to_null.return_type));
     EXPECT_TRUE(error_to_null.return_type->equals(*nullable_max_subcolumns_variant));
@@ -312,7 +311,7 @@ TEST(FunctionVariantParseTest, ErrorToNullOnlyNullsRecoverableFailures) {
     {
         ScopedValue strict(config::variant_throw_exeception_on_invalid_json, true);
         ExecutionResult result = execute_parse(
-                "parse_to_variant_error_to_null",
+                "try_parse_to_variant",
                 make_strings({R"({"before":1})", "{", "null", R"({"after":2})"}), string_type, 4);
         ASSERT_TRUE(result.status.ok()) << result.status.to_string();
         EXPECT_FALSE(is_sql_null_at(result.output, 0));
@@ -323,8 +322,8 @@ TEST(FunctionVariantParseTest, ErrorToNullOnlyNullsRecoverableFailures) {
     }
     {
         ScopedValue permissive(config::variant_throw_exeception_on_invalid_json, false);
-        ExecutionResult result = execute_parse("parse_to_variant_error_to_null",
-                                               make_strings({"{"}), string_type, 1);
+        ExecutionResult result =
+                execute_parse("try_parse_to_variant", make_strings({"{"}), string_type, 1);
         ASSERT_TRUE(result.status.ok()) << result.status.to_string();
         EXPECT_FALSE(is_sql_null_at(result.output, 0));
         EXPECT_EQ(variant_json_at(result.output, 0), R"("{")");
@@ -339,7 +338,7 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
                 execute_parse("parse_to_variant", make_strings({R"({"abcd":1})"}), string_type, 1);
         EXPECT_FALSE(fail.status.ok());
         EXPECT_FALSE(static_cast<bool>(fail.output));
-        ExecutionResult null = execute_parse("parse_to_variant_error_to_null",
+        ExecutionResult null = execute_parse("try_parse_to_variant",
                                              make_strings({R"({"abcd":1})"}), string_type, 1);
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
@@ -349,14 +348,14 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         ExecutionResult fail = execute_parse("parse_to_variant", make_strings({R"({"a":1,"a":2})"}),
                                              string_type, 1);
         EXPECT_FALSE(fail.status.ok());
-        ExecutionResult null = execute_parse("parse_to_variant_error_to_null",
+        ExecutionResult null = execute_parse("try_parse_to_variant",
                                              make_strings({R"({"a":1,"a":2})"}), string_type, 1);
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }
     {
         ScopedValue keep_first(config::variant_enable_duplicate_json_path_check, true);
-        ExecutionResult result = execute_parse("parse_to_variant_error_to_null",
+        ExecutionResult result = execute_parse("try_parse_to_variant",
                                                make_strings({R"({"a":1,"a":2})"}), string_type, 1);
         ASSERT_TRUE(result.status.ok()) << result.status.to_string();
         EXPECT_FALSE(is_sql_null_at(result.output, 0));
@@ -368,8 +367,8 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         ExecutionResult fail =
                 execute_parse("parse_to_variant", make_strings({invalid_utf8}), string_type, 1);
         EXPECT_FALSE(fail.status.ok());
-        ExecutionResult null = execute_parse("parse_to_variant_error_to_null",
-                                             make_strings({invalid_utf8}), string_type, 1);
+        ExecutionResult null =
+                execute_parse("try_parse_to_variant", make_strings({invalid_utf8}), string_type, 1);
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }
@@ -378,8 +377,8 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
         ExecutionResult fail =
                 execute_parse("parse_to_variant", make_strings({too_deep}), string_type, 1);
         EXPECT_FALSE(fail.status.ok());
-        ExecutionResult null = execute_parse("parse_to_variant_error_to_null",
-                                             make_strings({too_deep}), string_type, 1);
+        ExecutionResult null =
+                execute_parse("try_parse_to_variant", make_strings({too_deep}), string_type, 1);
         ASSERT_TRUE(null.status.ok()) << null.status.to_string();
         EXPECT_TRUE(is_sql_null_at(null.output, 0));
     }

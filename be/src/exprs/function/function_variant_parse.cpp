@@ -39,8 +39,7 @@ namespace {
 template <bool ERROR_TO_NULL>
 class FunctionVariantParse final : public IFunction {
 public:
-    static constexpr auto name =
-            ERROR_TO_NULL ? "parse_to_variant_error_to_null" : "parse_to_variant";
+    static constexpr auto name = ERROR_TO_NULL ? "try_parse_to_variant" : "parse_to_variant";
 
     static FunctionPtr create() { return std::make_shared<FunctionVariantParse>(); }
 
@@ -183,13 +182,13 @@ public:
 };
 
 using FunctionParseToVariant = FunctionVariantParse<false>;
-using FunctionParseToVariantErrorToNull = FunctionVariantParse<true>;
+using FunctionTryParseToVariant = FunctionVariantParse<true>;
 
 } // namespace
 
 void register_function_variant_parse(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionParseToVariant>();
-    factory.register_function<FunctionParseToVariantErrorToNull>();
+    factory.register_function<FunctionTryParseToVariant>();
 }
 
 } // namespace doris

@@ -34,25 +34,25 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** Parse JSON text into a Variant value and return SQL NULL for input errors. */
-public class ParseToVariantErrorToNull extends ScalarFunction
+public class TryParseToVariant extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, NeedSessionVarGuard {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VariantType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
 
-    public ParseToVariantErrorToNull(Expression argument) {
-        super("parse_to_variant_error_to_null", argument);
+    public TryParseToVariant(Expression argument) {
+        super("try_parse_to_variant", argument);
     }
 
-    private ParseToVariantErrorToNull(ScalarFunctionParams functionParams) {
+    private TryParseToVariant(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public ParseToVariantErrorToNull withChildren(List<Expression> children) {
+    public TryParseToVariant withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ParseToVariantErrorToNull(getFunctionParams(children));
+        return new TryParseToVariant(getFunctionParams(children));
     }
 
     @Override

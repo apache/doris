@@ -202,8 +202,8 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     setBeConfigTemporary([variant_throw_exeception_on_invalid_json: true]) {
         order_qt_parse_error_to_null """
             SELECT number,
-                   CAST(parse_to_variant_error_to_null(payload) AS STRING),
-                   parse_to_variant_error_to_null(payload) IS NULL
+                   CAST(try_parse_to_variant(payload) AS STRING),
+                   try_parse_to_variant(payload) IS NULL
             FROM (
                 SELECT number,
                        CASE number

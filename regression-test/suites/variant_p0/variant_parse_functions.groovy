@@ -30,8 +30,8 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
             id,
             CAST(parse_to_variant(payload) AS STRING),
             parse_to_variant(payload) IS NULL,
-            CAST(parse_to_variant_error_to_null(payload) AS STRING),
-            parse_to_variant_error_to_null(payload) IS NULL
+            CAST(try_parse_to_variant(payload) AS STRING),
+            try_parse_to_variant(payload) IS NULL
         FROM (
             SELECT 1 AS id, CAST(NULL AS STRING) AS payload
             UNION ALL
@@ -59,8 +59,8 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
         }
         order_qt_strict_error_to_null """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                parse_to_variant_error_to_null('{') IS NULL,
-                parse_to_variant_error_to_null('') IS NULL
+                try_parse_to_variant('{') IS NULL,
+                try_parse_to_variant('') IS NULL
         """
     }
 
@@ -69,8 +69,8 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
                 CAST(parse_to_variant('{') AS STRING),
                 parse_to_variant('{') IS NULL,
-                CAST(parse_to_variant_error_to_null('{') AS STRING),
-                parse_to_variant_error_to_null('{') IS NULL
+                CAST(try_parse_to_variant('{') AS STRING),
+                try_parse_to_variant('{') IS NULL
         """
     }
 
@@ -87,7 +87,7 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
         }
         order_qt_key_too_long_error_to_null """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                parse_to_variant_error_to_null('{"long":1}') IS NULL
+                try_parse_to_variant('{"long":1}') IS NULL
         """
     }
 
@@ -104,7 +104,7 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
         }
         order_qt_duplicate_key_error_to_null """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                parse_to_variant_error_to_null('{"dup":1,"dup":2}') IS NULL
+                try_parse_to_variant('{"dup":1,"dup":2}') IS NULL
         """
     }
 
@@ -115,7 +115,7 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
         order_qt_duplicate_key_first_wins """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
                 CAST(parse_to_variant('{"dup":1,"dup":2}') AS STRING),
-                CAST(parse_to_variant_error_to_null('{"dup":1,"dup":2}') AS STRING)
+                CAST(try_parse_to_variant('{"dup":1,"dup":2}') AS STRING)
         """
     }
 }
