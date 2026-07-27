@@ -5,6 +5,93 @@
 
 ---
 
+# 🆕🆕🆕 最新一轮（2026-07-27c）：rebase onto `e7b7f1d1359` —— 迎面撞上上游 **#66004 存储门面大重构**
+
+> `git pull --rebase upstream-apache master`，66 commit onto **`e7b7f1d1359`**（上游新增 5 个 commit）。
+> 备份点 tag `backup-before-rebase-0727c` = rebase 前 HEAD `f9c96e1e37a`。**未 push**。
+> 收尾 commit `e29884df07f`（连接器 SPI 对齐新门面）。
+
+## 本轮的性质：**同向大重构对撞**，不是普通 rebase
+
+上游 5 个 commit 里 4 个与外表无关（#65483 bitmap / #65781 user-property / #65700 依赖升级 / #64734 BE 指标）；
+真正的对手只有一个：**`f499c78c67c` (#66004) “Migrate fe-core storage consumers onto the fe-filesystem SPI facade”**，
+247 文件 ±18k 行。它做的事和本分支同向：**删掉 fe-core 自己那套 typed 存储层**
+（`datasource/property/storage/*` 21 个主类 + `fs/SchemaTypeMapper` + `fs/StoragePropertiesConverter` + 34 个测试），
+改成 `datasource/storage` 门面（`StorageAdapter` / `StorageTypeId` / `StorageRegistry`），
+存储属性下沉进各 `fe-filesystem-*` 插件。
+
+与本分支文件交集 **103 个**，冲突 commit **11 个 / 66**（range-diff 已核：其余 55 个逐字节未变；
+11 个里 2 个（#6 P4、#55 minio）只是上游改了相邻上下文行造成的位移，无语义变化）。
+
+## 关键判断：4 处“上游取代我们”
+
+| 我们的实现 | 处置 | 理由 |
+|---|---|---|
+| `FileSystemPluginManager.bindAll`（P5 加，按注册顺序朴素收集） | **删，用上游的** | 上游版本是 legacy `StorageProperties.createAll` 的高保真复刻：优先级表、显式 `fs.<x>.support` 关闭猜测、OSS-HDFS/OSS 与 JFS/HDFS 互斥、默认 HDFS 兜底插 index 0、表外插件排在已知集合之后。**且 auto-merge 把两个同签名 `bindAll` 都留下了 → 重复方法编译错误**（git 无冲突提示） |
+| `fe-filesystem-hdfs/HdfsFileSystemProperties`(+Test) | **删** | 上游 `fe-filesystem-hdfs-base/HdfsCompatibleProperties`→`HdfsProperties` 实现同样 3 个 SPI 接口，另带 `getExecutionAuthenticator`，且已接进 `bindAll`/`StorageAdapter` 并有 parity 测试 |
+| P3b 把 hdfs-base 的认证指向 fe-kerberos（删 `KerberosHadoopAuthenticator`/`SimpleHadoopAuthenticator`） | **回退 hdfs-base 部分，保留 fe-kerberos 模块本身** | 上游把整个 hdfs-base 重新指向 **foundation 层 `ExecutionAuthenticator`**（无 Hadoop 类型的 doAs 抽象）——这比 P3b 更彻底：文件系统插件叶子从此**完全不需要依赖 fe-kerberos**。P3b 对 fe-common→fe-kerberos 的搬迁**全部保留** |
+| 我们 3 个测试 fake provider 只 override `supports()` | **改为 override `supportsGuess()`** | 上游收紧了契约：表外 provider 现在靠 `supportsExplicit`/`supportsGuess` 选中，只有 `supports()` 会被 WARN 并跳过。真实的表外插件也必须这么写 |
+
+## ⚠️ 3 处 git 看不见的坑（本轮教训）
+
+1. **重复方法**：我们的 `bindAll` 与上游的 `bindAll` 同签名，auto-merge 两个都留 → 编译错。
+   **同名新增 API 在两边独立演化时，rebase 后必须按签名查重。**
+2. **8 字符冲突标记**：git 把 `fe-foundation/security/IOCallable.java` 与
+   `fe-kerberos/SimpleAuthenticationConfig.java` 误配成一次 rename，用的是 `<<<<<<<<`（8 个）而不是 7 个，
+   **`grep '^<<<<<<< '` 查不到**，两个文件互相污染，直到编译才暴露。以后一律用 `grep -E "^(<{7,8}|>{7,8}) "`。
+3. **无冲突但编译崩**：`DefaultConnectorContext` 等 7 个我们自己的文件引用了被上游删掉的包，
+   上游没碰过它们 ⇒ 0 冲突 ⇒ 只能靠编译发现。
+
+## 移植结论：**上游 0 能力需要迁移到 connector**
+
+证据：取 #66004 触碰、且在本分支已被删除的 **40 个文件**，过滤掉纯 `StorageProperties→StorageAdapter` 改名/注释/import，
+**新增行为行数 = 0**。即上游对那 40 个文件做的全是机械改型，没有新能力。反向对齐则做了：
+`DefaultConnectorContext` / `PluginDrivenExternalCatalog` / 6 个测试改型到新门面（commit `e29884df07f`）。
+
+另外两项对齐（同样无冲突信号）：`fe-kerberos` 补 `fe-foundation` 依赖（上游让 `ExecutionAuthenticator`
+继承 foundation 版）；3 个测试 fake 适配新 provider 契约。
+
+## 测试
+
+- **单测（我跑）**：全量 FE `install` **BUILD SUCCESS**；checkstyle **BUILD SUCCESS**；
+  fe-filesystem 全 18 模块 + fe-kerberos + fe-foundation + 全部 fe-connector 模块 **绿**；
+  直接受影响的 fe-core 测试 31/31 绿。
+  fe-core 全量复跑 **8338 用例 / 0 failures / 2 errors / 44 skipped**。
+  （首跑曾出现 83 个 `NoClassDefFoundError` 级联，复跑**完全消失**，确认是单 fork JVM 的 classloader 退化，非回归。）
+  剩下 2 个 error 都不是本轮引入：`HFUtilsTest` = `Network is unreachable`（要连 huggingface.co）；
+  `ForwardToMasterTest` = **上游 #66004 自带回归**，见下。
+### ⚠️ 发现一个**上游自带的回归**（不是我们的，但会打在我们 PR 的 CI 上）
+
+`ForwardToMasterTest.testAddBeDropBe` 在 **`f499c78c67c` (#66004) 自身**就挂，它的父 commit `0dde27390ac` 是绿的；
+本分支 rebase 前（`f9c96e1e37a`）也是绿的 ⇒ **与本分支、与我的冲突解决全部无关**，纯属继承上游。
+
+根因（已抓到实际报文）：#66004 给 fe-core/pom.xml 加了 13 个 fe-filesystem 插件依赖，改变了 Spring MVC 对
+`NodeInfo` 的 JSON 序列化 —— `/rest/v2/manager/node/backends` 的响应从
+
+```json
+"data":{"columnNames":[...],"rows":[...]}
+```
+变成了**双层嵌套**
+```json
+"data":{"columnNames":{"columnNames":[...]},"rows":{"rows":[...]}}
+```
+
+这不只是测试问题：**Manager REST API 的对外响应结构被改了**，任何依赖该接口的管控面都会坏。
+建议向上游报（apache/doris #66004）。我们这边**不要自己改测试去迎合**——那会把上游的 bug 固化下来。
+
+- **e2e（你跑）**：本轮**不需要改任何 suite**。上游 #66004 自述 “Behavior changed: No” 且 0 个 regression-test 文件改动；
+  它唯一可能影响用例的行为差（S3 不再静默默认 region=us-east-1）对我们无效——165 个 external suite 全部**显式**写了
+  `"s3.region" = "us-east-1"`。`build.sh` 已经在打包全部 14 个 fe-filesystem 插件（含 #66004 要求的 broker）。
+
+## ⏭ 下一个 session
+
+1. `git push` 回 `upstream-apache/branch-catalog-spi`（本轮未 push）。
+2. 跑 e2e（External Regression）确认。
+3. 遗留小事：`fe-filesystem-{oss-hdfs,s3,gcs}` 里 5 处注释仍在提 `StoragePropertiesConverter`（上游已删该类），
+   属于陈旧注释，不影响编译，可顺手清。
+
+---
+
 # 🆕🆕🆕 最新一轮（2026-07-27b）：rebase onto `042e613b134` —— 移植 #65955 paimon table-option + 修一处**静默失效**
 
 > `git pull --rebase upstream-apache master`，63 commit onto **`042e613b134`**（上游新增 6 个 commit）。
