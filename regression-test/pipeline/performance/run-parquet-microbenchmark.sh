@@ -161,11 +161,16 @@ if not isinstance(benchmarks, list):
         "ERROR: benchmark JSON has no benchmark list: {0}".format(output_file)
     )
 
+try:
+    string_types = (basestring,)
+except NameError:
+    string_types = (str,)
+
 matched = [
     benchmark
     for benchmark in benchmarks
     if isinstance(benchmark, dict)
-    and isinstance(benchmark.get("name"), str)
+    and isinstance(benchmark.get("name"), string_types)
     and benchmark["name"].startswith(prefix)
 ]
 if len(matched) != expected:
