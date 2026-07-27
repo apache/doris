@@ -17,11 +17,13 @@
 
 package org.apache.doris.filesystem.hdfs.properties;
 
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
+import java.net.URI;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -105,6 +107,37 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
         super(origProps);
     }
 
+    @Override
+    public String providerName() {
+        return "OSS_HDFS";
+    }
+
+    @Override
+    public FileSystemType type() {
+        return FileSystemType.HDFS;
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return SUPPORT_SCHEMA;
+    }
+
+    @Override
+    public String validateAndNormalizeUri(String uri) {
+        // fe-core parity (OSSHdfsProperties.validateUri): only the oss:// scheme is accepted.
+        if (StringUtils.isBlank(uri)) {
+            throw new IllegalArgumentException("The uri is empty.");
+        }
+        URI uriObj = URI.create(uri);
+        if (uriObj.getScheme() == null) {
+            throw new IllegalArgumentException("The uri scheme is empty.");
+        }
+        if (!uriObj.getScheme().equalsIgnoreCase("oss")) {
+            throw new IllegalArgumentException("The uri scheme is not oss.");
+        }
+        return uriObj.toString();
+    }
+
     /**
      * Cheap, deterministic detection of an OSS-HDFS configuration: an explicit {@code oss.hdfs.}
      * enable flag, or any endpoint key pointing at an {@code *.oss-dls.aliyuncs.com} host.
@@ -181,4 +214,10 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
         }
         this.backendConfigProperties = config;
     }
+
+    @Override
+    public String storageFamilyName() {
+        return "OSSHDFS";
+    }
+
 }

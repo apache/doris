@@ -21,8 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.log4j.LogManager;
@@ -47,11 +46,13 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
         Map<String, String> props = super.parseCommonProperties(properties);
         // 2. analyze uri
         try {
-            this.storageProperties = StorageProperties.createPrimary(props);
-            backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
-            String uri = storageProperties.validateAndGetUri(props);
-            filePath = storageProperties.validateAndNormalizeUri(uri);
-        } catch (UserException e) {
+            this.storageAdapter = StorageAdapter.of(props);
+            backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
+            String uri = storageAdapter.validateAndGetUri(props);
+            filePath = storageAdapter.validateAndNormalizeUri(uri);
+        } catch (RuntimeException e) {
+            // legacy wrapped checked UserException here; the facade throws unchecked, keep the
+            // same user-facing AnalysisException classification and message shape
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 

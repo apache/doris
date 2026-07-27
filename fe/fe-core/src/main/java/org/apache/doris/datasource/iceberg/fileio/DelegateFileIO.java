@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
@@ -224,9 +224,9 @@ public class DelegateFileIO implements SupportsBulkOperations {
      */
     @Override
     public void initialize(Map<String, String> properties) {
-        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        StorageAdapter storageAdapter = StorageAdapter.of(properties);
         try {
-            this.fileSystem = FileSystemFactory.getFileSystem(storageProperties);
+            this.fileSystem = FileSystemFactory.getFileSystem(storageAdapter.getSpiProperties());
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to create FileSystem for Iceberg FileIO", e);
         }

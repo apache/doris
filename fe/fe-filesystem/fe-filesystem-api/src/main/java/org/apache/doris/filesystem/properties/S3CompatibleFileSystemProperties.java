@@ -28,6 +28,43 @@ import java.util.Set;
  */
 public interface S3CompatibleFileSystemProperties extends FileSystemProperties {
 
+    // ------------------------------------------------------------------
+    // User-namespace property key contract (s3.* spelling). These literals are wire/DDL/image
+    // contracts shared by every S3-compatible dialect and by fe-core's persisted-map glue
+    // (thrift/PB adapters, frozen Resource entities). Single source of the spellings — do not
+    // redefine them elsewhere and never change the values.
+    // ------------------------------------------------------------------
+    String PROP_ENDPOINT = "s3.endpoint";
+    String PROP_REGION = "s3.region";
+    String PROP_ACCESS_KEY = "s3.access_key";
+    String PROP_SECRET_KEY = "s3.secret_key";
+    String PROP_SESSION_TOKEN = "s3.session_token";
+    String PROP_ROOT_PATH = "s3.root.path";
+    String PROP_BUCKET = "s3.bucket";
+    String PROP_EXTERNAL_ENDPOINT = "s3.external_endpoint";
+    String PROP_ROLE_ARN = "s3.role_arn";
+    String PROP_EXTERNAL_ID = "s3.external_id";
+    String PROP_CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    String PROP_MAX_CONNECTIONS = "s3.connection.maximum";
+    String PROP_REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
+    String PROP_CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
+    String PROP_USE_PATH_STYLE = "use_path_style";
+    String PROP_PROVIDER = "provider";
+    String DEFAULT_MAX_CONNECTIONS_VALUE = "50";
+    String DEFAULT_REQUEST_TIMEOUT_MS_VALUE = "3000";
+    String DEFAULT_CONNECTION_TIMEOUT_MS_VALUE = "1000";
+
+
+    /**
+     * Ledger 2.4-1: every S3-compatible dialect reports the "S3" storage family to fe-core
+     * consumers (legacy getStorageName() collapsed OSS/COS/OBS/GCS/MinIO/Ozone to "S3").
+     */
+    @Override
+    default String storageFamilyName() {
+        return "S3";
+    }
+
+
     /** Returns the service endpoint. */
     String getEndpoint();
 

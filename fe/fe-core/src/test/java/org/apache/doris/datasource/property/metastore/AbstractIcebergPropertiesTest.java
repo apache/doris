@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
@@ -49,7 +49,7 @@ public class AbstractIcebergPropertiesTest {
         @Override
         protected Catalog initCatalog(String catalogName,
                                                    Map<String, String> catalogProps,
-                                                   List<StorageProperties> storagePropertiesList) {
+                                                   List<StorageAdapter> storagePropertiesList) {
             // Capture the catalogProps for verification
             this.capturedCatalogProps = new HashMap<>(catalogProps);
             return catalogToReturn;
@@ -104,7 +104,7 @@ public class AbstractIcebergPropertiesTest {
             @Override
             protected Catalog initCatalog(String catalogName,
                                           Map<String, String> catalogProps,
-                                          List<StorageProperties> storagePropertiesList) {
+                                          List<StorageAdapter> storagePropertiesList) {
                 return null; // Simulate a failure case
             }
         };

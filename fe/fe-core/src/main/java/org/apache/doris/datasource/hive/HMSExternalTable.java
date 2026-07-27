@@ -50,7 +50,8 @@ import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.SysTable;
@@ -689,8 +690,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return catalog.getProperties();
     }
 
-    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
-        return catalog.getCatalogProperty().getStoragePropertiesMap();
+    /** SPI-facade map of this table's catalog storage bindings, keyed by storage type id. */
+    public Map<StorageTypeId, StorageAdapter> getStorageAdaptersMap() {
+        return catalog.getCatalogProperty().getStorageAdaptersMap();
     }
 
     public Map<String, String> getBackendStorageProperties() {
