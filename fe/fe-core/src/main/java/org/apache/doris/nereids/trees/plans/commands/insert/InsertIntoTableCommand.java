@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -81,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.LocalExchangeNode;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -308,10 +308,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 });
             }
 
-            // lock after plan and check does table's schema changed to ensure we lock table order by id.
-            TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
-            waitForAutoStartBeforeSinkFinalization(
-                    ctx, newestTargetTableIf, !insertExecutor.isEmptyInsert());
+            // Wake the compute group without holding the table lock, then resolve the table again because
+            // the wait may take a long time and the table may have been dropped and recreated meanwhile.
+            TableIf newestTargetTableIf = getTargetTableAfterAutoStart(
+                    ctx, qualifiedTargetTableName, targetTableIf, insertExecutor);
             newestTargetTableIf.readLock();
             try {
                 if (targetTableIf.getId() != newestTargetTableIf.getId()) {
@@ -357,11 +357,18 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
     }
 
-    void waitForAutoStartBeforeSinkFinalization(
-            ConnectContext ctx, TableIf targetTableIf, boolean shouldFinalizeSink) throws UserException {
-        if (shouldFinalizeSink && Config.isCloudMode() && targetTableIf instanceof OlapTable) {
-            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(ctx.getCloudCluster());
+    TableIf getTargetTableAfterAutoStart(ConnectContext ctx, List<String> qualifiedTargetTableName,
+            TableIf plannedTargetTable, AbstractInsertExecutor insertExecutor) throws UserException {
+        if (!insertExecutor.isEmptyInsert() && plannedTargetTable instanceof OlapTable) {
+            try {
+                OlapTableSink.waitForAutoStartBeforeCreatingDummyLocation(ctx);
+                return getTargetTableIf(ctx, qualifiedTargetTableName);
+            } catch (UserException | RuntimeException e) {
+                insertExecutor.onFail(e);
+                throw e;
+            }
         }
+        return getTargetTableIf(ctx, qualifiedTargetTableName);
     }
 
     /**

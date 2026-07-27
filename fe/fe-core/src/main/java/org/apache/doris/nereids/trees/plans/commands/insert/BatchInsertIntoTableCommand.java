@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
@@ -117,6 +118,8 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
 
         PhysicalOlapTableSink<?> sink;
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        OlapTableSink.waitForAutoStartBeforeCreatingDummyLocation(ctx);
+        targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         targetTableIf.readLock();
         try {
             StatementContext statementContext = ctx.getStatementContext();

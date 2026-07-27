@@ -1163,6 +1163,16 @@ public class OlapTableSink extends DataSink {
         return createLocation(tSink.getDbId(), dstTable);
     }
 
+    public static void waitForAutoStartBeforeCreatingDummyLocation(ConnectContext context) throws UserException {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        if (context == null) {
+            throw new UserException("connect context is null when waiting for compute group auto start");
+        }
+        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(context.getCloudCluster());
+    }
+
     public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
