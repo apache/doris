@@ -183,6 +183,7 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
+    private static final String MASKED_STMT_FALLBACK = "/* masked statement unavailable */";
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
@@ -757,7 +758,7 @@ public class StmtExecutor {
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", getStmtForLogging(originStmt.originStmt));
+            LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
         }
         context.setQueryId(queryId);
         context.setStartTime();
@@ -2395,8 +2396,11 @@ public class StmtExecutor {
     }
 
     private String getStmtForLogging(String stmt) {
-        if (stmt == null || !(parsedStmt instanceof LogicalPlanAdapter)) {
+        if (stmt == null) {
             return stmt;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return getStmtForLoggingBeforeParse(stmt);
         }
         // Internal export outfile tasks use an empty origin SQL, so audit masking must skip reparsing here.
         if (stmt.isEmpty()) {
@@ -2406,25 +2410,37 @@ public class StmtExecutor {
         if (!(logicalPlan instanceof NeedAuditEncryption)) {
             return stmt;
         }
-        return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+        try {
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
+        } catch (Exception e) {
+            // Logging must not leak plaintext or change command behavior when masking fails.
+            LOG.warn("failed to mask statement for FE logging", e);
+            return MASKED_STMT_FALLBACK;
+        }
     }
 
     private String getStmtForLoggingBeforeParse() {
-        if (originStmt == null || originStmt.originStmt == null) {
+        return getStmtForLoggingBeforeParse(originStmt == null ? null : originStmt.originStmt);
+    }
+
+    private String getStmtForLoggingBeforeParse(String stmt) {
+        if (stmt == null) {
             return null;
         }
         // Empty SQL cannot produce a valid parse tree for audit masking, so keep the original text.
-        if (originStmt.originStmt.isEmpty()) {
-            return originStmt.originStmt;
+        if (stmt.isEmpty()) {
+            return stmt;
         }
         try {
-            LogicalPlan logicalPlan = new NereidsParser().parseSingle(originStmt.originStmt);
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(stmt);
             if (!(logicalPlan instanceof NeedAuditEncryption)) {
-                return originStmt.originStmt;
+                return stmt;
             }
-            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(originStmt.originStmt);
+            return ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(stmt);
         } catch (Exception e) {
-            return originStmt.originStmt;
+            // Logging must fail closed before parsing so secrets never fall back to plaintext.
+            LOG.warn("failed to prepare masked statement for FE logging", e);
+            return MASKED_STMT_FALLBACK;
         }
     }
 
