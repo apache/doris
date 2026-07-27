@@ -17,8 +17,6 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-import java.util.concurrent.TimeUnit
-
 suite("test_cloud_mow_load_preserves_schema_change_lock", "docker") {
     def options = new ClusterOptions()
     options.setFeNum(1)
@@ -28,8 +26,8 @@ suite("test_cloud_mow_load_preserves_schema_change_lock", "docker") {
     options.feConfigs += [
             "delete_bitmap_lock_expiration_seconds=60",
             "enable_mow_load_force_take_ms_lock=true",
-            "mow_load_force_take_ms_lock_threshold_ms=100",
-            "meta_service_rpc_retry_times=100000",
+            "mow_load_force_take_ms_lock_threshold_ms=0",
+            "meta_service_rpc_retry_times=2",
             "enable_schema_change_retry=false"
     ]
     options.beConfigs += [
@@ -59,7 +57,7 @@ suite("test_cloud_mow_load_preserves_schema_change_lock", "docker") {
 
             GetDebugPoint().enableDebugPointForAllBEs(
                     "CloudSchemaChangeJob::_process_delete_bitmap.inject_sleep",
-                    [percent: "1.0", sleep: "20"])
+                    [percent: "1.0", sleep: "10"])
             def alterFuture = thread {
                 sql """
                     ALTER TABLE test_cloud_mow_load_preserves_schema_change_lock
@@ -67,16 +65,14 @@ suite("test_cloud_mow_load_preserves_schema_change_lock", "docker") {
                 """
             }
             // This debug point is after the schema change acquires the delete bitmap lock.
+            // The debug point runs after schema change acquires the delete bitmap lock.
             // The table has only one rowset, so three seconds is ample for reaching it.
             sleep(3000)
 
-            def loadStart = System.nanoTime()
-            sql "INSERT INTO test_cloud_mow_load_preserves_schema_change_lock VALUES (2, 20)"
-            def loadElapsedMs =
-                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - loadStart)
-            logger.info("load waited {} ms for the schema change lock", loadElapsedMs)
-            assertTrue(loadElapsedMs >= 5000,
-                    "urgent load did not wait for the active schema change lock")
+            test {
+                sql "INSERT INTO test_cloud_mow_load_preserves_schema_change_lock VALUES (2, 20)"
+                exception "Failed to get delete bitmap lock due to conflict"
+            }
 
             alterFuture.get()
             waitForSchemaChangeDone {
