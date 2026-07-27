@@ -4936,8 +4936,8 @@ void check_delete_bitmap_lock_id(MetaServiceProxy* meta_service, int64_t table_i
     EXPECT_EQ(lock_info.lock_id(), expected_lock_id);
 }
 
-void check_mow_tablet_job(MetaServiceProxy* meta_service, int64_t table_id, int64_t initiator,
-                          bool expected_exists) {
+void check_mow_tablet_job_key(MetaServiceProxy* meta_service, int64_t table_id, int64_t initiator,
+                              bool expected_exists) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::string job_key = mow_tablet_job_key({"test_instance", table_id, initiator});
@@ -5276,7 +5276,7 @@ void testUrgentLoadDeleteBitmapLock(int lock_version) {
     ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
     check_delete_bitmap_lock_id(meta_service.get(), table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     if (lock_version == 2) {
-        check_mow_tablet_job(meta_service.get(), table_id, 100, true);
+        check_mow_tablet_job_key(meta_service.get(), table_id, 100, true);
     }
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
@@ -5286,7 +5286,7 @@ void testUrgentLoadDeleteBitmapLock(int lock_version) {
     ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
     check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
     if (lock_version == 2) {
-        check_mow_tablet_job(meta_service.get(), table_id, 101, false);
+        check_mow_tablet_job_key(meta_service.get(), table_id, 101, false);
     }
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
@@ -5295,7 +5295,7 @@ void testUrgentLoadDeleteBitmapLock(int lock_version) {
     ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
     check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
     if (lock_version == 2) {
-        check_mow_tablet_job(meta_service.get(), table_id, 102, false);
+        check_mow_tablet_job_key(meta_service.get(), table_id, 102, false);
     }
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
