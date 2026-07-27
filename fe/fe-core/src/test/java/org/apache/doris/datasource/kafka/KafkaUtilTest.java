@@ -20,7 +20,10 @@ package org.apache.doris.datasource.kafka;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,7 +32,10 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 public class KafkaUtilTest {
     @Test
@@ -56,5 +62,79 @@ public class KafkaUtilTest {
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testGetAvailableBackendIdsForMetaRequestKeepsBlacklistFallbackInComputeGroup() {
+        long routineLoadBackendId = 10001L;
+        long otherComputeGroupBackendId = 10002L;
+        Backend routineLoadBackend = mockAvailableBackend();
+        Backend otherComputeGroupBackend = mockAvailableBackend();
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getBackend(routineLoadBackendId)).thenReturn(routineLoadBackend);
+        Mockito.when(systemInfoService.getBackend(otherComputeGroupBackendId)).thenReturn(otherComputeGroupBackend);
+
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Mockito.when(routineLoadManager.isInBlacklist(routineLoadBackendId)).thenReturn(true);
+        Map<Long, Long> blacklist = new HashMap<>();
+        blacklist.put(routineLoadBackendId, 1L);
+        blacklist.put(otherComputeGroupBackendId, 1L);
+        Mockito.when(routineLoadManager.getBlacklist()).thenReturn(blacklist);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            List<Long> backendIds = KafkaUtil.getAvailableBackendIdsForMetaRequest(
+                    Collections.singletonList(routineLoadBackendId), new HashSet<>());
+
+            Assert.assertEquals(Collections.singletonList(routineLoadBackendId), backendIds);
+            Mockito.verify(systemInfoService).getBackend(otherComputeGroupBackendId);
+        }
+    }
+
+    @Test
+    public void testGetBackendIdsForMetaRequestRejectsEmptyCloudComputeGroup() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.cloud_unique_id = "test-cloud";
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+
+            LoadException exception = Assert.assertThrows(
+                    LoadException.class, () -> KafkaUtil.getBackendIdsForMetaRequest(""));
+
+            Assert.assertEquals("compute group is empty when getting kafka meta", exception.getMessage());
+            Mockito.verify(systemInfoService, Mockito.never()).getBackendsByClusterName(Mockito.anyString());
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testGetBackendIdsForMetaRequestPreservesNonCloudSelection() throws Exception {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        List<Long> allBackendIds = Arrays.asList(10001L, 10002L);
+        Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(allBackendIds);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Config.cloud_unique_id = "";
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+
+            Assert.assertEquals(allBackendIds, KafkaUtil.getBackendIdsForMetaRequest(null));
+            Mockito.verify(systemInfoService).getAllBackendIds(true);
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    private Backend mockAvailableBackend() {
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.isLoadAvailable()).thenReturn(true);
+        return backend;
     }
 }

@@ -243,37 +243,8 @@ public class KafkaUtil {
 
         try {
             while (retryTimes < 3) {
-                List<Long> backendIds = new ArrayList<>();
                 List<Long> candidateBackendIds = getBackendIdsForMetaRequest(cloudCluster);
-                for (Long beId : candidateBackendIds) {
-                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (isBackendAvailableForMetaRequest(backend)
-                            && !failedBeIds.contains(beId)
-                            && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
-                        backendIds.add(beId);
-                    }
-                }
-                // If there are no available backends, utilize the blacklist.
-                // Special scenarios include:
-                // 1. A specific job that connects to Kafka may time out for topic config or network error,
-                //    leaving only one backend operational.
-                // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
-                // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
-                if (backendIds.isEmpty()) {
-                    Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
-                    for (Long beId : new ArrayList<>(blacklist.keySet())) {
-                        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                        if (candidateBackendIds.contains(beId)
-                                && isBackendAvailableForMetaRequest(backend)
-                                && !failedBeIds.contains(beId)) {
-                            backendIds.add(beId);
-                        } else if (backend == null) {
-                            blacklist.remove(beId);
-                            LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta",
-                                    beId);
-                        }
-                    }
-                }
+                List<Long> backendIds = getAvailableBackendIdsForMetaRequest(candidateBackendIds, failedBeIds);
                 if (backendIds.isEmpty()) {
                     MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
                     if (failedBeIds.isEmpty()) {
@@ -338,6 +309,40 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
+    }
+
+    static List<Long> getAvailableBackendIdsForMetaRequest(
+            List<Long> candidateBackendIds, Set<Long> failedBeIds) {
+        List<Long> backendIds = new ArrayList<>();
+        for (Long beId : candidateBackendIds) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+            if (isBackendAvailableForMetaRequest(backend)
+                    && !failedBeIds.contains(beId)
+                    && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
+                backendIds.add(beId);
+            }
+        }
+        // If there are no available backends, utilize the blacklist.
+        // Special scenarios include:
+        // 1. A specific job that connects to Kafka may time out for topic config or network error,
+        //    leaving only one backend operational.
+        // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
+        // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
+        if (backendIds.isEmpty()) {
+            Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
+            for (Long beId : new ArrayList<>(blacklist.keySet())) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                if (candidateBackendIds.contains(beId)
+                        && isBackendAvailableForMetaRequest(backend)
+                        && !failedBeIds.contains(beId)) {
+                    backendIds.add(beId);
+                } else if (backend == null) {
+                    blacklist.remove(beId);
+                    LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta", beId);
+                }
+            }
+        }
+        return backendIds;
     }
 
     static List<Long> getBackendIdsForMetaRequest(String cloudCluster) throws LoadException {
