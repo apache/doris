@@ -46,15 +46,31 @@ public class AlterUserInfo {
     private PasswordOptions passwordOptions;
     private String comment;
     private TlsOptions tlsOptions;
+    // MySQL-compatible dual password clauses on ALTER USER
+    private boolean retainCurrentPassword;
+    private boolean discardOldPassword;
     private Set<AlterUserOpType> ops = Sets.newHashSet();
 
     public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment,
             TlsOptions tlsOptions) {
+        this(ifExist, userDesc, passwordOptions, comment, tlsOptions, false, false);
+    }
+
+    /**
+     * Full constructor carrying the MySQL-compatible dual password clauses:
+     * retainCurrentPassword = "RETAIN CURRENT PASSWORD" (keep the previous
+     * primary password valid as the secondary password), discardOldPassword =
+     * "DISCARD OLD PASSWORD" (drop the retained secondary password).
+     */
+    public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment,
+            TlsOptions tlsOptions, boolean retainCurrentPassword, boolean discardOldPassword) {
         this.ifExist = ifExist;
         this.userDesc = userDesc;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
         this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
+        this.retainCurrentPassword = retainCurrentPassword;
+        this.discardOldPassword = discardOldPassword;
     }
 
     public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment) {
@@ -93,6 +109,14 @@ public class AlterUserInfo {
         return tlsOptions;
     }
 
+    public boolean isRetainCurrentPassword() {
+        return retainCurrentPassword;
+    }
+
+    public boolean isDiscardOldPassword() {
+        return discardOldPassword;
+    }
+
     /**
      * validate
      */
@@ -102,6 +126,21 @@ public class AlterUserInfo {
 
         if (userDesc.hasPassword()) {
             ops.add(AlterUserOpType.SET_PASSWORD);
+        }
+
+        // MySQL-compatible dual password clauses. RETAIN CURRENT PASSWORD is
+        // only meaningful on a password change (MySQL's grammar cannot even
+        // express it without one); DISCARD OLD PASSWORD is a standalone
+        // operation (combining it with a password change is rejected by the
+        // one-operation rule below, matching MySQL). An empty NEW password
+        // with RETAIN is NOT an error — it empties the secondary as well
+        // (MySQL semantics, applied in UserManager.setPassword).
+        if (retainCurrentPassword && !userDesc.hasPassword()) {
+            throw new AnalysisException(
+                    "RETAIN CURRENT PASSWORD requires a password change (IDENTIFIED BY)");
+        }
+        if (discardOldPassword) {
+            ops.add(AlterUserOpType.DISCARD_OLD_PASSWORD);
         }
 
         // may be set comment to "", so not use `Strings.isNullOrEmpty`

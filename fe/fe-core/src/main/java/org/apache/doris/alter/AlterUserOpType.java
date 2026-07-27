@@ -25,5 +25,11 @@ public enum AlterUserOpType {
     LOCK_ACCOUNT,
     UNLOCK_ACCOUNT,
     MODIFY_COMMENT,
-    SET_TLS_REQUIRE
+    SET_TLS_REQUIRE,
+    // MySQL-compatible "DISCARD OLD PASSWORD": evict the retained secondary
+    // password. NB: NEVER journaled via OP_ALTER_USER — a pre-feature binary
+    // would fail replay on the unknown enum value. It rides OP_SET_PASSWORD
+    // instead (PrivInfo.discardPasswd; see Auth.discardOldPasswordInternal),
+    // which older binaries replay as a harmless same-password set.
+    DISCARD_OLD_PASSWORD
 }
