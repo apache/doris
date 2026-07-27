@@ -65,9 +65,11 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 );
             """
 
-            def injection = "RoutineLoadTaskInfo.judgeEof"
+            def eofInjection = "RoutineLoadTaskInfo.judgeEof"
+            def adaptiveBatchInjection = "KafkaTaskInfo.shouldUseAdaptiveBatch"
             try {
-                GetDebugPoint().enableDebugPointForAllFEs(injection)
+                GetDebugPoint().enableDebugPointForAllFEs(eofInjection)
+                GetDebugPoint().enableDebugPointForAllFEs(adaptiveBatchInjection)
 
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
@@ -82,7 +84,8 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, producer, kafkaCsvTpoics, job, "3600000")
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
             } finally {
-                GetDebugPoint().disableDebugPointForAllFEs(injection)
+                GetDebugPoint().disableDebugPointForAllFEs(adaptiveBatchInjection)
+                GetDebugPoint().disableDebugPointForAllFEs(eofInjection)
             }
 
             logger.info("---test restore adaptively---")

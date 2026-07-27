@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -39,6 +40,7 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.gson.Gson;
@@ -56,9 +58,15 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
 
     private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
+    private static final long ADAPTIVE_BATCH_BYTES_THRESHOLD = 1024L * 1024 * 1024;
 
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
+
+    private long previousTaskBytes;
+    private long previousTaskExecutionTimeMs;
+    private int adaptiveMinBatchIntervalSnapshotS;
+    private boolean adaptiveMinBatchIntervalCaptured;
 
     public KafkaTaskInfo(UUID id, long jobId,
                          long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable,
@@ -72,10 +80,21 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                 kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable,
                 kafkaTaskInfo.getLastScheduledTime(), kafkaTaskInfo.getIsEof());
         this.partitionIdToOffset = partitionIdToOffset;
+        if (kafkaTaskInfo.canReuseAdaptiveBatchSample()) {
+            this.previousTaskBytes = kafkaTaskInfo.previousTaskBytes;
+            this.previousTaskExecutionTimeMs = kafkaTaskInfo.previousTaskExecutionTimeMs;
+        }
     }
 
     public List<Integer> getPartitions() {
         return new ArrayList<>(partitionIdToOffset.keySet());
+    }
+
+    @Override
+    public void handleTaskByTxnCommitAttachment(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        super.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
+        previousTaskBytes = rlTaskTxnCommitAttachment.getReceivedBytes();
+        previousTaskExecutionTimeMs = rlTaskTxnCommitAttachment.getTaskExecutionTimeMs();
     }
 
     @Override
@@ -126,9 +145,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     @Override
     public void updateAdaptiveTimeout(RoutineLoadJob routineLoadJob) {
-        if (!isEof) {
+        adaptiveMinBatchIntervalSnapshotS = Config.routine_load_adaptive_min_batch_interval_sec;
+        adaptiveMinBatchIntervalCaptured = true;
+        if (shouldUseAdaptiveBatch(routineLoadJob)) {
             long maxBatchIntervalS = Math.max(routineLoadJob.getMaxBatchIntervalS(),
-                    Config.routine_load_adaptive_min_batch_interval_sec);
+                    adaptiveMinBatchIntervalSnapshotS);
             long timeoutSec = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier;
             long realTimeoutSec = Math.max(timeoutSec, Config.routine_load_task_min_timeout_sec);
             this.timeoutMs = realTimeoutSec * 1000;
@@ -141,14 +162,43 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         long maxBatchIntervalS = routineLoadJob.getMaxBatchIntervalS();
         long maxBatchRows = routineLoadJob.getMaxBatchRows();
         long maxBatchSize = routineLoadJob.getMaxBatchSizeBytes();
-        if (!isEof) {
-            maxBatchIntervalS = Math.max(maxBatchIntervalS, Config.routine_load_adaptive_min_batch_interval_sec);
+        if (shouldUseAdaptiveBatch(routineLoadJob)) {
+            maxBatchIntervalS = Math.max(maxBatchIntervalS, adaptiveMinBatchIntervalSnapshotS);
             maxBatchRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
             maxBatchSize = Math.max(maxBatchSize, RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE);
         }
         tRoutineLoadTask.setMaxIntervalS(maxBatchIntervalS);
         tRoutineLoadTask.setMaxBatchRows(maxBatchRows);
         tRoutineLoadTask.setMaxBatchSize(maxBatchSize);
+    }
+
+    private boolean shouldUseAdaptiveBatch(RoutineLoadJob routineLoadJob) {
+        if (!adaptiveMinBatchIntervalCaptured) {
+            throw new IllegalStateException(
+                    "adaptive batch interval must be captured before beginning the transaction");
+        }
+        if (isEof) {
+            return false;
+        }
+        if (DebugPointUtil.isEnable("KafkaTaskInfo.shouldUseAdaptiveBatch")) {
+            return true;
+        }
+        if (previousTaskExecutionTimeMs <= 0) {
+            return false;
+        }
+        long adaptiveBatchIntervalMs = Math.max(routineLoadJob.getMaxBatchIntervalS(),
+                adaptiveMinBatchIntervalSnapshotS) * 1000L;
+        // Estimate the data volume in an adaptive interval from the previous task throughput.
+        return reachesAdaptiveBytesThreshold(adaptiveBatchIntervalMs);
+    }
+
+    private boolean reachesAdaptiveBytesThreshold(long adaptiveBatchIntervalMs) {
+        return (double) previousTaskBytes * adaptiveBatchIntervalMs
+                >= (double) ADAPTIVE_BATCH_BYTES_THRESHOLD * previousTaskExecutionTimeMs;
+    }
+
+    private boolean canReuseAdaptiveBatchSample() {
+        return !isRunning() || txnStatus == TransactionStatus.COMMITTED || txnStatus == TransactionStatus.VISIBLE;
     }
 
     @Override
