@@ -608,7 +608,11 @@ jobs:
                       (.submitted_at // "") >= $started_at
                       and (.commit_id // "") == $head_sha
                       and (.user.login // "") == "github-actions[bot]"
-                      and ((.state // "") == "COMMENTED" or (.state // "") == "CHANGES_REQUESTED")
+                      and (
+                        (.state // "") == "COMMENTED"
+                        or (.state // "") == "CHANGES_REQUESTED"
+                        or (.state // "") == "DISMISSED"
+                      )
                       and ((.body // "") | startswith("[Automated review final]"))
                     ))
                   | sort_by(.submitted_at)
@@ -765,7 +769,7 @@ jobs:
             if [ -z "$failure_reason" ] && [ "$shadow_verified" = "true" ]; then
               final_state="$(jq -r '.state' <<<"$final_review_json")"
               final_label="no_blocker"
-              if [ "$final_state" = "CHANGES_REQUESTED" ]; then
+              if [ "$final_state" = "CHANGES_REQUESTED" ] || [ "$final_state" = "DISMISSED" ]; then
                 final_label="blocker"
               fi
 
