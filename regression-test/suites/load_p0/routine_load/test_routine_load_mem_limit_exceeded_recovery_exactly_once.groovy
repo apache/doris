@@ -97,28 +97,25 @@ suite("test_routine_load_mem_limit_exceeded_recovery_exactly_once", "docker") {
 
             // 等待一段时间让任务提交失败
             def waitCount = 0
-            def sawFailure = false
+            def sawPaused = false
             while (waitCount < 30) {
                 sleep(1000)
                 def state = sql "show routine load for ${job}"
                 def routineLoadState = state[0][8].toString()
                 def statistic = state[0][14].toString()
-                def otherMsg = state[0][19].toString()
-                logger.info("State: ${routineLoadState}, stats: ${statistic}, msg: ${otherMsg}")
+                def reason = state[0][17].toString()
+                logger.info("State: ${routineLoadState}, stats: ${statistic}, reason: ${reason}")
 
-                // 解析 JSON 检查 abortedTaskNum 是否 > 0，这才是真实失败信号
-                // statistic.contains("abortedTaskNum") 始终为 true，不能作为判断依据
-                def statJson = new groovy.json.JsonSlurper().parseText(statistic)
-                long abortedCount = statJson.abortedTaskNum as long
-                if (abortedCount > 0 || otherMsg.contains("MEM_LIMIT_EXCEEDED")) {
-                    sawFailure = true
-                    logger.info("Detected MEM_LIMIT_EXCEEDED failure: abortedTaskNum=${abortedCount}, msg=${otherMsg}")
+                if (routineLoadState == "PAUSED"
+                        && reason.contains("CREATE_TASKS_ERR")
+                        && reason.contains("MEM_LIMIT_EXCEEDED")) {
+                    sawPaused = true
+                    logger.info("Job paused after MEM_LIMIT_EXCEEDED submission failure: ${reason}")
                     break
                 }
                 waitCount++
             }
-            // 断言确实观察到了 debug point 生效引起的失败，防止 debug point 未命中时 case 悄悄通过
-            Assert.assertTrue("应观察到 MEM_LIMIT_EXCEEDED 失败（abortedTaskNum>0 或 otherMsg 含相关信息）", sawFailure)
+            Assert.assertTrue("Routine load job should pause with a visible MEM_LIMIT_EXCEEDED reason", sawPaused)
 
             // 检查失败阶段数据状态：应该没有完整消费
             def failPhaseCount = sql "select count(*) from ${tableName}"

@@ -91,25 +91,25 @@ suite("test_routine_load_too_many_tasks_recovery_exactly_once", "docker") {
             """
 
             def waitCount = 0
-            def sawFailure = false
+            def sawPaused = false
             while (waitCount < 30) {
                 sleep(1000)
                 def state = sql "show routine load for ${job}"
                 def routineLoadState = state[0][8].toString()
                 def statistic = state[0][14].toString()
-                def otherMsg = state[0][19].toString()
-                logger.info("State: ${routineLoadState}, stats: ${statistic}, msg: ${otherMsg}")
+                def reason = state[0][17].toString()
+                logger.info("State: ${routineLoadState}, stats: ${statistic}, reason: ${reason}")
 
-                def statJson = new groovy.json.JsonSlurper().parseText(statistic)
-                long abortedCount = statJson.abortedTaskNum as long
-                if (abortedCount > 0 || otherMsg.contains("TOO_MANY_TASKS")) {
-                    sawFailure = true
-                    logger.info("Detected TOO_MANY_TASKS failure: abortedTaskNum=${abortedCount}, msg=${otherMsg}")
+                if (routineLoadState == "PAUSED"
+                        && reason.contains("CREATE_TASKS_ERR")
+                        && reason.contains("TOO_MANY_TASKS")) {
+                    sawPaused = true
+                    logger.info("Job paused after TOO_MANY_TASKS submission failure: ${reason}")
                     break
                 }
                 waitCount++
             }
-            Assert.assertTrue("应观察到 TOO_MANY_TASKS 失败（abortedTaskNum>0 或 otherMsg 含相关信息）", sawFailure)
+            Assert.assertTrue("Routine load job should pause with a visible TOO_MANY_TASKS reason", sawPaused)
 
             def failPhaseCount = sql "select count(*) from ${tableName}"
             logger.info("Row count during failure phase: ${failPhaseCount[0][0]}")
