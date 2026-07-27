@@ -51,7 +51,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -83,10 +86,12 @@ import java.util.stream.Stream;
  *         ->T2(D)
  */
 public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
-    public static final int BIG_JOIN_BUILD_SIZE = 400_000;
+    public static final int BIG_JOIN_BUILD_SIZE = 1_000_000;
     private static final double LOWER_AGGREGATE_EFFECT_COEFFICIENT = 10000;
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
+    private static final double HIGH_AGGREGATE_EFFECT_COEFFICIENT = 10;
+    private static final double SMALL_BROADCAST_REJECT_COEFFICIENT = 1000;
     private static final String JOIN_CNT = "joinCnt";
     private final StatsDerive derive = new StatsDerive(false);
 
@@ -103,6 +108,15 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 return genAggregate(join, context);
             } else {
                 return join;
+            }
+        }
+        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+        boolean isSmallBroadcastBottomJoin = isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join);
+        if (context.isPassThroughJoinOrUnion() && connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
+                && isSmallBroadcastBottomJoin && !outputStringType(join.right())) {
+            Plan aggOnJoin = genAggregate(join, context);
+            if (aggOnJoin != join) {
+                return aggOnJoin;
             }
         }
 
@@ -144,15 +158,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
 
-        boolean passThroughBigJoin = isPassThroughBigJoin(join, context);
         boolean leftNeedOutputCount = needOutputCountForJoinChild(join, toLeft, toRight,
                 context.needOutputCount(), rightFuncs);
         boolean rightNeedOutputCount = needOutputCountForJoinChild(join, toRight, toLeft,
                 context.needOutputCount(), leftFuncs);
         Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.ofNullable(context.forOneBranch(leftFuncs,
-                leftAliasMap, leftChildGroupByKeys, passThroughBigJoin, leftNeedOutputCount)) : Optional.empty();
+                leftAliasMap, leftChildGroupByKeys, isPassThroughHeavyJoin(join.right(), context),
+                leftNeedOutputCount, isSmallBroadcastBottomJoin)) : Optional.empty();
         Optional<PushDownAggContext> rightChildContext = toRight ? Optional.ofNullable(context.forOneBranch(rightFuncs,
-                rightAliasMap, rightChildGroupByKeys, passThroughBigJoin, rightNeedOutputCount)) : Optional.empty();
+                rightAliasMap, rightChildGroupByKeys, isPassThroughHeavyJoin(join.left(), context),
+                rightNeedOutputCount, false)) : Optional.empty();
 
         Plan newLeft = join.left();
         Plan newRight = join.right();
@@ -177,6 +192,22 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     leftChildCountSlot, rightChildCountSlot);
         }
         return newJoin;
+    }
+
+    private boolean isPassThroughHeavyJoin(Plan joinChild, PushDownAggContext context) {
+        if (context.isPassThroughBigJoin() || SessionVariable.getEagerAggregationMode() > 0) {
+            return true;
+        } else {
+            Statistics stats = joinChild.getStats();
+            if (stats == null) {
+                stats = joinChild.accept(derive, new StatsDerive.DeriveContext());
+            }
+            return stats.getRowCount() > BIG_JOIN_BUILD_SIZE || outputStringType(joinChild);
+        }
+    }
+
+    private boolean outputStringType(Plan plan) {
+        return plan.getOutput().stream().anyMatch(slot -> slot.getDataType() instanceof CharacterType);
     }
 
     private Pair<Boolean, Boolean> decideJoinPushSide(
@@ -309,17 +340,25 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return Pair.of(toLeft, toRight);
     }
 
-    private boolean isPassThroughBigJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            PushDownAggContext context) {
-        if (context.isPassThroughBigJoin()) {
-            return true;
-        } else {
-            Statistics stats = join.right().getStats();
-            if (stats == null) {
-                stats = join.right().accept(derive, new StatsDerive.DeriveContext());
-            }
-            return stats.getRowCount() > BIG_JOIN_BUILD_SIZE || SessionVariable.getEagerAggregationMode() > 0;
+    private boolean isSmallBroadcastJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            ConnectContext context) {
+        if (!JoinUtils.couldBroadcast(join)) {
+            return false;
         }
+        SessionVariable sessionVariable = context.getSessionVariable();
+        Statistics stats = join.right().getStats();
+        if (stats == null) {
+            stats = join.right().accept(derive, new StatsDerive.DeriveContext());
+        }
+        return stats.getRowCount() <= sessionVariable.getBroadcastRowCountLimit()
+                && stats.getRowCount() <= sessionVariable.eagerAggBroadcastRowCount;
+    }
+
+    private boolean isBottomJoin(LogicalJoin<? extends Plan, ? extends Plan> join) {
+        return join.children().stream().allMatch(plan ->
+                plan.allMatch(node ->
+                        node instanceof LogicalFilter<?> || node instanceof LogicalProject<?>
+                                || node instanceof LogicalRelation));
     }
 
     private void fillGroupByKeys(LogicalJoin<? extends Plan, ? extends Plan> join, Plan child,
@@ -400,7 +439,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughBigJoin(),
                 context.hasDecomposedAggIf, newContainsNullToNonNull,
-                context.getBilateralState(), context.needOutputCount());
+                context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion(),
+                context.isSmallBroadcastBottomJoin());
         return newContext;
     }
 
@@ -531,7 +571,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
                     context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.containsNullToNonNull,
-                    context.getBilateralState(), context.needOutputCount());
+                    context.getBilateralState(), context.needOutputCount(), true, false);
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
@@ -1277,8 +1317,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         List<ColumnStatistic> lower = Lists.newArrayList();
         List<ColumnStatistic> medium = Lists.newArrayList();
         List<ColumnStatistic> high = Lists.newArrayList();
+        List<ColumnStatistic> extremelyHigh = Lists.newArrayList();
 
-        List<ColumnStatistic>[] cards = new List[] { lower, medium, high };
+        List<ColumnStatistic>[] cards = new List[] { lower, medium, high, extremelyHigh };
 
         for (NamedExpression key : context.getGroupKeys()) {
             ColumnStatistic colStats = ExpressionEstimation.INSTANCE.estimate(key, stats);
@@ -1290,6 +1331,21 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
             groupKeysStats.add(colStats);
             cards[groupByCardinality(colStats, stats.getRowCount())].add(colStats);
+        }
+
+        if (!extremelyHigh.isEmpty() && context.getGroupKeys().size() > 1) {
+            return false;
+        }
+
+        if (context.isSmallBroadcastBottomJoin()) {
+            for (ColumnStatistic colStats : groupKeysStats) {
+                if (colStats.isUnKnown) {
+                    return false;
+                }
+                if (colStats.ndv * SMALL_BROADCAST_REJECT_COEFFICIENT > stats.getRowCount()) {
+                    return false;
+                }
+            }
         }
 
         double lowerCartesian = 1.0;
@@ -1335,7 +1391,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     // < LOW_AGGREGATE_EFFECT_COEFFICIENT
     // lower(0): row_count / cardinality >= LOW_AGGREGATE_EFFECT_COEFFICIENT
     private int groupByCardinality(ColumnStatistic colStats, double rowCount) {
-        if (rowCount == 0 || colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
+        if (rowCount == 0 || colStats.ndv * HIGH_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
+            return 3;
+        } else if (colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
             return 2;
         } else if (colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT <= rowCount
                 && colStats.ndv * LOW_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {

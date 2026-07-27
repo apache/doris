@@ -64,6 +64,8 @@ public class PushDownAggContext {
     private final boolean passThroughBigJoin;
 
     private final boolean needOutputCount;
+    private final boolean isPassThroughJoinOrUnion;
+    private final boolean isSmallBroadCastBottomJoin;
 
     // Bilateral push-down plumbing.
     //   - bilateralState: global, shared by every context in the rewrite invocation.
@@ -74,7 +76,7 @@ public class PushDownAggContext {
             boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean containsNullToNonNull,
             BilateralState bilateralState) {
         this(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin,
-                hasDecomposedAggIf, containsNullToNonNull, bilateralState, false);
+                hasDecomposedAggIf, containsNullToNonNull, bilateralState, false, false, false);
     }
 
     /**
@@ -83,7 +85,8 @@ public class PushDownAggContext {
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
             boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean containsNullToNonNull,
-            BilateralState bilateralState, boolean needOutputCount) {
+            BilateralState bilateralState, boolean needOutputCount, boolean isPassThroughJoinOrUnion,
+            boolean isSmallBroadCastBottomJoin) {
         this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
@@ -119,7 +122,16 @@ public class PushDownAggContext {
             Optional<Action> hintAction = EagerAggHints.decide(aggFunction);
             hintAction.ifPresent(action -> bilateralState.putAction(id, action));
         }
+        this.isPassThroughJoinOrUnion = isPassThroughJoinOrUnion;
+        this.isSmallBroadCastBottomJoin = isSmallBroadCastBottomJoin;
+    }
 
+    public boolean isSmallBroadcastBottomJoin() {
+        return isSmallBroadCastBottomJoin;
+    }
+
+    public boolean isPassThroughJoinOrUnion() {
+        return isPassThroughJoinOrUnion;
     }
 
     public boolean aggFuncAndGroupKeyAllEmpty() {
@@ -149,7 +161,7 @@ public class PushDownAggContext {
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 cascadesContext, passThroughBigJoin, hasDecomposedAggIf, containsNullToNonNull,
-                bilateralState, needOutputCount);
+                bilateralState, needOutputCount, isPassThroughJoinOrUnion, isSmallBroadCastBottomJoin);
     }
 
     /**
@@ -157,13 +169,13 @@ public class PushDownAggContext {
      */
     public PushDownAggContext forOneBranch(List<AggregateFunction> branchAggFunctions,
             Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys,
-            boolean passThroughBigJoin, boolean needOutputCount) {
+            boolean passThroughBigJoin, boolean needOutputCount, boolean isSmallBroadcastBottomJoin) {
         if (branchAggFunctions.isEmpty() && groupKeys.isEmpty()) {
             return null;
         }
         return new PushDownAggContext(branchAggFunctions, groupKeys, branchAliasMap,
                 cascadesContext, passThroughBigJoin, hasDecomposedAggIf, containsNullToNonNull,
-                bilateralState, needOutputCount);
+                bilateralState, needOutputCount, true, isSmallBroadcastBottomJoin);
     }
 
     public BilateralState getBilateralState() {
