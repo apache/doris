@@ -213,6 +213,12 @@ public class HiveConnectorMetadataDdlTest {
     @Test
     public void createTableListPartitionThreadsPartitionKeys() {
         RecordingHmsClient client = new RecordingHmsClient();
+        // Partitioning on two columns needs both declared, and hive requires the partition columns at the end of
+        // the schema in spec order -- the default fixture only carries id + dt.
+        List<ConnectorColumn> cols = Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "id", true, null),
+                new ConnectorColumn("dt", ConnectorType.of("STRING"), null, true, null),
+                new ConnectorColumn("region", ConnectorType.of("STRING"), null, true, null));
         ConnectorPartitionSpec list = new ConnectorPartitionSpec(
                 ConnectorPartitionSpec.Style.LIST,
                 Arrays.asList(
@@ -221,7 +227,7 @@ public class HiveConnectorMetadataDdlTest {
         // WHY: the LIST partition columns become the metastore partition keys (order preserved). MUTATION:
         // dropping the field-name threading yields a non-partitioned table.
         metadata(client, Collections.emptyMap(), Collections.emptyMap())
-                .createTable(session(), request().partitionSpec(list).build());
+                .createTable(session(), request().columns(cols).partitionSpec(list).build());
         Assertions.assertEquals(Arrays.asList("dt", "region"),
                 client.lastCreateTable.getPartitionKeys());
     }
@@ -230,7 +236,7 @@ public class HiveConnectorMetadataDdlTest {
     public void createTableAllowsColumnDefaultsOnNonDlfCatalog() {
         RecordingHmsClient client = new RecordingHmsClient();
         List<ConnectorColumn> cols = Arrays.asList(
-                new ConnectorColumn("id", ConnectorType.of("INT"), null, false, null),
+                new ConnectorColumn("id", ConnectorType.of("INT"), null, true, null),
                 new ConnectorColumn("v", ConnectorType.of("INT"), null, true, "5"));
         // WHY: a plain HMS catalog keeps column defaults; the guard must only fire for DLF. MUTATION: an
         // unconditional guard would wrongly reject this.
@@ -362,9 +368,15 @@ public class HiveConnectorMetadataDdlTest {
         return new HiveConnectorMetadata(client, catalogProps, new FakeConnectorContext(env));
     }
 
+    /**
+     * Columns are nullable: hive rejects a {@code NOT NULL} column up front (validateColumns runs before every
+     * other createTable check), so a NOT NULL fixture column would short-circuit every test in this class before
+     * it reaches the behaviour it actually pins. The NOT NULL rule itself is covered by
+     * {@code HiveCreateTableValidationTest#notNullColumnIsRejected}.
+     */
     private static ConnectorCreateTableRequest.Builder request() {
         List<ConnectorColumn> cols = Arrays.asList(
-                new ConnectorColumn("id", ConnectorType.of("INT"), "id", false, null),
+                new ConnectorColumn("id", ConnectorType.of("INT"), "id", true, null),
                 new ConnectorColumn("dt", ConnectorType.of("STRING"), null, true, null));
         return ConnectorCreateTableRequest.builder()
                 .dbName("db1")
