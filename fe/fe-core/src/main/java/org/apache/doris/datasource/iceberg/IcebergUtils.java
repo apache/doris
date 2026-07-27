@@ -1125,9 +1125,6 @@ public class IcebergUtils {
     private static void updateIcebergColumnMetadata(Column column, Types.NestedField icebergField,
             boolean enableMappingTimestampTz) {
         column.setUniqueId(icebergField.fieldId());
-        // Iceberg requiredness is a write invariant, including for complex children that Doris
-        // initially constructs as nullable without the nested Iceberg field metadata.
-        column.setIsAllowNull(icebergField.isOptional());
         if (icebergField.initialDefault() != null) {
             String serializedDefault = serializeInitialDefault(
                     icebergField.type(), icebergField.initialDefault(), enableMappingTimestampTz);
@@ -1212,7 +1209,7 @@ public class IcebergUtils {
             }
             Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
-                    true, null, field.isOptional(), initialDefault, field.doc(), true, -1);
+                    true, null, true, initialDefault, field.doc(), true, -1);
             updateIcebergColumnMetadata(column, field, enableMappingTimestampTz);
             if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
                 Types.TimestampType timestampType = (Types.TimestampType) field.type();
