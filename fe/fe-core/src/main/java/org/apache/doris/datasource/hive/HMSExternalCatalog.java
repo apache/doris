@@ -145,7 +145,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 true,
                 executionAuthenticator);
         SpiSwitchingFileSystem spiFileSystem =
-                new SpiSwitchingFileSystem(this.catalogProperty.getStoragePropertiesMap());
+                new SpiSwitchingFileSystem(this.catalogProperty.getStorageAdaptersMap());
         this.spiFileSystem = spiFileSystem;
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);

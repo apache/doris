@@ -550,7 +550,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @VisibleForTesting
     protected FileSystem createCleanupFileSystem() {
-        return new SpiSwitchingFileSystem(dorisCatalog.getCatalogProperty().getStoragePropertiesMap());
+        return new SpiSwitchingFileSystem(dorisCatalog.getCatalogProperty().getStorageAdaptersMap());
     }
 
     @VisibleForTesting

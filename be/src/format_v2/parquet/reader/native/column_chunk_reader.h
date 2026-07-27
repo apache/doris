@@ -30,6 +30,7 @@
 
 #include "common/status.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/vexpr_fwd.h"
@@ -204,6 +205,13 @@ public:
                                      IColumn::Filter* row_filter, bool* used_filter);
     bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id) const;
 
+    Status filter_dictionary_indices(const IColumn::Filter& dictionary_filter,
+                                     ColumnSelectVector& select_vector,
+                                     const IColumn* typed_dictionary, IColumn* projected_values,
+                                     ColumnInt32* matched_dictionary_ids,
+                                     IColumn::Filter* row_filter, bool* projected_directly,
+                                     bool* used_filter);
+
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
     // Get the definition level decoder of current page.
@@ -212,7 +220,7 @@ public:
     level_t max_rep_level() const { return _max_rep_level; }
     level_t max_def_level() const { return _max_def_level; }
 
-    bool has_dict() const { return _has_dict; };
+    Status load_dictionary_page(bool* has_dict);
 
     // Get page decoder
     Decoder* get_page_decoder() { return _page_decoder; }
@@ -224,6 +232,9 @@ public:
         // Level decoders may batch-convert unsigned RLE values into Doris' signed level_t.
         _rep_level_decoder.release_scratch(max_retained_bytes);
         _def_level_decoder.release_scratch(max_retained_bytes);
+        if (_selected_dictionary_indices.capacity() * sizeof(uint32_t) > max_retained_bytes) {
+            std::vector<uint32_t>().swap(_selected_dictionary_indices);
+        }
         if (_decompress_buf_size > max_retained_bytes) {
             if (_page_uses_decompress_buf) {
                 // Keep the request until the page boundary because decoders still point into this
@@ -246,7 +257,7 @@ public:
         for (const auto& [encoding, decoder] : _decoders) {
             bytes += decoder->retained_scratch_bytes();
         }
-        return bytes;
+        return bytes + _selected_dictionary_indices.capacity() * sizeof(uint32_t);
     }
 
     size_t active_decoder_scratch_bytes() const {
@@ -255,7 +266,8 @@ public:
         return _active_decompress_bytes +
                (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
                _rep_level_decoder.active_scratch_bytes() +
-               _def_level_decoder.active_scratch_bytes();
+               _def_level_decoder.active_scratch_bytes() +
+               _selected_dictionary_indices.size() * sizeof(uint32_t);
     }
 
     tparquet::Encoding::type current_encoding() const { return _current_encoding; }
@@ -294,6 +306,7 @@ public:
 
     size_t page_end_row() const { return _page_reader->end_row(); }
 
+    Status ensure_first_data_page_parsed();
     Status parse_page_header();
     Status next_page();
 
@@ -334,8 +347,7 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
-    // for check dict page.
-    Status _parse_first_page_header();
+    Status _ensure_dictionary_page_loaded();
     Status _decode_dict_page();
 
     void _reserve_decompress_buf(size_t size);
@@ -398,6 +410,7 @@ private:
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
     bool _dict_checked = false;
+    bool _first_data_page_parsed = false;
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;
@@ -408,6 +421,7 @@ private:
     // Plain or Dictionary encoding. If the dictionary grows too big, the encoding will fall back to the plain encoding
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     NullMap _nullable_selection_nulls;
+    std::vector<uint32_t> _selected_dictionary_indices;
     ColumnChunkReaderStatistics _chunk_statistics;
 };
 

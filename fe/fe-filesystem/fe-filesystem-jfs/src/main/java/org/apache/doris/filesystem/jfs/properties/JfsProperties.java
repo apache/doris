@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.jfs.properties;
 
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.hdfs.properties.HdfsCompatibleProperties;
 import org.apache.doris.filesystem.hdfs.properties.HdfsPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -31,8 +32,10 @@ import java.util.Set;
 
 /**
  * JuiceFS ({@code jfs://}) storage properties. HDFS-compatible: JuiceFS ships a Hadoop FileSystem
- * impl resolved by Hadoop config, so this only needs to derive {@code fs.defaultFS} from a
- * {@code jfs://} uri and forward the {@code juicefs.*} / Hadoop keys to {@code DFSFileSystem}.
+ * impl resolved by Hadoop config, so this derives {@code fs.defaultFS} from a {@code jfs://} uri,
+ * forwards the {@code juicefs.*} / Hadoop keys to {@code DFSFileSystem}, and inherits the shared
+ * Kerberos/simple authentication model from {@link HdfsCompatibleProperties} — legacy fe-core
+ * served jfs:// with the very same HdfsProperties class, kerberos semantics included.
  */
 public class JfsProperties extends HdfsCompatibleProperties {
 
@@ -45,14 +48,30 @@ public class JfsProperties extends HdfsCompatibleProperties {
             description = "The xml files of Hadoop configuration.")
     private String hadoopConfigResources = "";
 
-    @ConnectorProperty(names = {"hadoop.username"}, required = false,
-            description = "The username used to access JuiceFS.")
-    private String hadoopUsername = "";
-
     private Map<String, String> userOverriddenConfig;
 
     public JfsProperties(Map<String, String> origProps) {
         super(origProps);
+    }
+
+    @Override
+    public String providerName() {
+        return "JFS";
+    }
+
+    @Override
+    public FileSystemType type() {
+        return FileSystemType.JFS;
+    }
+
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return SUPPORT_SCHEMA;
+    }
+
+    @Override
+    public String validateAndNormalizeUri(String uri) {
+        return HdfsPropertiesUtils.validateAndNormalizeUri(uri, SUPPORT_SCHEMA);
     }
 
     @Override
@@ -85,9 +104,10 @@ public class JfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             props.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }
-        if (StringUtils.isNotBlank(hadoopUsername)) {
-            props.put("hadoop.username", hadoopUsername);
-        }
+        // Legacy fe-core served jfs:// with the SAME HdfsProperties class as hdfs://, so the
+        // full auth translation (kerberos alias families, fallback-to-simple default,
+        // hadoop.username) applies to JuiceFS identically.
+        applyAuthBackendConfig(props);
         this.backendConfigProperties = props;
     }
 }

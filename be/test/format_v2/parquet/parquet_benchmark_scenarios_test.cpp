@@ -112,7 +112,7 @@ TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryS
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {
     const auto scenarios = reader_scenarios();
     // Keep the exact count aligned with the upstream complex-residual scenario retained by rebase.
-    EXPECT_EQ(scenarios.size(), size_t {152});
+    EXPECT_EQ(scenarios.size(), size_t {167});
     for (const int null_percent : {0, 1, 10, 50, 90}) {
         for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
             for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
@@ -162,7 +162,7 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversOperationsEncodingsAndSche
 
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixHasExactUniqueRegistrationNames) {
     const auto scenarios = reader_scenarios();
-    EXPECT_EQ(scenarios.size(), size_t {152});
+    EXPECT_EQ(scenarios.size(), size_t {167});
 
     std::set<std::string> names;
     for (const auto& scenario : scenarios) {
@@ -194,6 +194,24 @@ TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversFixedWidthRawFilterAxes) {
                            scenario.projection == projection && scenario.schema_width == 32 &&
                            scenario.predicate_position == 0;
                 })) << "missing fixed-width raw filter axis combination";
+            }
+        }
+    }
+}
+
+TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversTypedDictionaryFilterAxes) {
+    const auto scenarios = reader_scenarios();
+    for (const auto value_type : {ValueType::INT64, ValueType::BYTE_ARRAY}) {
+        for (const int selectivity : {10, 50}) {
+            for (const auto projection :
+                 {Projection::PREDICATE_ONLY, Projection::PREDICATE_PROJECTED}) {
+                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const ReaderScenario& scenario) {
+                    return scenario.operation == ReaderOperation::PREDICATE_SCAN &&
+                           scenario.encoding == Encoding::DICTIONARY &&
+                           scenario.value_type == value_type &&
+                           scenario.selectivity_percent == selectivity &&
+                           scenario.projection == projection;
+                })) << "missing typed dictionary filter axis";
             }
         }
     }

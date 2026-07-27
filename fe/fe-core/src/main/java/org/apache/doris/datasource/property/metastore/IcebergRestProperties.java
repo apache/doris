@@ -24,8 +24,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.ReauthenticatingRestSessionCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
@@ -62,7 +61,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
     private Map<String, String> icebergRestCatalogProperties;
-    private S3Properties s3Properties;
+    /** Facade twin of the former typed S3 field: a forced generic-S3 binding over the raw props. */
+    private StorageAdapter s3Adapter;
 
     // The session-aware Iceberg REST catalog. We build a RESTSessionCatalog directly (instead of the
     // all-in-one RESTCatalog) so that per-user delegated credentials can be attached per request via
@@ -230,13 +230,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-            List<StorageProperties> storagePropertiesList) {
+            List<StorageAdapter> storagePropertiesList) {
         return initCatalog(catalogName, catalogProps, storagePropertiesList, SessionContext.empty());
     }
 
     @Override
     protected Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-            List<StorageProperties> storagePropertiesList, SessionContext sessionContext) {
+            List<StorageAdapter> storagePropertiesList, SessionContext sessionContext) {
         catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(sessionContext));
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
@@ -313,7 +313,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
         if (shouldUseS3PropertiesForRestCredentials()) {
-            s3Properties = S3Properties.of(origProps);
+            s3Adapter = StorageAdapter.ofProvider("S3", origProps);
         }
         initIcebergRestCatalogProperties();
     }
@@ -468,7 +468,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
             if (shouldUseS3PropertiesForRestCredentials()) {
                 IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
-                        icebergRestCatalogProperties, s3Properties);
+                        icebergRestCatalogProperties, s3Adapter);
             } else {
                 IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
                         icebergRestCatalogProperties, icebergRestAccessKeyId,

@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -68,7 +69,6 @@ public final class S3FileSystemProperties
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
     public static final String DEFAULT_CREDENTIALS_PROVIDER_TYPE = "DEFAULT";
-    public static final String DEFAULT_REGION = "us-east-1";
 
     private static final Pattern[] ENDPOINT_PATTERNS = new Pattern[] {
             Pattern.compile(
@@ -173,6 +173,14 @@ public final class S3FileSystemProperties
             description = "Whether to use path-style bucket addressing.")
     private String usePathStyle = "false";
 
+    // Same single alias as legacy fe-core S3Properties.forceParsingByStandardUrl; consumed by the
+    // uri-derived endpoint leg in normalizeForLegacyS3Compatibility().
+    @Getter
+    @ConnectorProperty(names = {"force_parsing_by_standard_uri"},
+            required = false,
+            description = "Whether to force standard URI parsing when deriving the endpoint from a uri.")
+    private String forceParsingByStandardUrl = "false";
+
     @ConnectorProperty(names = {CREDENTIALS_PROVIDER_TYPE, "AWS_CREDENTIALS_PROVIDER_TYPE",
             "glue.credentials_provider_type", "iceberg.rest.credentials_provider_type"},
             required = false,
@@ -207,11 +215,20 @@ public final class S3FileSystemProperties
                         "s3.external_id must be used together with s3.role_arn")
                 .check(this::hasUnsupportedCredentialsProviderType,
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
-                .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
-                        "Either s3.endpoint or s3.region must be set")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid S3 filesystem properties");
+        // Align fe-core (master plan ledger 2.4-4): when the region can neither be read nor
+        // derived from a standard AWS endpoint, fe-core AbstractS3CompatibleProperties throws
+        // instead of silently defaulting to us-east-1 — same exception type and message here.
+        if (StringUtils.isBlank(region)) {
+            throw new IllegalArgumentException(
+                    "Region is not set. If you are using a standard endpoint, the region "
+                            + "will be detected automatically. Otherwise, please specify it explicitly.");
+        }
+        if (StringUtils.isBlank(endpoint)) {
+            throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly.");
+        }
     }
 
     @Override
@@ -368,8 +385,21 @@ public final class S3FileSystemProperties
         if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
             endpoint = buildS3Endpoint(region);
         }
+        // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2: with no endpoint and
+        // no region, derive the endpoint from the raw "uri" property (case-insensitive key);
+        // parse failures are swallowed exactly like fe-core so validate() reports the usual
+        // "Region is not set" / "Endpoint is not set" errors instead.
+        if (StringUtils.isBlank(endpoint)) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(rawProperties, usePathStyle,
+                    forceParsingByStandardUrl);
+            if (StringUtils.isNotBlank(derived)) {
+                endpoint = derived;
+            }
+        }
+        // Align fe-core (ledger 2.4-4): no us-east-1 fallback — an unresolvable region is a
+        // validation error, reported by validate().
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
-            region = extractRegion(endpoint).orElse(DEFAULT_REGION);
+            region = extractRegion(endpoint).orElse("");
         }
         if (StringUtils.containsIgnoreCase(endpoint, "glue") && StringUtils.isNotBlank(region)) {
             endpoint = buildS3Endpoint(region);
@@ -401,4 +431,10 @@ public final class S3FileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("s3", "s3a", "s3n");
+    }
+
 }

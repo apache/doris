@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -74,10 +74,10 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
     /**
      * Builds the Hadoop Configuration by adding hive-site.xml and storage-specific configs.
      */
-    private Configuration buildHiveConfiguration(List<StorageProperties> storagePropertiesList) {
+    private Configuration buildHiveConfiguration(List<StorageAdapter> storageAdapters) {
         Configuration conf = hmsBaseProperties.getHiveConf();
 
-        for (StorageProperties sp : storagePropertiesList) {
+        for (StorageAdapter sp : storageAdapters) {
             if (sp.getHadoopStorageConfig() != null) {
                 conf.addResource(sp.getHadoopStorageConfig());
             }
@@ -86,9 +86,9 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageAdapter> storageAdapters) {
         buildCatalogOptions();
-        Configuration conf = buildHiveConfiguration(storagePropertiesList);
+        Configuration conf = buildHiveConfiguration(storageAdapters);
         appendUserHadoopConfig(conf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
         try {

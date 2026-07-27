@@ -17,6 +17,10 @@
 
 #include "core/data_type_serde/parquet_decode_source.h"
 
+#include <cstring>
+#include <limits>
+
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "util/simd/parquet_kernels.h"
 
@@ -53,6 +57,43 @@ bool try_gather_vector(IColumn& destination, const IColumn& dictionary, const ui
     }
 }
 
+template <typename Offset>
+bool try_gather_strings(IColumn& destination, const IColumn& dictionary, const uint32_t* indices,
+                        size_t num_values) {
+    auto* destination_string = dynamic_cast<ColumnStr<Offset>*>(&destination);
+    const auto* dictionary_string = dynamic_cast<const ColumnStr<Offset>*>(&dictionary);
+    if (destination_string == nullptr || dictionary_string == nullptr) {
+        return false;
+    }
+
+    size_t bytes = 0;
+    for (size_t row = 0; row < num_values; ++row) {
+        const size_t value_size = dictionary_string->get_data_at(indices[row]).size;
+        if (value_size > std::numeric_limits<size_t>::max() - bytes) {
+            return false;
+        }
+        bytes += value_size;
+    }
+    auto& chars = destination_string->get_chars();
+    auto& offsets = destination_string->get_offsets();
+    if (bytes > std::numeric_limits<Offset>::max() - chars.size()) {
+        return false;
+    }
+    const size_t old_chars_size = chars.size();
+    chars.resize(old_chars_size + bytes);
+    offsets.reserve(offsets.size() + num_values);
+    size_t output_offset = old_chars_size;
+    for (size_t row = 0; row < num_values; ++row) {
+        const StringRef value = dictionary_string->get_data_at(indices[row]);
+        if (value.size != 0) {
+            memcpy(chars.data() + output_offset, value.data, value.size);
+        }
+        output_offset += value.size;
+        offsets.push_back(static_cast<Offset>(output_offset));
+    }
+    return true;
+}
+
 } // namespace
 
 bool try_simd_insert_parquet_dictionary_indices(IColumn& destination, const IColumn& dictionary,
@@ -72,6 +113,12 @@ bool try_simd_insert_parquet_dictionary_indices(IColumn& destination, const ICol
     TRY_PARQUET_GATHER(TYPE_UINT32);
     TRY_PARQUET_GATHER(TYPE_UINT64);
 #undef TRY_PARQUET_GATHER
+    // String survivors have variable widths, so pre-size both buffers and copy each selected
+    // dictionary slice exactly once instead of routing every id through generic Field insertion.
+    if (try_gather_strings<UInt32>(destination, dictionary, indices, num_values) ||
+        try_gather_strings<UInt64>(destination, dictionary, indices, num_values)) {
+        return true;
+    }
     return false;
 }
 

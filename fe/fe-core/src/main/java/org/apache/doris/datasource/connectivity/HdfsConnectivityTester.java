@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.connectivity;
 
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 public class HdfsConnectivityTester extends HdfsCompatibleConnectivityTester {
-    public HdfsConnectivityTester(HdfsCompatibleProperties properties) {
-        super(properties);
+    public HdfsConnectivityTester(StorageAdapter adapter) {
+        super(adapter);
     }
 }

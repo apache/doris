@@ -21,7 +21,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.credentials.AbstractVendedCredentialsProvider;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -59,11 +61,11 @@ public class CatalogProperty {
     private Map<String, String> properties;
 
     /**
-     * An ordered list of all initialized {@link StorageProperties} instances.
+     * An ordered list of all initialized {@link StorageAdapter} bindings.
      * <p>
      * The order of this list is significant:
      * <ul>
-     *   <li>The default HDFSProperties (if auto-created) is always inserted at index 0.</li>
+     *   <li>The default HDFS binding (if auto-created) is always inserted at index 0.</li>
      *   <li>Explicitly configured storage providers follow in the order they are detected.</li>
      *   <li>Callers rely on this deterministic ordering for selecting or iterating through
      *       storage backends.</li>
@@ -71,10 +73,23 @@ public class CatalogProperty {
      * <p>
      * Declared as {@code volatile} to ensure visibility across threads once initialized.
      */
-    private volatile List<StorageProperties> orderedStoragePropertiesList;
+    private volatile StorageBindings storageBindings;
 
-    // Lazy-loaded storage properties map, using volatile to ensure visibility
-    private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    /**
+     * Immutable pair of the ordered adapter list and its type-keyed map, published through a
+     * single volatile field so a concurrent {@link #resetAllCaches()} can never let a reader
+     * observe one half initialized and the other nulled (the legacy two-field twin could
+     * return a stale list; two independently nulled fields could return null instead).
+     */
+    private static final class StorageBindings {
+        private final List<StorageAdapter> ordered;
+        private final Map<StorageTypeId, StorageAdapter> byType;
+
+        StorageBindings(List<StorageAdapter> ordered, Map<StorageTypeId, StorageAdapter> byType) {
+            this.ordered = ordered;
+            this.byType = byType;
+        }
+    }
 
     // Lazy-loaded metastore properties, using volatile to ensure visibility
     private volatile MetastoreProperties metastoreProperties;
@@ -163,59 +178,67 @@ public class CatalogProperty {
      * Unified cache reset method to ensure all caches are properly cleared
      */
     private void resetAllCaches() {
-        this.storagePropertiesMap = null;
+        this.storageBindings = null;
         this.metastoreProperties = null;
         this.backendStorageProperties = null;
         this.hadoopProperties = null;
     }
 
     /**
-     * Get storage properties map with lazy loading, using double-check locking to ensure thread safety
+     * Get storage adapter bindings with lazy loading, using double-check locking to ensure
+     * thread safety. Vended-credentials-enabled catalogs skip storage binding entirely,
+     * exactly like the legacy typed track did.
      */
-    private void initStorageProperties() {
-        if (storagePropertiesMap == null) {
+    private StorageBindings initStorageAdapters() {
+        StorageBindings local = storageBindings;
+        if (local == null) {
             synchronized (this) {
-                if (storagePropertiesMap == null) {
-                    try {
-                        boolean checkStorageProperties = true;
-                        AbstractVendedCredentialsProvider provider =
-                                VendedCredentialsFactory.getProviderType(getMetastoreProperties());
-                        if (provider != null) {
-                            checkStorageProperties = !provider.isVendedCredentialsEnabled(getMetastoreProperties());
-                        }
-                        if (checkStorageProperties) {
-                            this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
-                            this.storagePropertiesMap = orderedStoragePropertiesList.stream()
-                                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-                        } else {
-                            this.orderedStoragePropertiesList = Lists.newArrayList();
-                            this.storagePropertiesMap = Maps.newHashMap();
-                        }
-                    } catch (UserException e) {
-                        LOG.warn("Failed to initialize catalog storage properties", e);
-                        throw new RuntimeException("Failed to initialize storage properties, error: "
-                                + ExceptionUtils.getRootCauseMessage(e), e);
+                local = storageBindings;
+                if (local == null) {
+                    boolean checkStorageProperties = true;
+                    AbstractVendedCredentialsProvider provider =
+                            VendedCredentialsFactory.getProviderType(getMetastoreProperties());
+                    if (provider != null) {
+                        checkStorageProperties = !provider.isVendedCredentialsEnabled(getMetastoreProperties());
                     }
+                    if (checkStorageProperties) {
+                        List<StorageAdapter> ordered = StorageAdapter.ofAll(getProperties());
+                        // LinkedHashMap in binding order (default HDFS pad first, explicit
+                        // providers after): values() iteration drives last-writer-wins merging
+                        // in getBackendStorageProperties/getHadoopProperties. The legacy
+                        // enum-keyed HashMap iterated in JVM-arbitrary (identity-hash) order;
+                        // observed runs matched binding order, and the adapter track pins that
+                        // order down deterministically.
+                        Map<StorageTypeId, StorageAdapter> byType = ordered.stream()
+                                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity(),
+                                        (a, b) -> {
+                                            throw new IllegalStateException(
+                                                    "Duplicate storage type: " + a.getType());
+                                        }, LinkedHashMap::new));
+                        local = new StorageBindings(ordered, byType);
+                    } else {
+                        local = new StorageBindings(Lists.newArrayList(), Maps.newHashMap());
+                    }
+                    this.storageBindings = local;
                 }
             }
         }
+        return local;
     }
 
-    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
-        initStorageProperties();
-        return storagePropertiesMap;
+    public Map<StorageTypeId, StorageAdapter> getStorageAdaptersMap() {
+        return initStorageAdapters().byType;
     }
 
-    public List<StorageProperties> getOrderedStoragePropertiesList() {
-        initStorageProperties();
-        return orderedStoragePropertiesList;
+    public List<StorageAdapter> getOrderedStorageAdapters() {
+        return initStorageAdapters().ordered;
     }
 
     public void checkMetaStoreAndStorageProperties(Class msClass) {
         MetastoreProperties msProperties;
         try {
             msProperties = MetastoreProperties.create(getProperties());
-            initStorageProperties();
+            initStorageAdapters();
         } catch (UserException e) {
             throw new RuntimeException("Failed to initialize Catalog properties, error: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
@@ -259,9 +282,9 @@ public class CatalogProperty {
             synchronized (this) {
                 if (backendStorageProperties == null) {
                     Map<String, String> result = new HashMap<>();
-                    Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
+                    Map<StorageTypeId, StorageAdapter> storageMap = getStorageAdaptersMap();
 
-                    for (StorageProperties sp : storageMap.values()) {
+                    for (StorageAdapter sp : storageMap.values()) {
                         Map<String, String> backendProps = sp.getBackendConfigProperties();
                         // the backend property's value can not be null, because it will be serialized to thrift,
                         // which does not support null value.
@@ -284,9 +307,9 @@ public class CatalogProperty {
             synchronized (this) {
                 if (hadoopProperties == null) {
                     hadoopProperties = new HashMap<>();
-                    Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
+                    Map<StorageTypeId, StorageAdapter> storageMap = getStorageAdaptersMap();
 
-                    for (StorageProperties sp : storageMap.values()) {
+                    for (StorageAdapter sp : storageMap.values()) {
                         Configuration configuration = sp.getHadoopStorageConfig();
                         if (configuration != null) {
                             configuration.forEach(entry -> {

@@ -107,7 +107,7 @@ public:
             RETURN_IF_ERROR(_column_writers[cid]->append(false, const_cast<void*>(ptr)));
         }
         std::string full_encoded_key;
-        row.encode_key<true>(&full_encoded_key, _num_sort_key_columns);
+        row.encode_key<true>(&full_encoded_key, _tablet_schema->num_key_columns());
         if (_tablet_schema->has_sequence_col()) {
             full_encoded_key.push_back(KeyConsts::KEY_NORMAL_MARKER);
             auto cid = _tablet_schema->sequence_col_idx();

@@ -37,7 +37,8 @@ import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -92,15 +93,13 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
     private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
-    private static final String DORIS_ENABLE_FILE_READER_ASYNC = "jni.enable_file_reader_async";
-    private static final String DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
-    private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
-    private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "doris.jni_io_manager.impl_class";
+    private static final String DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+    private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
+    private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "jni.io_manager.impl_class";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
-            DORIS_JNI_IO_MANAGER_IMPL_CLASS,
-            DORIS_ENABLE_FILE_READER_ASYNC);
+            DORIS_JNI_IO_MANAGER_IMPL_CLASS);
     private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
     private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
 
@@ -154,7 +153,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private String serializedTable;
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
 
@@ -180,7 +179,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                catalog.getCatalogProperty().getStorageAdaptersMap(),
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
@@ -266,21 +265,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
-            // use jni reader or paimon-cpp reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // Use Paimon native serialization for paimon-cpp reader
-            if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
-                fileDesc.setReaderType(TPaimonReaderType.PAIMON_CPP);
-                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
-            } else {
-                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
-                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
-            }
-            // Set table location for paimon-cpp reader
-            String tableLocation = source.getTableLocation();
-            if (tableLocation != null) {
-                fileDesc.setPaimonTable(tableLocation);
-            }
+            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
+            // until the C++ path has a split-aware V2 adapter.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
@@ -304,7 +293,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
             // convert the deletion file uri to make sure FileReader can read it in be
-            LocationPath locationPath = LocationPath.of(deletionFile.path(), storagePropertiesMap);
+            LocationPath locationPath = LocationPath.ofAdapters(deletionFile.path(), storagePropertiesMap);
             String path = locationPath.toStorageLocation().toString();
             tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
@@ -453,7 +442,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
                     RawFile file = rawFiles.get(i);
-                    LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
+                    LocationPath locationPath = LocationPath.ofAdapters(file.path(), storagePropertiesMap);
                     try {
                         List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
