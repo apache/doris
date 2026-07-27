@@ -97,7 +97,7 @@ public class TableScanParams {
     }
 
     /**
-     * Resolve dynamic parameters once for the lifetime of this relation.
+     * Resolve dynamic parameters once for the current statement execution.
      */
     public Map<String, String> getOrResolveMapParams(
             Function<Map<String, String>, Map<String, String>> resolver) {
@@ -118,6 +118,10 @@ public class TableScanParams {
 
     public Optional<Map<String, String>> getResolvedMapParams() {
         return Optional.ofNullable(resolvedMapParams);
+    }
+
+    public synchronized void resetResolvedMapParams() {
+        resolvedMapParams = null;
     }
 
     public boolean incrementalRead() {

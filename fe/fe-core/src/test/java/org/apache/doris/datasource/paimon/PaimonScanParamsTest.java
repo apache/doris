@@ -78,6 +78,22 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testRejectMissingCreationTimeAndNonBatchOptions() {
+        IllegalArgumentException missingTime = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonScanParams.validateOptions(
+                        ImmutableMap.of("scan.mode", "from-creation-timestamp")));
+        Assert.assertTrue(missingTime.getMessage().contains("scan.creation-time-millis"));
+
+        for (String option : new String[] {"scan.bounded.watermark", "scan.max-splits-per-task"}) {
+            IllegalArgumentException unsupported = Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(ImmutableMap.of(option, "1")));
+            Assert.assertTrue(unsupported.getMessage().contains(option));
+        }
+    }
+
+    @Test
     public void testApplyPositionClearsInheritedStartupState() {
         Table table = Mockito.mock(Table.class);
         Table copied = Mockito.mock(Table.class);
@@ -141,7 +157,8 @@ public class PaimonScanParamsTest {
 
     @Test
     public void testSystemTableCapabilityMatrixIncludesRangeAwareReaders() {
-        for (String type : new String[] {"files", "partitions", "ro"}) {
+        Assert.assertFalse(PaimonScanParams.supportsIncrementalRead("files"));
+        for (String type : new String[] {"partitions", "ro"}) {
             Assert.assertTrue(type, PaimonScanParams.supportsIncrementalRead(type));
             Assert.assertFalse(type, PaimonScanParams.requiresPaimonReader(type));
         }

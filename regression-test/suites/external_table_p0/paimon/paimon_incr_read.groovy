@@ -89,6 +89,14 @@ suite("test_paimon_incr_read", "p0,external") {
                 sql """select * from paimon_incr@options('scan.snapsh0t-id'='1')"""
                 exception "Unsupported Paimon query option"
             }
+            test {
+                sql """select * from paimon_incr@options('scan.mode'='from-creation-timestamp')"""
+                exception "scan.creation-time-millis"
+            }
+            test {
+                sql """select * from paimon_incr@options('scan.bounded.watermark'='1')"""
+                exception "Unsupported Paimon query option"
+            }
 
             order_qt_snapshot_incr3  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
             order_qt_snapshot_incr4  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=3)"""

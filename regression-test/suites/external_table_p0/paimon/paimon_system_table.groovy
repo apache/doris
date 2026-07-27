@@ -184,12 +184,14 @@ suite("paimon_system_table", "p0,external") {
                 @options('scan.snapshot-id'='${latestSnapshotId}')
                 """))
 
-        List<List<Object>> incrementalFiles = sql """
-                select count(*) from ${multiSnapshotTable}\$files
-                @incr('startSnapshotId'='${firstSnapshotId}',
-                      'endSnapshotId'='${latestSnapshotId}')
-                """
-        assertEquals(2L, ((Number) incrementalFiles[0][0]).longValue())
+        test {
+            sql """
+                    select count(*) from ${multiSnapshotTable}\$files
+                    @incr('startSnapshotId'='${firstSnapshotId}',
+                          'endSnapshotId'='${latestSnapshotId}')
+                    """
+            exception "does not support INCR"
+        }
 
         List<List<Object>> incrementalPartitions = sql """
                 select sum(record_count) from ${multiSnapshotTable}\$partitions

@@ -20,8 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -90,6 +92,15 @@ public class ExecuteCommand extends Command {
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        // PREPARE retains relation objects across executions. Clear only their resolved scan state
+        // so each EXECUTE resolves a fresh snapshot while one execution still uses one snapshot.
+        for (UnboundRelation relation : logicalPlan.<UnboundRelation>collectToList(
+                UnboundRelation.class::isInstance)) {
+            TableScanParams scanParams = relation.getScanParams();
+            if (scanParams != null) {
+                scanParams.resetResolvedMapParams();
+            }
+        }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
         }

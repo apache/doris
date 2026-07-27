@@ -45,10 +45,18 @@ public final class PaimonScanParams {
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
 
-    private static final Set<String> QUERY_OPTION_KEYS = CoreOptions.getOptions().stream()
-            .map(option -> option.key())
-            .filter(key -> key.startsWith("scan."))
-            .collect(Collectors.toSet());
+    private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.of(
+            CoreOptions.SCAN_MODE.key(),
+            CoreOptions.SCAN_TIMESTAMP.key(),
+            CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
+            CoreOptions.SCAN_WATERMARK.key(),
+            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(),
+            CoreOptions.SCAN_CREATION_TIME_MILLIS.key(),
+            CoreOptions.SCAN_SNAPSHOT_ID.key(),
+            CoreOptions.SCAN_TAG_NAME.key(),
+            CoreOptions.SCAN_VERSION.key(),
+            CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
+            CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
 
     private static final Set<String> STARTUP_POSITION_KEYS = ImmutableSet.of(
             CoreOptions.SCAN_TIMESTAMP.key(),
@@ -62,8 +70,10 @@ public final class PaimonScanParams {
 
     private static final Set<String> INHERITED_READ_STATE_KEYS = inheritedReadStateKeys();
 
+    // FilesScan enumerates the latest partitions before applying its range-aware per-partition scan,
+    // so it cannot safely read a range when a partition in that range has since been dropped.
     private static final Set<String> INCREMENTAL_SYSTEM_TABLES = ImmutableSet.of(
-            "audit_log", "binlog", "files", "partitions", "ro", "row_tracking");
+            "audit_log", "binlog", "partitions", "ro", "row_tracking");
 
     private static final Set<String> PAIMON_READER_SYSTEM_TABLES = ImmutableSet.of(
             "audit_log", "binlog", "row_tracking");
@@ -91,6 +101,15 @@ public final class PaimonScanParams {
             throw new IllegalArgumentException("Unsupported Paimon query option(s): " + unsupported);
         }
 
+        String scanMode = options.get(CoreOptions.SCAN_MODE.key());
+        if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
+                && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
+            // Paimon 1.3.1 does not validate this newer mode, but its starting scanner
+            // requires the creation timestamp and otherwise fails after analysis.
+            throw new IllegalArgumentException("Paimon scan mode 'from-creation-timestamp' requires query option '"
+                    + CoreOptions.SCAN_CREATION_TIME_MILLIS.key() + "'.");
+        }
+
         long positionCount = options.keySet().stream().filter(STARTUP_POSITION_KEYS::contains).count();
         if (positionCount > 1) {
             throw new IllegalArgumentException(
@@ -102,7 +121,7 @@ public final class PaimonScanParams {
                     .filter(STARTUP_POSITION_KEYS::contains)
                     .findFirst()
                     .get();
-            String mode = options.get(CoreOptions.SCAN_MODE.key()).toLowerCase(Locale.ROOT);
+            String mode = scanMode.toLowerCase(Locale.ROOT);
             if (!isCompatibleStartupMode(position, mode)) {
                 throw new IllegalArgumentException("Paimon scan mode '" + mode
                         + "' is incompatible with startup position '" + position + "'.");
