@@ -6,7 +6,80 @@
 
 ---
 
-## 🆕🆕 最新一轮（2026-07-27）：rebase 到上游 `1aa5ae9597e` —— 「零冲突」但树是坏的
+## 🆕🆕🆕 最新一轮（2026-07-27 第二次）：rebase 到上游 `ceb33843d4b` —— 2 个真冲突，都在同一个文件
+
+`git pull --rebase upstream-apache branch-catalog-spi`，**75 个提交全部重放**，`range-diff` **73 个 `=` / 2 个 `!`**，
+两个 `!` 正是我手工解的那两个提交（第 13 个 `remove the catalog type allow-list`、第 49 个
+`let each catalog answer for its own CREATE TABLE engine name`），其余 73 个补丁**逐字节未变**。
+
+**上游这轮做的事** = 把整条 catalog-spi 栈（63 个提交）**rebase 到 master `5b3ac63f8b4`**，带进 5 个 master 提交：
+`#66073` parquet V2 列惰性初始化、**`#65987`** JDBC driver_url 加固 + 删文件上传 HTTP API、
+**`#65644`** `information_schema.plugins` 插件清单、`#65492` RowKeyEncoder、`#66053` CODEOWNERS。
+外加 1 个自有 doc 提交。**后两个加粗的才是冲突源**——其余三个不碰 FE 连接器层。
+
+### 冲突根因：两边在**同一段循环体**里各自加了一道关
+
+两处冲突都在 `fe-core/.../connector/ConnectorPluginManager.java`，且都不是「谁对谁错」，是**两道正交的关叠在同一行**：
+
+| 位置 | 上游（`#65644`）加的 | 本分支加的 |
+|---|---|---|
+| `loadBuiltins()` 的 lambda | `PluginRegistry.registerBuiltin` 登记清单行 + `try/catch` 兜住**插件自报元数据抛异常** | `registerDiscovered(p, true)`：类型名非空 / 不撞引擎内建 / 不重名，classpath 批**失败即抛** |
+| `loadPlugins()` 成功循环 | `hasProviderNamed` 挡同名目录 jar + `discard` + `registerExternal` 登记清单行 | `registerDiscovered(handle.getFactory(), false)`：同样的关，目录批**跳过并记日志** |
+| 常量区 | `PLUGIN_FAMILY = "CONNECTOR"` | `RESERVED_CREATE_TABLE_ENGINE_NAMES` |
+
+### 解法：取并集，且**收窄 try 的范围**（这是唯一有语义分量的决定）
+
+```java
+try {
+    PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);   // 只包这一句
+} catch (RuntimeException e) { LOG.warn(...); return; }
+if (registerDiscovered(p, true)) { LOG.info(...); }                   // 故意留在 catch 之外
+```
+
+**为什么必须收窄**：`registerDiscovered(p, true)` 对重名/保留名是 `throw IllegalStateException`（本分支有意的
+fail-loud，classpath 撞名 = 构建错误）。若照抄上游把它一起包进 `catch (RuntimeException)`，**fail-loud 会被静默
+降级成 warn+skip**——能编译、能启动、测试全绿，但那道关等于没了。这是本轮唯一会「静默出错」的点。
+
+`loadPlugins` 侧把 `registerExternal` 放进 `if (registerDiscovered(...))` **之内**：上游兄弟类
+`FileSystemPluginManager` 自己写着不变式「a provider must never be active without its inventory row
+(**or vice versa**)」——被拒的插件不该在 `information_schema.extensions` 里露脸。
+
+另：`PluginRegistry.register()` 对重复/非法名是 **返回 false 而不抛**，所以上游那个 `catch` 只兜插件自身
+`name()`/`description()` 抛异常的情况；合并后这一语义**逐字保留**。
+
+### 验证（四层，全绿）
+
+① **结构**：`range-diff` 73`=`/2`!`，75/75 在位、顺序不变。
+② **树级重叠**：`git diff pre-rebase-20260727 HEAD` = **恰好 57 个文件**，与上游净改动文件集**完全相等**
+   （既没多出东西 = 三方合并没偷偷改我的代码，也没少 = 我的重放没回退上游的改动）。
+③ **符号级**：全反应堆 `test-compile` **BUILD SUCCESS**（2:57）。
+④ **行为级**：`fe-connector-api` **110/110**（含录制基线 `ConnectorMetadataSurfaceTest`，说明上游没动 SPI 表面）、
+   `fe-connector-jdbc` **214/214**（含上游新增的 `JdbcDriverUrlSecurityRuleTest`）、
+   `fe-extension-loader` **10/10**（上游新增的 `PluginRegistryTest` 7 + `DirectoryPluginRuntimeManagerMetadataTest` 3）、
+   fe-core 定向 **52/52**（`ConnectorPluginManagerTest` 16 / `CatalogFactoryPluginRoutingTest` 5 /
+   `FileSystemPluginManagerTest` 5 / `MetadataGeneratorPluginDrivenTest` 2 / `SchemaTableTest` 2 / `JdbcResourceTest` 22）；
+   fe-core checkstyle **0**。**e2e 未跑（本地无集群），仍是欠账。**
+
+另外两个「两边都改了但自动合并成功」的文件已逐项核对双方改动都在：`MetadataGenerator.java`
+（我的 `ConnectorPartitionValues.NULL_PARTITION_NAME` + 上游的 `EXTENSIONS` 分支）、
+`JdbcDorisConnector.java`（我的 `sanitizeOutboundUrl` / 摘掉 `SUPPORTS_PASSTHROUGH_QUERY` + 上游的
+`checkDriverUrlSecurityRule`）。反向悬空引用也查了：`sanitizeJdbcUrl` 全仓 0 命中，
+上游删掉的 `UploadAction` / `LoadSubmitter` / `TmpFileMgr` 本分支 0 引用。
+
+### ⏭ 留给下一轮的两条
+
+1. **未被测试压住的 6 行**：`loadBuiltins` / `loadPlugins` 这两段循环体**两边都没有测试**
+   （`ConnectorPluginManagerTest` 的 16 个用例全是直接调 `registerDiscovered`，不走这两个入口；
+   要压住得往 fe-core 测试 classpath 塞 `META-INF/services` 或造插件目录，代价远超收益）。
+   **本轮靠对照兄弟类 `FileSystemPluginManager` 逐行读来确认**，不是靠测试。改这两段时要知道这点。
+2. **`discard` 不对称（一行的事，本轮故意没动）**：合并后 `loadPlugins` 有两条拒绝路径，
+   上游那条（同名）调 `runtimeManager.discard` 关掉 classloader，我这条（`registerDiscovered` 返回 false）**没调**。
+   `FileSystemPluginManager` 的惯例是每条拒绝路径都 `discard`。后果只是**误配部署时**多留一个 classloader
+   （启动期一次性、有界），不是正确性问题；但它是 rebase 合出来的不一致，不是任何一方原本的样子。
+
+---
+
+## 🆕🆕 上一轮（2026-07-27）：rebase 到上游 `1aa5ae9597e` —— 「零冲突」但树是坏的
 
 `git pull --rebase upstream-apache branch-catalog-spi`，**72 个提交全部重放，0 个文本冲突**，
 `range-diff` 71 个 `=` / 1 个 `!`（第 28 个 `centralize the scan-node property key contract`，
