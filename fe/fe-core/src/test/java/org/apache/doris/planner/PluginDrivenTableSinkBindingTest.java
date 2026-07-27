@@ -69,7 +69,7 @@ public class PluginDrivenTableSinkBindingTest {
         Assertions.assertNotNull(handle, "planWrite must be invoked with a bound write handle");
         Assertions.assertTrue(handle.isOverwrite(),
                 "INSERT OVERWRITE must propagate ctx.isOverwrite()=true to the connector write handle");
-        Assertions.assertEquals(staticSpec, handle.getWriteContext(),
+        Assertions.assertEquals(staticSpec, handle.getStaticPartitionSpec(),
                 "PARTITION(col=val) must propagate the static partition spec to the write handle");
     }
 
@@ -84,7 +84,7 @@ public class PluginDrivenTableSinkBindingTest {
         Assertions.assertNotNull(handle);
         Assertions.assertFalse(handle.isOverwrite(),
                 "a plain INSERT must default the connector write handle to non-overwrite");
-        Assertions.assertTrue(handle.getWriteContext().isEmpty(),
+        Assertions.assertTrue(handle.getStaticPartitionSpec().isEmpty(),
                 "a plain INSERT must pass an empty static partition spec");
     }
 

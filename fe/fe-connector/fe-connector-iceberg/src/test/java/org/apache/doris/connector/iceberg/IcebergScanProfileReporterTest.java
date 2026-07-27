@@ -100,7 +100,7 @@ public class IcebergScanProfileReporterTest {
     }
 
     @Test
-    public void groupNameMatchesFeCoreConstant() {
+    public void groupNameIsTheUserVisibleProfileSection() {
         Assertions.assertEquals("Iceberg Scan Metrics", IcebergScanProfileReporter.GROUP_NAME);
     }
 }

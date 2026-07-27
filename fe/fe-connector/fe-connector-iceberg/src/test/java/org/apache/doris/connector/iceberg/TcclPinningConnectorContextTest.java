@@ -131,6 +131,22 @@ public class TcclPinningConnectorContextTest {
     }
 
     @Test
+    public void delegatesEngineFileSystem() {
+        RecordingConnectorContext delegate = new RecordingConnectorContext();
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader(), () -> null);
+
+        // This was the actual gap: the decorator had no getFileSystem pass-through, so the call fell to
+        // the SPI default and the connector got null instead of the engine's per-catalog filesystem. It
+        // compiles either way, which is precisely why it went unnoticed - and why the first connector to
+        // reach for the engine filesystem would have debugged an NPE, or (if it copied hive's null check) a
+        // message blaming the catalog's storage properties, which are fine. Storage now reaches the
+        // connector through the single getStorageContext() forward, so this asserts that ONE forward: lose
+        // it and every storage service degrades at once, exactly as getFileSystem alone used to.
+        Assertions.assertSame(delegate.engineFileSystem, ctx.getStorageContext().getFileSystem(null),
+                "getFileSystem must reach the wrapped engine context, not the SPI default (null)");
+    }
+
+    @Test
     public void kerberosRunsTaskInPluginDoAsAndBypassesDelegateAuth() throws Exception {
         // Single-owner auth (Option A): a Kerberos catalog runs the op under the PLUGIN authenticator's doAs and
         // must NOT ALSO invoke the FE-injected app-side authenticator (delegate.executeAuthenticated), which only

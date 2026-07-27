@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -56,6 +57,15 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new PaimonConnector(properties, context);
+    }
+
+    /**
+     * {@code CREATE TABLE ... ENGINE=paimon} keeps working; omitting the clause is equivalent. The engine
+     * keyword is legacy syntax the connector owns, not the catalog type and not the displayed engine name.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("paimon");
     }
 
     /**

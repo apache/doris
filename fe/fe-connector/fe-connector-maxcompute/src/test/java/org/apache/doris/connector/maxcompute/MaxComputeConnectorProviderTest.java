@@ -54,6 +54,15 @@ public class MaxComputeConnectorProviderTest {
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(validProps()));
     }
 
+    @Test
+    public void testDisplayEngineNameDropsTheUnderscoreOfTheCatalogType() {
+        // This connector is the reason the displayed engine name is a separate declaration at all: the catalog
+        // type a user writes carries an underscore, the product name does not, and the engine has no way to
+        // know that. It shows up in the ENGINE column and after ENGINE= in SHOW CREATE TABLE.
+        Assertions.assertEquals("max_compute", provider.getType());
+        Assertions.assertEquals("maxcompute", provider.displayEngineName());
+    }
+
     // --- 1. required PROJECT / ENDPOINT ---
 
     @Test

@@ -224,6 +224,69 @@ public class TrinoPredicateConverterTest {
     }
 
     @Test
+    public void testThreeWayOrKeepsEveryArm() {
+        // c_int = 1 OR c_int = 2 OR c_int = 3.
+        // WHY this matters: ConnectorOr carries a FLATTENED N-ary list (fe-core's converters flatten
+        // nested ORs before handing them over), so folding only the first two arms would push
+        // `c_int IN (1, 2)` to the source. The source then never returns the c_int = 3 rows, and BE
+        // re-evaluation cannot add rows back - the query silently loses rows.
+        ConnectorOr or = new ConnectorOr(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(1)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(2)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(3))));
+        Domain expected = Domain.create(ValueSet.ofRanges(
+                Range.equal(type("c_int"), 1L),
+                Range.equal(type("c_int"), 2L),
+                Range.equal(type("c_int"), 3L)), false);
+        Assertions.assertEquals(expect("c_int", expected), CONVERTER.convert(or));
+    }
+
+    @Test
+    public void testFourWayOrKeepsEveryArm() {
+        // Four arms, so the fix cannot be "read one more arm" - it has to fold the whole list.
+        ConnectorOr or = new ConnectorOr(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(1)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(2)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(3)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(4))));
+        Domain expected = Domain.create(ValueSet.ofRanges(
+                Range.equal(type("c_int"), 1L),
+                Range.equal(type("c_int"), 2L),
+                Range.equal(type("c_int"), 3L),
+                Range.equal(type("c_int"), 4L)), false);
+        Assertions.assertEquals(expect("c_int", expected), CONVERTER.convert(or));
+    }
+
+    @Test
+    public void testCrossColumnOrDegradesToAll() {
+        // c_int = 1 OR c_bigint = 2 OR c_str = 'x'.
+        // A column-wise union keeps a column only when EVERY arm constrains it; here no column does,
+        // so the correct result is "no pushdown". Locks down that we never invent a constraint that
+        // holds in only some arms just to have something to push.
+        ConnectorOr or = new ConnectorOr(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(1)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_bigint"),
+                        ConnectorLiteral.ofLong(2L)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_str"),
+                        ConnectorLiteral.ofString("x"))));
+        Assertions.assertEquals(TupleDomain.<ColumnHandle>all(), CONVERTER.convert(or));
+    }
+
+    @Test
+    public void testOrWithUntranslatableArmDegradesToAll() {
+        // c_int = 1 OR c_int = 2 OR <bare column ref, which the converter cannot translate>.
+        // OR is all-or-nothing: swallowing the failing arm would leave `c_int IN (1, 2)`, which is
+        // NARROWER than the user's predicate and loses rows. Dropping the whole pushdown is the only
+        // safe degradation. This is the opposite policy from AND, where skipping a conjunct only
+        // widens what is pushed and BE re-evaluation recovers exactness.
+        ConnectorOr or = new ConnectorOr(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(1)),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(2)),
+                col("c_bool")));
+        Assertions.assertEquals(TupleDomain.<ColumnHandle>all(), CONVERTER.convert(or));
+    }
+
+    @Test
     public void testNullExpressionDegradesToAll() {
         // A null filter must not be pushed down: scan everything.
         Assertions.assertEquals(TupleDomain.<ColumnHandle>all(), CONVERTER.convert(null));

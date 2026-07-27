@@ -2414,10 +2414,6 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
     }
 
-    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
-    }
-
     public void logCreatePolicy(Policy policy) {
         logEdit(OperationType.OP_CREATE_POLICY, policy);
     }

@@ -96,7 +96,7 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
 
         boolean isOverwrite = handle.isOverwrite();
         // Static partition spec carried as a col -> val map in the write context (D-5).
-        Map<String, String> staticPartitionSpec = handle.getWriteContext();
+        Map<String, String> staticPartitionSpec = handle.getStaticPartitionSpec();
         boolean isStaticPartition = staticPartitionSpec != null && !staticPartitionSpec.isEmpty();
 
         // Partition column names, taken from the ODPS table (DV-012: legacy reads

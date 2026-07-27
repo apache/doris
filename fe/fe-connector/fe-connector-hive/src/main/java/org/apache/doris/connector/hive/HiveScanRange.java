@@ -19,7 +19,6 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
@@ -76,11 +75,6 @@ public class HiveScanRange implements ConnectorScanRange {
         this.properties = builder.properties != null
                 ? Collections.unmodifiableMap(builder.properties)
                 : Collections.emptyMap();
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override
@@ -156,10 +150,12 @@ public class HiveScanRange implements ConnectorScanRange {
         // path-parsed columns-from-path; unset it, then re-set from partitionValues so BE receives the
         // authoritative keys/values/is_null. partitionValues keys are the partition column names (same
         // order as path_partition_keys, both from HiveTableHandle.getPartitionKeyNames), so the emitted
-        // bytes are unchanged from the legacy path. Use the NARROW HIVE_DEFAULT_PARTITION.equals (NOT
-        // ConnectorPartitionValues.normalize, which would also null a literal "\N"): an HMS partition
-        // value is either a real value or the __HIVE_DEFAULT_PARTITION__ directory sentinel, never a
-        // Java null; matching legacy normalizeColumnsFromPath, a null value maps to SQL NULL defensively.
+        // bytes are unchanged from the legacy path. Use the NARROW NULL_PARTITION_NAME.equals — hudi's
+        // wider directory-name rule (HudiScanRange.populateRangeParams, which also nulls a literal "\N")
+        // must NOT be reused here: an HMS partition value is either a real value or the
+        // __HIVE_DEFAULT_PARTITION__ directory sentinel, never a Java null, and a hive column may carry the
+        // two characters "\N" as DATA; matching legacy normalizeColumnsFromPath, a null value maps to SQL
+        // NULL defensively.
         rangeDesc.unsetColumnsFromPath();
         rangeDesc.unsetColumnsFromPathKeys();
         rangeDesc.unsetColumnsFromPathIsNull();
@@ -170,7 +166,7 @@ public class HiveScanRange implements ConnectorScanRange {
             for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
                 String value = entry.getValue();
                 boolean nullValue = value == null
-                        || ConnectorPartitionValues.HIVE_DEFAULT_PARTITION.equals(value);
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value);
                 keys.add(entry.getKey());
                 values.add(nullValue ? "" : value);
                 isNull.add(nullValue);

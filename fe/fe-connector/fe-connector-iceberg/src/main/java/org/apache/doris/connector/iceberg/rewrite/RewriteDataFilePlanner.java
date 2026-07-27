@@ -61,8 +61,8 @@ import java.util.stream.Collectors;
  *       strictly all-or-nothing: any top-level conjunct that cannot be pushed to file pruning is a hard error
  *       (the {@code size < countTopLevelConjuncts} guard below), never a silent widen of the rewrite scope.</li>
  * </ul>
- * The execution half ({@code RewriteDataFileExecutor} / {@code RewriteGroupTask} / the nereids INSERT-SELECT)
- * stays in fe-core (P6.4-T06).</p>
+ * The execution half ({@code ConnectorRewriteDriver} / {@code ConnectorRewriteGroupTask} / the nereids
+ * INSERT-SELECT) stays in fe-core (P6.4-T06).</p>
  */
 public class RewriteDataFilePlanner {
     private static final Logger LOG = LogManager.getLogger(RewriteDataFilePlanner.class);

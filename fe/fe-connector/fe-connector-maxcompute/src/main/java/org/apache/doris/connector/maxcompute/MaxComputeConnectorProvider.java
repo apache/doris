@@ -22,8 +22,10 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the MaxCompute (ODPS) connector plugin.
@@ -45,6 +47,26 @@ public class MaxComputeConnectorProvider implements ConnectorProvider {
     public Connector create(Map<String, String> properties,
             ConnectorContext context) {
         return new MaxComputeDorisConnector(properties, context);
+    }
+
+    /**
+     * {@code CREATE TABLE ... ENGINE=maxcompute} keeps working; omitting the clause is equivalent. The engine
+     * keyword is legacy syntax the connector owns, not the catalog type and not the displayed engine name.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("maxcompute");
+    }
+
+    /**
+     * Spelled without the underscore that {@link #getType()} carries: the catalog type is the internal token a
+     * user writes in {@code CREATE CATALOG}, whereas this is the product name shown in the {@code ENGINE}
+     * column and after {@code ENGINE=}. It coincides with the accepted CREATE TABLE engine name above, but the
+     * two are answered separately — nothing keeps them equal, and for other connectors they differ.
+     */
+    @Override
+    public String displayEngineName() {
+        return "maxcompute";
     }
 
     /**

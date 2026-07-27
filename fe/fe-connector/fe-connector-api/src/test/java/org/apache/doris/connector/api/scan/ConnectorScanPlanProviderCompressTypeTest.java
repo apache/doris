@@ -18,9 +18,6 @@
 package org.apache.doris.connector.api.scan;
 
 import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.TFileCompressType;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,7 +25,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Guards the additive {@code adjustFileCompressType} SPI default on {@link ConnectorScanPlanProvider}.
@@ -40,11 +36,10 @@ import java.util.Optional;
  */
 public class ConnectorScanPlanProviderCompressTypeTest {
 
-    /** Bare provider: only the abstract 4-arg planScan implemented; everything else inherits SPI defaults. */
+    /** Bare provider: only the abstract planScan implemented; everything else inherits SPI defaults. */
     private static final class BareProvider implements ConnectorScanPlanProvider {
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             return Collections.emptyList();
         }
     }

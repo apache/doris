@@ -22,16 +22,16 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * One bin-packed group of data files a connector's {@code rewrite_data_files} planning produced, in an
- * engine-neutral form. The engine rewrite driver runs one {@code INSERT-SELECT} per group, scoping the scan
- * to {@link #getDataFilePaths()} (the raw file paths, fed to the connector scan's per-group file scope), and
- * sums the per-group stats into the procedure's result row.
+ * One group of data files a connector's rewrite planning produced, in an engine-neutral form. The engine
+ * rewrite driver runs one {@code INSERT-SELECT} per group, scoping the scan to {@link #getDataFilePaths()}
+ * (the raw file paths, fed to the connector scan's per-group file scope), and sums the per-group stats into
+ * the {@link ConnectorRewriteStatistics} it hands back to the connector.
  *
- * <p>This is the planning analogue of {@link ConnectorProcedureResult}: the connector owns the
- * file-selection / bin-pack / partition-grouping decision (iceberg's {@code rewrite_data_files} criteria —
- * file size range, delete ratio, min-input-files, max group size, partition grouping); the engine only
- * orchestrates the distributed reads/writes. No live SDK object crosses the seam — only neutral
- * {@code String} paths and primitive counts.</p>
+ * <p>The model is atomic replacement by file path: each group's files are read once and replaced by what the
+ * rewrite writes. This is the planning analogue of {@link ConnectorProcedureResult}: the connector owns which
+ * files to touch and how to group them (size ranges, delete ratios, minimum inputs, per-partition grouping —
+ * all of it connector-defined); the engine only orchestrates the distributed reads/writes. No live SDK object
+ * crosses the seam — only neutral {@code String} paths and primitive counts.</p>
  */
 public class ConnectorRewriteGroup {
 
@@ -42,13 +42,11 @@ public class ConnectorRewriteGroup {
 
     /**
      * @param dataFilePaths  the RAW file paths of this group's data files (what the connector scan matches a
-     *                       per-group file scope against — see the iceberg scan provider); never {@code null}
-     * @param dataFileCount  the number of data files rewritten by this group (feeds {@code
-     *                       rewritten_data_files_count}); kept distinct from {@code dataFilePaths.size()} so it
-     *                       carries the connector's own count verbatim
-     * @param totalSizeBytes the total byte size of this group's data files (feeds {@code rewritten_bytes_count})
-     * @param deleteFileCount the number of delete files attached to this group (feeds {@code
-     *                        removed_delete_files_count})
+     *                       per-group file scope against); never {@code null}
+     * @param dataFileCount  the number of data files rewritten by this group; kept distinct from
+     *                       {@code dataFilePaths.size()} so it carries the connector's own count verbatim
+     * @param totalSizeBytes the total byte size of this group's data files
+     * @param deleteFileCount the number of delete files attached to this group
      */
     public ConnectorRewriteGroup(Set<String> dataFilePaths, int dataFileCount, long totalSizeBytes,
             int deleteFileCount) {
@@ -64,17 +62,17 @@ public class ConnectorRewriteGroup {
         return dataFilePaths;
     }
 
-    /** The number of data files this group rewrites ({@code rewritten_data_files_count} contribution). */
+    /** The number of data files this group rewrites. */
     public int getDataFileCount() {
         return dataFileCount;
     }
 
-    /** The total byte size of this group's data files ({@code rewritten_bytes_count} contribution). */
+    /** The total byte size of this group's data files. */
     public long getTotalSizeBytes() {
         return totalSizeBytes;
     }
 
-    /** The number of delete files attached to this group ({@code removed_delete_files_count} contribution). */
+    /** The number of delete files attached to this group. */
     public int getDeleteFileCount() {
         return deleteFileCount;
     }

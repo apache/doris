@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 
 import com.google.common.collect.Lists;
@@ -61,7 +61,7 @@ public class ListPartitionItemTest {
         // Genuine NULL partition as a hive/paimon connector builds it: a NULL literal whose origin-hive key
         // preserves the canonical sentinel string.
         PartitionKey nullKey = PartitionKey.createListPartitionKeyWithTypes(
-                Collections.singletonList(new PartitionValue(TablePartitionValues.HIVE_DEFAULT_PARTITION, true)),
+                Collections.singletonList(new PartitionValue(ConnectorPartitionValues.NULL_PARTITION_NAME, true)),
                 types, true);
         ListPartitionItem nullItem = new ListPartitionItem(Lists.newArrayList(nullKey));
 

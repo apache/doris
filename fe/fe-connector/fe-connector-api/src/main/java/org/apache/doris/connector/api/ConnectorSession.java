@@ -71,7 +71,20 @@ public interface ConnectorSession {
     /** Returns the catalog name this session is bound to. */
     String getCatalogName();
 
-    /** Retrieves a typed session/catalog property. */
+    /**
+     * Retrieves a typed property by name, searching the SESSION variables first and the CATALOG properties
+     * second; returns {@code null} when neither namespace has it.
+     *
+     * <p><b>The two namespaces are merged silently.</b> A name present in both resolves to the session value
+     * and the caller cannot tell which side answered — convenient for a knob that a catalog sets as a default
+     * and a user overrides per query, wrong for anything where the origin matters (a catalog-level credential
+     * or endpoint must not be overridable by a session variable of the same name). When the origin matters,
+     * read the namespace directly: {@link #getSessionProperties()} or {@link #getCatalogProperties()}.</p>
+     *
+     * @param name the property name, as spelled in the FE session-variable registry or in the catalog properties
+     * @param type one of {@code String}, {@code Integer}, {@code Long} or {@code Boolean} (any other type is
+     *             rejected); the stored string is parsed into it
+     */
     <T> T getProperty(String name, Class<T> type);
 
     /** Returns all catalog-level configuration properties. */

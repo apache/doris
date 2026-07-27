@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.ConnectorProvider;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Iceberg connector plugin.
@@ -44,6 +45,15 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new IcebergConnector(properties, context);
+    }
+
+    /**
+     * {@code CREATE TABLE ... ENGINE=iceberg} keeps working; omitting the clause is equivalent. The engine
+     * keyword is legacy syntax the connector owns, not the catalog type and not the displayed engine name.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("iceberg");
     }
 
     /**

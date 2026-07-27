@@ -231,13 +231,16 @@ public class ConnectorExecuteActionTest {
     public void executeDistributedActionLowersWhereAndThreadsItToPlanRewrite() throws Exception {
         // The DISTRIBUTED arm lowers the (unbound) WHERE to a neutral ConnectorPredicate and threads it to the
         // connector's planRewrite — it must NOT reject it, and it must NOT pass null. Stub planRewrite to return
-        // no groups so the driver returns the all-zero row without opening a transaction.
+        // no groups so the driver takes the early return without opening a transaction, and stub the connector's
+        // result rendering (the result SHAPE is the connector's, so the mock must supply it).
         Fixture f = new Fixture();
         Mockito.when(f.procedureOps.getExecutionMode("rewrite_data_files"))
                 .thenReturn(ProcedureExecutionMode.DISTRIBUTED);
         Mockito.when(f.procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.anyString(),
                         Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
                 .thenReturn(Collections.emptyList());
+        Mockito.when(f.procedureOps.buildRewriteResult(Mockito.anyString(), Mockito.any()))
+                .thenReturn(rewriteResult("0", "0", "0", "0"));
 
         Expression where = new GreaterThan(new UnboundSlot("a"), new IntegerLiteral(5));
         ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
@@ -253,7 +256,7 @@ public class ConnectorExecuteActionTest {
         Assertions.assertInstanceOf(ConnectorComparison.class, lowered.getExpression());
         Assertions.assertEquals("a", ((ConnectorColumnRef) ((ConnectorComparison) lowered.getExpression())
                 .getLeft()).getColumnName());
-        // No groups -> the legacy all-zero four-column rewrite result row.
+        // The engine passes the connector's rendered rows straight through to the ResultSet.
         Assertions.assertEquals(Collections.singletonList(Arrays.asList("0", "0", "0", "0")), rs.getResultRows());
     }
 
@@ -397,13 +400,16 @@ public class ConnectorExecuteActionTest {
     @Test
     public void executeRefreshesTableCachesAfterSuccessfulDistributedRewrite() throws Exception {
         // The DISTRIBUTED rewrite also produces a new snapshot, so it must refresh too. No groups -> the driver
-        // returns the all-zero row without opening a transaction, but the refresh still runs on a normal return.
+        // takes the early return without opening a transaction, but the refresh still runs on a normal return.
         Fixture f = new Fixture();
         Mockito.when(f.procedureOps.getExecutionMode("rewrite_data_files"))
                 .thenReturn(ProcedureExecutionMode.DISTRIBUTED);
         Mockito.when(f.procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.anyString(),
                         Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
                 .thenReturn(Collections.emptyList());
+        // Without this the mock returns null and the engine NPEs while wrapping the result.
+        Mockito.when(f.procedureOps.buildRewriteResult(Mockito.anyString(), Mockito.any()))
+                .thenReturn(rewriteResult("0", "0", "0", "0"));
 
         Expression where = new GreaterThan(new UnboundSlot("a"), new IntegerLiteral(5));
         ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
@@ -475,6 +481,20 @@ public class ConnectorExecuteActionTest {
     }
 
     // -------- helpers --------
+
+    /**
+     * Stands in for what the CONNECTOR renders for a distributed rewrite. The engine no longer owns those
+     * columns, so a mock procedureOps has to supply them; without a stub the mock returns null and the engine
+     * NPEs while wrapping the result. Shape only — the real names/types are pinned in the connector's own test.
+     */
+    private static ConnectorProcedureResult rewriteResult(String... row) {
+        List<ConnectorColumn> schema = Arrays.asList(
+                new ConnectorColumn("rewritten_data_files_count", ConnectorType.of("INT"), "", false, null),
+                new ConnectorColumn("added_data_files_count", ConnectorType.of("INT"), "", false, null),
+                new ConnectorColumn("rewritten_bytes_count", ConnectorType.of("INT"), "", false, null),
+                new ConnectorColumn("removed_delete_files_count", ConnectorType.of("BIGINT"), "", false, null));
+        return new ConnectorProcedureResult(schema, Collections.singletonList(Arrays.asList(row)));
+    }
 
     private static ConnectorProcedureResult twoColumnResult(List<String> row) {
         List<ConnectorColumn> schema = Arrays.asList(

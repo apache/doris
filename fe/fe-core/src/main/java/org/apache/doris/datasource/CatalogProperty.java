@@ -282,10 +282,10 @@ public class CatalogProperty {
 
     /**
      * The effective raw storage property map for a plugin catalog to bind directly through fe-filesystem
-     * (design S2), letting {@code ConnectorContext.getStorageProperties()} hand the connector typed
+     * (design S2), letting {@code ConnectorStorageContext.getStorageProperties()} hand the connector typed
      * fe-filesystem storage without the redundant fe-core {@link StorageAdapter#ofAll} round-trip.
      * Returns the same map {@link #initStorageAdapters} would parse — user props plus derived defaults
-     * (warehouse -> fs.defaultFS). Design S4: no vended discrimination - fe-core hands the connector the raw
+     * (warehouse -> fs.defaultFS). Design S4: no vended discrimination — fe-core hands the connector the raw
      * map unconditionally (the connector owns static+vended precedence, overlaying per-table vended creds); a
      * REST/vended catalog carries no static storage keys, so binding it still yields no static storage.
      * Byte-identical to {@code getStorageAdaptersMap().values().iterator().next().getOrigProps()} (ofAll

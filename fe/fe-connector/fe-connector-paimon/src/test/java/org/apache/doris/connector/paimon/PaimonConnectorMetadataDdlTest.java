@@ -59,8 +59,7 @@ public class PaimonConnectorMetadataDdlTest {
         ConnectorPartitionSpec partitionSpec = new ConnectorPartitionSpec(
                 ConnectorPartitionSpec.Style.IDENTITY,
                 Collections.singletonList(
-                        new ConnectorPartitionField("id", "identity", Collections.emptyList())),
-                Collections.emptyList());
+                        new ConnectorPartitionField("id", "identity", Collections.emptyList())));
         Map<String, String> props = new HashMap<>();
         props.put("primary-key", "id");
         return ConnectorCreateTableRequest.builder()
@@ -81,8 +80,7 @@ public class PaimonConnectorMetadataDdlTest {
         ConnectorPartitionSpec partitionSpec = new ConnectorPartitionSpec(
                 ConnectorPartitionSpec.Style.TRANSFORM,
                 Collections.singletonList(
-                        new ConnectorPartitionField("id", "bucket", Collections.singletonList(16))),
-                Collections.emptyList());
+                        new ConnectorPartitionField("id", "bucket", Collections.singletonList(16))));
         return ConnectorCreateTableRequest.builder()
                 .dbName("db1")
                 .tableName("t1")

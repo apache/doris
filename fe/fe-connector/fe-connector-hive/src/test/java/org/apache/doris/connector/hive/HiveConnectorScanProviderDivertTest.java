@@ -21,11 +21,10 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,7 +33,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Pins the HMS-cutover §4.4 S5 scan-provider gateway seam: {@link HiveConnector#getScanPlanProvider(
@@ -198,8 +196,7 @@ public class HiveConnectorScanProviderDivertTest {
     /** A bare scan provider stand-in; only its identity matters here. */
     private static final class MarkerScanProvider implements ConnectorScanPlanProvider {
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
             return Collections.emptyList();
         }
     }

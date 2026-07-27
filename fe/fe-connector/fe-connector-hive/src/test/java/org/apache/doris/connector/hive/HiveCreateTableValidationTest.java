@@ -54,6 +54,14 @@ public class HiveCreateTableValidationTest {
         return new ConnectorColumn(name, ConnectorType.of(type), "", nullable, null);
     }
 
+    /**
+     * Overload for complex types: {@link ConnectorType#of(String)} takes a scalar type name only, since a complex
+     * type must carry its child types (a bare "ARRAY" is rejected outright).
+     */
+    private ConnectorColumn col(String name, ConnectorType type, boolean nullable) {
+        return new ConnectorColumn(name, type, "", nullable, null);
+    }
+
     private ConnectorCreateTableRequest request(List<ConnectorColumn> columns) {
         return ConnectorCreateTableRequest.builder().dbName("db").tableName("t").columns(columns).build();
     }
@@ -102,7 +110,10 @@ public class HiveCreateTableValidationTest {
 
     @Test
     public void complexPartitionColumnIsRejected() {
-        ConnectorCreateTableRequest request = request(Arrays.asList(col("id", "INT", true), col("a", "ARRAY", true)));
+        // A well-formed ARRAY<INT>: the point is that validatePartition rejects it for being COMPLEX, not that
+        // the type itself is malformed -- a childless "ARRAY" would fail construction and never reach the check.
+        ConnectorCreateTableRequest request = request(Arrays.asList(col("id", "INT", true),
+                col("a", ConnectorType.arrayOf(ConnectorType.of("INT")), true)));
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> metadata().validatePartition(request, true, Collections.singletonList("a")));
         Assertions.assertTrue(ex.getMessage().contains("Complex type column can't be partition column"),

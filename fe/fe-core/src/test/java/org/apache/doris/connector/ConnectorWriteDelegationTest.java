@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
@@ -32,26 +33,24 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * Pins {@link Connector}'s null-safe write-capability delegators
- * ({@code supportedWriteOperations} + the 5 {@code requiresXxx}/{@code supportsWriteBranch} views): a
- * connector with no write provider must report no write capability (empty operation set, every trait
- * {@code false}) rather than NPE, and a connector whose provider overrides
- * {@link ConnectorWritePlanProvider#supportedOperations()} / {@link ConnectorWritePlanProvider#requiresParallelWrite()}
- * must have that reflected unchanged through {@link Connector}.
+ * Pins the ONE forwarding the entry interface still performs on the write side: a connector that does not
+ * override the per-table {@link Connector#getWritePlanProvider(ConnectorTableHandle)} must fall back to its
+ * connector-level {@link Connector#getWritePlanProvider()}.
+ *
+ * <p><b>Why this matters:</b> the engine always asks for the per-table provider, because a heterogeneous
+ * gateway needs the handle to pick the right one. Every single-format connector overrides only the no-arg
+ * getter, so if that default stopped forwarding, each of them would silently answer "no write support" and
+ * every INSERT into a jdbc / maxcompute / iceberg catalog would be rejected at planning. The gateway side of
+ * the same seam is pinned by {@code HiveConnectorWriteProviderDivertTest}.</p>
+ *
+ * <p>The write traits themselves are NOT reachable from {@link Connector} and deliberately have no test here:
+ * they are declared on {@link ConnectorWritePlanProvider} and read from there, so there is no second answer
+ * that could drift from the first.</p>
  */
 public class ConnectorWriteDelegationTest {
 
     @Test
-    void delegatorsReflectProviderAndAreNullSafe() {
-        Connector noWrite = Mockito.mock(Connector.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.when(noWrite.getWritePlanProvider()).thenReturn(null);
-        Assertions.assertTrue(noWrite.supportedWriteOperations().isEmpty());
-        Assertions.assertFalse(noWrite.supportsWriteBranch());
-        Assertions.assertFalse(noWrite.requiresParallelWrite());
-        Assertions.assertFalse(noWrite.requiresFullSchemaWriteOrder());
-        Assertions.assertFalse(noWrite.requiresPartitionLocalSort());
-        Assertions.assertFalse(noWrite.requiresMaterializeStaticPartitionValues());
-
+    void perTableProviderFallsBackToTheConnectorLevelOne() {
         ConnectorWritePlanProvider prov = new ConnectorWritePlanProvider() {
             @Override
             public ConnectorSinkPlan planWrite(ConnectorSession s, ConnectorWriteHandle h) {
@@ -62,17 +61,27 @@ public class ConnectorWriteDelegationTest {
             public Set<WriteOperation> supportedOperations() {
                 return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE);
             }
-
-            @Override
-            public boolean requiresParallelWrite() {
-                return true;
-            }
         };
-        Connector w = Mockito.mock(Connector.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.when(w.getWritePlanProvider()).thenReturn(prov);
+        // CALLS_REAL_METHODS so the interface default runs; only the no-arg getter is overridden, exactly as
+        // every single-format connector does.
+        Connector single = Mockito.mock(Connector.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.when(single.getWritePlanProvider()).thenReturn(prov);
+
+        // MUTATION: making the per-table default return null instead of forwarding -> red, and every
+        // single-format connector loses writes.
+        Assertions.assertSame(prov, single.getWritePlanProvider(Mockito.mock(ConnectorTableHandle.class)),
+                "a connector that does not select a provider per table must reuse its connector-level one");
         Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE),
-                w.supportedWriteOperations());
-        Assertions.assertTrue(w.requiresParallelWrite());
-        Assertions.assertFalse(w.requiresPartitionLocalSort());
+                single.getWritePlanProvider(Mockito.mock(ConnectorTableHandle.class)).supportedOperations());
+    }
+
+    @Test
+    void connectorWithoutWriteSupportAnswersNullOnBothGetters() {
+        // The null provider IS the "no write support" declaration -- every engine-side write gate is written
+        // as a null check against it, so both getters must agree.
+        Connector noWrite = Mockito.mock(Connector.class, Mockito.CALLS_REAL_METHODS);
+
+        Assertions.assertNull(noWrite.getWritePlanProvider());
+        Assertions.assertNull(noWrite.getWritePlanProvider(Mockito.mock(ConnectorTableHandle.class)));
     }
 }

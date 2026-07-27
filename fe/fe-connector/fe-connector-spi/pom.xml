@@ -34,8 +34,9 @@ under the License.
     <name>Doris FE Connector SPI</name>
     <description>
         Service Provider Interface (SPI) for Doris FE connector abstraction.
-        Contains ConnectorProvider (ServiceLoader SPI entry point), ConnectorContext,
-        and ConnectorTypeMapper.
+        Contains ConnectorProvider (the ServiceLoader entry point a connector implements)
+        plus the engine services a connector consumes: ConnectorContext,
+        ConnectorMetaInvalidator and ConnectorBrokerAddress.
         Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
     </description>
 

@@ -50,7 +50,7 @@ public class PaimonScanPlanProviderCapabilityTest {
     @Test
     public void spiDefaultKeepsShortCircuit() {
         // A connector that does not override the capability keeps the short-circuit (MaxCompute parity).
-        ConnectorScanPlanProvider defaultProvider = (session, handle, columns, filter) -> Collections.emptyList();
+        ConnectorScanPlanProvider defaultProvider = (session, request) -> Collections.emptyList();
         Assertions.assertFalse(defaultProvider.ignorePartitionPruneShortCircuit(),
                 "the SPI default must keep the prune-to-zero short-circuit");
     }
@@ -96,7 +96,7 @@ public class PaimonScanPlanProviderCapabilityTest {
     @Test
     public void scannedPartitionCountDefaultsToEmpty() {
         // The SPI default (non-overriding connector, e.g. hive/MaxCompute) reports nothing.
-        ConnectorScanPlanProvider defaultProvider = (session, handle, columns, filter) -> Collections.emptyList();
+        ConnectorScanPlanProvider defaultProvider = (session, request) -> Collections.emptyList();
         Assertions.assertEquals(OptionalLong.empty(),
                 defaultProvider.scannedPartitionCount(Collections.emptyList()));
     }

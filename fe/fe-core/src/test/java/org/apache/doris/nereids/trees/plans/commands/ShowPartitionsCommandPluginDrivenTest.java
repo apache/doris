@@ -41,7 +41,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -135,9 +134,11 @@ public class ShowPartitionsCommandPluginDrivenTest {
         Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        // The capability that flips SHOW PARTITIONS to the 5-column rich result (D-045).
-        Mockito.when(connector.getCapabilities())
-                .thenReturn(EnumSet.of(ConnectorCapability.SUPPORTS_PARTITION_STATS));
+        // The capability that flips SHOW PARTITIONS to the 5-column rich result (D-045). Stubbed on the
+        // CATALOG because that is the collaborator the command asks; the accessor's own null-safe
+        // derivation from the connector is pinned by PluginDrivenMvccTableFactoryTest.
+        Mockito.when(catalog.hasConnectorCapability(ConnectorCapability.SUPPORTS_PARTITION_STATS))
+                .thenReturn(true);
         Mockito.when(metadata.getTableHandle(session, "remote_db", "remote_tbl"))
                 .thenReturn(Optional.of(handle));
         Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))

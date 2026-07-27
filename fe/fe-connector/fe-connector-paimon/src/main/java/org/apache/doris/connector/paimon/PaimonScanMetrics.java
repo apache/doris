@@ -44,7 +44,11 @@ public final class PaimonScanMetrics {
     private static final long MINUTE_MS = 60 * SECOND_MS;
     private static final long HOUR_MS = 60 * MINUTE_MS;
 
-    /** Profile group name — MUST equal fe-core {@code SummaryProfile.PAIMON_SCAN_METRICS} (display ordering). */
+    /**
+     * Profile group name. Connector-chosen and self-contained: the engine get-or-creates a profile child under
+     * this name, so it needs no prior registration in fe-core. It IS user-visible in the query profile, hence
+     * pinned by a test.
+     */
     public static final String GROUP_NAME = "Paimon Scan Metrics";
 
     private PaimonScanMetrics() {

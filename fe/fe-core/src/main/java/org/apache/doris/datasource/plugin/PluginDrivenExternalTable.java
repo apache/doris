@@ -172,10 +172,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        ConnectorWritePlanProvider provider = writePlanProvider();
         // requiresParallelWrite is byte-inert for a heterogeneous gateway (hive and iceberg both true), so the
         // connector-level answer needs no per-handle resolution here.
-        return connector != null && connector.requiresParallelWrite();
+        return provider != null && provider.requiresParallelWrite();
     }
 
     /**
@@ -184,6 +184,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * capabilities per-table (its iceberg tables differ from its hive tables); a single-format connector ignores
      * the handle (the per-handle overloads default to connector-level), so this is byte-identical for it.
      */
+    /**
+     * The CONNECTOR-LEVEL write plan provider, or null when this catalog's connector is absent or declares no
+     * write support. Callers must have already checked that the catalog is plugin-driven. Used by the write
+     * traits whose answer is the same for every table of a heterogeneous gateway, so paying for a per-handle
+     * resolution would buy nothing; the per-table ones go through
+     * {@link #resolveWriteCapabilityHandle(Connector)} and {@code getWritePlanProvider(handle)} instead.
+     */
+    private ConnectorWritePlanProvider writePlanProvider() {
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector == null ? null : connector.getWritePlanProvider();
+    }
+
     private Optional<ConnectorTableHandle> resolveWriteCapabilityHandle(Connector connector) {
         ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
         return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
@@ -203,7 +215,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return EnumSet.noneOf(WriteOperation.class);
         }
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::supportedWriteOperations)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::supportedOperations)
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
     }
 
@@ -220,14 +233,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::supportsWriteBranch)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::supportsWriteBranch)
                 .orElse(false);
     }
 
     /**
      * Returns whether THIS table supports background per-column auto-analyze. The statistics auto-collector
      * consults this (in place of the legacy {@code instanceof IcebergExternalTable} whitelist) to admit a flipped
-     * plugin table into the auto-analyze framework. Resolved per-table via {@link #hasScanCapability} (not the
+     * plugin table into the auto-analyze framework. Resolved per-table via {@link #hasCapability} (not the
      * connector-wide set alone) so a heterogeneous hive catalog can express the legacy
      * {@code StatisticsUtil.supportAutoAnalyze} gate of {@code dlaType HIVE || ICEBERG} but NOT {@code HUDI}: a
      * uniform-format connector (native iceberg/paimon) still declares it connector-wide, while hive emits it
@@ -236,19 +250,19 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * withheld. Mirrors {@link #supportsTopNLazyMaterialize} / {@link #supportsNestedColumnPrune}.
      */
     public boolean supportsColumnAutoAnalyze() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+        return hasCapability(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
     }
 
     /**
      * Returns whether THIS table supports Top-N lazy materialization. The nereids Top-N lazy-materialize probe
      * consults this (in place of the legacy exact-class {@code SUPPORT_RELATION_TYPES} membership) to enable
-     * lazy materialization for a flipped plugin table. Resolved per-table via {@link #hasScanCapability}: a
+     * lazy materialization for a flipped plugin table. Resolved per-table via {@link #hasCapability}: a
      * uniform-format connector (iceberg) declares it connector-wide, a heterogeneous connector (hive) emits it
      * only for its orc/parquet tables — so a hive text/csv/json/view table is correctly excluded, as it was in
      * legacy {@code MaterializeProbeVisitor}.
      */
     public boolean supportsTopNLazyMaterialize() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+        return hasCapability(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
     }
 
     /**
@@ -256,12 +270,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * sub-fields). The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn})
      * consults this (in place of the legacy exact-class {@code IcebergExternalTable} arm) to enable pruning for a
      * flipped plugin table, and the {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same
-     * answer. Resolved per-table via {@link #hasScanCapability} for the same reason as Top-N: legacy gated it on
+     * answer. Resolved per-table via {@link #hasCapability} for the same reason as Top-N: legacy gated it on
      * the per-table file format (parquet/orc only), which a connector-wide capability cannot express for a
      * heterogeneous hive catalog.
      */
     public boolean supportsNestedColumnPrune() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+        return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     /**
@@ -269,37 +283,41 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * nested paths and {@code MODIFY COLUMN ... COMMENT}). The nereids {@code AlterTableCommand} column-op
      * validation consults this (in place of the legacy exact-class {@code IcebergExternalTable} gate) to admit
      * the Iceberg-style clause set and to allow nested {@code ColumnPath} targets. Resolved per-table via
-     * {@link #hasScanCapability} so an iceberg-on-HMS table inherits it through the reflected per-table
+     * {@link #hasCapability} so an iceberg-on-HMS table inherits it through the reflected per-table
      * capability set, mirroring {@link #supportsNestedColumnPrune}.
      */
     public boolean supportsNestedColumnSchemaChange() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
+        return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
     }
 
     /**
      * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
      * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
      * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.
-     * Resolved per-table via {@link #hasScanCapability}: hive emits it for its plain-hive tables only (legacy
+     * Resolved per-table via {@link #hasCapability}: hive emits it for its plain-hive tables only (legacy
      * {@code dlaType==HIVE}), so iceberg/hudi-on-HMS are excluded; native iceberg/paimon never declare it (their
      * {@code doSample} is unimplemented), keeping their current build-time reject. Mirrors
      * {@link #supportsTopNLazyMaterialize}.
      */
     public boolean supportsSampleAnalyze() {
-        return hasScanCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
+        return hasCapability(ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE);
     }
 
     /**
-     * Whether this table supports a per-table-refinable scan-planning capability, resolved connector-wide OR
-     * per-table. A uniform-format connector (iceberg — every table orc/parquet) declares the capability for all
-     * its tables via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is
-     * per-table file-format gated instead emits the capability name per-table in the
-     * {@link ConnectorTableSchema#PER_TABLE_CAPABILITIES_KEY} schema marker, read here from the already-cached
-     * schema (no remote round-trip). The two sources are additive, so single-format connectors never emit the
-     * marker and behave exactly as before. fe-core never inspects the file format — the connector decides which
-     * of its tables qualify by emitting (or not) the capability name.
+     * Whether this table supports a table-scoped capability, resolved connector-wide OR per-table. A
+     * uniform-format connector (iceberg — every table orc/parquet) declares the capability for all its tables
+     * via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is per-table
+     * file-format gated instead declares it per-table in {@link ConnectorTableSchema#getTableCapabilities()},
+     * read here from the already-cached schema (no remote round-trip). The two sources are additive, so
+     * single-format connectors declare nothing per-table and behave exactly as before. fe-core never inspects
+     * the file format — the connector decides which of its tables qualify.
+     *
+     * <p>Only the capabilities {@link ConnectorCapability} documents as table-scoped may be resolved through
+     * here. Routing a catalog-scoped one through it would be a behaviour change, and for two of them a
+     * damaging one: reading the per-table set touches the schema cache, and those two are consulted while the
+     * table is being initialized / in order to decide whether to load metadata at all.</p>
      */
-    private boolean hasScanCapability(ConnectorCapability capability) {
+    private boolean hasCapability(ConnectorCapability capability) {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
@@ -307,19 +325,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return false;
         }
-        if (connector.getCapabilities().contains(capability)) {
-            return true;
-        }
-        String csv = rawTableProperties().get(ConnectorTableSchema.PER_TABLE_CAPABILITIES_KEY);
-        if (csv == null || csv.isEmpty()) {
-            return false;
-        }
-        for (String name : csv.split(",")) {
-            if (name.trim().equals(capability.name())) {
-                return true;
-            }
-        }
-        return false;
+        return connector.getCapabilities().contains(capability) || tableCapabilities().contains(capability);
+    }
+
+    /** The connector-declared per-table capability set, from the cached schema; empty on any miss. */
+    private Set<ConnectorCapability> tableCapabilities() {
+        makeSureInitialized();
+        return getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableCapabilities())
+                .orElse(Collections.emptySet());
     }
 
     /**
@@ -363,8 +377,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null && connector.requiresPartitionLocalSort();
+        ConnectorWritePlanProvider provider = writePlanProvider();
+        return provider != null && provider.requiresPartitionLocalSort();
     }
 
     /**
@@ -385,7 +399,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         // Per-table: hive requires partition-hash writes but iceberg does not, so resolve the handle.
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::requiresPartitionHashWrite)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::requiresPartitionHashWrite)
                 .orElse(false);
     }
 
@@ -399,8 +414,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null && connector.requiresFullSchemaWriteOrder();
+        ConnectorWritePlanProvider provider = writePlanProvider();
+        return provider != null && provider.requiresFullSchemaWriteOrder();
     }
 
     /**
@@ -420,7 +435,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         // Per-table: iceberg retains partition columns (materialize the PARTITION literal), hive does not.
         return resolveWriteCapabilityHandle(connector)
-                .map(connector::requiresMaterializeStaticPartitionValues)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::requiresMaterializeStaticPartitionValues)
                 .orElse(false);
     }
 
@@ -538,7 +554,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
-                tableSchema.getProperties());
+                tableSchema.getProperties(), tableSchema.getTableCapabilities());
     }
 
     @Override
@@ -759,9 +775,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
     /**
      * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
      * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). Every FE-internal
-     * reserved control key ({@link ConnectorTableSchema#RESERVED_CONTROL_KEYS} — the partition-columns /
-     * primary-keys markers, the SHOW CREATE render hints, and the per-table capability / distribution markers,
-     * all namespaced under {@code __internal.}) is stripped: they are not user-facing options and must not
+     * reserved control key ({@link ConnectorTableSchema#RESERVED_CONTROL_KEYS} — the partition-columns and
+     * distribution-columns markers plus the SHOW CREATE render hints, all namespaced under
+     * {@code __internal.}) is stripped: they are not user-facing options and must not
      * leak into the rendered PROPERTIES(...). Because the reserved keys are namespaced, a source table's own
      * user property can never collide with one, so it flows through here unchanged.
      */
@@ -802,8 +818,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
     @Override
     public boolean supportInternalPartitionPruned() {
         // Unconditional true, mirroring legacy MaxComputeExternalTable (and IcebergExternalTable).
-        // This override is shared by every SPI-driven connector (jdbc/es/trino/max_compute via
-        // CatalogFactory.SPI_READY_TYPES) and true is correct for all of them, partitioned or not:
+        // This override is shared by every plugin-driven connector (jdbc/es/trino/max_compute among them)
+        // and true is correct for all of them, partitioned or not:
         //   - partitioned     -> PruneFileScanPartition prunes to the surviving partitions;
         //   - non-partitioned -> PruneFileScanPartition takes its IF branch and pruneExternalPartitions
         //                        returns NOT_PRUNED for empty partition columns, so the scan reads all.
@@ -1264,70 +1280,33 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return rowWidth;
     }
 
+    /**
+     * The engine name shown in the {@code ENGINE} column of {@code SHOW TABLE STATUS} and
+     * {@code information_schema.tables} (and through the REST metadata API). Named by the connector, which
+     * defaults it to the catalog type; the engine keeps no mapping from data source to displayed name.
+     *
+     * <p>Falls back to the generic {@code Plugin} only for a table whose catalog is not plugin-driven, which
+     * no production path builds.</p>
+     */
     @Override
     public String getEngine() {
-        // Return the legacy engine name based on the actual catalog type,
-        // not the generic "Plugin" from PLUGIN_EXTERNAL_TABLE.toEngineName().
-        // This preserves user-visible compatibility for migrated JDBC/ES tables
-        // across SHOW TABLE STATUS, information_schema.tables, REST API, etc.
-        String catalogType = catalog instanceof PluginDrivenExternalCatalog
-                ? ((PluginDrivenExternalCatalog) catalog).getType() : "";
-        switch (catalogType) {
-            case "jdbc":
-                return TableType.JDBC_EXTERNAL_TABLE.toEngineName();
-            case "es":
-                return TableType.ES_EXTERNAL_TABLE.toEngineName();
-            case "iceberg":
-                // P6.5-T06: preserve the legacy IcebergExternalTable engine name "iceberg"
-                // (TableType.ICEBERG_EXTERNAL_TABLE.toEngineName()) for migrated iceberg base/sys tables,
-                // instead of the generic "Plugin" from PLUGIN_EXTERNAL_TABLE.
-                return TableType.ICEBERG_EXTERNAL_TABLE.toEngineName();
-            case "trino-connector":
-                // TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName() returns null
-                // (no switch case in TableType.toEngineName), matching legacy behavior.
-                return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName();
-            case "max_compute":
-                // TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName() returns null
-                // (no switch case in TableType.toEngineName), matching legacy behavior.
-                return TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName();
-            case "paimon":
-                // TableType.PAIMON_EXTERNAL_TABLE.toEngineName() returns "paimon",
-                // preserving the legacy PaimonExternalTable engine name.
-                return TableType.PAIMON_EXTERNAL_TABLE.toEngineName();
-            case "hms":
-                // Post-flip an HMS external catalog is a PluginDrivenExternalCatalog (type "hms");
-                // legacy HMSExternalTable displayed engine "hms" (TableType.HMS_EXTERNAL_TABLE.toEngineName()),
-                // NOT "hive" — the CREATE-TABLE engine (CreateTableInfo.pluginCatalogTypeToEngine -> "hive")
-                // is a separate concern. Falling through to "Plugin" would regress SHOW TABLE STATUS /
-                // information_schema.tables.
-                return TableType.HMS_EXTERNAL_TABLE.toEngineName();
-            default:
-                return super.getEngine();
-        }
+        return catalog instanceof PluginDrivenExternalCatalog
+                ? ((PluginDrivenExternalCatalog) catalog).getDisplayEngineName()
+                : super.getEngine();
     }
 
+    /**
+     * What {@code SHOW CREATE TABLE} prints after {@code ENGINE=}. Deliberately the same string as
+     * {@link #getEngine()}: one connector, one engine name, however the user reaches it.
+     *
+     * <p>It is display only, and was never round-trippable — an HMS catalog prints {@code hms} here while the
+     * name it accepts back in {@code CREATE TABLE ... ENGINE=} is {@code hive}. Connectors that render their
+     * own DDL ({@code ConnectorTableMetadataOps#renderShowCreateTableDdl}, which hive does) never reach this
+     * at all; their statement carries no {@code ENGINE=} clause.</p>
+     */
     @Override
     public String getEngineTableTypeName() {
-        String catalogType = catalog instanceof PluginDrivenExternalCatalog
-                ? ((PluginDrivenExternalCatalog) catalog).getType() : "";
-        switch (catalogType) {
-            case "jdbc":
-                return TableType.JDBC_EXTERNAL_TABLE.name();
-            case "es":
-                return TableType.ES_EXTERNAL_TABLE.name();
-            case "iceberg":
-                return TableType.ICEBERG_EXTERNAL_TABLE.name();
-            case "trino-connector":
-                return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
-            case "max_compute":
-                return TableType.MAX_COMPUTE_EXTERNAL_TABLE.name();
-            case "paimon":
-                return TableType.PAIMON_EXTERNAL_TABLE.name();
-            case "hms":
-                return TableType.HMS_EXTERNAL_TABLE.name();
-            default:
-                return TableType.PLUGIN_EXTERNAL_TABLE.name();
-        }
+        return getEngine();
     }
 
     @Override

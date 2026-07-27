@@ -19,7 +19,6 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
@@ -47,6 +46,10 @@ import java.util.Optional;
 public class HudiScanRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
+
+    // How hudi spells a NULL partition value in columns_from_path. Byte-frozen: it is what this connector has
+    // always sent, and it is also accepted as an INPUT spelling (a "\N" partition directory means NULL too).
+    private static final String HUDI_NULL_PARTITION_VALUE = "\\N";
 
     private final String path;
     private final long start;
@@ -117,11 +120,6 @@ public class HudiScanRange implements ConnectorScanRange {
                 ? Collections.unmodifiableList(new ArrayList<>(builder.columnTypes))
                 : Collections.emptyList();
         this.forceJni = builder.forceJni;
-    }
-
-    @Override
-    public ConnectorScanRangeType getRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override
@@ -240,15 +238,28 @@ public class HudiScanRange implements ConnectorScanRange {
         if (partValues != null && !partValues.isEmpty()) {
             List<String> pathKeys = new ArrayList<>();
             List<String> pathValues = new ArrayList<>();
+            List<Boolean> pathIsNull = new ArrayList<>();
             for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                // A hudi partition value is a DIRECTORY NAME (HudiScanPlanProvider.parsePartitionValues
+                // unescapes it out of the partition path), so three spellings all mean SQL NULL: the
+                // hive-canonical sentinel, the older text-table "\N", and — defensively — a Java null.
+                // This 3-way rule lives here rather than in the neutral module because it only holds for
+                // directory-name partitioning: hive narrows it (a hive column may hold "\N" as DATA) and
+                // paimon rejects it outright (its partition values are typed, so "\N" is ordinary data).
+                // Rendering: hudi emits "\N" for a NULL where hive/paimon/iceberg emit "" — BE ignores the
+                // string whenever the flag is set, but the bytes stay as they were (see
+                // HudiScanRangePartitionValuesTest).
+                String value = entry.getValue();
+                boolean nullValue = value == null
+                        || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value)
+                        || HUDI_NULL_PARTITION_VALUE.equals(value);
                 pathKeys.add(entry.getKey());
-                pathValues.add(entry.getValue());
+                pathValues.add(nullValue ? HUDI_NULL_PARTITION_VALUE : value);
+                pathIsNull.add(nullValue);
             }
-            ConnectorPartitionValues.Normalized normalized =
-                    ConnectorPartitionValues.normalize(pathValues);
             rangeDesc.setColumnsFromPathKeys(pathKeys);
-            rangeDesc.setColumnsFromPath(normalized.getValues());
-            rangeDesc.setColumnsFromPathIsNull(normalized.getIsNull());
+            rangeDesc.setColumnsFromPath(pathValues);
+            rangeDesc.setColumnsFromPathIsNull(pathIsNull);
         }
     }
 

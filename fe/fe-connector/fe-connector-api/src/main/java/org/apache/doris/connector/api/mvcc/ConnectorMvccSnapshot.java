@@ -28,22 +28,22 @@ import java.util.Objects;
  *
  * <p>Returned by {@code ConnectorMetadata.beginQuerySnapshot} and friends.
  * Used by the engine as the MVCC pin for all subsequent reads of the same
- * table handle within a query, and serialized into BE scan ranges so the
- * read path sees a consistent version.</p>
+ * table handle within a query.</p>
+ *
+ * <p>The pin lives entirely inside FE: this type is not serializable and the engine never places it in a
+ * scan range. What reaches BE is whatever the connector itself put there — the engine hands the snapshot back
+ * to the connector ({@code ConnectorMetadata.applySnapshot}), the connector weaves the version into its own
+ * table handle, and its scan plan provider decides what to emit.</p>
  */
 public final class ConnectorMvccSnapshot {
 
     private final long snapshotId;
-    private final long timestampMillis;
-    private final String description;
     private final long schemaId;
     private final Map<String, String> properties;
     private final boolean lastModifiedFreshness;
 
     private ConnectorMvccSnapshot(Builder b) {
         this.snapshotId = b.snapshotId;
-        this.timestampMillis = b.timestampMillis;
-        this.description = b.description;
         this.schemaId = b.schemaId;
         this.properties = b.properties.isEmpty()
                 ? Collections.emptyMap()
@@ -56,16 +56,6 @@ public final class ConnectorMvccSnapshot {
         return snapshotId;
     }
 
-    /** Wall-clock time at which the snapshot was committed, in ms since epoch. */
-    public long getTimestampMillis() {
-        return timestampMillis;
-    }
-
-    /** Optional human-readable description; may be empty, never null. */
-    public String getDescription() {
-        return description;
-    }
-
     /**
      * Schema version of this snapshot (e.g. paimon schemaId). {@code -1} = unknown
      * &rArr; schema-aware reads fall back to the latest schema.
@@ -74,7 +64,11 @@ public final class ConnectorMvccSnapshot {
         return schemaId;
     }
 
-    /** Connector-specific metadata propagated to BE. Unmodifiable, never null. */
+    /**
+     * Connector-specific metadata carried alongside the snapshot, read back only by the connector that
+     * produced it (in {@code applySnapshot}, and in hudi's synthetic-predicate hook). fe-core never reads
+     * these entries and never forwards them anywhere. Unmodifiable, never null.
+     */
     public Map<String, String> getProperties() {
         return properties;
     }
@@ -102,24 +96,20 @@ public final class ConnectorMvccSnapshot {
         }
         ConnectorMvccSnapshot that = (ConnectorMvccSnapshot) o;
         return snapshotId == that.snapshotId
-                && timestampMillis == that.timestampMillis
                 && schemaId == that.schemaId
                 && lastModifiedFreshness == that.lastModifiedFreshness
-                && description.equals(that.description)
                 && properties.equals(that.properties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(snapshotId, timestampMillis, schemaId, lastModifiedFreshness, description, properties);
+        return Objects.hash(snapshotId, schemaId, lastModifiedFreshness, properties);
     }
 
     @Override
     public String toString() {
         return "ConnectorMvccSnapshot{snapshotId=" + snapshotId
-                + ", timestampMillis=" + timestampMillis
                 + ", schemaId=" + schemaId
-                + ", description='" + description + "'"
                 + ", lastModifiedFreshness=" + lastModifiedFreshness
                 + ", properties=" + properties + "}";
     }
@@ -131,8 +121,6 @@ public final class ConnectorMvccSnapshot {
     public static final class Builder {
 
         private long snapshotId;
-        private long timestampMillis;
-        private String description = "";
         private long schemaId = -1;
         private final Map<String, String> properties = new HashMap<>();
         private boolean lastModifiedFreshness;
@@ -148,18 +136,8 @@ public final class ConnectorMvccSnapshot {
             return this;
         }
 
-        public Builder timestampMillis(long timestampMillis) {
-            this.timestampMillis = timestampMillis;
-            return this;
-        }
-
         public Builder schemaId(long schemaId) {
             this.schemaId = schemaId;
-            return this;
-        }
-
-        public Builder description(String description) {
-            this.description = Objects.requireNonNull(description, "description");
             return this;
         }
 

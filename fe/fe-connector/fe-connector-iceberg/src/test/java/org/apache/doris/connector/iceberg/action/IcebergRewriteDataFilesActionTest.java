@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
 
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.stream.Collectors;
 
 /**
  * Pins the argument spec + planning-parameter build of the connector {@link IcebergRewriteDataFilesAction}
@@ -110,5 +112,23 @@ public class IcebergRewriteDataFilesActionTest {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> a.execute(null, null));
         Assertions.assertTrue(e.getMessage().contains("distributed procedure"), e.getMessage());
+    }
+
+    @Test
+    public void declaresItsResultSchemaLikeItsSingleCallSiblings() {
+        // The columns of this procedure's result used to live in the engine's rewrite driver. They belong to
+        // the procedure, so the action declares them the way the eight single-call actions do — even though
+        // BaseIcebergAction's own execute() path is unreachable here. The schema is a STATIC constant on
+        // purpose: BaseIcebergAction captures getResultSchema() from its constructor, so an instance field
+        // would still be null there and the action would report no columns at all.
+        IcebergRewriteDataFilesAction a = action(Collections.emptyMap(), Collections.emptyList());
+        Assertions.assertEquals(
+                ImmutableList.of("rewritten_data_files_count", "added_data_files_count",
+                        "rewritten_bytes_count", "removed_delete_files_count"),
+                a.getResultSchema().stream().map(ConnectorColumn::getName).collect(Collectors.toList()));
+        Assertions.assertEquals(
+                ImmutableList.of("INT", "INT", "INT", "BIGINT"),
+                a.getResultSchema().stream().map(c -> c.getType().getTypeName())
+                        .collect(Collectors.toList()));
     }
 }

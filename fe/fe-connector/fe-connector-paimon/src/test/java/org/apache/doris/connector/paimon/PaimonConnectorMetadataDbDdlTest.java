@@ -28,8 +28,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * T14 database-DDL tests for {@link PaimonConnectorMetadata#supportsCreateDatabase},
- * {@link #createDatabase} and the 4-arg {@link #dropDatabase}, pinning:
+ * T14 database-DDL tests for {@link PaimonConnectorMetadata#createDatabase} and the 4-arg
+ * {@link PaimonConnectorMetadata#dropDatabase}, pinning:
  * (1) the HMS-only-props gate runs as a pure local arg check BEFORE the authenticator,
  * (2) raw paimon checked exceptions are wrapped as {@link DorisConnectorException},
  * (3) D7=B: every remote call runs INSIDE
@@ -59,20 +59,6 @@ public class PaimonConnectorMetadataDbDdlTest {
         Map<String, String> props = new HashMap<>();
         props.put("location", "/wh/db");
         return props;
-    }
-
-    // ==================== supportsCreateDatabase ====================
-
-    @Test
-    public void supportsCreateDatabaseIsTrue() {
-        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
-        RecordingConnectorContext ctx = new RecordingConnectorContext();
-
-        // WHY: supportsCreateDatabase()==true is the gate that makes
-        // PluginDrivenExternalCatalog.createDb run the remote IF-NOT-EXISTS precheck AND route to
-        // createDatabase; if it were false, CREATE DATABASE would fall through to "not supported".
-        // MUTATION: returning false (the SPI default) makes this red and breaks the FE routing.
-        Assertions.assertTrue(filesystemMetadata(ops, ctx).supportsCreateDatabase());
     }
 
     // ==================== createDatabase: HMS-only-props gate ====================

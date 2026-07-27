@@ -54,9 +54,13 @@ public final class ConnectorPartitionInfo {
      * {@link #partitionValueNullFlags} — i.e. value {@code i} is the value of the {@code i}-th
      * {@code key=value} segment of {@link #partitionName}, decoded exactly as fe-core's legacy name parse
      * would produce it (so the connector supplies what fe-core used to re-parse out of the name).
-     * Empty means "not supplied": fe-core then falls back to parsing {@link #partitionName} itself
-     * (unchanged behavior). A connector that lists partitions for the MVCC partition-item path
-     * (hive/paimon/iceberg/hudi) supplies this so fe-core does not re-run the hive-style parse.
+     *
+     * <p><b>A connector that lists partitions for the MVCC partition-item path (hive/paimon/iceberg/hudi)
+     * MUST supply this. There is no name-parsing fallback in fe-core any more.</b> fe-core checks that the
+     * number of values matches the number of partition columns and fails that partition when it does not;
+     * the failure is caught per partition, so the visible effect of leaving this empty is not an error but a
+     * silent degradation: every partition is skipped, the table is treated as unpartitioned, and partition
+     * pruning is lost (only a warn line in the FE log records it).</p>
      */
     private final List<String> orderedPartitionValues;
 
@@ -163,7 +167,18 @@ public final class ConnectorPartitionInfo {
         return sizeBytes;
     }
 
-    /** @return last-modified epoch millis, or {@link #UNKNOWN}. */
+    /**
+     * @return last-modified epoch millis, or {@link #UNKNOWN}.
+     *
+     *         <p><b>The unit is load-bearing, not decorative.</b> The engine subtracts this from the
+     *         wall clock to decide whether the table has been quiet long enough to serve a query from
+     *         the SQL cache. Because it clamps "now" to at least this value (a guard against FE/metadata
+     *         clock skew), a value from any other scale - a source-native version, a commit id, a
+     *         timestamp in another unit - makes that difference come out as zero forever and SILENTLY
+     *         disables the SQL cache for this table AND for every table queried alongside it. There is
+     *         no error and no EXPLAIN signal; the only symptom is that the cache never engages. Report
+     *         {@link #UNKNOWN} rather than a value in a different unit.
+     */
     public long getLastModifiedMillis() {
         return lastModifiedMillis;
     }

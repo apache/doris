@@ -121,7 +121,7 @@ public final class FileSystemFactory {
     /**
      * Binds the given raw properties into the catalog's typed fe-filesystem
      * {@link org.apache.doris.filesystem.properties.StorageProperties} list (one entry per configured
-     * backend), for connectors to consume via {@code ConnectorContext.getStorageProperties()}.
+     * backend), for connectors to consume via {@code ConnectorStorageContext.getStorageProperties()}.
      *
      * <p>Delegates to {@link FileSystemPluginManager#bindAll}, which mirrors the legacy
      * {@code StorageProperties.createAll} routing (fixed priority, explicit {@code fs.<x>.support}

@@ -22,12 +22,16 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
@@ -57,6 +61,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -232,6 +237,43 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
                         + " latest-read handle");
     }
 
+    @Test
+    public void rowLevelDmlConnectorColumnsCarryTheWholeTypeNotJustItsPrimitiveTag() {
+        // Production ALWAYS threads the hidden __DORIS_ICEBERG_ROWID_COL__ -- a STRUCT (file_path, pos, ...)
+        // -- through a row-level DML sink's cols, so this arm sees a complex type on every DELETE/UPDATE/MERGE,
+        // even against a table whose data columns are all scalar. Deriving the ConnectorType from the column's
+        // primitive TAG alone ("STRUCT") drops the children, and a childless complex type is rejected outright
+        // by ConnectorType's shape check -> the whole iceberg DML surface failed to translate (build 1006199).
+        // The other tests here use a scalar-only fixture, which is exactly why they could not catch it.
+        Column rowId = new Column(Column.ICEBERG_ROWID_COL, new StructType(
+                new StructField("file_path", Type.STRING),
+                new StructField("pos", Type.BIGINT)));
+
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        Plugin plugin = pluginTable();
+
+        @SuppressWarnings("unchecked")
+        PhysicalExternalRowLevelDeleteSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelDeleteSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(plugin.table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(DATA, rowId)).when(sink).getCols();
+
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
+        translator.visitPhysicalExternalRowLevelDeleteSink(sink, context);
+
+        @SuppressWarnings("unchecked")
+        List<ConnectorColumn> connectorColumns = (List<ConnectorColumn>) Deencapsulation.getField(
+                capturePluginSink(childFragment), "connectorColumns");
+        ConnectorType rowIdType = connectorColumns.get(1).getType();
+        Assertions.assertEquals("STRUCT", rowIdType.getTypeName().toUpperCase(Locale.ROOT),
+                "the row-id column must keep its STRUCT tag");
+        Assertions.assertEquals(ImmutableList.of("file_path", "pos"), rowIdType.getFieldNames(),
+                "the row-id STRUCT must carry its field names, not be flattened to a bare tag");
+        Assertions.assertEquals(2, rowIdType.getChildren().size(),
+                "the row-id STRUCT must carry its child types, not be flattened to a bare tag");
+    }
+
     // ==================== helpers ====================
 
     /** A column-less slot (no backing Column, so its slot col_name is empty until the loop materializes it). */
@@ -271,13 +313,9 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
         // Production selects the write provider per-handle; a plain mock does not run the interface default.
         Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
-        // The row-level DML gate (buildPluginRowLevelDmlSink) admits on connector.supportedWriteOperations()
-        // containing DELETE/MERGE. On a plain mock the Connector delegator default is not invoked, so stub it
-        // directly (an iceberg connector declares row-level DML support).
-        Mockito.when(connector.supportedWriteOperations())
-                .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.MERGE));
-        // Site 1 (row-level DML) now resolves the handle first and consults the per-handle overload.
-        Mockito.when(connector.supportedWriteOperations(Mockito.any()))
+        // The row-level DML gate (buildPluginRowLevelDmlSink) resolves the handle, fetches the per-handle
+        // provider and admits on ITS supportedOperations containing DELETE/MERGE.
+        Mockito.when(provider.supportedOperations())
                 .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.MERGE));
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))

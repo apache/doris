@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorIn;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
@@ -161,25 +162,13 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public List<ConnectorScanRange> planScan(ConnectorSession session,
-            ConnectorTableHandle handle, List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        return planScan(session, handle, columns, filter, -1);
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(ConnectorSession session,
-            ConnectorTableHandle handle, List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter, long limit) {
-        return planScan(session, handle, columns, filter, limit, null);
-    }
-
-    @Override
-    public List<ConnectorScanRange> planScan(ConnectorSession session,
-            ConnectorTableHandle handle, List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions) {
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        List<ConnectorColumnHandle> columns = request.getColumns();
+        Optional<ConnectorExpression> filter = request.getFilter();
+        long limit = request.getLimit();
+        List<String> requiredPartitions = request.getRequiredPartitions();
         ensureInitialized();
-        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
+        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) request.getTableHandle();
         Table odpsTable = mcHandle.getOdpsTable();
 
         // Reject external tables / logical views before any read planning (mirrors legacy

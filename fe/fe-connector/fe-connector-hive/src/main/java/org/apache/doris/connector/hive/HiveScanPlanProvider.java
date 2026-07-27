@@ -24,10 +24,12 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
@@ -78,10 +80,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /** Maximum number of partitions to list from HMS. */
     private static final int MAX_PARTITIONS = 100000;
 
-    /** Scan node property keys. */
-    public static final String PROP_FILE_FORMAT_TYPE = "file_format_type";
-    public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
-    public static final String PROP_LOCATION_PREFIX = "location.";
     /**
      * Connector-internal signal (consumed by {@link #populateScanLevelParams}) marking a full-ACID
      * (transactional) Hive scan; drives the scan-level {@code table_format_type} stamp. Not a BE-facing key.
@@ -94,7 +92,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private final HmsClient hmsClient;
     private final Map<String, String> catalogProperties;
     // Engine-owned, per-catalog filesystem accessor. The non-ACID listing path borrows the Doris FileSystem via
-    // context.getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
+    // storage().getFileSystem(session) (never closes it — the engine owns its lifecycle) to list partition
     // directories, replacing bare Hadoop FileSystem.get (FIX-HIVEFS: the hive plugin bundles no HDFS impl).
     private final ConnectorContext context;
     private final HiveReadTransactionManager readTxnManager;
@@ -114,17 +112,14 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.FILE_SCAN;
+    public boolean supportsFileCache() {
+        // hive tables are read by BE's native parquet/orc/text readers, so the BE file cache applies.
+        return true;
     }
 
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
 
@@ -150,11 +145,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             // Transactional (ACID) table: descend into base/delta directories under the query's write-id
             // snapshot and emit ACID-annotated ranges. Borrows the engine's per-catalog Doris FileSystem to
             // list (same source as the non-ACID branch below; the engine owns its lifecycle — never closed here).
-            planAcidScan(session, hiveHandle, partitions, context.getFileSystem(session), fileFormat,
+            planAcidScan(session, hiveHandle, partitions, storage().getFileSystem(session), fileFormat,
                     splittable, targetSplitSize, ranges);
         } else {
             // Borrow the engine's per-catalog Doris FileSystem to list partition directories (see field javadoc).
-            FileSystem fs = context.getFileSystem(session);
+            FileSystem fs = storage().getFileSystem(session);
             for (PartitionScanInfo partition : partitions) {
                 HiveFileFormat partFormat = partition.fileFormat != null
                         ? partition.fileFormat : fileFormat;
@@ -229,12 +224,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScanForPartitionBatch(
             ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit,
+            ConnectorScanRequest request,
             List<String> partitionBatch) {
-        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
 
@@ -255,7 +247,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         boolean splittable = fileFormat.isSplittable() && !isLzo;
         // Only the non-ACID path is reachable here (supportsBatchScan excludes transactional tables), so this
         // borrows the engine's per-catalog Doris FileSystem to list — no Hadoop Configuration is needed.
-        FileSystem fs = context.getFileSystem(session);
+        FileSystem fs = storage().getFileSystem(session);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PartitionScanInfo partition : partitions) {
@@ -275,7 +267,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * surviving base/delta data files and delete-delta directories, and emits one ACID-annotated
      * {@link HiveScanRange} per data-file split. The BE subtracts the delete deltas on read.</p>
      *
-     * <p><b>Live path.</b> Post-cutover {@code hms} is in {@code SPI_READY_TYPES}, so an hms-catalog
+     * <p><b>Live path.</b> Post-cutover an {@code hms} catalog is plugin-driven, so an hms-catalog
      * transactional table is a {@code PluginDrivenExternalTable} routed through {@code PluginDrivenScanNode}
      * straight into this method on a live query (the only read gate is the full-ACID ORC-format check below).
      * It opens a real metastore transaction/lock; the matching commit (lock release) is driven by
@@ -386,12 +378,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        props.put(PROP_FILE_FORMAT_TYPE, fileFormat.getFormatName());
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, fileFormat.getFormatName());
 
         // Partition key column names
         List<String> partKeys = hiveHandle.getPartitionKeyNames();
         if (partKeys != null && !partKeys.isEmpty()) {
-            props.put(PROP_PATH_PARTITION_KEYS, String.join(",", partKeys));
+            props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partKeys));
         }
 
         // Location properties (Hadoop/S3 config for BE file access).
@@ -402,7 +394,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         //      (hmsTable.getBackendStorageProperties()); the new path had dropped it. Empty for a null context
         //      (offline tests) or a credential-less warehouse.
         if (context != null) {
-            context.getBackendStorageProperties().forEach((k, v) -> props.put(PROP_LOCATION_PREFIX + k, v));
+            storage().getBackendStorageProperties()
+                    .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         //  (2) Raw catalog aliases + inline fs./hadoop./dfs. keys. Emitted AFTER the canonical set so a user-inline
         //      fs./hadoop. key wins; the s3./oss./cos./obs. aliases are harmless to BE (ignored by the native
@@ -410,7 +403,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             String key = entry.getKey();
             if (isLocationProperty(key)) {
-                props.put(PROP_LOCATION_PREFIX + key, entry.getValue());
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, entry.getValue());
             }
         }
 
@@ -608,7 +601,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Normalizes a raw HMS storage URI into BE's canonical scheme for a BE-facing native reader path
      * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
-     * {@link ConnectorContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@link ConnectorStorageContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
      * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
      * {@code s3a://} scan path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon/hudi and hive's
      * OWN write path ({@code HiveWritePlanProvider}); legacy {@code HiveScanNode} normalized via the 2-arg
@@ -616,7 +609,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * unchanged. A null context (offline unit tests) preserves the raw URI.
      */
     private String normalizeNativeUri(String rawUri) {
-        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+        return context != null ? storage().normalizeStorageUri(rawUri) : rawUri;
     }
 
     /**
@@ -715,5 +708,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.partitionValues = partitionValues;
             this.fileFormat = fileFormat;
         }
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

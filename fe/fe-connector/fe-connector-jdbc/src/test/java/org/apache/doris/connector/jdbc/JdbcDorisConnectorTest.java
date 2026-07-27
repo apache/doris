@@ -19,11 +19,13 @@ package org.apache.doris.connector.jdbc;
 
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorContractValidator;
+import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -103,6 +105,17 @@ class JdbcDorisConnectorTest {
     }
 
     @Test
+    void testDeclaresPassthroughSqlByImplementingTheOptionalInterface() {
+        // jdbc is the connector behind query() and CALL EXECUTE_STMT, and the engine admits it by type-checking
+        // the metadata against ConnectorPassthroughSqlOps -- implementing that interface IS the declaration
+        // (it replaced a SUPPORTS_PASSTHROUGH_QUERY flag that could disagree with the implementation).
+        // MUTATION: dropping the interface from JdbcConnectorMetadata makes both entry points refuse every
+        // jdbc catalog with "not supported" -> red here.
+        Assertions.assertTrue(ConnectorPassthroughSqlOps.class.isAssignableFrom(JdbcConnectorMetadata.class),
+                "jdbc must implement ConnectorPassthroughSqlOps or query()/EXECUTE_STMT stop admitting it");
+    }
+
+    @Test
     void testDoubleCloseNoException() throws IOException {
         JdbcDorisConnector connector = new JdbcDorisConnector(minimalProps(), testContext());
         connector.close();
@@ -179,9 +192,11 @@ class JdbcDorisConnectorTest {
         props.put(JdbcConnectorProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
         props.put(JdbcConnectorProperties.DRIVER_CLASS, "java.lang.Object");
         JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext());
-        Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT), connector.supportedWriteOperations(),
+        ConnectorWritePlanProvider writeProvider = connector.getWritePlanProvider();
+        Assertions.assertNotNull(writeProvider, "JDBC connector must expose a write plan provider");
+        Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT), writeProvider.supportedOperations(),
                 "JDBC connector should declare INSERT as its only supported write operation");
-        Assertions.assertFalse(connector.supportsWriteBranch(),
+        Assertions.assertFalse(writeProvider.supportsWriteBranch(),
                 "JDBC connector should not support writing into a named table branch");
         // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
         ConnectorContractValidator.validate(connector, "jdbc");

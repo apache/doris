@@ -275,7 +275,6 @@ import org.apache.doris.nereids.DorisParser.MergeNotMatchedClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyColumnCommentClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyDistributionClauseContext;
-import org.apache.doris.nereids.DorisParser.ModifyEngineClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyTableCommentClauseContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
@@ -990,7 +989,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp.ModifyOpType;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
@@ -6548,15 +6546,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         ColumnPath columnPath = parseColumnPath(ctx.name, visitQualifiedName(ctx.name));
         String comment = SqlLiteralUtils.parseStringLiteral(ctx.STRING_LITERAL().getText());
         return new ModifyColumnCommentOp(columnPath, comment);
-    }
-
-    @Override
-    public AlterTableOp visitModifyEngineClause(ModifyEngineClauseContext ctx) {
-        String engineName = ctx.name.getText();
-        Map<String, String> properties = ctx.properties != null
-                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
-                : Maps.newHashMap();
-        return new ModifyEngineOp(engineName, properties);
     }
 
     @Override

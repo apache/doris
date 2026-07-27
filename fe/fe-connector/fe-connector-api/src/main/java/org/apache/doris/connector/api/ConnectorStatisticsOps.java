@@ -26,6 +26,20 @@ import java.util.Optional;
 
 /**
  * Operations for retrieving table-level statistics from a connector.
+ *
+ * <p><b>These methods may run OFF the query thread, on engine background pools, and the engine pins no
+ * thread context classloader on any of them.</b> The pools reached today are the column-statistics cache
+ * loader ({@code STATS_FETCH}), the analysis-job executor that runs {@code ANALYZE ... WITH SAMPLE}, and the
+ * external row-count refresh executor. (The snapshot-aware {@code getTableStatistics} overload is invoked on
+ * the query thread only, but do not rely on that: treat every method here as background-callable.)</p>
+ *
+ * <p>Consequence for a connector: if an implementation — or a bundled library it calls — loads classes
+ * reflectively BY NAME, it must pin the thread context classloader to its own plugin classloader for the
+ * duration of the call and restore it afterwards. Without that pin the name resolves against the engine's own
+ * copy of the class on a background thread, which surfaces as an intermittent
+ * {@code ClassCastException} / {@code NoClassDefFoundError} that only appears while statistics are being
+ * collected. The hive connector's {@code listFileSizes} implementation does this pinning itself and is the
+ * pattern to copy; the engine's side of the boundary states explicitly that it does not pin here.</p>
  */
 public interface ConnectorStatisticsOps {
 
@@ -90,8 +104,10 @@ public interface ConnectorStatisticsOps {
      * factor, then does the Doris-type slot-width math itself. Unlike {@link #estimateDataSizeByListingFiles} it
      * neither partition-samples nor sums, because the sampler needs the individual file sizes. A potentially
      * expensive full remote listing, so connectors that cannot enumerate files cheaply must NOT override it
-     * (default empty -> the sampler falls back to scale factor 1). Best-effort: an override must return empty on
-     * any listing error rather than throw (statistics must not fail a query).
+     * (default empty -> the sampler falls back to scale factor 1). An override must let a listing error
+     * propagate rather than swallow it: an empty list is indistinguishable from "this table has no files", so
+     * swallowing turns an unreachable metastore into a silently wrong scale factor of 1 while the sample still
+     * runs. Propagating fails only the ANALYZE task that asked, never an unrelated query.
      */
     default List<Long> listFileSizes(ConnectorSession session, ConnectorTableHandle handle) {
         return Collections.emptyList();

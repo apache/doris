@@ -31,8 +31,6 @@ import java.util.Objects;
  *   <li>{@code LIST} — Doris {@code PARTITION BY LIST} with explicit value definitions.</li>
  *   <li>{@code RANGE} — Doris {@code PARTITION BY RANGE} with [lower, upper) tuples.</li>
  * </ul>
- *
- * <p>{@code initialValues} is only meaningful for {@code LIST} / {@code RANGE} styles.</p>
  */
 public final class ConnectorPartitionSpec {
 
@@ -45,26 +43,19 @@ public final class ConnectorPartitionSpec {
 
     private final Style style;
     private final List<ConnectorPartitionField> fields;
-    private final List<ConnectorPartitionValueDef> initialValues;
     private final boolean hasExplicitPartitionValues;
 
-    public ConnectorPartitionSpec(Style style,
-            List<ConnectorPartitionField> fields,
-            List<ConnectorPartitionValueDef> initialValues) {
-        this(style, fields, initialValues, false);
+    public ConnectorPartitionSpec(Style style, List<ConnectorPartitionField> fields) {
+        this(style, fields, false);
     }
 
     public ConnectorPartitionSpec(Style style,
             List<ConnectorPartitionField> fields,
-            List<ConnectorPartitionValueDef> initialValues,
             boolean hasExplicitPartitionValues) {
         this.style = Objects.requireNonNull(style, "style");
         this.fields = fields == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(fields);
-        this.initialValues = initialValues == null
-                ? Collections.emptyList()
-                : Collections.unmodifiableList(initialValues);
         this.hasExplicitPartitionValues = hasExplicitPartitionValues;
     }
 
@@ -76,17 +67,13 @@ public final class ConnectorPartitionSpec {
         return fields;
     }
 
-    public List<ConnectorPartitionValueDef> getInitialValues() {
-        return initialValues;
-    }
-
     /**
      * Whether the CREATE TABLE declared explicit partition value definitions (e.g.
-     * {@code PARTITION BY LIST(dt) (PARTITION p1 VALUES IN ('a'))}). The neutral converter does not lower
-     * those value expressions into {@link #getInitialValues()} (it stays empty), so this flag preserves the
-     * information a connector needs to reject them: Hive external tables discover partitions from the data
-     * layout and reject explicit partition values (legacy parity). Connectors that accept explicit partition
-     * definitions ignore this flag.
+     * {@code PARTITION BY LIST(dt) (PARTITION p1 VALUES IN ('a'))}). The neutral converter does not carry
+     * those value expressions across the SPI boundary at all, so this flag is the only thing that preserves
+     * the information a connector needs to reject them: Hive external tables discover partitions from the
+     * data layout and reject explicit partition values (legacy parity). Connectors that accept explicit
+     * partition definitions ignore this flag.
      */
     public boolean hasExplicitPartitionValues() {
         return hasExplicitPartitionValues;
@@ -103,20 +90,18 @@ public final class ConnectorPartitionSpec {
         ConnectorPartitionSpec that = (ConnectorPartitionSpec) o;
         return style == that.style
                 && hasExplicitPartitionValues == that.hasExplicitPartitionValues
-                && fields.equals(that.fields)
-                && initialValues.equals(that.initialValues);
+                && fields.equals(that.fields);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(style, fields, initialValues, hasExplicitPartitionValues);
+        return Objects.hash(style, fields, hasExplicitPartitionValues);
     }
 
     @Override
     public String toString() {
         return "ConnectorPartitionSpec{style=" + style
                 + ", fields=" + fields
-                + ", initialValues=" + initialValues.size()
                 + ", hasExplicitPartitionValues=" + hasExplicitPartitionValues + "}";
     }
 }

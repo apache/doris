@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 
 import java.util.Collections;
 import java.util.Map;
@@ -27,7 +28,14 @@ import java.util.Map;
  * channel through which fe-core threads the FE-global CREATE TABLE defaults). Everything else uses the
  * interface defaults.
  */
-public class FakeConnectorContext implements ConnectorContext {
+public class FakeConnectorContext implements ConnectorContext, ConnectorStorageContext {
+
+    // This double is both halves of the context, so a subclass that overrides a storage method (several
+    // tests do, anonymously) still has the connector reach that override.
+    @Override
+    public ConnectorStorageContext getStorageContext() {
+        return this;
+    }
 
     private final String catalogName;
     private final long catalogId;

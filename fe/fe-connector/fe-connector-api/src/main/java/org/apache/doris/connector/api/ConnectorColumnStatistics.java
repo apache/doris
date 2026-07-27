@@ -27,14 +27,15 @@ import java.util.Objects;
  * {@code dataSize}/{@code avgSize} — those depend on the column's fixed slot width, which the connector
  * cannot know without importing fe-type. fe-core derives them from {@link #getAvgSizeBytes()} (when the
  * source knows the average value size, e.g. a hive string column's {@code avgColLen}) or the column's slot
- * width otherwise, mirroring the {@link #getTableStatistics}-style raw/derived split. Use {@link #UNKNOWN}
- * when statistics are unavailable.</p>
+ * width otherwise, mirroring the raw/derived split of
+ * {@link ConnectorStatisticsOps#getTableStatistics}.</p>
+ *
+ * <p>A connector that has no per-column statistics returns {@code Optional.empty()} from
+ * {@link ConnectorStatisticsOps#getColumnStatistics} — that, not a sentinel instance, is how
+ * "unavailable" is expressed. Returning a present value with an individual field set to -1 is
+ * still allowed and means "this one number is unknown".</p>
  */
 public final class ConnectorColumnStatistics {
-
-    /** Sentinel indicating no per-column statistics are available. */
-    public static final ConnectorColumnStatistics UNKNOWN =
-            new ConnectorColumnStatistics(-1, -1, -1, -1);
 
     private final long rowCount;
     private final long ndv;

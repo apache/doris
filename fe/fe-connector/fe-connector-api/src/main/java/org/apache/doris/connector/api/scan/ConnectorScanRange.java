@@ -30,17 +30,16 @@ import java.util.Optional;
 /**
  * Represents a unit of work (a split/range) for scanning a connector table.
  *
- * <p>Each scan range maps to one BE scan task. The {@link #getRangeType() range type}
- * determines how the engine converts this range into the appropriate Thrift
- * scan range structure for BE execution.</p>
+ * <p>Each scan range maps to one BE scan task. The Thrift shape is chosen by the range itself: override
+ * {@link #populateRangeParams} to build a format-specific {@code TTableFormatFileDesc} (iceberg, hudi, paimon
+ * and es all do), and use {@link #getTableFormatType()} to select the BE-side reader. The default
+ * {@code populateRangeParams} dumps {@link #getProperties()} into the generic {@code jdbc_params} map, which
+ * is what the JNI-based readers consume.</p>
  *
  * <p>Connectors produce scan ranges via {@link ConnectorScanPlanProvider#planScan},
  * and the engine converts them to {@code TScanRangeLocations} for dispatch.</p>
  */
 public interface ConnectorScanRange extends Serializable {
-
-    /** Returns the scan range type, which determines BE processing. */
-    ConnectorScanRangeType getRangeType();
 
     /** Returns the file path, if applicable. */
     default Optional<String> getPath() {
@@ -52,7 +51,21 @@ public interface ConnectorScanRange extends Serializable {
         return 0;
     }
 
-    /** Returns the number of bytes to read, or -1 for the entire file. */
+    /**
+     * Returns this range's size, or -1 when the connector does not quantify it (the default).
+     *
+     * <p><b>The unit is connector-defined, NOT universally bytes.</b> A file-backed connector reports the byte
+     * count to read from {@link #getStart()} (hive, iceberg), but a connector whose split is not a byte range
+     * reports what its own SDK gave it — MaxCompute's row-offset splits carry a ROW count, and its default
+     * splits, like Paimon's JNI ranges, carry -1. BE is told the value only through the range's own thrift, so
+     * each connector stays self-consistent.</p>
+     *
+     * <p>Consequently the ENGINE must not read this as a byte size to drive a generic size-based decision
+     * (sampling, split merging, parallelism): a value meaning rows would silently mis-size the plan for that
+     * connector. Such a feature is gated on an explicit capability the connector opts into (mirroring
+     * {@code supportsTableSample}), and only a connector whose {@code getLength} is genuinely a byte count may
+     * opt in.</p>
+     */
     default long getLength() {
         return -1;
     }
@@ -60,9 +73,8 @@ public interface ConnectorScanRange extends Serializable {
     /**
      * Returns the file format (e.g., "parquet", "orc", "csv", "jni").
      *
-     * <p>For {@link ConnectorScanRangeType#FILE_SCAN}, this determines the
-     * BE reader. For non-file types (JDBC, ES, etc.), return "jni" to use
-     * the JNI scanner framework.</p>
+     * <p>For a range read by a native file reader this determines that reader. For a range served through a
+     * JNI scanner (jdbc, es, and the system-table paths), return "jni".</p>
      */
     default String getFileFormat() {
         return "jni";
@@ -182,7 +194,6 @@ public interface ConnectorScanRange extends Serializable {
     default void populateRangeParams(TTableFormatFileDesc formatDesc,
             TFileRangeDesc rangeDesc) {
         Map<String, String> props = new HashMap<>(getProperties());
-        props.put("connector_scan_range_type", getRangeType().name());
         props.put("connector_file_format", getFileFormat());
         Map<String, String> partValues = getPartitionValues();
         if (partValues != null && !partValues.isEmpty()) {

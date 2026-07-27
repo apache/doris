@@ -18,8 +18,10 @@
 package org.apache.doris.connector.api.scan;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import org.junit.jupiter.api.Assertions;
@@ -36,36 +38,27 @@ import java.util.Optional;
  *
  * <p><b>Why this matters:</b> these defaults are what keep the change zero-break for the other
  * connectors (es/jdbc/hive/paimon/hudi/trino). {@code supportsBatchScan} MUST default to false so no
- * connector silently enters batch mode without opting in; {@code planScanForPartitionBatch} MUST
- * delegate to the 6-arg {@code planScan} with the batch as the required partitions (and forward the
- * limit), so a connector whose {@code planScan} is partition-set-scoped — like MaxCompute — gets
+ * connector silently enters batch mode without opting in; {@code planScanForPartitionBatch} MUST call
+ * {@code planScan} with the batch as the required partitions AND everything else about the request
+ * unchanged, so a connector whose {@code planScan} is partition-set-scoped — like MaxCompute — gets
  * correct per-batch behaviour without overriding it.</p>
  */
 public class ConnectorScanPlanProviderBatchScanTest {
 
-    /** Records the partition list / limit the default planScanForPartitionBatch forwards. */
+    /** Records the request the default planScanForPartitionBatch forwards. */
     private static final class RecordingProvider implements ConnectorScanPlanProvider {
         static final List<ConnectorScanRange> MARKER = Collections.emptyList();
-        List<String> recordedRequiredPartitions;
-        long recordedLimit = Long.MIN_VALUE;
-        boolean fourArgCalled;
+        ConnectorScanRequest recordedRequest;
 
         @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
-            fourArgCalled = true;
-            return MARKER;
-        }
-
-        @Override
-        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorTableHandle handle,
-                List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
-                long limit, List<String> requiredPartitions) {
-            this.recordedLimit = limit;
-            this.recordedRequiredPartitions = requiredPartitions;
+        public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+            this.recordedRequest = request;
             return MARKER;
         }
     }
+
+    private static final ConnectorTableHandle HANDLE = new ConnectorTableHandle() {
+    };
 
     @Test
     public void testSupportsBatchScanDefaultsFalse() {
@@ -92,21 +85,48 @@ public class ConnectorScanPlanProviderBatchScanTest {
     }
 
     @Test
-    public void testPlanScanForPartitionBatchDelegatesToSixArgPlanScan() {
-        // Default MUST forward the batch as requiredPartitions and pass the limit through to the
-        // 6-arg planScan, returning its result. A connector with partition-set-scoped planScan
-        // (MaxCompute) relies on this to avoid overriding the method.
+    public void testPlanScanForPartitionBatchRescopesTheRequestToTheBatch() {
+        // Default MUST call planScan with the batch as the required partitions and EVERY other field of
+        // the request carried over untouched. A connector with partition-set-scoped planScan (MaxCompute)
+        // relies on this to avoid overriding the method. MUTATION: a withRequiredPartitions that dropped
+        // any other field would leave the batched scan planning without the filter or the limit, which is
+        // exactly the silent capability loss the request object replaced -> red here.
         RecordingProvider provider = new RecordingProvider();
         List<String> batch = Arrays.asList("pt=1", "pt=2");
+        List<ConnectorColumnHandle> columns = Collections.emptyList();
+        ConnectorExpression filter = new ConnectorColumnRef("c1", ConnectorType.of("INT"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, columns)
+                .filter(Optional.of(filter))
+                .limit(7L)
+                .countPushdown(true)
+                .build();
 
-        List<ConnectorScanRange> result =
-                provider.planScanForPartitionBatch(null, null, Collections.emptyList(),
-                        Optional.empty(), -1L, batch);
+        List<ConnectorScanRange> result = provider.planScanForPartitionBatch(null, request, batch);
 
         Assertions.assertSame(RecordingProvider.MARKER, result);
-        Assertions.assertSame(batch, provider.recordedRequiredPartitions);
-        Assertions.assertEquals(-1L, provider.recordedLimit);
-        // It must route through the 6-arg overload, not collapse to the 4-arg one.
-        Assertions.assertFalse(provider.fourArgCalled);
+        ConnectorScanRequest forwarded = provider.recordedRequest;
+        Assertions.assertEquals(batch, forwarded.getRequiredPartitions());
+        Assertions.assertSame(HANDLE, forwarded.getTableHandle());
+        Assertions.assertSame(columns, forwarded.getColumns());
+        Assertions.assertSame(filter, forwarded.getFilter().orElse(null));
+        Assertions.assertEquals(7L, forwarded.getLimit());
+        Assertions.assertTrue(forwarded.isCountPushdown());
+    }
+
+    @Test
+    public void testRequestDefaultsAskForNothingSpecial() {
+        // The fields a connector may ignore must default to "the engine is not asking for anything":
+        // no filter, no limit, every partition, no COUNT(*) pushdown. A different default would make a
+        // connector that reads them behave differently depending on which builder setters the caller used.
+        ConnectorScanRequest request =
+                ConnectorScanRequest.builder(HANDLE, Collections.emptyList()).build();
+
+        Assertions.assertFalse(request.getFilter().isPresent());
+        Assertions.assertEquals(-1L, request.getLimit());
+        Assertions.assertTrue(request.getRequiredPartitions().isEmpty());
+        Assertions.assertFalse(request.isCountPushdown());
+        // null is accepted for the partition set and means the same as empty: scan everything.
+        Assertions.assertTrue(ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                .requiredPartitions(null).build().getRequiredPartitions().isEmpty());
     }
 }

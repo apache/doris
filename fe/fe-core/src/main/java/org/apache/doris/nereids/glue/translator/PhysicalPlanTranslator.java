@@ -45,12 +45,12 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
@@ -237,6 +237,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -612,9 +613,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ConnectorSession connSession = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
 
+        // Convert the WHOLE type, not just its primitive tag: a row-level DML always carries the hidden
+        // __DORIS_ICEBERG_ROWID_COL__ STRUCT, and the target may hold ARRAY/MAP/STRUCT data columns.
+        // Naming only the tag would drop the children and yield a childless (invalid) complex type.
         List<ConnectorColumn> connectorColumns = sink.getCols().stream()
                 .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorType.of(col.getType().getPrimitiveType().toString()),
+                        ConnectorColumnConverter.toConnectorType(col.getType()),
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
@@ -627,13 +631,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
-        Set<WriteOperation> writeOps = connector.supportedWriteOperations(providerTableHandle);
+        // The provider both admits the operation and plans the sink, so resolve it once: several connectors
+        // build a fresh provider per call and iceberg's construction reaches the live remote catalog.
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        Set<WriteOperation> writeOps = writePlanProvider == null
+                ? EnumSet.noneOf(WriteOperation.class)
+                : writePlanProvider.supportedOperations();
         if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support row-level DML operations");
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
         providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
                 metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
@@ -660,10 +668,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ConnectorSession connSession = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
 
-        // Convert sink columns to connector columns for INSERT SQL generation
+        // Convert sink columns to connector columns for INSERT SQL generation. The whole type is
+        // converted (see the row-level DML arm): a bare primitive tag drops an ARRAY/MAP/STRUCT
+        // column's children and yields a childless, invalid complex type.
         List<ConnectorColumn> connectorColumns = connectorTableSink.getCols().stream()
                 .map(col -> new ConnectorColumn(col.getName(),
-                        ConnectorType.of(col.getType().getPrimitiveType().toString()),
+                        ConnectorColumnConverter.toConnectorType(col.getType()),
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
@@ -679,12 +689,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
-        if (!connector.supportedWriteOperations(providerTableHandle).contains(WriteOperation.INSERT)) {
+        // Resolve the provider once: it both admits INSERT and plans the sink (see the row-level DML arm).
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        if (writePlanProvider == null
+                || !writePlanProvider.supportedOperations().contains(WriteOperation.INSERT)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support INSERT operations");
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
 
         // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin
         // logic so a DML's write anchors at the SAME snapshot its scan read (the pin is keyed by

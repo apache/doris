@@ -23,7 +23,9 @@ import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Hive (HMS) connector plugin.
@@ -41,6 +43,23 @@ public class HiveConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new HiveConnector(properties, context);
+    }
+
+    /**
+     * An HMS catalog has always created hive-engine tables, so {@code CREATE TABLE ... ENGINE=hive} keeps
+     * working. The name deliberately differs from {@link #getType()} and from the {@code hms} a table
+     * displays: the engine keyword and the catalog type are separate legacy vocabularies.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("hive");
+    }
+
+    @Override
+    public boolean providesEventSource() {
+        // HiveConnector returns an HmsEventSource, and an HMS catalog must seed its event cursor even on an
+        // FE that never queries it (see MetastoreEventSyncDriver).
+        return true;
     }
 
     @Override

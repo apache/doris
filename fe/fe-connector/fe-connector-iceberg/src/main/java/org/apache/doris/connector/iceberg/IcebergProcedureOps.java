@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.action.BaseIcebergAction;
@@ -145,6 +146,21 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
                 properties, partitionNames, whereCondition);
         action.validate();
         return planInAuthScope(handle, action, session);
+    }
+
+    /**
+     * Renders the rewrite driver's statistics into {@code rewrite_data_files}' result row. Deliberately does
+     * NOT enter an authorization scope and does not touch the catalog: it is pure local formatting, and the
+     * engine also calls it on the "planned zero groups" path where no transaction exists.
+     */
+    @Override
+    public ConnectorProcedureResult buildRewriteResult(String procedureName,
+            ConnectorRewriteStatistics statistics) {
+        if (!IcebergExecuteActionFactory.REWRITE_DATA_FILES.equalsIgnoreCase(procedureName)) {
+            // Only rewrite_data_files is DISTRIBUTED for iceberg; fail loud on a miswired caller.
+            throw new DorisConnectorException("Unsupported distributed iceberg procedure: " + procedureName);
+        }
+        return IcebergRewriteDataFilesAction.buildResult(statistics);
     }
 
     /**

@@ -19,6 +19,7 @@ package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -54,14 +55,16 @@ public class MaxComputeConnectorContractTest {
     public void declaredWriteCapabilitiesMatchAndPassContractValidator() {
         MaxComputeDorisConnector connector = new MaxComputeDorisConnector(validProps(), null);
 
+        ConnectorWritePlanProvider writeProvider = connector.getWritePlanProvider();
+        Assertions.assertNotNull(writeProvider, "MaxCompute connector must expose a write plan provider");
         Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE),
-                connector.supportedWriteOperations());
-        Assertions.assertFalse(connector.supportsWriteBranch(),
+                writeProvider.supportedOperations());
+        Assertions.assertFalse(writeProvider.supportsWriteBranch(),
                 "MaxCompute does not support writing into a named table branch");
-        Assertions.assertTrue(connector.requiresParallelWrite());
-        Assertions.assertTrue(connector.requiresFullSchemaWriteOrder());
-        Assertions.assertTrue(connector.requiresPartitionLocalSort());
-        Assertions.assertFalse(connector.requiresMaterializeStaticPartitionValues());
+        Assertions.assertTrue(writeProvider.requiresParallelWrite());
+        Assertions.assertTrue(writeProvider.requiresFullSchemaWriteOrder());
+        Assertions.assertTrue(writeProvider.requiresPartitionLocalSort());
+        Assertions.assertFalse(writeProvider.requiresMaterializeStaticPartitionValues());
 
         ConnectorContractValidator.validate(connector, "max_compute");
     }

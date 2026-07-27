@@ -51,15 +51,13 @@ public class PluginDrivenExternalDatabase extends ExternalDatabase<PluginDrivenE
         // Capability gate: connectors that expose a point-in-time snapshot (e.g. Paimon) declare
         // SUPPORTS_MVCC_SNAPSHOT and get the MVCC/MTMV-capable subclass. The plain plugin connectors
         // (jdbc/es/max_compute/trino-connector) do NOT declare it and keep the base class, which has
-        // no MTMV/MvccTable behavior. getConnector() forces init (makeSureInitialized) and returns the
-        // built connector; the null check is a defensive fallback to the base class for a not-yet-built
-        // or failed connector (post-init it is normally non-null — initLocalObjectsImpl throws on null).
-        if (catalog instanceof PluginDrivenExternalCatalog) {
-            Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-            if (connector != null
-                    && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)) {
-                return new PluginDrivenMvccExternalTable(tblId, localTableName, remoteTableName, catalog, db);
-            }
+        // no MTMV/MvccTable behavior. hasConnectorCapability forces init (makeSureInitialized) and degrades to
+        // false for a not-yet-built or failed connector, falling back to the base class (post-init the
+        // connector is normally non-null — initLocalObjectsImpl throws on null).
+        if (catalog instanceof PluginDrivenExternalCatalog
+                && ((PluginDrivenExternalCatalog) catalog)
+                        .hasConnectorCapability(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)) {
+            return new PluginDrivenMvccExternalTable(tblId, localTableName, remoteTableName, catalog, db);
         }
         return new PluginDrivenExternalTable(tblId, localTableName, remoteTableName, catalog, db);
     }

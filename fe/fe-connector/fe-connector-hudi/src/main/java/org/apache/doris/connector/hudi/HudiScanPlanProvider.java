@@ -24,7 +24,10 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
@@ -40,6 +43,7 @@ import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
@@ -53,6 +57,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -136,12 +144,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @Override
-    public List<ConnectorScanRange> planScan(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter) {
-        HudiTableHandle hudiHandle = (HudiTableHandle) handle;
+    public boolean supportsFileCache() {
+        // copy-on-write hudi tables are read by BE's native parquet reader. Declared explicitly because hudi
+        // tables live in an hms catalog: once governance follows the serving connector rather than the
+        // catalog type name, not declaring it here would silently drop hudi out of admission control.
+        return true;
+    }
+
+    @Override
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
 
         Configuration conf = buildHadoopConf();
@@ -313,13 +325,13 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> props = new LinkedHashMap<>();
         // For COW tables, we default to parquet (may be overridden per-split).
         // For MOR tables, default is JNI.
-        props.put("file_format_type", isCow ? "parquet" : "jni");
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, isCow ? "parquet" : "jni");
         props.put("table_format_type", "hudi");
 
         // Partition keys
         List<String> partKeys = hudiHandle.getPartitionKeyNames();
         if (partKeys != null && !partKeys.isEmpty()) {
-            props.put("path_partition_keys", String.join(",", partKeys));
+            props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partKeys));
         }
 
         // BE-facing storage for the native + JNI readers, mirroring legacy getLocationProperties' dual merge.
@@ -328,7 +340,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         //      403s (the raw catalog aliases s3.access_key/... are useless to it). Sourced from the context's
         //      single normalization hook. Empty for no context (offline tests) or a credential-less warehouse.
         if (context != null) {
-            context.getBackendStorageProperties().forEach((k, v) -> props.put("location." + k, v));
+            storage().getBackendStorageProperties()
+                    .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         }
         //  (1b) Hadoop-canonical object-store config (fs.s3a.* / fs.oss.* / resolved hadoop.*/dfs.*) TRANSLATED
         //      from the catalog's typed StorageProperties, for the Hudi JNI reader's own Hadoop FileSystem.
@@ -338,7 +351,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         //      getLocationProperties' merge that the raw passthrough (2) alone does not reconstruct (the catalog
         //      carries s3. aliases, not fs.s3a. keys). Emitted BEFORE (2) so a user-inline fs./hadoop. key still
         //      wins (mirrors buildHadoopConf precedence); null context yields an empty map (offline / HDFS-only).
-        storageHadoopConfig(context).forEach((k, v) -> props.put("location." + k, v));
+        storageHadoopConfig(context).forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
         //  (2) Hadoop-format passthrough for the Hudi JNI reader (its own Hadoop FileSystem: fs.s3a.* etc).
         //      Emitted AFTER the canonical set so an overlapping hadoop key resolves to the catalog's explicit
         //      value (legacy putAll order: backendStorageProperties then hadoopProperties). The s3./oss./cos./obs.
@@ -349,7 +362,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     || key.startsWith("dfs.") || key.startsWith("hive.")
                     || key.startsWith("s3.") || key.startsWith("cos.")
                     || key.startsWith("oss.") || key.startsWith("obs.")) {
-                props.put("location." + key, entry.getValue());
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, entry.getValue());
             }
         }
 
@@ -413,7 +426,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Normalizes a raw HMS/Hudi-SDK storage URI into BE's canonical scheme for the NATIVE reader's range path
      * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
-     * {@link ConnectorContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@link ConnectorStorageContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
      * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
      * {@code s3a://} range path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon
      * {@code normalizeUri}. Applied ONLY to the native range {@code .path()}; the JNI reader's
@@ -421,7 +434,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * wants the {@code s3a} scheme). A null context (offline unit tests) preserves the raw URI.
      */
     private String normalizeNativeUri(String rawUri) {
-        return context != null ? context.normalizeStorageUri(rawUri) : rawUri;
+        return context != null ? storage().normalizeStorageUri(rawUri) : rawUri;
     }
 
     /**
@@ -727,6 +740,50 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * The zone hudi generated this table's instants in ({@code hoodie.table.timeline.timezone}, default
+     * {@code LOCAL}). An instant string carries no offset, so it can only be read back through the table's
+     * own declared zone.
+     *
+     * <p>Read from the table config rather than through {@code HoodieInstantTimeGenerator}'s one-line
+     * parse helper on purpose: that helper takes the zone from a JVM-global static, which would put a
+     * whole timezone offset of error on a table that explicitly declares {@code UTC}.
+     */
+    static ZoneId timelineZone(HoodieTableMetaClient metaClient) {
+        return metaClient.getTableConfig().getTimelineTimezone().getZoneId();
+    }
+
+    /**
+     * Converts a hudi instant ({@code yyyyMMddHHmmssSSS} read as a number) to epoch millis - the unit
+     * {@code ConnectorPartitionInfo#getLastModifiedMillis} requires.
+     *
+     * <p>These are NOT interchangeable even though both are a {@code long}: an instant for 2024 reads as
+     * ~2.0e16 while the same moment in epoch millis is ~1.7e12, four orders of magnitude apart. The
+     * engine subtracts this field from the wall clock to decide whether a table has been quiet long
+     * enough to serve from the SQL cache, so an instant fed in there makes the difference come out as 0
+     * forever and silently disables that cache for the table and everything queried alongside it.
+     *
+     * <p>The raw instant keeps its own job (timeline lookup, snapshot id, time travel); only this
+     * freshness field changes unit. {@code instant <= 0} (empty timeline) maps to {@code 0}; anything
+     * unparseable logs and maps to {@code 0}, meaning "no reliable change signal" - the engine already
+     * degrades safely on that, and a statistics field must never fail a query on the scan hot path.
+     */
+    static long instantToEpochMillis(long instant, ZoneId zone) {
+        if (instant <= 0) {
+            return 0L;
+        }
+        String instantTime = HoodieInstantTimeGenerator.fixInstantTimeCompatibility(String.valueOf(instant));
+        try {
+            return LocalDateTime
+                    .parse(instantTime, DateTimeFormatter.ofPattern(
+                            HoodieInstantTimeGenerator.MILLIS_INSTANT_TIMESTAMP_FORMAT))
+                    .atZone(zone).toInstant().toEpochMilli();
+        } catch (DateTimeParseException e) {
+            LOG.warn("Cannot read hudi instant {} as a timestamp; reporting no last-modified time", instant, e);
+            return 0L;
+        }
+    }
+
+    /**
      * Lists ALL partition relative paths from the Hudi metadata table (COW/MOR agnostic). Byte-faithful port of
      * legacy {@code HudiPartitionUtils.getAllPartitionNames}; extracted so both {@link #resolvePartitions} and
      * the metadata partition-listing path share one copy of the {@code HoodieTableMetadata.create(...)} dance.
@@ -936,9 +993,14 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     static Map<String, String> storageHadoopConfig(ConnectorContext context) {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
-            context.getStorageProperties().forEach(sp ->
+            context.getStorageContext().getStorageProperties().forEach(sp ->
                     sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap())));
         }
         return merged;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
     }
 }

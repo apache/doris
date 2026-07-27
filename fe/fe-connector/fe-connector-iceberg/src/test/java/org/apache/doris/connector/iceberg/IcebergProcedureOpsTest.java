@@ -17,10 +17,12 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 
 import com.google.common.collect.ImmutableList;
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Pins the {@link IcebergProcedureOps} dispatch (P6.4-T03 skeleton + T04 bodies).
@@ -56,9 +59,9 @@ import java.util.Map;
  * <p><b>Cache invalidation is the engine's responsibility (H-6 fix):</b> the dispatch must NOT invalidate any
  * cache — after the procedure returns, the engine ({@code ConnectorExecuteAction}) refreshes the mutated table
  * through the standard refresh-table path, the only path that drops both the engine meta cache (LOCAL-name
- * keyed) and the connector's own per-table cache (REMOTE-name keyed). So {@code ctx.invalidatedTables} stays
- * empty after every dispatch (success or failure); a non-empty list here would mean the removed connector-side
- * notification was re-introduced.</p>
+ * keyed) and the connector's own per-table cache (REMOTE-name keyed). This used to be asserted here through a
+ * recording context; it is now guaranteed structurally, because the connector-to-engine invalidation SPI no
+ * longer exists — there is nothing for a dispatch to call.</p>
  */
 public class IcebergProcedureOpsTest {
 
@@ -160,11 +163,9 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(3, g.getDataFileCount());
         Assertions.assertEquals(3 * 1024L, g.getTotalSizeBytes());
         Assertions.assertEquals(0, g.getDeleteFileCount());
-        // WHY: manifest reads run under the catalog auth context (Kerberos), like the procedure bodies; planning
-        // does NOT mutate the table, so it must not invalidate the cache. MUTATION: planning outside auth scope
-        // -> authCount 0 -> red; invalidating after planning -> invalidatedTables non-empty -> red.
+        // WHY: manifest reads run under the catalog auth context (Kerberos), like the procedure bodies.
+        // MUTATION: planning outside auth scope -> authCount 0 -> red.
         Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(), "planning must not invalidate the table");
     }
 
     @Test
@@ -217,6 +218,56 @@ public class IcebergProcedureOpsTest {
                 e.getMessage());
     }
 
+    @Test
+    public void buildRewriteResultDeclaresTheResultShape() {
+        // WHY this test carries the whole guarantee: the result columns used to be hardcoded in the engine
+        // rewrite driver, and the end-to-end suites read the row by INDEX only — nothing anywhere asserts the
+        // column names or types. If this moves wrong, clients see renamed or re-typed columns and no other
+        // test notices.
+        //
+        // The four inputs are deliberately DISTINCT so any transposition is caught: an assertion built from
+        // zeros or repeated values cannot tell "added" from "rewritten", or bytes from delete files.
+        ConnectorProcedureResult result = newOps().buildRewriteResult("rewrite_data_files",
+                new ConnectorRewriteStatistics(3, 2, 4096L, 1));
+
+        Assertions.assertEquals(
+                ImmutableList.of("rewritten_data_files_count", "added_data_files_count",
+                        "rewritten_bytes_count", "removed_delete_files_count"),
+                result.getResultSchema().stream().map(ConnectorColumn::getName).collect(Collectors.toList()));
+        // The 3rd column is INT although it carries a long byte count, and the 4th is BIGINT although it
+        // carries an int. Both are the historical shape of this result set and are kept ON PURPOSE — seeing
+        // them and "fixing" them changes the column metadata every client already sees.
+        Assertions.assertEquals(
+                ImmutableList.of("INT", "INT", "INT", "BIGINT"),
+                result.getResultSchema().stream().map(c -> c.getType().getTypeName())
+                        .collect(Collectors.toList()));
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of("3", "2", "4096", "1")), result.getRows());
+    }
+
+    @Test
+    public void buildRewriteResultRejectsNonDistributedProcedure() {
+        // Mirrors planRewrite's guard: only rewrite_data_files is DISTRIBUTED, so a miswired caller must fail
+        // loud rather than get rewrite columns back for some other procedure.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> newOps().buildRewriteResult("rollback_to_snapshot",
+                        new ConnectorRewriteStatistics(0, 0, 0L, 0)));
+        Assertions.assertTrue(e.getMessage().contains("Unsupported distributed iceberg procedure"),
+                e.getMessage());
+    }
+
+    @Test
+    public void buildRewriteResultTouchesNoCatalog() {
+        // Contract: rendering is purely local. The engine calls it on the "planned zero groups" path, where it
+        // deliberately never opened a transaction — so there is no authorization scope to make a remote call
+        // in. MUTATION: routing this through runInAuthScope/loadTable -> the log is non-empty -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+
+        procOps.buildRewriteResult("rewrite_data_files", new ConnectorRewriteStatistics(0, 0, 0L, 0));
+
+        Assertions.assertTrue(ops.log.isEmpty(), "rendering the result row must not touch the catalog");
+    }
+
     // ─────────────────── catalog-backed dispatch (T04) ───────────────────
 
     @Test
@@ -237,10 +288,6 @@ public class IcebergProcedureOpsTest {
 
         Assertions.assertEquals(1, ctx.authCount, "the body (load + SDK mutation + commit) runs in ONE auth scope");
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t"));
-        // H-6: the connector dispatch must NOT invalidate — the engine refreshes the table after this returns.
-        // A non-empty list would mean the removed connector-side getMetaInvalidator notification was re-added.
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
-                "the connector dispatch must not invalidate any cache (the engine owns invalidation)");
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap1)),
                 result.getRows().get(0));
         Assertions.assertEquals(snap1, catalog.loadTable(id).currentSnapshot().snapshotId());
@@ -268,8 +315,6 @@ public class IcebergProcedureOpsTest {
 
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap1)),
                 result.getRows().get(0));
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
-                "the connector dispatch must not invalidate any cache (the engine owns invalidation)");
     }
 
     @Test
@@ -287,8 +332,6 @@ public class IcebergProcedureOpsTest {
         Assertions.assertThrows(DorisConnectorException.class, () -> procOps.execute(SESSION,
                 new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
                 ImmutableMap.of("snapshot_id", String.valueOf(snap1)), null, Collections.emptyList()));
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
-                "a failed auth (body never ran) must not invalidate the table cache");
     }
 
     @Test
@@ -321,7 +364,6 @@ public class IcebergProcedureOpsTest {
                         ImmutableMap.of("snapshot_id", "1"), null, Collections.emptyList()));
         Assertions.assertEquals(
                 "Failed to load iceberg table db1.t: simulated loadTable failure for db1.t", e.getMessage());
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(), "a load failure must not invalidate");
     }
 
     @Test
@@ -346,8 +388,6 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap2)),
                 result.getRows().get(0));
         Assertions.assertEquals(historyBefore, catalog.loadTable(id).history().size(), "short-circuit: no commit");
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
-                "the connector dispatch must not invalidate any cache (the engine owns invalidation)");
     }
 
     @Test
@@ -367,8 +407,6 @@ public class IcebergProcedureOpsTest {
                         ImmutableMap.of("snapshot_id", "999999999"), null, Collections.emptyList()));
         Assertions.assertEquals("Snapshot 999999999 not found in table " + ops.table.name(), e.getMessage());
         Assertions.assertEquals(1, ctx.authCount, "the load ran under auth (body executed, then threw)");
-        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
-                "a body failure after a successful load must not invalidate");
     }
 
     private static InMemoryCatalog tableWithThreeSmallFiles() {

@@ -41,14 +41,15 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanProfile;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -123,27 +124,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     private static final String TABLE_FORMAT_TYPE = "plugin_driven";
 
-    /** Scan node property keys (shared with connector plugins). */
-    private static final String PROP_FILE_FORMAT_TYPE = "file_format_type";
-    private static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
-    private static final String PROP_LOCATION_PREFIX = "location.";
-    private static final String PROP_HIVE_TEXT_PREFIX = "hive.text.";
-
-    // FIX-E (explain gap): synthetic node-property keys threaded into the props map passed to the
-    // connector's appendExplainInfo, carrying the native/total split counts this node accumulated from
-    // ConnectorScanRange.isNativeReadRange() in getSplits(). They are NOT real connector properties
-    // (never reach BE) — only a connector that surfaces a native/JNI split distinction (paimon) reads
-    // them to emit its "paimonNativeReadSplits=<raw>/<total>" line. Byte-identical to the keys
-    // PaimonScanPlanProvider consumes, so the inject/consume sides stay in lockstep. Connector-agnostic:
-    // injected for every plugin connector but consumed only by the one that opts in.
-    private static final String NATIVE_READ_SPLITS_KEY = "__native_read_splits";
-    private static final String TOTAL_READ_SPLITS_KEY = "__total_read_splits";
-    // FIX-E (explain gap): injected (="true") into the connector's appendExplainInfo props ONLY when this
-    // node renders a VERBOSE EXPLAIN, so a connector can gate VERBOSE-only output (paimon's per-split
-    // "PaimonSplitStats:" block) without an SPI signature change. Connector-agnostic: injected for every
-    // plugin connector but consumed only by the one that opts in. Byte-identical to the key
-    // PaimonScanPlanProvider consumes.
-    private static final String VERBOSE_EXPLAIN_KEY = "__explain_verbose";
+    // Scan node property keys are declared in the public module, in ScanNodePropertyKeys: both the keys
+    // this node READS from the connector's property map (file format, path partition keys, location.* and
+    // the text-family attributes) and the SYNTHETIC_* keys this node INJECTS into the copies of that map it
+    // passes to appendExplainInfo and populateScanLevelParams. The synthetic ones carry facts only the engine
+    // knows — the native/total split counts accumulated from ConnectorScanRange.isNativeReadRange(), a VERBOSE
+    // marker, the pushed-down limit, and whether the connector took ALL the filtering — and are consumed only
+    // by connectors that opt in (paimon prints split stats; es decides whether to ask its source to stop
+    // early). They are not real connector properties and are never forwarded to BE. Sharing the constants is
+    // what keeps the inject/consume sides in lockstep — it used to be a comment.
 
     private final Connector connector;
     private final ConnectorSession connectorSession;
@@ -444,7 +433,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             output.append(prefix).append("QUERY: ").append(query).append("\n");
         } else {
             Map<String, String> props = getOrLoadScanNodeProperties();
-            String query = props.get("query");
+            String query = props.get(ScanNodePropertyKeys.REMOTE_QUERY);
             output.append(prefix).append("TABLE: ")
                     .append(desc.getTable().getNameWithFullQualifiers()).append("\n");
             // Surface the backing connector/catalog type (e.g. es, jdbc, max_compute) so the
@@ -536,10 +525,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             ConnectorScanPlanProvider scanProvider = resolveScanProvider();
             if (scanProvider != null) {
                 Map<String, String> explainProps = new HashMap<>(props);
-                explainProps.put(NATIVE_READ_SPLITS_KEY, String.valueOf(nativeReadSplitNum));
-                explainProps.put(TOTAL_READ_SPLITS_KEY, String.valueOf(totalReadSplitNum));
+                explainProps.put(ScanNodePropertyKeys.SYNTHETIC_NATIVE_READ_SPLITS, String.valueOf(nativeReadSplitNum));
+                explainProps.put(ScanNodePropertyKeys.SYNTHETIC_TOTAL_READ_SPLITS, String.valueOf(totalReadSplitNum));
+                injectPushdownFacts(explainProps, limit, conjuncts.isEmpty());
                 if (detailLevel == TExplainLevel.VERBOSE) {
-                    explainProps.put(VERBOSE_EXPLAIN_KEY, "true");
+                    explainProps.put(ScanNodePropertyKeys.SYNTHETIC_EXPLAIN_VERBOSE, "true");
                 }
                 onPluginClassLoader(scanProvider, () -> {
                     scanProvider.appendExplainInfo(output, prefix, explainProps);
@@ -556,12 +546,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 output.append(" (").append(tableLevelRowCount).append(")");
             }
             output.append("\n");
-            // Show ES terminate_after optimization when limit is pushed to ES
-            if (limit > 0 && conjuncts.isEmpty()
-                    && "es_http".equals(props.get(PROP_FILE_FORMAT_TYPE))) {
-                output.append(prefix).append("ES terminate_after: ")
-                        .append(limit).append("\n");
-            }
         }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
@@ -575,7 +559,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected TFileFormatType getFileFormatType() throws UserException {
         Map<String, String> props = getOrLoadScanNodeProperties();
-        String format = props.get(PROP_FILE_FORMAT_TYPE);
+        String format = props.get(ScanNodePropertyKeys.FILE_FORMAT_TYPE);
         if (format != null) {
             return mapFileFormatType(format);
         }
@@ -585,7 +569,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected List<String> getPathPartitionKeys() throws UserException {
         Map<String, String> props = getOrLoadScanNodeProperties();
-        String keys = props.get(PROP_PATH_PARTITION_KEYS);
+        String keys = props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS);
         if (keys != null && !keys.isEmpty()) {
             return Arrays.asList(keys.split(","));
         }
@@ -785,8 +769,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Map<String, String> props = getOrLoadScanNodeProperties();
         Map<String, String> locationProps = new HashMap<>();
         for (Map.Entry<String, String> entry : props.entrySet()) {
-            if (entry.getKey().startsWith(PROP_LOCATION_PREFIX)) {
-                String realKey = entry.getKey().substring(PROP_LOCATION_PREFIX.length());
+            if (entry.getKey().startsWith(ScanNodePropertyKeys.LOCATION_PREFIX)) {
+                String realKey = entry.getKey().substring(ScanNodePropertyKeys.LOCATION_PREFIX.length());
                 locationProps.put(realKey, entry.getValue());
             }
         }
@@ -796,13 +780,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
         Map<String, String> props = getOrLoadScanNodeProperties();
-        String serDeLib = props.get(PROP_HIVE_TEXT_PREFIX + "serde_lib");
+        String serDeLib = props.get(ScanNodePropertyKeys.TEXT_SERDE_LIB);
         if (serDeLib == null || serDeLib.isEmpty()) {
             return new TFileAttributes();
         }
 
         TFileAttributes attrs = new TFileAttributes();
-        String skipLinesStr = props.get(PROP_HIVE_TEXT_PREFIX + "skip_lines");
+        String skipLinesStr = props.get(ScanNodePropertyKeys.TEXT_SKIP_LINES);
         if (skipLinesStr != null) {
             try {
                 attrs.setSkipLines(Integer.parseInt(skipLinesStr));
@@ -812,38 +796,38 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
 
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        String colSep = props.get(PROP_HIVE_TEXT_PREFIX + "column_separator");
+        String colSep = props.get(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR);
         if (colSep != null) {
             textParams.setColumnSeparator(colSep);
         }
-        String lineSep = props.get(PROP_HIVE_TEXT_PREFIX + "line_delimiter");
+        String lineSep = props.get(ScanNodePropertyKeys.TEXT_LINE_DELIMITER);
         if (lineSep != null) {
             textParams.setLineDelimiter(lineSep);
         }
-        String mapkvDelim = props.get(PROP_HIVE_TEXT_PREFIX + "mapkv_delimiter");
+        String mapkvDelim = props.get(ScanNodePropertyKeys.TEXT_MAPKV_DELIMITER);
         if (mapkvDelim != null) {
             textParams.setMapkvDelimiter(mapkvDelim);
         }
-        String collDelim = props.get(PROP_HIVE_TEXT_PREFIX + "collection_delimiter");
+        String collDelim = props.get(ScanNodePropertyKeys.TEXT_COLLECTION_DELIMITER);
         if (collDelim != null) {
             textParams.setCollectionDelimiter(collDelim);
         }
-        String escape = props.get(PROP_HIVE_TEXT_PREFIX + "escape");
+        String escape = props.get(ScanNodePropertyKeys.TEXT_ESCAPE);
         if (escape != null && !escape.isEmpty()) {
             textParams.setEscape(escape.getBytes()[0]);
         }
-        String nullFmt = props.get(PROP_HIVE_TEXT_PREFIX + "null_format");
+        String nullFmt = props.get(ScanNodePropertyKeys.TEXT_NULL_FORMAT);
         if (nullFmt != null) {
             textParams.setNullFormat(nullFmt);
         }
-        String enclose = props.get(PROP_HIVE_TEXT_PREFIX + "enclose");
+        String enclose = props.get(ScanNodePropertyKeys.TEXT_ENCLOSE);
         if (enclose != null && !enclose.isEmpty()) {
             textParams.setEnclose(enclose.getBytes()[0]);
         }
         // #65501: trimming wrapping double quotes is valid only when the enclose char is '"'. The connector
         // owns that CSV-serde decision (HiveTextProperties.extractCsvSerDeProps) and passes it as an explicit
         // flag; the generic node just applies it (rather than trimming for any enclose char).
-        if ("true".equals(props.get(PROP_HIVE_TEXT_PREFIX + "trim_double_quotes"))) {
+        if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES))) {
             attrs.setTrimDoubleQuotes(true);
         }
 
@@ -851,13 +835,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         attrs.setHeaderType("");
         attrs.setEnableTextValidateUtf8(sessionVariable.enableTextValidateUtf8);
 
-        String isJson = props.get(PROP_HIVE_TEXT_PREFIX + "is_json");
+        String isJson = props.get(ScanNodePropertyKeys.TEXT_IS_JSON);
         if ("true".equals(isJson)) {
             attrs.setReadJsonByLine(true);
             attrs.setReadByColumnDef(true);
             // OpenX JSON "ignore.malformed.json": skip malformed rows instead of erroring. The connector emits
             // this only for the OpenX serde (absent otherwise); mirrors legacy HiveScanNode's openx branch.
-            String ignoreMalformed = props.get(PROP_HIVE_TEXT_PREFIX + "openx_ignore_malformed");
+            String ignoreMalformed = props.get(ScanNodePropertyKeys.TEXT_OPENX_IGNORE_MALFORMED);
             if (ignoreMalformed != null) {
                 attrs.setOpenxJsonIgnoreMalformed(Boolean.parseBoolean(ignoreMalformed));
             }
@@ -898,27 +882,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
         filteredToOriginalIndex = null;
-    }
-
-    /**
-     * Attempts to push the limit down via the SPI applyLimit() protocol.
-     * Called before getSplits(), after filter pushdown.
-     *
-     * <p>If the connector accepts the limit, the handle is updated.
-     * The limit is still passed to planScan() as a parameter for
-     * connectors that handle limit directly in planScan().</p>
-     */
-    private void tryPushDownLimit() {
-        if (limit <= 0) {
-            return;
-        }
-        ConnectorMetadata metadata = metadata();
-        Optional<LimitApplicationResult<ConnectorTableHandle>> result =
-                metadata.applyLimit(connectorSession, currentHandle, limit);
-        if (result.isPresent()) {
-            currentHandle = result.get().getHandle();
-            LOG.debug("Limit {} pushed down via applyLimit for plugin-driven scan", limit);
-        }
     }
 
     /**
@@ -971,9 +934,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     /**
      * Resolves the pinned MVCC snapshot from the statement context and threads it onto
-     * {@link #currentHandle} (mutates the handle exactly like {@link #tryPushDownProjection} /
-     * {@link #tryPushDownLimit}). Called at every scan-side handle-consumption point so both the
-     * split path and the serialized-table path read at the pinned snapshot.
+     * {@link #currentHandle} (mutates the handle exactly like {@link #tryPushDownProjection}).
+     * Called at every scan-side handle-consumption point so both the split path and the
+     * serialized-table path read at the pinned snapshot.
      */
     private void pinMvccSnapshot() throws UserException {
         ConnectorMetadata metadata = metadata();
@@ -1257,8 +1220,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         checkSysTableScanConstraints();
-        // Attempt limit and projection pushdown via SPI protocol
-        tryPushDownLimit();
 
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
@@ -1347,15 +1308,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // FileScanNode.toThrift, but a connector that can serve a precomputed row count
         // (paimon DataSplit.mergedRowCount()) needs the signal here to emit it; otherwise BE
         // materializes the full post-merge row set just to count. Connectors that do not override the
-        // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
+        // count-pushdown signal simply ignore this field of the request.
         // Suppressed under TABLESAMPLE (applySample): a connector that collapses count-eligible splits
         // into ONE range carrying the precomputed FULL-table count (paimon/iceberg) would ignore the
         // sample and return full cardinality; with sampling active BE counts rows over the sampled splits
         // instead (mirrors legacy HiveScanNode, whose tableSample branch precedes the count-only opt).
         boolean countPushdown = isTableLevelCountStarPushdown() && !applySample;
-        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
-                connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
-                requiredPartitions, countPushdown));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(currentHandle, columns)
+                .filter(remainingFilter)
+                .limit(sourceLimit)
+                .requiredPartitions(requiredPartitions)
+                .countPushdown(countPushdown)
+                .build();
+        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                () -> scanProvider.planScan(connectorSession, request));
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
@@ -1657,6 +1623,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        // One request for the whole batched scan; each batch re-scopes it to its own partitions. No row
+        // limit and no COUNT(*) pushdown on this path (batch mode is entered before either applies),
+        // matching what the batched call passed before the request object existed.
+        final ConnectorScanRequest batchRequest = ConnectorScanRequest.builder(handle, columns)
+                .filter(remainingFilter)
+                .build();
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
@@ -1678,7 +1650,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         try {
                             List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                                     () -> scanProvider.planScanForPartitionBatch(
-                                            connectorSession, handle, columns, remainingFilter, -1L, batch));
+                                            connectorSession, batchRequest, batch));
                             List<Split> batchSplits = new ArrayList<>(ranges.size());
                             for (ConnectorScanRange range : ranges) {
                                 batchSplits.add(new PluginDrivenSplit(range));
@@ -1800,39 +1772,48 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
 
     @Override
-    protected Optional<String> getSerializedTable() {
+    protected boolean isFileCacheAdmissionApplicable() {
+        // Answered by the connector that will actually serve this scan — for a heterogeneous catalog that is
+        // the sibling picked from the table handle, not the catalog's own type. A connector that has not
+        // resolved (system tables, an unavailable plugin) stays out of the governance, as before.
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
-        if (scanProvider != null) {
-            Map<String, String> props = getOrLoadScanNodeProperties();
-            String serialized = onPluginClassLoader(scanProvider, () -> scanProvider.getSerializedTable(props));
-            if (serialized != null) {
-                return Optional.of(serialized);
-            }
-        }
-        return Optional.empty();
+        return scanProvider != null && onPluginClassLoader(scanProvider, scanProvider::supportsFileCache);
     }
 
     @Override
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
-        // Delegate scan-level Thrift params to the connector SPI
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        // Prune BEFORE delegating: "the connector took ALL the filtering" is only true of the pruned set, and
+        // the connector is told that below so it can decide whether limiting rows at the source is safe.
+        // ATTN this reordering is inert, but NOT for the reason it looks like: the property cache is already
+        // warm here, because super.createScanRangeLocations() asks for the file format type first, which loads
+        // it. So pruning cannot pull the connector call, the MVCC-snapshot/rewrite-scope/topn pins, or a
+        // wrapped load failure any earlier than they already happened. Keep this call below
+        // resolveScanProvider() above: the provider memo is keyed on handle identity, and the pins can replace
+        // the handle.
+        pruneConjunctsFromNodeProperties();
         if (scanProvider != null) {
-            Map<String, String> props = getOrLoadScanNodeProperties();
+            // A copy, like the EXPLAIN path: the synthetic facts must not pollute the cached property map.
+            Map<String, String> scanProps = new HashMap<>(getOrLoadScanNodeProperties());
+            injectPushdownFacts(scanProps, limit, conjuncts.isEmpty());
             onPluginClassLoader(scanProvider, () -> {
-                scanProvider.populateScanLevelParams(params, props);
+                scanProvider.populateScanLevelParams(params, scanProps);
                 return null;
             });
         }
-        pruneConjunctsFromNodeProperties();
+    }
 
-        // Push down limit to ES via terminate_after optimization.
-        // When all predicates are pushed to ES (conjuncts empty) and limit fits in one batch,
-        // ES can use terminate_after to stop scanning early instead of scrolling all results.
-        if (limit > 0 && limit <= sessionVariable.batchSize && conjuncts.isEmpty()
-                && params.isSetEsProperties()) {
-            params.getEsProperties().put("limit", String.valueOf(limit));
-        }
+    /**
+     * Writes the two engine-only facts a connector needs to decide whether it may ask its source to stop
+     * early: the pushed-down limit, and whether the engine has any filtering left to do after the scan.
+     * Both paths (EXPLAIN and thrift) inject them, so a connector reports the same thing it does.
+     *
+     * <p>Package-visible and static so the mapping is unit-testable without a planner.</p>
+     */
+    static void injectPushdownFacts(Map<String, String> props, long pushdownLimit, boolean allConjunctsPushed) {
+        props.put(ScanNodePropertyKeys.SYNTHETIC_PUSHDOWN_LIMIT, String.valueOf(pushdownLimit));
+        props.put(ScanNodePropertyKeys.SYNTHETIC_ALL_CONJUNCTS_PUSHED, String.valueOf(allConjunctsPushed));
     }
 
 
@@ -1840,9 +1821,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Prunes pushed-down conjuncts using the structured result from
      * {@link ConnectorScanPlanProvider#getScanNodePropertiesResult()}.
      *
-     * <p>Only conjuncts whose indices are in the not-pushed set are retained.
-     * If the connector has no not-pushed tracking (empty set), all conjuncts
-     * are considered pushed and cleared.</p>
+     * <p>Only conjuncts whose indices are in the not-pushed set are retained. A connector that supplies NO
+     * tracking at all (the single-argument {@code ScanNodePropertiesResult} constructor, which is also the
+     * SPI default) prunes NOTHING — every conjunct stays and BE re-evaluates it. That is not the same thing
+     * as reporting an empty not-pushed set, which is the claim "all of them were pushed, prune them all".
+     * Keep the two apart: conflating them would silently drop predicates for the seven connectors that do not
+     * implement tracking.</p>
      */
     private void pruneConjunctsFromNodeProperties() {
         if (conjuncts == null || conjuncts.isEmpty()) {
@@ -1929,7 +1913,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                 connectorSession, currentHandle, columns, filter));
             }
             if (cachedPropertiesResult == null) {
-                cachedPropertiesResult = new ScanNodePropertiesResult(Collections.emptyMap());
+                cachedPropertiesResult = ScanNodePropertiesResult.of(Collections.emptyMap());
             }
         }
         return cachedPropertiesResult;

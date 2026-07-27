@@ -20,8 +20,8 @@ package org.apache.doris.connector.api.pushdown;
 import java.io.Serializable;
 
 /**
- * A neutral, engine-extracted boolean predicate handed to a connector for write-time conflict detection
- * (O5-2). It wraps a {@link ConnectorExpression} — the same engine-neutral expression representation used
+ * A neutral, engine-extracted boolean predicate handed to a connector for write-time conflict detection.
+ * It wraps a {@link ConnectorExpression} — the same engine-neutral expression representation used
  * by scan pushdown — so the connector can convert it to its own predicate dialect without depending on
  * fe-core / nereids types.
  *
