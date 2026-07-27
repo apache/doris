@@ -34,7 +34,10 @@ DNSCache::DNSCache() {
 DNSCache::DNSCache(Resolver resolver) : _resolver(std::move(resolver)) {}
 
 DNSCache::~DNSCache() {
-    stop_refresh = true;
+    {
+        std::lock_guard<std::mutex> lk(_cv_mutex);
+        stop_refresh = true;
+    }
     _cv.notify_all();
     if (refresh_thread.joinable()) {
         refresh_thread.join();
@@ -49,11 +52,23 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
             *ip = it->second;
             return Status::OK();
         }
+        // Return a cheap error for recently-evicted hosts to avoid repeated
+        // blocking getaddrinfo calls during the transition after a backend is
+        // dropped.  The entry expires after dns_cache_negative_ttl_seconds;
+        // once expired the next caller falls through and retries the resolve.
+        auto neg_it = _negative_cache.find(hostname);
+        if (neg_it != _negative_cache.end() &&
+            std::chrono::steady_clock::now() < neg_it->second) {
+            return Status::InternalError(
+                    "Hostname {} is in negative DNS cache (recently evicted), skipping resolve",
+                    hostname);
+        }
     }
-    // First access: resolve and populate the cache.  Consume the IP returned by
-    // _update() directly to avoid a second cache lookup — operator[] under a
-    // shared_lock would mutate the map and could reinsert an empty entry if a
-    // concurrent refresh cycle evicted the hostname between _update() and here.
+    // First access (or negative TTL expired): resolve and populate the cache.
+    // Consume the IP returned by _update() directly to avoid a second cache
+    // lookup — operator[] under a shared_lock would mutate the map and could
+    // reinsert an empty entry if a concurrent refresh cycle evicted the hostname
+    // between _update() and here.
     return _update(hostname, nullptr, ip);
 }
 
@@ -134,6 +149,11 @@ void DNSCache::_erase(const std::string& hostname) {
     std::unique_lock<std::shared_mutex> lock(mutex);
     cache.erase(hostname);
     failure_count.erase(hostname);
+    int32_t ttl = config::dns_cache_negative_ttl_seconds;
+    if (ttl > 0) {
+        _negative_cache[hostname] =
+                std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
+    }
 }
 
 Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, std::string* out_ip) {
@@ -151,6 +171,9 @@ Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, st
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
     }
+    // DNS resolved successfully — remove any negative cache tombstone so
+    // subsequent get() calls go straight to the main cache.
+    _negative_cache.erase(hostname);
     if (out_ip) *out_ip = real_ip;
     // Read failure_count under the same lock we already hold, so _refresh_once
     // does not need a second lock acquisition to decide on eviction.
@@ -162,6 +185,15 @@ Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, st
 }
 
 void DNSCache::_refresh_once() {
+    // Purge expired negative-cache entries to prevent unbounded map growth.
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = _negative_cache.begin(); it != _negative_cache.end();) {
+            it = (now >= it->second) ? _negative_cache.erase(it) : std::next(it);
+        }
+    }
+
     std::unordered_set<std::string> keys;
     {
         std::shared_lock<std::shared_mutex> lock(mutex);

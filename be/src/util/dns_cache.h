@@ -79,6 +79,11 @@ private:
         return cache.size();
     }
 
+    size_t negative_cache_size_for_test() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return _negative_cache.size();
+    }
+
     uint32_t failure_count_for_test(const std::string& hostname) const {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = failure_count.find(hostname);
@@ -89,6 +94,11 @@ private:
     // the object was constructed with the test constructor (no background thread).
     void refresh_for_test() { _refresh_once(); }
 
+    void _clear_negative_cache_for_test() {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        _negative_cache.clear();
+    }
+
     friend class DNSCacheTest;
 
 private:
@@ -97,6 +107,9 @@ private:
     std::unordered_map<std::string, std::string> cache;
     // hostname -> consecutive resolution failure count
     std::unordered_map<std::string, uint32_t> failure_count;
+    // hostname -> earliest time to retry; populated on eviction, prevents
+    // blocking DNS resolves for recently-dropped backends.
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> _negative_cache;
     mutable std::shared_mutex mutex;
     std::thread refresh_thread;
     // Protects stop_refresh and signals _refresh_cache to wake early on destroy.

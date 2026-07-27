@@ -345,6 +345,8 @@ DECLARE_mInt32(report_index_policy_interval_seconds);
 // DNS cache: log the "Failed to resolve hostname ... use cached ip" warning
 // only once per N consecutive failures for the same hostname, to avoid
 // flooding be.WARNING. Set <= 1 to log every failure (legacy behavior).
+// Should be set <= dns_cache_max_consecutive_failures so at least one
+// periodic log is emitted before a host is evicted.
 DECLARE_mInt32(dns_cache_log_every_n_failures);
 
 // DNS cache: evict a hostname after this many consecutive resolution failures.
@@ -354,6 +356,13 @@ DECLARE_mInt32(dns_cache_log_every_n_failures);
 // not tracked and are unaffected by this threshold.
 // Set <= 0 to disable eviction (legacy behavior, kept for backward compatibility).
 DECLARE_mInt32(dns_cache_max_consecutive_failures);
+
+// DNS cache: seconds to suppress re-resolve attempts for a hostname that was
+// just evicted due to repeated failures.  During this window get() returns an
+// error immediately (no blocking getaddrinfo) so request threads are not
+// stalled while the evicted backend is being drained.
+// Set <= 0 to disable the negative cache.
+DECLARE_mInt32(dns_cache_negative_ttl_seconds);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);

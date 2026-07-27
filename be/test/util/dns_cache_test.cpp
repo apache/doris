@@ -34,11 +34,13 @@ protected:
     void SetUp() override {
         _saved_threshold = config::dns_cache_max_consecutive_failures;
         _saved_log_every = config::dns_cache_log_every_n_failures;
+        _saved_negative_ttl = config::dns_cache_negative_ttl_seconds;
     }
 
     void TearDown() override {
         config::dns_cache_max_consecutive_failures = _saved_threshold;
         config::dns_cache_log_every_n_failures = _saved_log_every;
+        config::dns_cache_negative_ttl_seconds = _saved_negative_ttl;
     }
 
     // Build a resolver whose failure behaviour can be flipped at runtime.
@@ -55,6 +57,7 @@ protected:
 private:
     int32_t _saved_threshold = 0;
     int32_t _saved_log_every = 0;
+    int32_t _saved_negative_ttl = 0;
 };
 
 // ── existing tests ────────────────────────────────────────────────────────────
@@ -187,6 +190,7 @@ TEST_F(DNSCacheTest, failure_count_does_not_grow_for_never_cached_host) {
 // entries in failure_count (fix for 7.2).
 TEST_F(DNSCacheTest, failure_count_does_not_grow_after_eviction) {
     config::dns_cache_max_consecutive_failures = 2;
+    config::dns_cache_negative_ttl_seconds = 3600; // keep negative cache active
 
     bool should_fail = false;
     DNSCache cache(make_resolver(&should_fail));
@@ -200,8 +204,11 @@ TEST_F(DNSCacheTest, failure_count_does_not_grow_after_eviction) {
     ASSERT_EQ(0u, cache.size_for_test()) << "prerequisite: host must be evicted";
     EXPECT_EQ(0u, cache.failure_count_for_test("fake-host.test"))
             << "failure_count must be cleared on eviction";
+    EXPECT_EQ(1u, cache.negative_cache_size_for_test())
+            << "evicted host must be in the negative cache";
 
-    // Further get() calls on the evicted host must not re-grow failure_count.
+    // Further get() calls on the evicted host are served from the negative cache
+    // and must not reach the resolver, so failure_count stays zero.
     for (int i = 0; i < 5; ++i) {
         EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
     }
@@ -249,6 +256,84 @@ TEST_F(DNSCacheTest, failure_count_not_reintroduced_on_eviction_race) {
     // The re-check under unique_lock prevented re-creating a failure_count entry.
     EXPECT_EQ(0u, cache.failure_count_for_test("racing.test"))
             << "failure_count must not be re-introduced for a host evicted mid-resolution";
+}
+
+// ── negative cache tests ──────────────────────────────────────────────────────
+
+// After a hostname is evicted, get() must return an error immediately without
+// invoking the resolver, as long as the negative-cache TTL has not expired.
+TEST_F(DNSCacheTest, negative_cache_blocks_resolver_after_eviction) {
+    config::dns_cache_max_consecutive_failures = 2;
+    config::dns_cache_negative_ttl_seconds = 3600; // will not expire during test
+
+    int resolver_calls = 0;
+    bool should_fail = false;
+    DNSCache cache([&](const std::string&, std::string& out, bool) -> Status {
+        ++resolver_calls;
+        if (should_fail) return Status::InternalError("mock failure");
+        out = "1.2.3.4";
+        return Status::OK();
+    });
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+    ASSERT_EQ(1, resolver_calls);
+
+    // Evict via failures.
+    should_fail = true;
+    cache.refresh_for_test();
+    cache.refresh_for_test();
+    ASSERT_EQ(0u, cache.size_for_test()) << "prerequisite: host must be evicted";
+    ASSERT_EQ(1u, cache.negative_cache_size_for_test());
+
+    int calls_at_eviction = resolver_calls;
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    }
+    EXPECT_EQ(calls_at_eviction, resolver_calls)
+            << "resolver must not be called while host is in the negative cache";
+}
+
+// Once the negative-cache TTL expires (simulated by clearing the map), get()
+// must attempt a fresh resolve; on success the host re-enters the main cache
+// and the negative-cache entry is removed.
+TEST_F(DNSCacheTest, negative_cache_retries_after_ttl_expiry) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+
+    int resolver_calls = 0;
+    bool should_fail = false;
+    DNSCache cache([&](const std::string&, std::string& out, bool) -> Status {
+        ++resolver_calls;
+        if (should_fail) return Status::InternalError("mock failure");
+        out = "1.2.3.4";
+        return Status::OK();
+    });
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+
+    // Evict.
+    should_fail = true;
+    cache.refresh_for_test();
+    ASSERT_EQ(0u, cache.size_for_test());
+    ASSERT_EQ(1u, cache.negative_cache_size_for_test());
+
+    // Negative cache blocks the resolver.
+    EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    int calls_while_blocked = resolver_calls;
+
+    // Simulate TTL expiry.
+    cache._clear_negative_cache_for_test();
+    EXPECT_EQ(0u, cache.negative_cache_size_for_test());
+
+    // DNS recovers.
+    should_fail = false;
+    EXPECT_TRUE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_GT(resolver_calls, calls_while_blocked) << "resolver must be called after TTL expiry";
+    EXPECT_EQ(1u, cache.size_for_test()) << "host must be re-cached after successful re-resolve";
+    EXPECT_EQ(0u, cache.negative_cache_size_for_test())
+            << "negative cache entry must be removed on successful re-resolve";
 }
 
 } // end of namespace doris
