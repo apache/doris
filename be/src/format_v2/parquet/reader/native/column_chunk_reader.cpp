@@ -844,7 +844,6 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     _state = INITIALIZED;
-    RETURN_IF_ERROR(_parse_first_page_header());
     return Status::OK();
 }
 
@@ -908,30 +907,56 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::read_levels(
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_parse_first_page_header() {
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_ensure_dictionary_page_loaded() {
+    if (_dict_checked) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_state == INITIALIZED);
     while (true) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
         const tparquet::PageHeader* header = nullptr;
         RETURN_IF_ERROR(_page_reader->get_page_header(&header));
         if (header->type == tparquet::PageType::DATA_PAGE ||
             header->type == tparquet::PageType::DATA_PAGE_V2) {
-            _state = INITIALIZED;
-            return parse_page_header();
+            if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+                if (header->type == tparquet::PageType::DATA_PAGE &&
+                    _page_reader->has_active_offset_index()) {
+                    // V1 nested pages expose row boundaries only in repetition levels, so an
+                    // indexed seek must not skip the first page before those levels are decoded.
+                    _page_reader->discard_offset_index();
+                    _offset_index = nullptr;
+                }
+            }
+            _dict_checked = true;
+            return Status::OK();
         }
         if (header->type != tparquet::PageType::DICTIONARY_PAGE) {
             RETURN_IF_ERROR(_page_reader->skip_auxiliary_page());
-            _state = INITIALIZED;
             continue;
         }
-        // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
-        // so we should parse the directory page in next_page()
         RETURN_IF_ERROR(_decode_dict_page());
-        // parse the real first data page
         RETURN_IF_ERROR(_page_reader->dict_next_page());
-        _state = INITIALIZED;
-        // A dictionary is the only non-data page with decoder state. Any following index or
-        // extension pages are skipped by the same pre-data loop.
+        // A nested V1 chunk must inspect its first data-page type before indexed seeking can skip
+        // that page; dictionary discovery alone is not enough to make the OffsetIndex trustworthy.
     }
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool* has_dict) {
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    *has_dict = _has_dict;
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ensure_first_data_page_parsed() {
+    if (_first_data_page_parsed) {
+        return Status::OK();
+    }
+    // OffsetIndex row bounds are untrusted until page zero has been reconciled and its declared
+    // cardinality checked, so no indexed skip may observe them before this one-time parse.
+    return parse_page_header();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -939,6 +964,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (_state == HEADER_PARSED || _state == DATA_LOADED) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
     const tparquet::PageHeader* header = nullptr;
     while (true) {
         RETURN_IF_ERROR(_page_reader->parse_page_header());
@@ -1004,12 +1030,19 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     if (!active_offset_index) {
         _chunk_parsed_values += _remaining_num_values;
     }
+    _first_data_page_parsed = true;
     _state = HEADER_PARSED;
     return Status::OK();
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
+    if constexpr (OFFSET_INDEX) {
+        RETURN_IF_ERROR(ensure_first_data_page_parsed());
+    } else {
+        // Load dictionary state before advancing can jump past the physical dictionary page.
+        RETURN_IF_ERROR(_ensure_dictionary_page_loaded());
+    }
     // Level parsing advances _page_data past the allocation base, so retain explicit ownership
     // state instead of inferring whether current decoders still reference decompressed storage.
     _page_uses_decompress_buf = false;
@@ -1022,8 +1055,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
         _decompress_release_pending = false;
         _decompress_release_threshold = std::numeric_limits<size_t>::max();
     }
-    _state = INITIALIZED;
     RETURN_IF_ERROR(_page_reader->next_page());
+    _state = INITIALIZED;
     return Status::OK();
 }
 
@@ -1712,8 +1745,206 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
     return Status::OK();
 }
 
+namespace {
+
+template <typename ColumnType>
+bool try_filter_and_project_dictionary_values(
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        const std::vector<uint32_t>& selected_dictionary_indices,
+        const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
+        IColumn::Filter* row_filter) {
+    if (typed_dictionary == nullptr || projected_values == nullptr) {
+        return false;
+    }
+    const auto* dictionary = check_and_get_column<ColumnType>(*typed_dictionary);
+    auto* projected = check_and_get_column<ColumnType>(*projected_values);
+    if (dictionary == nullptr || projected == nullptr) {
+        return false;
+    }
+
+    const auto& dictionary_data = dictionary->get_data();
+    auto& projected_data = projected->get_data();
+    projected_data.reserve(projected_data.size() + selected_dictionary_indices.size());
+    row_filter->reserve(nullable_selection_nulls.size());
+    size_t physical_row = 0;
+    for (const uint8_t is_null : nullable_selection_nulls) {
+        bool keep = false;
+        if (is_null == 0) {
+            const uint32_t dictionary_id = selected_dictionary_indices[physical_row++];
+            // The decoder validates the complete id batch first, preserving atomic output while
+            // allowing this hot gather loop to use unchecked dictionary lookups.
+            keep = dictionary_filter[dictionary_id] != 0;
+            if (keep) {
+                projected_data.push_back(dictionary_data[dictionary_id]);
+            }
+        }
+        row_filter->push_back(keep ? 1 : 0);
+    }
+    DORIS_CHECK_EQ(physical_row, selected_dictionary_indices.size());
+    return true;
+}
+
+bool try_filter_and_project_fixed_width_dictionary(
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        const std::vector<uint32_t>& selected_dictionary_indices,
+        const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
+        IColumn::Filter* row_filter) {
+#define TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnType)                            \
+    if (try_filter_and_project_dictionary_values<ColumnType>(                    \
+                typed_dictionary, projected_values, selected_dictionary_indices, \
+                nullable_selection_nulls, dictionary_filter, row_filter)) {      \
+        return true;                                                             \
+    }
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnUInt8)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt8)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt16)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt128)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnFloat32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnFloat64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDate)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateTime)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDateTimeV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeV2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnTimeStampTz)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv4)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnIPv6)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnOffset64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal32)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal64)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal128V2)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal128V3)
+    TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnDecimal256)
+#undef TRY_FIXED_WIDTH_DICTIONARY_COLUMN
+    return false;
+}
+
+} // namespace
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices(
+        const IColumn::Filter& dictionary_filter, ColumnSelectVector& select_vector,
+        const IColumn* typed_dictionary, IColumn* projected_values,
+        ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, bool* projected_directly,
+        bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(projected_directly != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    DORIS_CHECK((typed_dictionary == nullptr) == (projected_values == nullptr));
+    *projected_directly = false;
+    *used_filter = false;
+    row_filter->clear();
+    if (_current_encoding != tparquet::Encoding::RLE_DICTIONARY || _page_decoder == nullptr ||
+        !_page_decoder->has_dictionary()) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
+        return Status::IOError("Decode too many values in current page");
+    }
+    if (UNLIKELY(dictionary_filter.size() != _page_decoder->dictionary_size())) {
+        return Status::Corruption("Parquet predicate dictionary has {} entries, expected {}",
+                                  dictionary_filter.size(), _page_decoder->dictionary_size());
+    }
+
+    ParquetSelection selection;
+    _nullable_selection_nulls.clear();
+    _nullable_selection_nulls.reserve(select_vector.num_values() - select_vector.num_filtered());
+    size_t physical_cursor = 0;
+    auto build_selection = [&]<bool HAS_FILTER>() {
+        ColumnSelectVector::DataReadType read_type;
+        while (const size_t run_length = select_vector.get_next_run<HAS_FILTER>(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT:
+                if (!selection.ranges.empty() &&
+                    selection.ranges.back().first + selection.ranges.back().count ==
+                            physical_cursor) {
+                    selection.ranges.back().count += run_length;
+                } else {
+                    selection.ranges.push_back({.first = physical_cursor, .count = run_length});
+                }
+                selection.selected_values += run_length;
+                _nullable_selection_nulls.resize_fill(_nullable_selection_nulls.size() + run_length,
+                                                      0);
+                physical_cursor += run_length;
+                break;
+            case ColumnSelectVector::NULL_DATA:
+                _nullable_selection_nulls.resize_fill(_nullable_selection_nulls.size() + run_length,
+                                                      1);
+                break;
+            case ColumnSelectVector::FILTERED_CONTENT:
+                physical_cursor += run_length;
+                break;
+            case ColumnSelectVector::FILTERED_NULL:
+                break;
+            }
+        }
+    };
+    if (select_vector.has_filter()) {
+        build_selection.template operator()<true>();
+    } else {
+        build_selection.template operator()<false>();
+    }
+    selection.total_values = physical_cursor;
+    DORIS_CHECK_EQ(selection.total_values, select_vector.num_values() - select_vector.num_nulls());
+    DORIS_CHECK_EQ(_nullable_selection_nulls.size(),
+                   select_vector.num_values() - select_vector.num_filtered());
+    if (UNLIKELY(_empty_value_section && selection.total_values != 0)) {
+        return Status::Corruption(
+                "Parquet definition levels require {} values from an empty value section",
+                selection.total_values);
+    }
+
+    _selected_dictionary_indices.clear();
+    if (selection.selected_values == 0) {
+        RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
+    } else {
+        SCOPED_RAW_TIMER(&_chunk_statistics.decode_value_time);
+        RETURN_IF_ERROR(_page_decoder->decode_selected_dictionary_indices(
+                selection, &_selected_dictionary_indices));
+    }
+    DORIS_CHECK_EQ(_selected_dictionary_indices.size(), selection.selected_values);
+
+    const bool direct_fixed_width_projection = try_filter_and_project_fixed_width_dictionary(
+            typed_dictionary, projected_values, _selected_dictionary_indices,
+            _nullable_selection_nulls, dictionary_filter, row_filter);
+    auto* matched =
+            matched_dictionary_ids == nullptr ? nullptr : &matched_dictionary_ids->get_data();
+    if (!direct_fixed_width_projection && matched != nullptr) {
+        matched->reserve(matched->size() + selection.selected_values);
+    }
+    if (!direct_fixed_width_projection) {
+        row_filter->reserve(_nullable_selection_nulls.size());
+        size_t physical_row = 0;
+        for (const uint8_t is_null : _nullable_selection_nulls) {
+            bool keep = false;
+            if (is_null == 0) {
+                const uint32_t dictionary_id = _selected_dictionary_indices[physical_row++];
+                // The complete id batch was validated before this loop, so unchecked bitmap access
+                // cannot leak partial output for a corrupt page.
+                keep = dictionary_filter[dictionary_id] != 0;
+                if (keep && matched != nullptr) {
+                    matched->push_back(cast_set<int32_t>(dictionary_id));
+                }
+            }
+            row_filter->push_back(keep ? 1 : 0);
+        }
+        DORIS_CHECK_EQ(physical_row, _selected_dictionary_indices.size());
+    }
+    // Commit page progress only after every external dictionary id has been validated.
+    _remaining_num_values -= select_vector.num_values();
+    *projected_directly = direct_fixed_width_projection;
+    *used_filter = true;
+    return Status::OK();
+}
+
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t left_row) {
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        RETURN_IF_ERROR(ensure_first_data_page_parsed());
+    }
     if constexpr (OFFSET_INDEX) {
         if (_page_reader->has_active_offset_index()) {
             while (true) {
