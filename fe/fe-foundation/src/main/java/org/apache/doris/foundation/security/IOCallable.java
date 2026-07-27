@@ -15,15 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-<<<<<<<< HEAD:fe/fe-foundation/src/main/java/org/apache/doris/foundation/security/IOCallable.java
 package org.apache.doris.foundation.security;
-========
-package org.apache.doris.kerberos;
->>>>>>>> 5fc8cb65e9f ([refactor](catalog) P3b: consolidate kerberos authentication into fe-kerberos (#64655)):fe/fe-kerberos/src/main/java/org/apache/doris/kerberos/SimpleAuthenticationConfig.java
 
-import lombok.Data;
+import java.io.IOException;
 
-<<<<<<<< HEAD:fe/fe-foundation/src/main/java/org/apache/doris/foundation/security/IOCallable.java
 /**
  * IO-throwing variant of {@link java.util.concurrent.Callable}.
  * Used in place of {@code java.security.PrivilegedExceptionAction} so callers of
@@ -34,14 +29,4 @@ import lombok.Data;
 @FunctionalInterface
 public interface IOCallable<T> {
     T call() throws IOException;
-========
-@Data
-public class SimpleAuthenticationConfig extends AuthenticationConfig {
-    private String username;
-
-    @Override
-    public boolean isValid() {
-        return true;
-    }
->>>>>>>> 5fc8cb65e9f ([refactor](catalog) P3b: consolidate kerberos authentication into fe-kerberos (#64655)):fe/fe-kerberos/src/main/java/org/apache/doris/kerberos/SimpleAuthenticationConfig.java
 }

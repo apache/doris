@@ -35,10 +35,17 @@ under the License.
         Carries the neutral facts types (AuthType, KerberosAuthSpec) consumed by the
         metastore connector API plus the Hadoop authenticator machinery (authentication
         config + UGI doAs authenticators) relocated here as the single source of truth
-        (P3b-T01 / D-017). Depends only on Hadoop and JDK — no FE module dependency.
+        (P3b-T01 / D-017). Depends on Hadoop, the JDK and fe-foundation only: upstream #66004 made
+        ExecutionAuthenticator extend the foundation-level (Hadoop-free) doAs abstraction that
+        fe-filesystem also implements, so the two auth stacks share one interface.
     </description>
 
     <dependencies>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>

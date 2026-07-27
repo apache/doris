@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
@@ -33,7 +34,7 @@ import java.util.stream.Collectors;
 /**
  * FIX-STATIC-CREDS-BE (B-9) fe-core bridge test: pins that
  * {@link DefaultConnectorContext#getBackendStorageProperties} translates the catalog's parsed
- * {@code StorageProperties} map into the BE-canonical {@code AWS_*} keys (the same
+ * storage-adapter map into the BE-canonical {@code AWS_*} keys (the same
  * {@code CredentialUtils.getBackendPropertiesFromStorageMap} legacy {@code PaimonScanNode} returns
  * from {@code getLocationProperties()}). The paimon connector cannot import that machinery, so this
  * hook is its only access; without it the connector ships raw {@code s3.access_key}/{@code oss.*}
@@ -47,15 +48,15 @@ public class DefaultConnectorContextBackendStoragePropsTest {
             () -> new ExecutionAuthenticator() {};
 
     /** A context whose storage-props supplier yields a real OSS storage-properties map, built with
-     *  the same {@code StorageProperties.createAll} machinery a real OSS catalog uses. */
+     *  the same {@code StorageAdapter.ofAll} machinery a real OSS catalog uses. */
     private static DefaultConnectorContext ossContext() throws Exception {
         Map<String, String> oss = new HashMap<>();
         oss.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         oss.put("oss.access_key", "ak");
         oss.put("oss.secret_key", "sk");
-        List<StorageProperties> all = StorageProperties.createAll(oss);
-        Map<StorageProperties.Type, StorageProperties> map = all.stream()
-                .collect(Collectors.toMap(StorageProperties::getType, Function.identity(), (a, b) -> a));
+        List<StorageAdapter> all = StorageAdapter.ofAll(oss);
+        Map<StorageTypeId, StorageAdapter> map = all.stream()
+                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity(), (a, b) -> a));
         return new DefaultConnectorContext("c", 1L, NOOP_AUTH, () -> map);
     }
 

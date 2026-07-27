@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.datasource.property.storage.HdfsProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -28,9 +27,9 @@ import java.util.Map;
 
 /**
  * Design S2: unit tests for {@link CatalogProperty#getEffectiveRawStorageProperties()} — the raw storage map a
- * plugin catalog hands fe-filesystem to bind directly (no fe-core {@code StorageProperties.createAll}
+ * plugin catalog hands fe-filesystem to bind directly (no fe-core {@code StorageAdapter.ofAll}
  * round-trip). The invariant that de-risks the whole cut: this map is byte-identical to what the fe-core parse
- * path exposes via {@code getStoragePropertiesMap().values().iterator().next().getOrigProps()}, so binding
+ * path exposes via {@code getStorageAdaptersMap().values().iterator().next().getOrigProps()}, so binding
  * either yields the same typed storage and the same BE {@code location.*} map. Also pins that the derived
  * warehouse -> fs.defaultFS defaults survive and (design S4) that the removed vended gate no longer empties
  * the map for a vended catalog.
@@ -48,7 +47,8 @@ public class CatalogPropertyEffectiveRawStoragePropsTest {
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "hadoop");
-        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        // literal, matching upstream #66004 (the fe-core HdfsProperties constant went with the typed hierarchy)
+        props.put("fs.hdfs.support", "true");
         Map<String, String> connectorDerived = new HashMap<>();
         if (warehouse != null) {
             props.put("warehouse", warehouse);
@@ -72,7 +72,7 @@ public class CatalogPropertyEffectiveRawStoragePropsTest {
         CatalogProperty cp = hadoopIceberg("hdfs://nsbridge/wh");
         Map<String, String> viaBind = cp.getEffectiveRawStorageProperties();
         Map<String, String> viaOrigProps =
-                cp.getStoragePropertiesMap().values().iterator().next().getOrigProps();
+                cp.getStorageAdaptersMap().values().iterator().next().getOrigProps();
         Assertions.assertEquals(viaOrigProps, viaBind);
     }
 

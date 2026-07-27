@@ -17,7 +17,8 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.thrift.TFileType;
 
@@ -50,15 +51,15 @@ public class DefaultConnectorContextNormalizeUriTest {
             () -> new ExecutionAuthenticator() {};
 
     /** A context whose storage-props supplier yields a real OSS storage-properties map, built with
-     *  the same {@code StorageProperties.createAll} machinery a real OSS catalog uses. */
+     *  the same {@code StorageAdapter.ofAll} machinery a real OSS catalog uses. */
     private static DefaultConnectorContext ossContext() throws Exception {
         Map<String, String> oss = new HashMap<>();
         oss.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         oss.put("oss.access_key", "ak");
         oss.put("oss.secret_key", "sk");
-        List<StorageProperties> all = StorageProperties.createAll(oss);
-        Map<StorageProperties.Type, StorageProperties> map = all.stream()
-                .collect(Collectors.toMap(StorageProperties::getType, Function.identity(), (a, b) -> a));
+        List<StorageAdapter> all = StorageAdapter.ofAll(oss);
+        Map<StorageTypeId, StorageAdapter> map = all.stream()
+                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity(), (a, b) -> a));
         return new DefaultConnectorContext("c", 1L, NOOP_AUTH, () -> map);
     }
 
@@ -92,7 +93,7 @@ public class DefaultConnectorContextNormalizeUriTest {
     public void failsLoudWhenNoStoragePropertiesForScheme() {
         // WHY: a context with no storage-properties map must FAIL LOUD on a real path rather than
         // silently shipping the raw oss:// to BE (which would corrupt reads). Mirrors legacy
-        // LocationPath.of(path, {}) throwing StoragePropertiesException. The ctors that do not wire a
+        // LocationPath.ofAdapters(path, {}) throwing StoragePropertiesException. The ctors that do not wire a
         // storage map are never used by paimon, but the fail-loud contract is pinned here.
         // MUTATION: swallowing the error and returning the raw path -> red.
         DefaultConnectorContext noStorage = new DefaultConnectorContext("c", 1L);

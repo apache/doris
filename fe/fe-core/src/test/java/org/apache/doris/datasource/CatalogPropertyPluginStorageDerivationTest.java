@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.datasource.property.storage.HdfsProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -30,7 +29,7 @@ import java.util.Map;
  * Design S8: for a plugin catalog the connector owns storage-property derivation, so {@link CatalogProperty}
  * folds the connector-supplied defaults (via {@link CatalogProperty#setPluginDerivedStorageDefaultsSupplier})
  * into BOTH the raw fe-filesystem bind map ({@link CatalogProperty#getEffectiveRawStorageProperties}) and the
- * typed BE storage map ({@link CatalogProperty#getStoragePropertiesMap}) WITHOUT parsing fe-core
+ * typed BE storage map ({@link CatalogProperty#getStorageAdaptersMap}) WITHOUT parsing fe-core
  * {@code MetastoreProperties}. This is what lets the fe-core Iceberg/Paimon MetastoreProperties cluster be
  * retired (their factory is un-registered, so any getMetastoreProperties() on the plugin path would throw).
  */
@@ -40,7 +39,8 @@ public class CatalogPropertyPluginStorageDerivationTest {
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "hadoop");
-        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        // literal, matching upstream #66004 (the fe-core HdfsProperties constant went with the typed hierarchy)
+        props.put("fs.hdfs.support", "true");
         props.put("warehouse", "hdfs://realns/wh");
         return new CatalogProperty(null, props);
     }
@@ -59,7 +59,7 @@ public class CatalogPropertyPluginStorageDerivationTest {
                 cp.getEffectiveRawStorageProperties().get("fs.defaultFS"));
         // Typed supplier (BE storage map / URI normalization path): same folded default.
         Assertions.assertEquals("hdfs://from-connector",
-                cp.getStoragePropertiesMap().values().iterator().next().getOrigProps().get("fs.defaultFS"));
+                cp.getStorageAdaptersMap().values().iterator().next().getOrigProps().get("fs.defaultFS"));
     }
 
     @Test
