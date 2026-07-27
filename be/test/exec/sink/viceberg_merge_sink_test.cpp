@@ -315,4 +315,33 @@ TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
     ASSERT_NE(std::string::npos, status.to_string().find("do not match schema columns"));
 }
 
+TEST_F(VIcebergMergeSinkTest, TestRejectsDuplicateMatchedTargetAcrossBlocks) {
+    ObjectPool pool;
+    MockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    Block first = build_block_with_ops({3});
+    ASSERT_TRUE(sink->write(&state, first).ok());
+    Block duplicate = build_block_with_ops({3});
+    Status status = sink->write(&state, duplicate);
+
+    ASSERT_FALSE(status.ok());
+    ASSERT_NE(std::string::npos,
+              status.to_string().find("multiple source rows matched the same target row"));
+}
+
 } // namespace doris

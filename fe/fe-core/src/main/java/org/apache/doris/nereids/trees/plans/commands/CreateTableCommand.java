@@ -107,9 +107,11 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
+            // Once CTAS metadata is visible, every setup or execution failure must pass through
+            // the same rollback boundary so an unusable destination table is never left behind.
+            query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
             InsertIntoTableCommand insertCommand = null;
             if (!FeConstants.runningUnitTest) {
                 insertCommand = new InsertIntoTableCommand(query, Optional.empty(),

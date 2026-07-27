@@ -323,6 +323,24 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesRequiredFields() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "required_id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "optional_name", Types.StringType.get()),
+                Types.NestedField.optional(3, "details", Types.StructType.of(
+                        Types.NestedField.required(4, "required_metric", Types.IntegerType.get()),
+                        Types.NestedField.optional(5, "optional_label", Types.StringType.get()))));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertFalse(columns.get(0).isAllowNull());
+        Assert.assertTrue(columns.get(1).isAllowNull());
+        Assert.assertTrue(columns.get(2).isAllowNull());
+        Assert.assertFalse(columns.get(2).getChildren().get(0).isAllowNull());
+        Assert.assertTrue(columns.get(2).getChildren().get(1).isAllowNull());
+    }
+
+    @Test
     public void testParseSchemaPreservesInitialDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")

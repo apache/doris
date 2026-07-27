@@ -24,7 +24,11 @@
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exec/sink/sink_common.h"
 #include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
@@ -94,8 +98,6 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         return Status::OK();
     }
 
-    _row_count += output_block.rows();
-
     if (_operation_idx < 0 || _row_id_idx < 0) {
         return Status::InternalError("Iceberg merge sink missing operation/row_id columns");
     }
@@ -120,16 +122,21 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         if (delete_op) {
             delete_filter[i] = 1;
             has_delete = true;
-            ++_delete_row_count;
             ++delete_rows;
         }
         if (insert_op) {
             insert_filter[i] = 1;
             has_insert = true;
-            ++_insert_row_count;
             ++insert_rows;
         }
     }
+
+    // The physical sink hashes matched rows by row_id, so identical targets reach the same sink.
+    // An exact set retained across blocks therefore enforces MERGE cardinality for the whole query.
+    RETURN_IF_ERROR(_validate_matched_row_ids(output_block, delete_filter.data()));
+    _row_count += output_block.rows();
+    _delete_row_count += delete_rows;
+    _insert_row_count += insert_rows;
 
     bool skip_io = false;
 #ifdef BE_TEST
@@ -164,6 +171,80 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         COUNTER_UPDATE(_delete_rows_counter, delete_rows);
     }
 
+    return Status::OK();
+}
+
+Status VIcebergMergeSink::_validate_matched_row_ids(const Block& block,
+                                                    const uint8_t* delete_filter) {
+    const auto& row_id = block.get_by_position(_row_id_idx);
+    const IColumn* row_id_data = row_id.column.get();
+    const IDataType* row_id_type = row_id.type.get();
+    const auto* nullable_row_id = check_and_get_column<ColumnNullable>(row_id_data);
+    if (nullable_row_id != nullptr) {
+        row_id_data = nullable_row_id->get_nested_column_ptr().get();
+    }
+    if (const auto* nullable_type = check_and_get_data_type<DataTypeNullable>(row_id_type)) {
+        row_id_type = nullable_type->get_nested_type().get();
+    }
+
+    const auto* struct_column = check_and_get_column<ColumnStruct>(row_id_data);
+    const auto* struct_type = check_and_get_data_type<DataTypeStruct>(row_id_type);
+    if (struct_column == nullptr || struct_type == nullptr) {
+        return Status::InternalError("Iceberg merge row_id column is not a struct");
+    }
+
+    int file_path_idx = -1;
+    int row_position_idx = -1;
+    const auto& field_names = struct_type->get_element_names();
+    for (size_t i = 0; i < field_names.size(); ++i) {
+        std::string field_name = doris::to_lower(field_names[i]);
+        if (field_name == "file_path") {
+            file_path_idx = static_cast<int>(i);
+        } else if (field_name == "row_position") {
+            row_position_idx = static_cast<int>(i);
+        }
+    }
+    if (file_path_idx < 0 || row_position_idx < 0) {
+        return Status::InternalError(
+                "Iceberg merge row_id must contain file_path and row_position fields");
+    }
+
+    const auto& file_path_column = struct_column->get_column_ptr(file_path_idx);
+    const auto& row_position_column = struct_column->get_column_ptr(row_position_idx);
+    const auto* nullable_file_path = check_and_get_column<ColumnNullable>(file_path_column.get());
+    const auto* nullable_row_position =
+            check_and_get_column<ColumnNullable>(row_position_column.get());
+    const auto* file_paths =
+            check_and_get_column<ColumnString>(remove_nullable(file_path_column).get());
+    const auto* row_positions = check_and_get_column<ColumnVector<TYPE_BIGINT>>(
+            remove_nullable(row_position_column).get());
+    if (file_paths == nullptr || row_positions == nullptr) {
+        return Status::InternalError("Iceberg merge row_id fields have incorrect types");
+    }
+
+    for (size_t i = 0; i < block.rows(); ++i) {
+        if (delete_filter[i] == 0) {
+            continue;
+        }
+        if ((nullable_row_id != nullptr && nullable_row_id->is_null_at(i)) ||
+            (nullable_file_path != nullptr && nullable_file_path->is_null_at(i)) ||
+            (nullable_row_position != nullptr && nullable_row_position->is_null_at(i))) {
+            return Status::InternalError("Iceberg merge matched row_id cannot be null");
+        }
+
+        int64_t row_position = row_positions->get_element(i);
+        if (row_position < 0) {
+            return Status::InternalError("Invalid row_position {} in Iceberg merge row_id",
+                                         row_position);
+        }
+        std::string exact_row_id = file_paths->get_data_at(i).to_string();
+        exact_row_id.append(reinterpret_cast<const char*>(&row_position), sizeof(row_position));
+        if (!_matched_row_ids.emplace(std::move(exact_row_id)).second) {
+            return Status::InvalidArgument(
+                    "Iceberg MERGE failed because multiple source rows matched the same target "
+                    "row");
+        }
+    }
     return Status::OK();
 }
 

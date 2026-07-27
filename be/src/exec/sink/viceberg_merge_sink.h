@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -60,6 +61,7 @@ public:
 private:
     Status _build_inner_sinks();
     Status _prepare_output_layout();
+    Status _validate_matched_row_ids(const Block& block, const uint8_t* delete_filter);
 
     TDataSink _t_sink;
     TDataSink _table_sink;
@@ -73,6 +75,7 @@ private:
     int _operation_idx = -1;
     int _row_id_idx = -1;
     std::vector<int> _data_column_indices;
+    std::unordered_set<std::string> _matched_row_ids;
 
     VExprContextSPtrs _table_output_expr_ctxs;
     VExprContextSPtrs _delete_output_expr_ctxs;
