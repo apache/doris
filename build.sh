@@ -1091,6 +1091,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     fi
 fi
 
+if [[ "${OUTPUT_BE_BINARY}" -eq 1 && "${BUILD_BENCHMARK}" == "ON" ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib"
+    cp -r -p "${DORIS_HOME}/be/output/lib/benchmark_test" "${DORIS_OUTPUT}/be/lib/"
+    OUTPUT_BE_BINARY=0
+fi
+
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     # need remove old version hadoop jars if $DORIS_OUTPUT been used multiple times, otherwise will cause jar conflict
     rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
