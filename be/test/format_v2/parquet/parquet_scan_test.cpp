@@ -59,6 +59,7 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "exprs/vtopn_pred.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
@@ -72,6 +73,7 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/utils.h"
+#include "testutil/mock/mock_query_context.h"
 #include "util/coding.h"
 #include "util/thrift_util.h"
 
@@ -885,6 +887,50 @@ VExprContextSPtr create_reader_values_string_runtime_conjunct(int column_id,
                                             make_nullable(std::make_shared<DataTypeString>()),
                                             "runtime_reader_value_key"));
     return wrap_runtime_filter(std::move(impl), make_runtime_in_node(), filter_id);
+}
+
+struct PreparedTopNConjunct {
+    std::shared_ptr<MockQueryContext> query_context;
+    VExprContextSPtr conjunct;
+};
+
+PreparedTopNConjunct create_topn_conjunct(RuntimeState* state, int column_id,
+                                          const DataTypePtr& data_type, const Field& bound) {
+    DORIS_CHECK(state != nullptr);
+    DORIS_CHECK(data_type != nullptr);
+    TExpr target_expr;
+    TExprNode slot_node;
+    slot_node.__set_node_type(TExprNodeType::SLOT_REF);
+    slot_node.__set_type(data_type->to_thrift());
+    slot_node.__set_num_children(0);
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(column_id);
+    slot_ref.__set_tuple_id(0);
+    slot_node.__set_slot_ref(slot_ref);
+    target_expr.nodes.push_back(std::move(slot_node));
+
+    TTopnFilterDesc desc;
+    desc.__set_source_node_id(10);
+    desc.__set_is_asc(true);
+    desc.__set_null_first(false);
+    desc.__set_target_node_id_to_target_expr({{20, std::move(target_expr)}});
+    auto query_context = MockQueryContext::create();
+    state->_query_ctx = query_context.get();
+    query_context->init_runtime_predicates({desc});
+    auto& predicate = query_context->get_runtime_predicate(10);
+    predicate.set_detected_source();
+    DORIS_CHECK(predicate.init_target(20, {}, -1).ok());
+    DORIS_CHECK(predicate.update(bound).ok());
+
+    TExprNode topn_node;
+    topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    topn_node.__set_is_nullable(false);
+    auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
+    topn->add_child(VSlotRef::create_shared(column_id, column_id, -1, data_type, "topn_column"));
+    auto conjunct = VExprContext::create_shared(std::move(topn));
+    DORIS_CHECK(conjunct->prepare(state, RowDescriptor()).ok());
+    DORIS_CHECK(conjunct->open(state).ok());
+    return {.query_context = std::move(query_context), .conjunct = std::move(conjunct)};
 }
 
 template <PrimitiveType T>
@@ -2453,6 +2499,38 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainRuntimeFiltersUsePhysicalDirectPath) {
     EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectRows"), 6);
 }
 
+TEST_F(ParquetScanTest, PredicateOnlyPlainTopNUsesPhysicalDirectPath) {
+    write_int_pair_parquet_file(_file_path, 6, false);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto prepared =
+            create_topn_conjunct(&state, 0, schema[0].type, Field::create_field<TYPE_INT>(3));
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(prepared.conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 3);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {10, 20, 30}));
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 0);
+    prepared.conjunct->close();
+}
+
 TEST_F(ParquetScanTest, PredicateOnlyTinyIntConversionUsesDecoderDirectPath) {
     write_tinyint_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
@@ -2842,6 +2920,39 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryRangeSkipsTypedValueMaterializati
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateProjectedRows"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
     conjunct->close();
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
+    write_dictionary_int_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto prepared =
+            create_topn_conjunct(&state, 0, schema[0].type, Field::create_field<TYPE_INT>(3));
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(prepared.conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 3);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {10, 20, 30}));
+    EXPECT_EQ(counter_value(profile, "DictFilterCandidateColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 3);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
+    prepared.conjunct->close();
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyDictionaryBloomRuntimeFilterUsesTypedValues) {
