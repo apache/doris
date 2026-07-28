@@ -404,8 +404,12 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 
         // start clean trash and update usage.
         Status res = start_trash_sweep(&usage);
-        if (res.ok() && _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
-            res = start_trash_sweep(&usage, true);
+        if (_stop_background_threads_latch.count() != 0 &&
+            _need_clean_trash.exchange(false, std::memory_order_relaxed)) {
+            auto force_sweep_status = start_trash_sweep(&usage, true);
+            if (res.ok()) {
+                res = force_sweep_status;
+            }
         }
 
         if (!res.ok()) {

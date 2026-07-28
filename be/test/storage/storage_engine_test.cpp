@@ -105,6 +105,13 @@ TEST_F(StorageEngineTest, TestBrokenDisk) {
     }
 }
 
+TEST_F(StorageEngineTest, TrashSweepDoesNotStartAfterEngineStop) {
+    _storage_engine->stop();
+
+    auto status = _storage_engine->start_trash_sweep(nullptr);
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+}
+
 TEST_F(StorageEngineTest, TestAsyncPublish) {
     auto st = ThreadPoolBuilder("TabletPublishTxnThreadPool")
                       .set_min_threads(config::tablet_publish_txn_max_thread)

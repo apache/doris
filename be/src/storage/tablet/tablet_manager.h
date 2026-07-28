@@ -276,20 +276,22 @@ private:
                                                    int round_budget, int fetch_chunk,
                                                    int scan_chunk);
 
-    RoundResult _delete_shutdown_tablets_one_round(ShutdownTabletIter& last_it,
-                                                   std::list<TabletSharedPtr>& failed_tablets,
-                                                   const MoveTabletCallback& move_tablet,
-                                                   int round_budget, int fetch_chunk,
-                                                   int scan_chunk);
-
     // Sweep shutdown tablets with round-based throttling and retry preservation.
     Status _sweep_shutdown_tablets(uint64_t sweep_epoch,
                                    const ShutdownTabletMoveExecutor& move_executor,
                                    const MoveTabletCallback& move_tablet,
                                    const std::function<void(int)>& wait_next_round);
 
+#ifdef BE_TEST
+    RoundResult _delete_shutdown_tablets_one_round(ShutdownTabletIter& last_it,
+                                                   std::list<TabletSharedPtr>& failed_tablets,
+                                                   const MoveTabletCallback& move_tablet,
+                                                   int round_budget, int fetch_chunk,
+                                                   int scan_chunk);
+
     Status _sweep_shutdown_tablets(const MoveTabletCallback& move_tablet,
                                    const std::function<void(int)>& wait_next_round);
+#endif
 
     static Status _execute_shutdown_tablet_moves_synchronously(
             uint64_t sweep_epoch, ShutdownTabletBatches&& batches,

@@ -108,7 +108,7 @@ TEST_F(DataDirSweepWorkerTest, ShutdownJobContainsExceptionAndReturnsUnresolvedT
     }
 
     constexpr uint64_t sweep_epoch = 9;
-    auto context = std::make_shared<DataDirSweepPhaseContext>(sweep_epoch, 1);
+    auto context = std::make_shared<DataDirSweepPhaseContext>(sweep_epoch, 2);
     int calls = 0;
     DataDirSweepJob job;
     job.sweep_epoch = sweep_epoch;
@@ -125,6 +125,15 @@ TEST_F(DataDirSweepWorkerTest, ShutdownJobContainsExceptionAndReturnsUnresolvedT
     job.result_index = 0;
     ASSERT_TRUE(worker.submit(std::move(job)).ok());
 
+    DataDirSweepJob followup_job;
+    followup_job.sweep_epoch = sweep_epoch;
+    followup_job.type = DataDirSweepJobType::TRASH_CAPACITY_REFRESH;
+    followup_job.data_dir = _data_dir.get();
+    followup_job.payload = TrashCapacityRefreshPayload {};
+    followup_job.context = context;
+    followup_job.result_index = 1;
+    ASSERT_TRUE(worker.submit(std::move(followup_job)).ok());
+
     worker.drain_and_stop();
     worker.join();
     context->completion_latch.wait();
@@ -136,6 +145,8 @@ TEST_F(DataDirSweepWorkerTest, ShutdownJobContainsExceptionAndReturnsUnresolvedT
     ASSERT_EQ(result.failed_tablets.size(), 2);
     EXPECT_EQ(result.failed_tablets[0].get(), tablet_ptrs[1]);
     EXPECT_EQ(result.failed_tablets[1].get(), tablet_ptrs[2]);
+    EXPECT_TRUE(context->results[1].status.ok()) << context->results[1].status;
+    EXPECT_EQ(context->results[1].type, DataDirSweepJobType::TRASH_CAPACITY_REFRESH);
 }
 
 } // namespace doris

@@ -53,6 +53,7 @@
 #include "agent/task_worker_pool.h"
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -771,7 +772,12 @@ void StorageEngine::stop() {
     if (_garbage_sweeper_thread) {
         _garbage_sweeper_thread->join();
     }
-    _stop_data_dir_sweep_workers();
+    {
+        // start_trash_sweep() is also called by non-coordinator entry points. Wait for any such
+        // epoch to finish before stopping workers, and keep the lock until every worker joins.
+        std::lock_guard sweep_lock(_trash_sweep_lock);
+        _stop_data_dir_sweep_workers();
+    }
 
 #define THREAD_JOIN(thread) \
     if (thread) {           \
@@ -937,6 +943,17 @@ DataDirSweepJobResult StorageEngine::_execute_data_dir_sweep_job(DataDirSweepJob
     result.data_dir = job.data_dir;
     job.data_dir->_record_sweep_job_start(job.type);
     MonotonicStopWatch watch(true);
+    auto fail_shutdown_tablets = [&job, &result](Status status, size_t first_failed_index) {
+        result.status = std::move(status);
+        if (auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
+            payload != nullptr) {
+            result.failed_tablets.insert(result.failed_tablets.end(),
+                                         payload->tablets.begin() + first_failed_index,
+                                         payload->tablets.end());
+            result.shutdown_failed +=
+                    static_cast<int64_t>(payload->tablets.size() - first_failed_index);
+        }
+    };
 
     try {
         switch (job.type) {
@@ -959,17 +976,25 @@ DataDirSweepJobResult StorageEngine::_execute_data_dir_sweep_job(DataDirSweepJob
                     if (payload.move_tablet(payload.tablets[index])) {
                         ++result.shutdown_resolved;
                     } else {
-                        ++result.shutdown_failed;
                         result.failed_tablets.push_back(payload.tablets[index]);
+                        ++result.shutdown_failed;
                     }
+                } catch (const Exception& e) {
+                    fail_shutdown_tablets(e.to_status(), index);
+                    break;
                 } catch (const std::exception& e) {
-                    result.status = Status::InternalError(
-                            "shutdown tablet move raised an exception. path={}, error={}",
-                            job.data_dir->path(), e.what());
-                    result.failed_tablets.insert(result.failed_tablets.end(),
-                                                 payload.tablets.begin() + index,
-                                                 payload.tablets.end());
-                    result.shutdown_failed += static_cast<int64_t>(payload.tablets.size() - index);
+                    fail_shutdown_tablets(
+                            Status::InternalError(
+                                    "shutdown tablet move raised an exception. path={}, error={}",
+                                    job.data_dir->path(), e.what()),
+                            index);
+                    break;
+                } catch (...) {
+                    fail_shutdown_tablets(
+                            Status::InternalError(
+                                    "shutdown tablet move raised an unknown exception. path={}",
+                                    job.data_dir->path()),
+                            index);
                     break;
                 }
             }
@@ -994,23 +1019,39 @@ DataDirSweepJobResult StorageEngine::_execute_data_dir_sweep_job(DataDirSweepJob
             result.status = job.data_dir->update_trash_capacity();
             break;
         }
+    } catch (const Exception& e) {
+        fail_shutdown_tablets(e.to_status(), 0);
     } catch (const std::exception& e) {
-        result.status = Status::InternalError(
-                "DataDir sweep job raised an exception. path={}, job_type={}, error={}",
-                job.data_dir->path(), data_dir_sweep_job_type_name(job.type), e.what());
-        if (auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
-            payload != nullptr) {
-            result.shutdown_resolved = 0;
-            result.shutdown_failed = static_cast<int64_t>(payload->tablets.size());
-            result.failed_tablets = payload->tablets;
-        }
+        fail_shutdown_tablets(
+                Status::InternalError(
+                        "DataDir sweep job raised an exception. path={}, job_type={}, error={}",
+                        job.data_dir->path(), data_dir_sweep_job_type_name(job.type), e.what()),
+                0);
+    } catch (...) {
+        fail_shutdown_tablets(
+                Status::InternalError(
+                        "DataDir sweep job raised an unknown exception. path={}, job_type={}",
+                        job.data_dir->path(), data_dir_sweep_job_type_name(job.type)),
+                0);
     }
 
     result.elapsed_ms = watch.elapsed_time_milliseconds();
     job.data_dir->_record_sweep_job_result(result);
+    int64_t tablet_count = 0;
+    if (const auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
+        payload != nullptr) {
+        tablet_count = static_cast<int64_t>(payload->tablets.size());
+    }
     LOG(INFO) << "finished DataDir sweep job. sweep_epoch=" << result.sweep_epoch
               << ", path=" << job.data_dir->path()
               << ", job_type=" << data_dir_sweep_job_type_name(result.type)
+              << ", tablet_count=" << tablet_count
+              << ", shutdown_resolved=" << result.shutdown_resolved
+              << ", shutdown_failed=" << result.shutdown_failed
+              << ", remote_rowset_gc_scanned=" << result.remote_rowset_gc_scanned
+              << ", remote_rowset_gc_backlog=" << result.remote_rowset_gc_backlog.value_or(-1)
+              << ", remote_tablet_gc_scanned=" << result.remote_tablet_gc_scanned
+              << ", remote_tablet_gc_backlog=" << result.remote_tablet_gc_backlog.value_or(-1)
               << ", elapsed_ms=" << result.elapsed_ms << ", status=" << result.status;
     return result;
 }
@@ -1055,6 +1096,10 @@ std::vector<DataDirSweepJobResult> StorageEngine::_dispatch_data_dir_sweep_jobs(
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
+    if (_stop_background_threads_latch.count() == 0) {
+        return Status::Cancelled("Storage engine is stopping; skip starting a garbage sweep epoch");
+    }
+
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
@@ -1062,6 +1107,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
             _need_clean_trash.store(true, std::memory_order_relaxed);
         }
         return Status::OK();
+    }
+    if (_stop_background_threads_latch.count() == 0) {
+        return Status::Cancelled("Storage engine is stopping; skip starting a garbage sweep epoch");
     }
 
     MonotonicStopWatch total_watch(true);

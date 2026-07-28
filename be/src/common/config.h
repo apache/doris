@@ -458,7 +458,8 @@ DECLARE_mInt32(snapshot_expire_time_sec);
 // the file storage period under trash dose not have to comply with this parameter.
 DECLARE_mInt32(trash_file_expire_time_sec);
 // BE-only dynamic config. Default is 200 and the valid range is [1, 10000]. Values outside the
-// valid range fall back to the historical limit of 200 at the use site.
+// valid range fall back to the historical limit of 200 at the use site. A small budget combined
+// with a large interval can extend the whole garbage sweep epoch.
 DECLARE_mInt32(shutdown_tablet_sweep_round_budget);
 // BE-only dynamic config. Default is 1000 ms and the valid range is [0, 10000]. A value of 0
 // skips the inter-round wait. Values outside the valid range fall back to the historical 1000 ms

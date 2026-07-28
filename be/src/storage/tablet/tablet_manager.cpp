@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <iterator>
 #include <list>
 #include <mutex>
@@ -39,6 +40,7 @@
 #include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -1279,21 +1281,52 @@ Status TabletManager::_execute_shutdown_tablet_moves_synchronously(
     DORIS_CHECK(results != nullptr);
     results->clear();
     results->reserve(batches.size());
+    Status execute_status;
     for (auto& [data_dir, tablets] : batches) {
+        DORIS_CHECK(data_dir != nullptr);
         ShutdownTabletMoveResult result;
         result.data_dir = data_dir;
-        for (const auto& tablet : tablets) {
-            if (move_tablet(tablet)) {
-                ++result.resolved_count;
-            } else {
-                ++result.failed_count;
-                result.failed_tablets.push_back(tablet);
+        auto fail_remaining_tablets = [&data_dir, &result, &tablets](Status status,
+                                                                     size_t first_failed_index) {
+            result.status = std::move(status);
+            result.failed_tablets.insert(result.failed_tablets.end(),
+                                         tablets.begin() + first_failed_index, tablets.end());
+            result.failed_count += static_cast<int64_t>(tablets.size() - first_failed_index);
+        };
+        for (size_t index = 0; index < tablets.size(); ++index) {
+            try {
+                if (move_tablet(tablets[index])) {
+                    ++result.resolved_count;
+                } else {
+                    result.failed_tablets.push_back(tablets[index]);
+                    ++result.failed_count;
+                }
+            } catch (const Exception& e) {
+                fail_remaining_tablets(e.to_status(), index);
+                break;
+            } catch (const std::exception& e) {
+                fail_remaining_tablets(
+                        Status::InternalError(
+                                "shutdown tablet move raised an exception. path={}, error={}",
+                                data_dir->path(), e.what()),
+                        index);
+                break;
+            } catch (...) {
+                fail_remaining_tablets(
+                        Status::InternalError(
+                                "shutdown tablet move raised an unknown exception. path={}",
+                                data_dir->path()),
+                        index);
+                break;
             }
+        }
+        if (execute_status.ok() && !result.status.ok()) {
+            execute_status = result.status;
         }
         results->push_back(std::move(result));
     }
     static_cast<void>(sweep_epoch);
-    return Status::OK();
+    return execute_status;
 }
 
 TabletManager::FetchResult TabletManager::_fetch_shutdown_tablets(ShutdownTabletIter& last_it,
@@ -1387,6 +1420,7 @@ TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
     }
 }
 
+#ifdef BE_TEST
 TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
         ShutdownTabletIter& last_it, std::list<TabletSharedPtr>& failed_tablets,
         const std::function<bool(const TabletSharedPtr&)>& move_tablet, int round_budget,
@@ -1427,6 +1461,7 @@ TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
         }
     }
 }
+#endif
 
 Status TabletManager::_sweep_shutdown_tablets(uint64_t sweep_epoch,
                                               const ShutdownTabletMoveExecutor& move_executor,
@@ -1472,6 +1507,7 @@ Status TabletManager::_sweep_shutdown_tablets(uint64_t sweep_epoch,
     return result;
 }
 
+#ifdef BE_TEST
 Status TabletManager::_sweep_shutdown_tablets(const MoveTabletCallback& move_tablet,
                                               const std::function<void(int)>& wait_next_round) {
     MonotonicStopWatch sweep_watch(true);
@@ -1510,6 +1546,7 @@ Status TabletManager::_sweep_shutdown_tablets(const MoveTabletCallback& move_tab
 
     return Status::OK();
 }
+#endif
 
 bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));

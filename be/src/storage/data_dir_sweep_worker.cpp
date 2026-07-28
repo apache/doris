@@ -22,6 +22,7 @@
 #include <exception>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "storage/data_dir.h"
 #include "storage/storage_engine.h"
@@ -105,23 +106,33 @@ void DataDirSweepWorker::join() {
 }
 
 DataDirSweepJobResult DataDirSweepWorker::_execute(DataDirSweepJob& job) {
-    try {
-        return _engine._execute_data_dir_sweep_job(job);
-    } catch (const std::exception& e) {
+    auto failed_result = [&job](Status status) {
         DataDirSweepJobResult result;
         result.sweep_epoch = job.sweep_epoch;
         result.type = job.type;
         result.data_dir = job.data_dir;
-        result.status = Status::InternalError(
-                "DataDir sweep job raised an exception. path={}, "
-                "job_type={}, error={}",
-                _data_dir->path(), data_dir_sweep_job_type_name(job.type), e.what());
+        result.status = std::move(status);
         if (auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
             payload != nullptr) {
             result.shutdown_failed = static_cast<int64_t>(payload->tablets.size());
             result.failed_tablets = std::move(payload->tablets);
         }
         return result;
+    };
+
+    try {
+        return _engine._execute_data_dir_sweep_job(job);
+    } catch (const Exception& e) {
+        return failed_result(e.to_status());
+    } catch (const std::exception& e) {
+        return failed_result(Status::InternalError(
+                "DataDir sweep job raised an exception. path={}, "
+                "job_type={}, error={}",
+                _data_dir->path(), data_dir_sweep_job_type_name(job.type), e.what()));
+    } catch (...) {
+        return failed_result(Status::InternalError(
+                "DataDir sweep job raised an unknown exception. path={}, job_type={}",
+                _data_dir->path(), data_dir_sweep_job_type_name(job.type)));
     }
 }
 

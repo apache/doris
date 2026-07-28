@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -141,6 +142,8 @@ public:
     int64_t shutdown_tablet_last_sweep_ms_value() {
         return _tablet_mgr->_shutdown_tablet_last_sweep_ms_value();
     }
+
+    DataDir* data_dir() { return _data_dir; }
 
     StorageEngine* k_engine;
 
@@ -326,6 +329,38 @@ TEST_F(TabletMgrTest, SweepShutdownTabletsRecordsZeroDurationWhenEmpty) {
 
     EXPECT_TRUE(sweep_st.ok());
     EXPECT_EQ(shutdown_tablet_last_sweep_ms_value(), 0);
+}
+
+TEST_F(TabletMgrTest, SynchronousMoveExecutorReturnsUnresolvedTabletsAfterException) {
+    std::vector<TabletSharedPtr> tablets {create_mock_shutdown_tablet(),
+                                          create_mock_shutdown_tablet(),
+                                          create_mock_shutdown_tablet()};
+    std::vector<Tablet*> tablet_ptrs;
+    for (const auto& tablet : tablets) {
+        tablet_ptrs.push_back(tablet.get());
+    }
+
+    TabletManager::ShutdownTabletBatches batches;
+    batches[data_dir()] = tablets;
+    std::vector<TabletManager::ShutdownTabletMoveResult> results;
+    int calls = 0;
+    auto status = _tablet_mgr->_execute_shutdown_tablet_moves_synchronously(
+            11, std::move(batches),
+            [&calls](const TabletSharedPtr&) {
+                if (++calls == 2) {
+                    throw std::runtime_error("injected synchronous move failure");
+                }
+                return true;
+            },
+            &results);
+
+    EXPECT_FALSE(status.ok());
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0].resolved_count, 1);
+    EXPECT_EQ(results[0].failed_count, 2);
+    ASSERT_EQ(results[0].failed_tablets.size(), 2);
+    EXPECT_EQ(results[0].failed_tablets[0].get(), tablet_ptrs[1]);
+    EXPECT_EQ(results[0].failed_tablets[1].get(), tablet_ptrs[2]);
 }
 
 TEST_F(TabletMgrTest, DeleteShutdownTabletsRoundStopsAtExactQueueEnd) {
