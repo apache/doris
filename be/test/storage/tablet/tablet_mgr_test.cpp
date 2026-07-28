@@ -105,6 +105,16 @@ public:
         return TabletSharedPtr(owner, reinterpret_cast<Tablet*>(owner.get()));
     }
 
+    TabletSharedPtr create_shutdown_tablet(DataDir* data_dir, int64_t tablet_id) {
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->_tablet_id = tablet_id;
+        static_cast<void>(tablet_meta->set_partition_id(10000));
+        tablet_meta->set_tablet_uid({tablet_id, 0});
+        tablet_meta->set_shard_id(tablet_id % 4);
+        tablet_meta->_schema_hash = tablet_id;
+        return std::make_shared<Tablet>(*k_engine, std::move(tablet_meta), data_dir);
+    }
+
     // Replace the shutdown tablet queue with the provided test entries.
     void reset_shutdown_tablets(const std::vector<TabletSharedPtr>& tablets) {
         std::lock_guard<std::shared_mutex> wrlock(_tablet_mgr->_shutdown_tablets_lock);
@@ -361,6 +371,102 @@ TEST_F(TabletMgrTest, SynchronousMoveExecutorReturnsUnresolvedTabletsAfterExcept
     ASSERT_EQ(results[0].failed_tablets.size(), 2);
     EXPECT_EQ(results[0].failed_tablets[0].get(), tablet_ptrs[1]);
     EXPECT_EQ(results[0].failed_tablets[1].get(), tablet_ptrs[2]);
+}
+
+TEST_F(TabletMgrTest, ProductionShutdownSweepGroupsDataDirsAndPreservesGlobalBudget) {
+    const std::string second_path = _engine_data_path + "_second";
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(second_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(second_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(second_path + "/meta").ok());
+    auto second_data_dir = std::make_unique<DataDir>(*k_engine, second_path, 1000000000);
+    ASSERT_TRUE(second_data_dir->init().ok());
+
+    std::vector<TabletSharedPtr> tablets {create_shutdown_tablet(data_dir(), 10001),
+                                          create_shutdown_tablet(second_data_dir.get(), 10002),
+                                          create_shutdown_tablet(data_dir(), 10003)};
+    Tablet* failed_tablet = tablets[0].get();
+    reset_shutdown_tablets(tablets);
+    const int64_t queued_backlog = shutdown_tablet_backlog_value();
+    tablets.clear();
+
+    config::shutdown_tablet_sweep_round_budget = 2;
+    int move_attempts = 0;
+    int wait_count = 0;
+    std::vector<size_t> wave_batch_counts;
+    auto move_executor = [&](uint64_t sweep_epoch, TabletManager::ShutdownTabletBatches&& batches,
+                             const TabletManager::MoveTabletCallback& move_tablet,
+                             std::vector<TabletManager::ShutdownTabletMoveResult>* results) {
+        EXPECT_EQ(sweep_epoch, 41);
+        wave_batch_counts.push_back(batches.size());
+        results->clear();
+        for (auto& [batch_data_dir, batch_tablets] : batches) {
+            TabletManager::ShutdownTabletMoveResult result;
+            result.data_dir = batch_data_dir;
+            for (const auto& tablet : batch_tablets) {
+                if (move_tablet(tablet)) {
+                    ++result.resolved_count;
+                } else {
+                    ++result.failed_count;
+                    result.failed_tablets.push_back(tablet);
+                }
+            }
+            results->push_back(std::move(result));
+        }
+        return Status::OK();
+    };
+
+    auto sweep_status = _tablet_mgr->_sweep_shutdown_tablets(
+            41, move_executor,
+            [&](const TabletSharedPtr& tablet) {
+                ++move_attempts;
+                return tablet.get() != failed_tablet;
+            },
+            [&](int) { ++wait_count; });
+
+    EXPECT_TRUE(sweep_status.ok()) << sweep_status;
+    EXPECT_EQ(move_attempts, 3);
+    EXPECT_EQ(wait_count, 0);
+    EXPECT_EQ(wave_batch_counts, std::vector<size_t>({2, 1}));
+    EXPECT_EQ(list_shutdown_tablet_ptrs(), std::vector<Tablet*>({failed_tablet}));
+    EXPECT_EQ(shutdown_tablet_backlog_value(), queued_backlog - 2);
+
+    second_data_dir.reset();
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(second_path).ok());
+}
+
+TEST_F(TabletMgrTest, ProductionShutdownSweepRequeuesExecutorFailures) {
+    std::vector<TabletSharedPtr> tablets {create_shutdown_tablet(data_dir(), 10101),
+                                          create_shutdown_tablet(data_dir(), 10102)};
+    std::vector<Tablet*> tablet_ptrs;
+    for (const auto& tablet : tablets) {
+        tablet_ptrs.push_back(tablet.get());
+    }
+    reset_shutdown_tablets(tablets);
+    const int64_t queued_backlog = shutdown_tablet_backlog_value();
+    tablets.clear();
+
+    auto sweep_status = _tablet_mgr->_sweep_shutdown_tablets(
+            43,
+            [](uint64_t, TabletManager::ShutdownTabletBatches&& batches,
+               const TabletManager::MoveTabletCallback&,
+               std::vector<TabletManager::ShutdownTabletMoveResult>* results) {
+                results->clear();
+                for (auto& [data_dir, batch_tablets] : batches) {
+                    TabletManager::ShutdownTabletMoveResult result;
+                    result.data_dir = data_dir;
+                    result.status = Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                            "injected executor failure");
+                    result.failed_count = static_cast<int64_t>(batch_tablets.size());
+                    result.failed_tablets = std::move(batch_tablets);
+                    results->push_back(std::move(result));
+                }
+                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("injected executor failure");
+            },
+            [](const TabletSharedPtr&) { return true; }, [](int) {});
+
+    EXPECT_FALSE(sweep_status.ok());
+    EXPECT_EQ(list_shutdown_tablet_ptrs(), tablet_ptrs);
+    EXPECT_EQ(shutdown_tablet_backlog_value(), queued_backlog);
 }
 
 TEST_F(TabletMgrTest, DeleteShutdownTabletsRoundStopsAtExactQueueEnd) {

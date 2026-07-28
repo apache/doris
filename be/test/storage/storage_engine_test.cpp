@@ -24,17 +24,22 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
+#include "storage/data_dir_sweep_worker.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta_manager.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -110,6 +115,94 @@ TEST_F(StorageEngineTest, TrashSweepDoesNotStartAfterEngineStop) {
 
     auto status = _storage_engine->start_trash_sweep(nullptr);
     EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+}
+
+TEST_F(StorageEngineTest, StopWaitsForCoordinatorBeforeDrainingSweepWorkers) {
+    auto worker = std::make_unique<DataDirSweepWorker>(*_storage_engine, _data_dir.get());
+    auto* worker_ptr = worker.get();
+    ASSERT_TRUE(worker->start().ok());
+    _storage_engine->_data_dir_sweep_workers.emplace(_data_dir.get(), std::move(worker));
+
+    constexpr uint64_t sweep_epoch = 19;
+    auto in_flight_context = std::make_shared<DataDirSweepPhaseContext>(sweep_epoch, 1);
+    CountDownLatch job_entered(1);
+    CountDownLatch release_job(1);
+    auto owner = std::make_shared<int>(1);
+    TabletSharedPtr tablet(owner, reinterpret_cast<Tablet*>(owner.get()));
+    DataDirSweepJob in_flight_job;
+    in_flight_job.sweep_epoch = sweep_epoch;
+    in_flight_job.type = DataDirSweepJobType::SHUTDOWN_TABLET_MOVE;
+    in_flight_job.data_dir = _data_dir.get();
+    in_flight_job.payload = ShutdownTabletMovePayload {.tablets = {std::move(tablet)},
+                                                       .move_tablet = [&](const TabletSharedPtr&) {
+                                                           job_entered.count_down();
+                                                           release_job.wait();
+                                                           return true;
+                                                       }};
+    in_flight_job.context = in_flight_context;
+    in_flight_job.result_index = 0;
+    auto submit_status = worker_ptr->submit(std::move(in_flight_job));
+    if (!submit_status.ok()) {
+        ADD_FAILURE() << submit_status;
+        _storage_engine->stop();
+        return;
+    }
+    if (!job_entered.wait_for(std::chrono::seconds(5))) {
+        ADD_FAILURE() << "sweep worker did not start the in-flight job";
+        release_job.count_down();
+        _storage_engine->stop();
+        return;
+    }
+
+    auto coordinator_status = Thread::create(
+            "StorageEngineTest", "mock_sweep_coordinator",
+            [in_flight_context]() { in_flight_context->completion_latch.wait(); },
+            &_storage_engine->_garbage_sweeper_thread);
+    if (!coordinator_status.ok()) {
+        ADD_FAILURE() << coordinator_status;
+        release_job.count_down();
+        _storage_engine->stop();
+        return;
+    }
+
+    CountDownLatch stop_started(1);
+    CountDownLatch stop_completed(1);
+    std::thread stop_thread([&] {
+        stop_started.count_down();
+        _storage_engine->stop();
+        stop_completed.count_down();
+    });
+    EXPECT_TRUE(stop_started.wait_for(std::chrono::seconds(5)));
+    const auto stop_request_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (_storage_engine->_stop_background_threads_latch.count() != 0 &&
+           std::chrono::steady_clock::now() < stop_request_deadline) {
+        std::this_thread::yield();
+    }
+    EXPECT_EQ(_storage_engine->_stop_background_threads_latch.count(), 0);
+    EXPECT_FALSE(stop_completed.wait_for(std::chrono::milliseconds(100)));
+
+    auto followup_context = std::make_shared<DataDirSweepPhaseContext>(sweep_epoch, 1);
+    DataDirSweepJob followup_job;
+    followup_job.sweep_epoch = sweep_epoch;
+    followup_job.type = DataDirSweepJobType::TRASH_CAPACITY_REFRESH;
+    followup_job.data_dir = _data_dir.get();
+    followup_job.payload = TrashCapacityRefreshPayload {};
+    followup_job.context = followup_context;
+    followup_job.result_index = 0;
+    auto followup_submit_status = worker_ptr->submit(std::move(followup_job));
+    EXPECT_TRUE(followup_submit_status.ok()) << followup_submit_status;
+
+    release_job.count_down();
+    EXPECT_TRUE(stop_completed.wait_for(std::chrono::seconds(5)));
+    stop_thread.join();
+
+    EXPECT_EQ(in_flight_context->results[0].shutdown_resolved, 1);
+    if (followup_submit_status.ok()) {
+        followup_context->completion_latch.wait();
+        EXPECT_TRUE(followup_context->results[0].status.ok())
+                << followup_context->results[0].status;
+    }
+    EXPECT_TRUE(_storage_engine->_data_dir_sweep_workers.empty());
 }
 
 TEST_F(StorageEngineTest, TestAsyncPublish) {
