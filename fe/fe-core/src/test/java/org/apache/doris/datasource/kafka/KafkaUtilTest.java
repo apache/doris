@@ -91,7 +91,7 @@ public class KafkaUtilTest {
                     Collections.singletonList(routineLoadBackendId), new HashSet<>());
 
             Assert.assertEquals(Collections.singletonList(routineLoadBackendId), backendIds);
-            Mockito.verify(systemInfoService).getBackend(otherComputeGroupBackendId);
+            Mockito.verify(systemInfoService, Mockito.never()).getBackend(otherComputeGroupBackendId);
         }
     }
 

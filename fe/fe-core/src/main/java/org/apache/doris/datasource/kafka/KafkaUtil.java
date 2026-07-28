@@ -330,10 +330,12 @@ public class KafkaUtil {
         // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
         if (backendIds.isEmpty()) {
             Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
-            for (Long beId : new ArrayList<>(blacklist.keySet())) {
+            for (Long beId : candidateBackendIds) {
+                if (!blacklist.containsKey(beId)) {
+                    continue;
+                }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                if (candidateBackendIds.contains(beId)
-                        && isBackendAvailableForMetaRequest(backend)
+                if (isBackendAvailableForMetaRequest(backend)
                         && !failedBeIds.contains(beId)) {
                     backendIds.add(beId);
                 } else if (backend == null) {
