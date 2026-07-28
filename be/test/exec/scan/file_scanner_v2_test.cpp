@@ -83,6 +83,7 @@ TFileRangeDesc paimon_cpp_jni_range() {
     auto range = range_with_format("paimon", TFileFormatType::FORMAT_JNI);
     TPaimonFileDesc paimon_params;
     paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_CPP);
+    paimon_params.__set_file_format("parquet");
     range.table_format_params.__set_paimon_params(std::move(paimon_params));
     return range;
 }
@@ -299,7 +300,9 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"remote_doris", TFileFormatType::FORMAT_ARROW, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
-            {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_WAL, std::nullopt, true},
+            {"", TFileFormatType::FORMAT_ES_HTTP, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_LANCE, std::nullopt, false},
     };
 
     for (const auto& test_case : cases) {
@@ -382,9 +385,13 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
 
-    const std::vector<TFileFormatType::type> unsupported_formats {
-            TFileFormatType::FORMAT_WAL,
-    };
+    params.__set_format_type(TFileFormatType::FORMAT_WAL);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    const std::vector<TFileFormatType::type> unsupported_formats {TFileFormatType::FORMAT_ES_HTTP,
+                                                                  TFileFormatType::FORMAT_LANCE};
     for (const auto format : unsupported_formats) {
         params.__set_format_type(format);
         EXPECT_FALSE(
@@ -404,24 +411,23 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
-TEST(FileScannerV2Test, JniCompatibilityShapesForceLegacyScanner) {
+TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);
     query_options.__set_enable_paimon_cpp_reader(true);
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_JNI);
-    // Rolling upgrades may carry the only Paimon marker and reader type on each split. Since the
-    // scan-level selector cannot inspect that split yet, JNI scans conservatively stay on V1.
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(FileScannerV2::is_supported(params, paimon_cpp_jni_range()));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    const auto cpp_range = paimon_cpp_jni_range();
+    EXPECT_FALSE(FileScannerV2::is_supported(params, cpp_range));
+    const auto cpp_status = FileScannerV2::TEST_validate_scan_range(params, cpp_range);
+    EXPECT_TRUE(cpp_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 
-    // Older FEs can omit reader_type. The legacy scanner interprets this as Paimon JNI when the C++
-    // reader is disabled, so the scan-level choice must still stay on V1.
+    // Older FE plans without reader_type used Java whenever the C++ option was disabled.
     query_options.__set_enable_paimon_cpp_reader(false);
-    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
-    EXPECT_FALSE(
-            FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {
@@ -477,6 +483,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
+            {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
@@ -659,6 +666,18 @@ TEST(FileScannerV2Test, EndOfFileIsSkippedAsEmptySplit) {
     EXPECT_FALSE(FileScannerV2::TEST_should_skip_empty(Status::OK(), false));
 }
 
+TEST(FileScannerV2Test, OrcScannerResidualFilterRetainsNextBatchContext) {
+    auto status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"), TFileFormatType::FORMAT_ORC);
+    EXPECT_NE(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+    EXPECT_NE(status.to_string().find("synthetic row filter failure"), std::string::npos) << status;
+
+    status = FileScannerV2::TEST_contextualize_output_filter_status(
+            Status::InvalidArgument("synthetic row filter failure"),
+            TFileFormatType::FORMAT_PARQUET);
+    EXPECT_EQ(status.to_string().find("nextBatch failed"), std::string::npos) << status;
+}
+
 // Scenario: partition slots are identified from the explicit FE category when present, otherwise
 // from the legacy is_file_slot flag. Scanner-generated rowid columns must never be treated as
 // partition columns even if FE marks them as non-file slots.
@@ -783,29 +802,6 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     const auto& partition_conjuncts = scanner.TEST_runtime_filter_partition_prune_ctxs();
     ASSERT_EQ(partition_conjuncts.size(), 1);
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
-}
-
-TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
-    const auto bool_type = std::make_shared<DataTypeUInt8>();
-    auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
-    unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
-    VExprContextSPtrs conjuncts {
-            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 1),
-            runtime_filter_context(std::move(unsafe_predicate), 2),
-            runtime_filter_context(slot_ref(1, 0, bool_type, "part"), 3),
-    };
-
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    RuntimeProfile profile("file_scanner_v2");
-    FileScannerV2 scanner(&state, &profile, nullptr);
-    scanner.TEST_set_scanner_conjuncts(std::move(conjuncts));
-
-    EXPECT_EQ(scanner.TEST_table_reader_owned_conjunct_count(), 1);
-    EXPECT_EQ(scanner.TEST_scanner_residual_conjunct_count(), 2);
-    const auto* residual_predicates = profile.get_info_string("ScannerResidualPredicates");
-    ASSERT_NE(residual_predicates, nullptr);
-    EXPECT_FALSE(residual_predicates->empty());
-    EXPECT_NE(residual_predicates->find("SlotRef"), std::string::npos) << *residual_predicates;
 }
 
 } // namespace doris

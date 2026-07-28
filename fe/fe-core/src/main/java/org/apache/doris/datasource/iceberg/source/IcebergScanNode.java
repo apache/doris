@@ -956,13 +956,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
-                        partitionData, k -> {
-                            return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
-                                    sessionVariable.getTimeZone());
-                        });
-                // Only set partition values if all partitions are identity transform
-                // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
-                if (partitionInfoMap != null) {
+                        partitionData, k -> IcebergUtils.getIdentityPartitionInfoMap(
+                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                // A spec may mix identity and transformed fields. Keep its identity values so a
+                // runtime filter can prune that split without treating source columns as constants
+                // for files written under another evolved spec.
+                if (!partitionInfoMap.isEmpty()) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {

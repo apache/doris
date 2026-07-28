@@ -22,6 +22,7 @@
 
 #include "core/column/column_fixed_length_object.h"
 #include "util/byte_stream_split.h"
+#include "util/simd/parquet_kernels.h"
 
 namespace doris::format::parquet::native {
 Status ByteStreamSplitDecoder::decode_fixed_values(size_t num_values,
@@ -32,8 +33,15 @@ Status ByteStreamSplitDecoder::decode_fixed_values(size_t num_values,
     }
     const int64_t stride = static_cast<int64_t>(_data->size / _type_length);
     _decoded_values.resize(byte_size);
-    byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data), _type_length,
-                             _offset / _type_length, num_values, stride, _decoded_values.data());
+    if (!simd::try_byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data),
+                                            _type_length, _offset / _type_length, num_values,
+                                            stride, _decoded_values.data())) {
+        // Unsupported widths, short batches, and non-AVX2 hosts must retain the tuned blocked
+        // decoder instead of silently falling back to a slower row-by-row transpose.
+        doris::byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data), _type_length,
+                                        _offset / _type_length, num_values, stride,
+                                        _decoded_values.data());
+    }
     _offset += byte_size;
     return consumer.consume(_decoded_values.data(), num_values, static_cast<size_t>(_type_length));
 }
@@ -57,9 +65,14 @@ Status ByteStreamSplitDecoder::decode_selected_fixed_values(const ParquetSelecti
     size_t output = 0;
     const size_t first_row = _offset / value_width;
     for (const auto& range : selection.ranges) {
-        byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data), _type_length,
-                                 first_row + range.first, range.count, stride,
-                                 _decoded_values.data() + output * value_width);
+        uint8_t* destination = _decoded_values.data() + output * value_width;
+        if (!simd::try_byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data),
+                                                _type_length, first_row + range.first, range.count,
+                                                stride, destination)) {
+            doris::byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->data),
+                                            _type_length, first_row + range.first, range.count,
+                                            stride, destination);
+        }
         output += range.count;
     }
     DORIS_CHECK_EQ(output, selection.selected_values);

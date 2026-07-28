@@ -118,6 +118,10 @@ public:
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
             return {ExchangeType::NOOP};
         }
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+            return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(
+                    state);
+        }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)

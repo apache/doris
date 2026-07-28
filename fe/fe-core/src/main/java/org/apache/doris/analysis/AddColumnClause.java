@@ -39,6 +39,7 @@ public class AddColumnClause extends AlterTableClause {
     private static final Logger LOG = LogManager.getLogger(AddColumnClause.class);
     private ColumnDef columnDef;
     private String sql;
+    private ColumnPath columnPath;
     // Column position
     private ColumnPosition colPos;
     // if rollupName is null, add to column to base index.
@@ -56,6 +57,10 @@ public class AddColumnClause extends AlterTableClause {
         return colPos;
     }
 
+    public ColumnPath getColumnPath() {
+        return columnPath;
+    }
+
     public String getRollupName() {
         return rollupName;
     }
@@ -64,6 +69,7 @@ public class AddColumnClause extends AlterTableClause {
                            Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
+        this.columnPath = ColumnPath.of(columnDef.getName());
         this.colPos = colPos;
         this.rollupName = rollupName;
         this.properties = properties;
@@ -72,8 +78,16 @@ public class AddColumnClause extends AlterTableClause {
     // for nereids
     public AddColumnClause(String sql, Column column, ColumnPosition colPos, String rollupName,
             Map<String, String> properties) {
+        this(sql, ColumnPath.of(column.getName()), column, colPos, rollupName, properties);
+    }
+
+    // branch-4.1 dispatches Nereids operations through legacy clauses, so the complete path must
+    // survive this compatibility bridge instead of being reduced to the nested field's leaf name.
+    public AddColumnClause(String sql, ColumnPath columnPath, Column column, ColumnPosition colPos,
+            String rollupName, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.sql = sql;
+        this.columnPath = columnPath;
         this.column = column;
         this.colPos = colPos;
         this.rollupName = rollupName;

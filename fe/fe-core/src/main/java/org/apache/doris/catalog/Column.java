@@ -100,6 +100,10 @@ public class Column implements GsonPostProcessable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean nullableSpecified;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean commentSpecified;
     @SerializedName(value = "isAutoInc")
     private boolean isAutoInc;
 
@@ -320,6 +324,8 @@ public class Column implements GsonPostProcessable {
         this.isKey = column.isKey();
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.nullableSpecified = column.isNullableSpecified();
+        this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.realDefaultValue = column.realDefaultValue;
@@ -549,6 +555,14 @@ public class Column implements GsonPostProcessable {
         return isAllowNull;
     }
 
+    public boolean isNullableSpecified() {
+        return nullableSpecified;
+    }
+
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     public boolean isAutoInc() {
         return isAutoInc;
     }
@@ -559,6 +573,14 @@ public class Column implements GsonPostProcessable {
 
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
+    }
+
+    public void setNullableSpecified(boolean nullableSpecified) {
+        this.nullableSpecified = nullableSpecified;
+    }
+
+    public void setCommentSpecified(boolean commentSpecified) {
+        this.commentSpecified = commentSpecified;
     }
 
     public String getDefaultValue() {

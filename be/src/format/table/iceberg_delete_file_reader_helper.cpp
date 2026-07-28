@@ -174,6 +174,9 @@ Status init_orc_delete_reader(OrcReader* reader) {
     RETURN_IF_ERROR(reader->init_reader(&DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, conjuncts,
                                         false, nullptr, nullptr, nullptr, nullptr,
                                         TableSchemaChangeHelper::ConstNode::get_instance()));
+    // branch-4.1 creates the ORC row reader in set_fill_columns(); delete-file reads have no
+    // synthetic columns, but must still complete that initialization phase before nextBatch().
+    RETURN_IF_ERROR(reader->set_fill_columns({}, {}));
     return Status::OK();
 }
 
