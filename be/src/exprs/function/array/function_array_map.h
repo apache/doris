@@ -19,6 +19,7 @@
 
 #include <type_traits>
 
+#include "core/arena.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_string.h"
@@ -26,7 +27,6 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
-#include "core/arena.h"
 
 namespace doris {
 
@@ -50,8 +50,6 @@ template <typename Map, typename ColumnType>
 struct MapActionImpl<Map, ColumnType, MapOperation::UNION> {
     using Action = UnionAction<Map, ColumnType>;
 };
-
-
 
 template <MapOperation operation, typename ColumnType>
 struct OpenMapImpl {
@@ -170,19 +168,20 @@ public:
                           std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         ColumnArrayMutableData dst =
                 create_mutable_data(datas[0].nested_col.get(), datas[0].nested_nullmap_data);
-        // if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row) || 
+        // if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row) ||
         //       _execute_nested_array(dst, datas, col_const, start_row, end_row)) {
         //     res_ptr = assemble_column_array(dst);
         //     return Status::OK();
         // }
-        bool executed = _execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row);
-        if constexpr(operation == MapOperation::UNION) {
+        bool executed =
+                _execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row);
+        if constexpr (operation == MapOperation::UNION) {
             executed = executed || _execute_nested_array(dst, datas, col_const, start_row, end_row);
-        }  
-        if(executed) {
+        }
+        if (executed) {
             res_ptr = assemble_column_array(dst);
             return Status::OK();
-        }                  
+        }
         return Status::RuntimeError("Unexpected columns");
     }
 
@@ -203,7 +202,7 @@ private:
         return true;
     }
 
-     static bool _execute_nested_array(ColumnArrayMutableData& dst,
+    static bool _execute_nested_array(ColumnArrayMutableData& dst,
                                       const ColumnArrayExecutionDatas& datas,
                                       const std::vector<bool>& col_const, size_t start_row,
                                       size_t end_row) {
@@ -237,8 +236,8 @@ private:
                     }
 
                     const char* serialized_begin = nullptr;
-                    StringRef key = data.nested_col->serialize_value_into_arena(
-                            off, arena, serialized_begin);
+                    StringRef key = data.nested_col->serialize_value_into_arena(off, arena,
+                                                                                serialized_begin);
 
                     if (seen.emplace(key).second) {
                         distinct_elements.emplace_back(key);
