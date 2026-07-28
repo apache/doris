@@ -142,11 +142,10 @@ public class StreamLoadHandler {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
             String computeGroup = backend.getCloudClusterName();
-            String computeGroupId = backend.getCloudClusterId();
             // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
             // stream loads must still validate compute group privilege, existence, and status.
             if (request.isSetToken() || request.isSetAuthCode() || Strings.isNullOrEmpty(userName)) {
-                ctx.setCloudCluster(computeGroup, computeGroupId);
+                ctx.setCloudCluster(computeGroup);
             } else {
                 ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(computeGroup, ctx);
             }
@@ -156,9 +155,7 @@ public class StreamLoadHandler {
         if (!Strings.isNullOrEmpty(request.getCloudCluster())) {
             if (Strings.isNullOrEmpty(request.getUser())) {
                 // mysql load
-                String computeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getCloudClusterIdByName(request.getCloudCluster());
-                ctx.setCloudCluster(request.getCloudCluster(), computeGroupId);
+                ctx.setCloudCluster(request.getCloudCluster());
             } else {
                 // stream load
                 ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(request.getCloudCluster(), ctx);
@@ -279,8 +276,7 @@ public class StreamLoadHandler {
 
             NereidsStreamLoadPlanner planner = null;
             if (Config.isCloudMode()) {
-                planner = new NereidsCloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster(),
-                        ConnectContext.get().getComputeGroupId());
+                planner = new NereidsCloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
             } else {
                 planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
             }

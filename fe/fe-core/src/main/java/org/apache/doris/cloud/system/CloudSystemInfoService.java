@@ -1052,10 +1052,6 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
-        CloudComputeGroupMeta computeGroup = getComputeGroupById(clusterId);
-        if (computeGroup != null && !computeGroup.isVirtual()) {
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        }
         String clusterName = getClusterNameByClusterId(clusterId);
         String physicalClusterName = getPhysicalCluster(clusterName);
         String physicalClusterId = getCloudClusterIdByName(physicalClusterName);

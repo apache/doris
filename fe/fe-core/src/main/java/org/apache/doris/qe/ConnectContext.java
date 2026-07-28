@@ -217,10 +217,6 @@ public class ConnectContext {
     // cloud cluster name
     protected volatile String cloudCluster = null;
 
-    // Stable compute group id for the current in-flight request. Unlike the name,
-    // the id remains unchanged when the compute group is renamed.
-    protected String computeGroupId = null;
-
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
     // The compute group tag is used to limit the node resources that the user can use for query.
@@ -1447,16 +1443,6 @@ public class ConnectContext {
 
     public void setCloudCluster(String cluster) {
         this.getSessionVariable().setCloudCluster(cluster);
-        this.computeGroupId = null;
-    }
-
-    public void setCloudCluster(String cluster, String computeGroupId) {
-        this.getSessionVariable().setCloudCluster(cluster);
-        this.computeGroupId = computeGroupId;
-    }
-
-    public String getComputeGroupId() {
-        return computeGroupId;
     }
 
     public String getCloudCluster() throws ComputeGroupException {

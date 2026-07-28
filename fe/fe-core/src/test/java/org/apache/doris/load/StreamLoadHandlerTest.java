@@ -27,7 +27,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -66,7 +65,6 @@ public class StreamLoadHandlerTest {
         String originalCloudUniqueId = Config.cloud_unique_id;
         Backend backend = createBackend(10001L, "127.0.0.1");
         backend.setCloudClusterName("backend_compute_group");
-        backend.getTagMap().put(Tag.CLOUD_CLUSTER_ID, "backend_compute_group_id");
         CloudSystemInfoService systemInfoService =
                 new TestCloudSystemInfoService(Arrays.asList(backend));
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
@@ -85,7 +83,6 @@ public class StreamLoadHandlerTest {
 
             Assert.assertEquals("backend_compute_group",
                     ConnectContext.get().getSessionVariable().getCloudCluster());
-            Assert.assertEquals("backend_compute_group_id", ConnectContext.get().getComputeGroupId());
             Assert.assertEquals("backend_compute_group", request.getCloudCluster());
         } finally {
             ConnectContext.remove();

@@ -30,22 +30,20 @@ import org.apache.doris.thrift.TUniqueId;
  */
 public class NereidsCloudStreamLoadPlanner extends NereidsStreamLoadPlanner {
     private String cloudClusterName;
-    private String computeGroupId;
 
     public NereidsCloudStreamLoadPlanner(Database db, OlapTable destTable, NereidsLoadTaskInfo taskInfo,
-            String cloudClusterName, String computeGroupId) {
+            String cloudClusterName) {
         super(db, destTable, taskInfo);
         this.cloudClusterName = cloudClusterName;
-        this.computeGroupId = computeGroupId;
     }
 
     private AutoCloseConnectContext buildConnectContext() throws UserException {
         if (ConnectContext.get() == null) {
             ConnectContext ctx = new ConnectContext();
-            ctx.setCloudCluster(cloudClusterName, computeGroupId);
+            ctx.setCloudCluster(cloudClusterName);
             return new AutoCloseConnectContext(ctx);
         } else {
-            ConnectContext.get().setCloudCluster(cloudClusterName, computeGroupId);
+            ConnectContext.get().setCloudCluster(cloudClusterName);
             return null;
         }
     }

@@ -1060,10 +1060,10 @@ public abstract class RoutineLoadJob
                 if (ConnectContext.get() == null) {
                     ConnectContext ctx = new ConnectContext();
                     ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(cloudCluster, cloudClusterId);
+                    ctx.setCloudCluster(cloudCluster);
                     needCleanCtx = true;
                 } else {
-                    ConnectContext.get().setCloudCluster(cloudCluster, cloudClusterId);
+                    ConnectContext.get().setCloudCluster(cloudCluster);
                 }
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {

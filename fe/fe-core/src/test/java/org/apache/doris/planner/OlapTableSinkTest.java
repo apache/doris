@@ -42,7 +42,7 @@ import java.util.Map;
 
 public class OlapTableSinkTest {
     @Test
-    public void testCreateDummyLocationUsesStableComputeGroupIdAfterRename() throws Exception {
+    public void testCreateDummyLocationUsesLoadAvailableBackendInCurrentComputeGroup() throws Exception {
         String originalCloudUniqueId = Config.cloud_unique_id;
         CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
         Backend currentComputeGroupBackend = Mockito.mock(Backend.class);
@@ -53,7 +53,7 @@ public class OlapTableSinkTest {
         Mockito.when(currentComputeGroupBackend.isLoadAvailable()).thenReturn(true);
         Mockito.when(loadDisabledBackend.getId()).thenReturn(2L);
         Mockito.when(loadDisabledBackend.isLoadAvailable()).thenReturn(false);
-        Mockito.when(systemInfoService.getBackendsByClusterId("current-compute-group-id"))
+        Mockito.when(systemInfoService.getBackendsByClusterName("current-compute-group"))
                 .thenReturn(Arrays.asList(currentComputeGroupBackend, loadDisabledBackend));
         Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(Collections.singletonList(3L));
         Mockito.when(table.getIndexNumber()).thenReturn(1);
@@ -61,7 +61,7 @@ public class OlapTableSinkTest {
         ConnectContext context = new ConnectContext();
         try {
             Config.cloud_unique_id = "test-cloud";
-            context.setCloudCluster("renamed-compute-group", "current-compute-group-id");
+            context.setCloudCluster("current-compute-group");
             context.setThreadLocalInfo();
             try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
                 mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
@@ -73,7 +73,6 @@ public class OlapTableSinkTest {
                         locationParams.get(0).getTablets().get(0).getNodeIds());
                 Mockito.verify(systemInfoService, Mockito.never()).getAllBackendIds(true);
                 Mockito.verify(systemInfoService, Mockito.never()).getBackendsByCurrentCluster();
-                Mockito.verify(systemInfoService, Mockito.never()).getBackendsByClusterName(Mockito.anyString());
             }
         } finally {
             ConnectContext.remove();
@@ -90,14 +89,14 @@ public class OlapTableSinkTest {
 
         Mockito.when(currentComputeGroupBackend.getId()).thenReturn(1L);
         Mockito.when(currentComputeGroupBackend.isLoadAvailable()).thenReturn(true);
-        Mockito.when(systemInfoService.getBackendsByClusterId("current-compute-group-id"))
+        Mockito.when(systemInfoService.getBackendsByClusterName("current-compute-group"))
                 .thenReturn(Collections.singletonList(currentComputeGroupBackend));
         Mockito.when(table.getIndexNumber()).thenReturn(2);
 
         ConnectContext context = new ConnectContext();
         try {
             Config.cloud_unique_id = "test-cloud";
-            context.setCloudCluster("current-compute-group", "current-compute-group-id");
+            context.setCloudCluster("current-compute-group");
             context.setThreadLocalInfo();
             try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
                 mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
