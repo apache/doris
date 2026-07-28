@@ -56,6 +56,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -250,6 +251,31 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
+    public void testIfNotExistsRefreshesNamesWhenRemoteTableExists() throws Exception {
+        String tableName = getTableName();
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(dorisCatalog).getDbNullable(dbName);
+        Mockito.doReturn(Optional.of(database)).when(dorisCatalog).getDbForReplay(dbName);
+        Mockito.when(database.getRemoteName()).thenReturn(dbName);
+
+        PaimonMetadataOps existingTableOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog) {
+            @Override
+            public boolean tableExist(String ignoredDbName, String ignoredTableName) {
+                return true;
+            }
+        };
+        CreateTableInfo createTableInfo = parseCreateTableInfo(
+                "create table if not exists " + dbName + "." + tableName + " (id int) engine = paimon");
+
+        Assert.assertTrue(existingTableOps.performCreateTable(createTableInfo));
+        Mockito.verify(database).resetMetaCacheNames();
+        Mockito.verify(remoteCatalog, Mockito.never()).createTable(
+                Mockito.any(Identifier.class), Mockito.any(Schema.class), Mockito.anyBoolean());
+    }
+
+    @Test
     public void testIfNotExistsReportsConcurrentWinner() throws Exception {
         String tableName = getTableName();
         Identifier identifier = new Identifier(dbName, tableName);
@@ -257,6 +283,7 @@ public class PaimonMetadataOpsTest {
         ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
         Mockito.doReturn(database).when(dorisCatalog).getDbNullable(dbName);
+        Mockito.doReturn(Optional.of(database)).when(dorisCatalog).getDbForReplay(dbName);
         Mockito.when(database.getRemoteName()).thenReturn(dbName);
         Mockito.when(database.getTableNullable(tableName)).thenReturn(null);
 
@@ -273,6 +300,7 @@ public class PaimonMetadataOpsTest {
                         Mockito.eq(identifier), Mockito.any(Schema.class), Mockito.eq(false));
 
         Assert.assertTrue(raceOps.performCreateTable(createTableInfo));
+        Mockito.verify(database).resetMetaCacheNames();
     }
 
     public void createTable(String sql) throws UserException {

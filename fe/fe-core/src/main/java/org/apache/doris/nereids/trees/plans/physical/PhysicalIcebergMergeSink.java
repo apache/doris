@@ -22,7 +22,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -185,8 +184,16 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
 
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null || !ctx.getSessionVariable().isEnableIcebergMergePartitioning()) {
-            if (rowIdExprId != null) {
-                return PhysicalProperties.createHash(ImmutableList.of(rowIdExprId), ShuffleType.REQUIRE);
+            if (rowIdExprId != null && operationExprId != null) {
+                // Route only delete images by row ID; unmatched inserts have NULL row IDs and must
+                // remain distributable instead of collapsing onto one exchange channel.
+                return new PhysicalProperties(new DistributionSpecMerge(
+                        operationExprId,
+                        ImmutableList.of(),
+                        ImmutableList.of(rowIdExprId),
+                        true,
+                        ImmutableList.of(),
+                        null));
             }
             return PhysicalProperties.GATHER;
         }

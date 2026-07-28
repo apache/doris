@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -69,8 +70,14 @@ Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
     _insert_rows_counter = ADD_COUNTER(profile, "InsertRows", TUnit::UNIT);
     _delete_rows_counter = ADD_COUNTER(profile, "DeleteRows", TUnit::UNIT);
-    _matched_row_id_state_bytes_counter =
-            ADD_COUNTER(profile, "MatchedRowIdStateBytes", TUnit::BYTES);
+    // The query-wide version keeps validation all-or-nothing during a rolling BE upgrade.
+    _require_merge_cardinality_check =
+            _require_merge_cardinality_check &&
+            state->be_exec_version() >= SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION;
+    if (_require_merge_cardinality_check) {
+        _matched_row_id_state_bytes_counter =
+                ADD_COUNTER(profile, "MatchedRowIdStateBytes", TUnit::BYTES);
+    }
     _send_data_timer = ADD_TIMER(profile, "SendDataTime");
     _open_timer = ADD_TIMER(profile, "OpenTime");
     _close_timer = ADD_TIMER(profile, "CloseTime");
@@ -133,10 +140,10 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
         }
     }
 
-    // The physical sink hashes matched rows by row_id, so identical targets reach the same sink.
-    // Exact state retained across blocks therefore enforces MERGE cardinality for the whole query.
-    RETURN_IF_ERROR(_validate_matched_row_ids(output_block, delete_filter.data()));
-    if (_matched_row_id_state_bytes_counter != nullptr) {
+    if (_require_merge_cardinality_check) {
+        // The physical sink hashes matched rows by row_id, so exact state retained across blocks
+        // enforces SQL MERGE cardinality for the whole query without changing UPDATE semantics.
+        RETURN_IF_ERROR(_validate_matched_row_ids(output_block, delete_filter.data()));
         COUNTER_SET(_matched_row_id_state_bytes_counter,
                     static_cast<int64_t>(_matched_row_id_state_size));
     }
@@ -325,6 +332,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     }
 
     const auto& merge_sink = _t_sink.iceberg_merge_sink;
+    // Missing means an old FE plan, which predates SQL MERGE cardinality validation.
+    _require_merge_cardinality_check = merge_sink.__isset.require_merge_cardinality_check &&
+                                       merge_sink.require_merge_cardinality_check;
 
     TIcebergTableSink table_sink;
     if (merge_sink.__isset.db_name) {
