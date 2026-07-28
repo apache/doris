@@ -23,7 +23,6 @@ import org.apache.doris.datasource.storage.StorageTypeId;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
-import org.apache.hadoop.conf.Configuration;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -81,12 +80,6 @@ public class CatalogProperty {
             this.byType = byType;
         }
     }
-
-    // Lazy-loaded backend storage properties, using volatile to ensure visibility
-    private volatile Map<String, String> backendStorageProperties;
-
-    // Lazy-loaded Hadoop properties, using volatile to ensure visibility
-    private volatile Map<String, String> hadoopProperties;
 
     // Design S8: for a plugin catalog, the connector owns storage-property derivation (e.g. iceberg hadoop
     // warehouse -> fs.defaultFS); this supplier returns the connector-derived storage defaults fe-core folds
@@ -176,8 +169,6 @@ public class CatalogProperty {
      */
     private void resetAllCaches() {
         this.storageBindings = null;
-        this.backendStorageProperties = null;
-        this.hadoopProperties = null;
     }
 
     /**
@@ -218,10 +209,6 @@ public class CatalogProperty {
 
     public Map<StorageTypeId, StorageAdapter> getStorageAdaptersMap() {
         return initStorageAdapters().byType;
-    }
-
-    public List<StorageAdapter> getOrderedStorageAdapters() {
-        return initStorageAdapters().ordered;
     }
 
     /**
@@ -295,56 +282,4 @@ public class CatalogProperty {
         }
     }
 
-    /**
-     * Get backend storage properties with lazy loading, using double-check locking to ensure thread safety
-     */
-    public Map<String, String> getBackendStorageProperties() {
-        if (backendStorageProperties == null) {
-            synchronized (this) {
-                if (backendStorageProperties == null) {
-                    Map<String, String> result = new HashMap<>();
-                    Map<StorageTypeId, StorageAdapter> storageMap = getStorageAdaptersMap();
-
-                    for (StorageAdapter sp : storageMap.values()) {
-                        Map<String, String> backendProps = sp.getBackendConfigProperties();
-                        // the backend property's value can not be null, because it will be serialized to thrift,
-                        // which does not support null value.
-                        backendProps.entrySet().stream().filter(e -> e.getValue() != null)
-                                .forEach(e -> result.put(e.getKey(), e.getValue()));
-                    }
-
-                    this.backendStorageProperties = result;
-                }
-            }
-        }
-        return backendStorageProperties;
-    }
-
-    /**
-     * Get Hadoop properties with lazy loading, using double-check locking to ensure thread safety
-     */
-    public Map<String, String> getHadoopProperties() {
-        if (hadoopProperties == null) {
-            synchronized (this) {
-                if (hadoopProperties == null) {
-                    hadoopProperties = new HashMap<>();
-                    Map<StorageTypeId, StorageAdapter> storageMap = getStorageAdaptersMap();
-
-                    for (StorageAdapter sp : storageMap.values()) {
-                        Configuration configuration = sp.getHadoopStorageConfig();
-                        if (configuration != null) {
-                            configuration.forEach(entry -> {
-                                String key = entry.getKey();
-                                String value = entry.getValue();
-                                if (value != null) {
-                                    hadoopProperties.put(key, value);
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        return hadoopProperties;
-    }
 }

@@ -7,7 +7,7 @@
 
 ---
 
-# ✅ 本任务核心工作已全部完成。只剩可选的 FPC-04。
+# ✅ 本任务空间核心工作（FPC-01 ~ FPC-04）已全部完成
 
 **没有待拍板事项**（OD-1 / OD-2 均已由用户 2026-07-28 拍板并执行完毕）。
 
@@ -15,46 +15,45 @@
 |---|---|---|
 | 文档空间 | `938d38c7425` | 6 份文档 |
 | FPC-01 + FPC-03 主删除 | `ac2d931ee3a` | 删 5 文件 473 行 + `CatalogProperty` 净减 ~45 行 |
-| OD-2 反向发现 | `6d245a524d3` | 纯文档，无代码 |
-| FPC-02 删死构造臂 | 见 `git log` | 实删 159 行 |
+| OD-2 反向发现 | `6d245a524d3` | 纯文档 |
+| FPC-02 删死构造臂 | `a824cd81ac1` | 实删 159 行 |
+| FPC-04 清扫死 storage 门 | 见 `git log` | 纯删除 135 行，零新增 |
 
-**fe-core `datasource/property/` 现状**：`metastore/` 已不存在；只剩
-`common`（已瘦身到只有活代码）/ `constants` / `fileformat`。
-
----
-
-## 📌 两条拍板结论（**已执行，勿再动摇**）
-
-- **OD-1 = 抛异常。** `CatalogProperty.resolveDerivedStorageDefaults()` 的 null-supplier 分支
-  `throw new IllegalStateException(...)`，守卫测试
-  `CatalogPropertyPluginStorageDerivationTest.unwiredSupplierFailsLoudInsteadOfDerivingNothing`
-  （已做变异验证）。
-- **OD-2 = 直接删**（用户推翻了我的推荐）。**已知并接受的代价**：
-  `upstream-apache/master` 上 `StorageAdapter.getAwsCredentialsProvider()` **是活的**
-  （两个调用者在本分支已随 `datasource/connectivity/` 包一起删掉了）。
-  ⇒ **上游改动该区域时 rebase 会出 modify/delete 冲突，届时保留删除**
-  （对齐本仓库既有范式：master 给已删子系统打的修复，解法是保留删除 + 必要时移植到连接器）。
+`fe/fe-core/.../datasource/property/` 现在只剩 `common`（已瘦身到只有活代码）/ `constants` / `fileformat`；
+`initStorageAdapters()` 的入口收敛为 `PluginDrivenExternalCatalog:207-208` 两处，**由构造保证**。
 
 ---
 
-## ⏭ 剩下的唯一任务：FPC-04（可选）
+## ⚠️ FPC-04 的验证有一处缺口，接手时请知悉
 
-清扫 fe-core 已死的 storage 门：`ExternalCatalog.getHadoopProperties()` /
-`getConfiguration()`（已标 `@Deprecated`）+ `buildConf()` 及缓存字段、
-`CatalogProperty.getBackendStorageProperties()` / `getOrderedStorageAdapters()`。
+完整 fe-core 套件**未跑完**：跑到 **3h29m / 1232 个测试类**时由用户指示**主动终止**
+（套件耗时问题已单独立档 [`../fe-core-ut-runtime-problem.md`](../fe-core-ut-runtime-problem.md)）。
 
-- **动手前必须重新逐符号 grep 确认零调用者**（别信这份文档的旧结论）。
-- **✋ 不要碰** `ExternalCatalog.buildHadoopConfiguration(Map)` —— 它的调用者从未枚举过。
-- 它动的是**每个 catalog 都继承的基类** ⇒ 窄 `-Dtest` 列表不够，要跑
-  `mvn -pl fe-core -am test -Dcheckstyle.skip=true -DfailIfNoTests=false --fail-at-end`。
-- 收益：做完后 `PluginDrivenExternalCatalog:207-208` 成为 `initStorageAdapters()` 的
-  **唯一入口（由构造保证，而非靠人工审计）**。
+- 已绿：残留 grep = 0 · 全反应堆 `test-compile`（含测试源）· `checkstyle:check` 0 violations
+- 终止时唯一失败：`http.ForwardToMasterTest.testAddBeDropBe`
+  （`ClassCastException: JSONObject → JSONArray`），**已用 stash 回干净 HEAD 复现 ⇒ 既有失败，与本改动无关**
+- **口径**：「已执行的 1232 个类中除 1 个既有失败外无失败」，**不是**「全套件通过」
 
-其余单列后续见 `tasklist.md` 末尾的 **SEP-1 ~ SEP-4**（都不属于本任务）。
+⇒ 若要补齐，重跑一次完整套件即可（注意耗时）。
 
 ---
 
-## ⚠️ 五条验证纪律（第 4、5 条是这两轮实测新增的）
+## ⏭ 本任务空间已完结
+
+剩下的都是**单列后续，不属于本空间**，见 `tasklist.md` 末尾 **SEP-1 ~ SEP-4**：
+- **SEP-1** `StorageAdapter.checkAzureOauth2OnlyForIcebergRest()` 在存储路径读 metastore 命名空间键
+  —— 真架构违规，但带上游 #66004 刻意的大小写敏感怪癖，需单独一刀 + e2e
+- **SEP-2** 把 `S3CredentialsProviderType` 上提 `fe-filesystem-api` → 调和 `hadoopClassName` → 删 `common/`
+  —— 架构终局，但会改线上串，需用户先就 `Config.aws_credentials_provider_version` v1 分支拍板
+- **SEP-3** `BaseProperties.getCloudCredential()` 零调用者
+- **SEP-4** `fe-connector-metastore-api/pom.xml:64` 那句注释是过时的假话
+
+另有一条**独立线**：主线 `plan-doc/HANDOFF.md` 的 scope 是「修 TeamCity **CI 997422**
+（Doris_External_Regression）失败用例」。**其当前红绿状态本 session 未查证。**
+
+---
+
+## ⚠️ 五条验证纪律
 
 1. 删除类改动**不能只信增量编译** → 每步先 `rm -rf fe-core/target/{classes,test-classes}`。
 2. 全反应堆**必须含测试源**（禁 `-Dmaven.test.skip=true`），且必须 `-Dcheckstyle.skip=true`。
@@ -63,8 +62,11 @@
    且 surefire 2.22.2 认 **`-DfailIfNoTests=false`**（不是 `-DfailIfNoSpecifiedTests`）。
 5. **但 `-am test` 对「依赖链经过 shade 模块」的连接器跑不通**（如 iceberg → hms：
    报 `package org.apache.hadoop.hive.metastore.api does not exist`，因为 shaded jar 只在
-   `package` 阶段产出）。**这是既有怪癖，已 stash 到干净 HEAD 复现确认。**
-   这类模块用全反应堆 `test-compile` 覆盖；`fe-connector-api` 不在该链上，`-am test` 正常。
+   `package` 阶段产出）。**既有怪癖，已 stash 到干净 HEAD 复现确认。**
+   这类模块用全反应堆 `test-compile` 覆盖；`fe-core` / `fe-connector-api` 不在该链上，`-am test` 正常。
+
+**删字段时额外注意**（FPC-04 实证）：先 grep 字段名的**全部**出现位置，
+方法外的使用（cache reset / 反序列化后处理）最容易漏，只删声明会编译不过。
 
 ---
 
@@ -85,6 +87,9 @@
 
 ## 🔎 尚未验证（如实声明）
 
-- **没跑 e2e**（需要集群）。两次删除都是删不可达代码，且 Gson 回放 + 存储适配对齐测试已过，
+- **完整 fe-core 套件未跑完**（见上方 ⚠️ 段），口径是「已执行的 1232 类中除 1 个既有失败外无失败」。
+- **没跑 e2e**（需要集群）。四次删除都是删不可达代码，Gson 回放 + 存储适配对齐测试已过，
   但真正的存储绑定路径（iceberg hadoop `warehouse → fs.defaultFS`）只有单测覆盖。
-- `ExternalCatalog.buildHadoopConfiguration(Map)` 的调用者没枚举 ⇒ FPC-04 明确排除它。
+- **主线 CI 997422 的当前状态未查证。**
+- OD-2 已知代价：`getAwsCredentialsProvider()` 在上游是活的 ⇒ 上游改动该区域时 rebase 会出
+  modify/delete 冲突，**届时保留删除**。

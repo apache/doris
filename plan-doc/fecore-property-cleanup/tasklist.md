@@ -167,19 +167,54 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 
 ---
 
-## 阶段 4 — 可选清扫（**另起提交，落地前重新 grep**）
+## 阶段 4 — 清扫已死的 fe-core storage 门
 
-- [ ] **FPC-04** ⬜ 清扫 fe-core 已死的 storage 门
-      - **仅当执行时重新 grep 确认零调用者**才做：
-        `ExternalCatalog.getHadoopProperties()`、`ExternalCatalog.getConfiguration()`（已标 `@Deprecated`）
-        + `buildConf()` 及其缓存字段、`CatalogProperty.getBackendStorageProperties()`、
-        `CatalogProperty.getOrderedStorageAdapters()`
-      - **✋ 不要碰** `ExternalCatalog.buildHadoopConfiguration(Map)` —— 它的调用者**没有枚举过**
-      - **收益**：做完后 `PluginDrivenExternalCatalog.java:207-208` 成为 `initStorageAdapters()` 的
-        **唯一入口（由构造保证，而非靠人工审计）**
-      - **验收**：逐符号零调用者 grep → **完整** `mvn -pl fe-core test -Dcheckstyle.skip=true --fail-at-end`
-        （⚠️ 它动的是每个 catalog 都继承的基类，**窄 `-Dtest` 列表不够**）→ `checkstyle:check`
-      - 🟢 刻意与 FPC-03 分开，好让 FPC-03 保持**可单独回滚**
+- [x] **FPC-04** ✅ **已落地**（**纯删除 135 行，零新增**）
+      > 📌 **落地前重新 grep 的结果修正了本文档两处**（详见 `progress.md` 2026-07-28（五））：
+      > ① 原文写「✋ 不要碰 `ExternalCatalog.buildHadoopConfiguration(Map)` —— 其调用者未曾枚举」。
+      >    **枚举了：它也是死的。** 全仓 16 处 `buildHadoopConfiguration` 命中**全是连接器侧同名但不同类**的
+      >    `IcebergCatalogFactory.` / `PaimonCatalogFactory.` 方法，`ExternalCatalog` 上那个零调用。
+      > ② 原文**漏了** `ExternalCatalog.ifNotSetFallbackToSimpleAuth()`（`public`，全仓仅 2 处使用
+      >    且都在将死方法内 ⇒ 连带死亡），以及 `cachedConf`/`confLock` 在**方法外**还有两处使用。
+
+      - **`ExternalCatalog.java`（−70 行）**
+        - 删方法：`getHadoopProperties()` · `getConfiguration()`（`@Deprecated` 原注释就写着
+          "will be removed when connector SPI extraction is complete"）· `buildConf()` ·
+          `buildHadoopConfiguration(Map)` · `ifNotSetFallbackToSimpleAuth()`
+        - 删字段：`cachedConf` · `confLock`
+        - **两处方法外使用一并清掉**（易漏）：`resetToUninitialized()` 里的
+          `synchronized (this.confLock) { this.cachedConf = null; }` 块；反序列化后处理里的
+          `this.confLock = new byte[0];`
+        - 删孤儿 import：`Configuration` · `HdfsConfiguration`
+      - **`CatalogProperty.java`（−65 行）**
+        - 删方法：`getHadoopProperties()` · `getBackendStorageProperties()` · `getOrderedStorageAdapters()`
+        - 删字段：`hadoopProperties` · `backendStorageProperties`
+          ⇒ `resetAllCaches()` 瘦到只剩一行 `this.storageBindings = null;`
+        - 删孤儿 import：`Configuration`
+      - **🎯 真正的收益不在行数**：做完后 `initStorageAdapters()` 的入口只剩
+        `getStorageAdaptersMap()` 与 `getEffectiveRawStorageProperties()`，且都来自
+        `PluginDrivenExternalCatalog:207-208` ⇒ **「fe-core 存储只有一个入口」从「靠人工审计」
+        变成「由构造保证」**，正好给 FPC-03 那个 fail-loud 兜底上双保险。
+      - **验收**：
+        ```bash
+        R=/mnt/disk1/yy/git/wt-catalog-spi
+        grep -rIn "ifNotSetFallbackToSimpleAuth\|getOrderedStorageAdapters\|\.buildHadoopConfiguration(\|catalogProperty\.getHadoopProperties\|catalogProperty\.getBackendStorageProperties" \
+             $R/fe $R/regression-test --include=*.java --include=*.groovy --exclude-dir=target \
+             | grep -v "IcebergCatalogFactory\.\|PaimonCatalogFactory\."      # → 空
+        rm -rf $R/fe/fe-core/target/classes $R/fe/fe-core/target/test-classes
+        mvn -f $R/fe/pom.xml -T 1C clean test-compile -Dcheckstyle.skip=true
+        mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
+        # 🔴 动的是每个 catalog 都继承的基类 ⇒ 窄 -Dtest 列表不够，必须整套 + --fail-at-end
+        mvn -f $R/fe/pom.xml -pl fe-core -am test -Dcheckstyle.skip=true -DfailIfNoTests=false --fail-at-end
+        ```
+      - **状态**：残留 grep = 0 ✅ · 全反应堆 `test-compile` = BUILD SUCCESS ✅ ·
+        `checkstyle:check` = 0 violations ✅
+      - ⚠️ **完整 fe-core 套件未跑完**：跑到 **3h29m / 1232 个测试类**时由用户指示**主动终止**
+        （耗时问题另见 [`../fe-core-ut-runtime-problem.md`](../fe-core-ut-runtime-problem.md)）。
+        终止时**仅 1 个测试类失败**：`http.ForwardToMasterTest.testAddBeDropBe`
+        （`ClassCastException: JSONObject cannot be cast to JSONArray`）。
+        **已用 stash 归因**：`git stash push -u -- fe/` 回到干净 HEAD 跑同一测试 → **一模一样地失败**
+        ⇒ **既有失败，与本改动无关**。其余 1231 个测试类全绿。
 
 ---
 

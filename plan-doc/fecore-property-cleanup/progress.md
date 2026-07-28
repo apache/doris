@@ -227,3 +227,69 @@ OD-2 被推翻是合理的：我的推荐建立在「为零功能收益承担 re
 `AwsCredentialsProviderFactory` 只剩 `getV2ClassName(mode, boolean)` + 两个 env 探针
 （喂 `StorageAdapter:645/:654` 那条**活的** hadoop/BE 串）。
 **本任务空间的核心工作（FPC-01/02/03）已全部完成**，只剩可选的 FPC-04。
+
+---
+
+## 2026-07-28（五）— FPC-04：清扫已死的 fe-core storage 门
+
+**纯删除 135 行、零新增**（`ExternalCatalog` −70 / `CatalogProperty` −65）。
+
+### 起手先重新侦察，结果修正了本空间文档两处
+
+HANDOFF 写了「动手前必须重新逐符号 grep 确认零调用者（别信这份文档的旧结论）」——照做了，
+**两处都被修正**：
+
+**修正 ①：`ExternalCatalog.buildHadoopConfiguration(Map)` 也是死的。**
+文档原文是「✋ 不要碰它 —— 它的调用者从未枚举过」。枚举后发现：全仓 16 处
+`buildHadoopConfiguration` 命中**全部是连接器侧同名但不同类**的
+`IcebergCatalogFactory.buildHadoopConfiguration` / `PaimonCatalogFactory.buildHadoopConfiguration`，
+`ExternalCatalog` 上那个 `public static` 方法**零调用**。
+⇒ 这是「谨慎导致的**低估**」，与本仓库常见的「蓝图高估工作量」正好相反，但根因同一条：
+**别信文档信侦察**。
+
+**修正 ②：文档漏了两个连带项。**
+- `ExternalCatalog.ifNotSetFallbackToSimpleAuth()`（`public`）——全仓仅 2 处使用，
+  且都在将死的 `getHadoopProperties()` / `buildConf()` 里 ⇒ 连带归零。
+- `cachedConf` / `confLock` 在**方法外**还有两处使用（`resetToUninitialized()` 里的置空块、
+  反序列化后处理里的 `this.confLock = new byte[0];`）。**只删字段不清这两处会编译不过**——
+  这类「字段的方法外使用」是删字段时最容易漏的一类，值得单独记一笔。
+
+### 🎯 真正的收益不是行数
+
+做完后 `initStorageAdapters()` 的入口只剩 `getStorageAdaptersMap()` 与
+`getEffectiveRawStorageProperties()`，且都来自 `PluginDrivenExternalCatalog:207-208`
+⇒ **「fe-core 存储只有一个入口」从「靠人工审计」升级为「由构造保证」**，
+正好给 FPC-03 落地的那个 fail-loud 兜底上了双保险：
+既然入口唯一且都在 supplier 装好之后，那个 `throw` 就更不可能被误触发。
+
+同时 `resetAllCaches()` 从 4 行瘦到 1 行（只剩 `storageBindings = null`），
+`CatalogProperty` 的可变缓存状态从 4 个字段收敛到 1 个。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 全仓残留 grep（含 groovy） | **0** |
+| 全反应堆 `clean test-compile -Dcheckstyle.skip=true`（含测试源） | **BUILD SUCCESS** |
+| `-pl fe-core checkstyle:check` | **0 violations** |
+| **完整 fe-core 单测**（`-am test --fail-at-end`） | ⏳ **待填** |
+
+⚠️ 最后一项**必须整套跑**：改的是每个 catalog 都继承的基类，窄 `-Dtest` 列表覆盖不到
+那些间接依赖基类行为的测试。按纪律，后台任务通知里的 exit code 是 `echo` 的不是 maven 的，
+**以日志里的 `BUILD` 行和 `Tests run` 汇总行为准**。
+
+### 验证结果（补记）
+
+**完整 fe-core 套件未跑完**：跑到 **3h29m / 1232 个测试类**时由用户指示主动终止
+（该套件本身的耗时问题已单独立档 `../fe-core-ut-runtime-problem.md`）。
+
+终止时**只有 1 个测试类失败**：`http.ForwardToMasterTest.testAddBeDropBe`，
+`ClassCastException: org.json.simple.JSONObject cannot be cast to JSONArray`。
+
+**归因方式：stash 复现，不用推理。** `git stash push -u -- fe/` 回到干净 HEAD `2ecd7753766`
+单跑该测试 → **一模一样地失败** ⇒ **既有失败，与 FPC-04 无关**。
+其余 1231 个测试类全绿，其中与本改动直接相关的 `datasource`(114) / `connector`(42) /
+`filesystem`(70) / `persist`(37) 四片在头 20 分钟内就跑完且全绿。
+
+⚠️ **如实声明**：该套件**未跑到 BUILD 汇总行**，所以「全绿」的口径是
+「已执行的 1232 个类中除 1 个既有失败外无失败」，**不是**「全套件通过」。
