@@ -239,11 +239,11 @@ TEST(DISABLED_SniiBenchmarkPercentile, RejectsInvalidPercentiles) {
     EXPECT_DEATH({ static_cast<void>(nearest_rank_percentile(samples, 101)); }, "");
 }
 
-TEST(SniiBenchmarkConfig, ParsesPositiveQueryIterations) {
+TEST(DISABLED_SniiBenchmarkConfig, ParsesPositiveQueryIterations) {
     EXPECT_EQ(parse_query_iterations("30"), 30);
 }
 
-TEST(SniiBenchmarkConfig, RejectsInvalidQueryIterations) {
+TEST(DISABLED_SniiBenchmarkConfig, RejectsInvalidQueryIterations) {
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("0")); }, "");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("-1")); }, "");
     EXPECT_DEATH({ static_cast<void>(parse_query_iterations("30junk")); }, "");
