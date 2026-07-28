@@ -650,6 +650,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // options themselves are what selects the version.
                 Map<String, String> resolved =
                         PaimonScanParams.resolveOptions(table, spec.getOptions());
+                String pinnedTag = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
+                if (pinnedTag != null) {
+                    // A tag selector (scan.tag-name, or a tag-valued scan.version that resolveOptions
+                    // canonicalized into one) pins the TAG, never a snapshot file: paimon keeps the tag's
+                    // own retained Snapshot copy under tag/ after snapshot/snapshot-<id> is expired. Read
+                    // BOTH ids off that copy — exactly what the TAG case above does — because
+                    // snapshotSchemaId() goes through snapshotManager().snapshot(id) and throws
+                    // "Snapshot file ... does not exist" for an expired-but-tagged version.
+                    Optional<PaimonCatalogOps.TagSnapshot> tag =
+                            catalogOps.getSnapshotByTag(table, pinnedTag);
+                    return Optional.of(ConnectorMvccSnapshot.builder()
+                            .snapshotId(tag.map(PaimonCatalogOps.TagSnapshot::snapshotId).orElse(-1L))
+                            .schemaId(tag.map(PaimonCatalogOps.TagSnapshot::schemaId).orElse(-1L))
+                            .properties(PaimonScanParams.markAsOptions(resolved))
+                            .build());
+                }
                 long pinnedId = pinnedSnapshotId(table, resolved);
                 long schemaId = pinnedId < 0
                         ? -1L
@@ -671,19 +687,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     /**
      * The snapshot id a resolved {@code @options} map pins, or {@code -1} when it pins none (a
-     * selector-free option set, an empty table, or a tag whose id is looked up lazily). Only used to
-     * stamp the {@link ConnectorMvccSnapshot}'s identity — the authoritative selector is the resolved
-     * option map itself, which {@link #applySnapshot} threads verbatim.
+     * selector-free option set or an empty table). Only used to stamp the
+     * {@link ConnectorMvccSnapshot}'s identity — the authoritative selector is the resolved option map
+     * itself, which {@link #applySnapshot} threads verbatim.
+     *
+     * <p>A TAG-pinning map never reaches here: {@link #resolveTimeTravel}'s {@code OPTIONS} case returns
+     * before this call, because a tag's ids must come from the tag's own retained copy rather than from a
+     * snapshot file that may already be expired.
      */
     private long pinnedSnapshotId(Table table, Map<String, String> resolved) {
         String snapshotId = resolved.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
         if (snapshotId != null) {
             return Long.parseLong(snapshotId);
-        }
-        String tagName = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
-        if (tagName != null) {
-            return catalogOps.getSnapshotByTag(table, tagName)
-                    .map(PaimonCatalogOps.TagSnapshot::snapshotId).orElse(-1L);
         }
         return catalogOps.latestSnapshotId(table).orElse(-1L);
     }
