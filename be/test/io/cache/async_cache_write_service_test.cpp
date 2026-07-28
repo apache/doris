@@ -25,6 +25,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <future>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -52,6 +53,41 @@ FileCacheSettings async_write_cache_settings() {
     settings.max_file_block_size = 4096;
     settings.max_query_cache_size = 0;
     return settings;
+}
+
+AsyncCacheWriteTask make_async_write_task(
+        AsyncCacheWriteService* service, const std::string& key, char fill,
+        std::function<void(const AsyncCacheWriteTask&)> on_finalized = nullptr,
+        int64_t submit_ts_us = MonotonicMicros()) {
+    DORIS_CHECK(service != nullptr);
+    AsyncCacheWriteBufferPtr buffer;
+    EXPECT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
+    DORIS_CHECK(buffer != nullptr);
+    memset(buffer->data(), fill, buffer->size());
+    return AsyncCacheWriteTask {
+            .cache_hash = BlockFileCache::hash(key),
+            .file_offset = 0,
+            .file_size = buffer->size(),
+            .buffer = std::move(buffer),
+            .admission_ctx = {},
+            .submit_ts_us = submit_ts_us,
+            .write_epoch = service->current_write_epoch(),
+            .on_finalized = std::move(on_finalized),
+    };
+}
+
+bool is_cache_range_downloaded(BlockFileCache* cache, const UInt128Wrapper& hash, size_t offset = 0,
+                               size_t size = 4096) {
+    DORIS_CHECK(cache != nullptr);
+    ReadStatistics read_stats;
+    CacheContext context;
+    context.stats = &read_stats;
+    FileBlocks blocks;
+    bool fully_covered = false;
+    DORIS_CHECK(cache->get_downloaded_blocks_if_fully_covered(hash, offset, size, context, &blocks,
+                                                              &fully_covered)
+                        .ok());
+    return fully_covered;
 }
 
 class AsyncCacheWriteServiceTest : public BlockFileCacheTest {
@@ -175,12 +211,87 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     EXPECT_EQ(service->buffer_memory_bytes(), baseline_memory);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, PendingLimitRejectsWhileWorkerIsActive) {
+TEST_F(AsyncCacheWriteServiceTest, LockedQueuePreservesFifoWithSingleWorker) {
+    auto cache = create_cache("async_write_service_locked_fifo");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 4;
+    options.batch_size = 3;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::REJECT_NEW;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    const std::vector<UInt128Wrapper> hashes {BlockFileCache::hash("locked_fifo_a"),
+                                              BlockFileCache::hash("locked_fifo_b"),
+                                              BlockFileCache::hash("locked_fifo_c")};
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<size_t> take_order;
+    size_t finalized = 0;
+    bool release_worker = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&& args) {
+                const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
+                const auto iterator = std::find(hashes.begin(), hashes.end(), task->cache_hash);
+                DORIS_CHECK(iterator != hashes.end());
+                std::unique_lock lock(mutex);
+                take_order.emplace_back(static_cast<size_t>(iterator - hashes.begin()));
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto on_finalized = [&](const AsyncCacheWriteTask&) {
+        std::lock_guard lock(mutex);
+        ++finalized;
+        cv.notify_all();
+    };
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "locked_fifo_a", 'a', on_finalized)));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return take_order.size() == 1; }));
+    }
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "locked_fifo_b", 'b', on_finalized)));
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "locked_fifo_c", 'c', on_finalized)));
+    EXPECT_EQ(service->queued_count(), 2);
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return finalized == 3; }));
+    }
+    EXPECT_EQ(take_order, (std::vector<size_t> {0, 1, 2}));
+    EXPECT_EQ(service->pending_count(), 0);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, DropOldestRejectsWhenAllPendingTasksAreActive) {
     auto cache = create_cache("async_write_service_backpressure");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
     auto options = service->options();
     options.max_pending_tasks = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
     ASSERT_TRUE(service->update_options(options).ok());
 
     std::mutex mutex;
@@ -249,6 +360,8 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitRejectsWhileWorkerIsActive) {
     EXPECT_EQ(service->active_task_count(), 1);
     EXPECT_EQ(service->_active_get_or_set_count.load(std::memory_order_relaxed), 1);
     EXPECT_GE(service->_reject_backpressure_metric->get_value(), 1);
+    EXPECT_GE(service->_reject_no_queued_victim_metric->get_value(), 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
 
     {
         std::lock_guard lock(mutex);
@@ -257,6 +370,504 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitRejectsWhileWorkerIsActive) {
     cv.notify_all();
     ASSERT_EQ(first_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     EXPECT_EQ(service->pending_count(), 0);
+}
+
+TEST_F(AsyncCacheWriteServiceTest,
+       DropOldestReplacesOnlyOldestQueuedTaskAndKeepsInflightReaderAlive) {
+    auto cache = create_cache("async_write_service_drop_oldest");
+    auto* service = cache->async_write_service();
+    auto* index = cache->inflight_write_buffer_index();
+    ASSERT_NE(service, nullptr);
+    ASSERT_NE(index, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 3;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+    const int64_t baseline_memory = service->buffer_memory_bytes();
+
+    const std::vector<std::string> keys {"drop_oldest_a", "drop_oldest_b", "drop_oldest_c",
+                                         "drop_oldest_d"};
+    std::vector<UInt128Wrapper> hashes;
+    hashes.reserve(keys.size());
+    for (const auto& key : keys) {
+        hashes.emplace_back(BlockFileCache::hash(key));
+    }
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool worker_entered = false;
+    bool release_worker = false;
+    std::vector<size_t> finalized(keys.size(), 0);
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                worker_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto record_finalized = [&](size_t task_id) {
+        return [&, task_id](const AsyncCacheWriteTask&) {
+            std::lock_guard lock(mutex);
+            ++finalized[task_id];
+            cv.notify_all();
+        };
+    };
+    ASSERT_TRUE(
+            service->try_submit(make_async_write_task(service, keys[0], 'a', record_finalized(0))));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
+    }
+
+    std::vector<std::shared_ptr<InflightWriteBufferEntry>> entries(keys.size());
+    const auto make_indexed_task = [&](size_t task_id, char fill) {
+        AsyncCacheWriteBufferPtr buffer;
+        EXPECT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
+        DORIS_CHECK(buffer != nullptr);
+        memset(buffer->data(), fill, buffer->size());
+        const int64_t submit_ts_us = MonotonicMicros();
+        entries[task_id] = std::make_shared<InflightWriteBufferEntry>(
+                buffer, 0, buffer->size(), submit_ts_us, service->current_write_epoch());
+        DORIS_CHECK(index->insert_if_absent(hashes[task_id], 0, entries[task_id]) == nullptr);
+        return AsyncCacheWriteTask {
+                .cache_hash = hashes[task_id],
+                .file_offset = 0,
+                .file_size = buffer->size(),
+                .buffer = std::move(buffer),
+                .admission_ctx = {},
+                .submit_ts_us = submit_ts_us,
+                .write_epoch = service->current_write_epoch(),
+                .on_finalized =
+                        [&, task_id](const AsyncCacheWriteTask&) {
+                            index->remove_if(hashes[task_id], 0, entries[task_id]);
+                            std::lock_guard lock(mutex);
+                            ++finalized[task_id];
+                            cv.notify_all();
+                        },
+        };
+    };
+
+    ASSERT_TRUE(service->try_submit(make_indexed_task(1, 'b')));
+    ASSERT_TRUE(service->try_submit(make_indexed_task(2, 'c')));
+    ASSERT_EQ(service->pending_count(), 3);
+    ASSERT_EQ(service->queued_count(), 2);
+    ASSERT_EQ(service->active_task_count(), 1);
+    auto concurrent_reader = index->lookup(hashes[1], 0, service->current_write_epoch());
+    ASSERT_NE(concurrent_reader, nullptr);
+    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
+    const uint64_t baseline_evicted_bytes = service->_evicted_oldest_bytes_metric->get_value();
+    const int64_t baseline_evicted_age_count = service->_evicted_oldest_age_metric->count();
+
+    ASSERT_TRUE(service->try_submit(make_indexed_task(3, 'd')));
+    EXPECT_EQ(service->pending_count(), 3);
+    EXPECT_EQ(service->queued_count(), 2);
+    EXPECT_EQ(service->active_task_count(), 1);
+    EXPECT_EQ(finalized[0], 0);
+    EXPECT_EQ(finalized[1], 1);
+    EXPECT_EQ(finalized[2], 0);
+    EXPECT_EQ(finalized[3], 0);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
+    EXPECT_EQ(service->_evicted_oldest_bytes_metric->get_value() - baseline_evicted_bytes, 4096);
+    EXPECT_EQ(service->_evicted_oldest_age_metric->count() - baseline_evicted_age_count, 1);
+    EXPECT_EQ(index->lookup(hashes[1], 0, service->current_write_epoch()), nullptr);
+    EXPECT_NE(index->lookup(hashes[2], 0, service->current_write_epoch()), nullptr);
+    EXPECT_NE(index->lookup(hashes[3], 0, service->current_write_epoch()), nullptr);
+    ASSERT_NE(concurrent_reader->buffer, nullptr);
+    EXPECT_EQ(concurrent_reader->buffer->data()[0], 'b');
+    EXPECT_EQ(concurrent_reader->buffer->data()[4095], 'b');
+
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() {
+            return finalized[0] == 1 && finalized[1] == 1 && finalized[2] == 1 && finalized[3] == 1;
+        }));
+    }
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), hashes[0]));
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), hashes[1]));
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), hashes[2]));
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), hashes[3]));
+    EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(index->size(), 0);
+
+    concurrent_reader.reset();
+    entries.clear();
+    for (int attempt = 0; attempt < 100 && service->buffer_memory_bytes() != baseline_memory;
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(service->buffer_memory_bytes(), baseline_memory);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, OldEpochVictimCallbackDoesNotDeleteReplacement) {
+    auto cache = create_cache("async_write_service_old_epoch_victim");
+    auto* service = cache->async_write_service();
+    auto* index = cache->inflight_write_buffer_index();
+    ASSERT_NE(service, nullptr);
+    ASSERT_NE(index, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 2;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool worker_entered = false;
+    bool release_worker = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                worker_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    ASSERT_TRUE(service->try_submit(make_async_write_task(service, "old_epoch_active", 'a')));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
+    }
+
+    const auto hash = BlockFileCache::hash("old_epoch_same_key");
+    const uint64_t old_epoch = service->current_write_epoch();
+    AsyncCacheWriteBufferPtr old_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(4096, &old_buffer).ok());
+    memset(old_buffer->data(), 'o', old_buffer->size());
+    auto old_entry = std::make_shared<InflightWriteBufferEntry>(old_buffer, 0, old_buffer->size(),
+                                                                MonotonicMicros(), old_epoch);
+    ASSERT_EQ(index->insert_if_absent(hash, 0, old_entry), nullptr);
+    size_t old_callback_count = 0;
+    AsyncCacheWriteTask old_task {
+            .cache_hash = hash,
+            .file_offset = 0,
+            .file_size = old_buffer->size(),
+            .buffer = old_buffer,
+            .admission_ctx = {},
+            .submit_ts_us = MonotonicMicros(),
+            .write_epoch = old_epoch,
+            .on_finalized =
+                    [&, old_entry](const AsyncCacheWriteTask&) {
+                        index->remove_if(hash, 0, old_entry);
+                        ++old_callback_count;
+                    },
+    };
+    ASSERT_TRUE(service->try_submit(std::move(old_task)));
+
+    const uint64_t new_epoch = service->invalidate_pending_writes();
+    AsyncCacheWriteBufferPtr replacement_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(4096, &replacement_buffer).ok());
+    memset(replacement_buffer->data(), 'n', replacement_buffer->size());
+    auto replacement_entry = std::make_shared<InflightWriteBufferEntry>(
+            replacement_buffer, 0, replacement_buffer->size(), MonotonicMicros(), new_epoch);
+    ASSERT_EQ(index->insert_if_absent(hash, 0, replacement_entry), nullptr);
+    ASSERT_EQ(index->lookup(hash, 0, new_epoch), replacement_entry);
+
+    ASSERT_TRUE(service->try_submit(make_async_write_task(service, "old_epoch_replacer", 'r')));
+    EXPECT_EQ(old_callback_count, 1);
+    EXPECT_EQ(index->lookup(hash, 0, new_epoch), replacement_entry);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 1);
+
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    for (int attempt = 0; attempt < 5000 && service->pending_count() != 0; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(old_callback_count, 1);
+    EXPECT_TRUE(index->remove_if(hash, 0, replacement_entry));
+}
+
+TEST_F(AsyncCacheWriteServiceTest, RejectNewPolicyKeepsExistingQueuedTask) {
+    auto cache = create_cache("async_write_service_reject_new");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 2;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::REJECT_NEW;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool worker_entered = false;
+    bool release_worker = false;
+    size_t finalized = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                worker_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto on_finalized = [&](const AsyncCacheWriteTask&) {
+        std::lock_guard lock(mutex);
+        ++finalized;
+        cv.notify_all();
+    };
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "reject_new_active", 'a', on_finalized)));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
+    }
+    const auto queued_hash = BlockFileCache::hash("reject_new_queued");
+    const auto rejected_hash = BlockFileCache::hash("reject_new_rejected");
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "reject_new_queued", 'q', on_finalized)));
+    size_t rejected_callback_count = 0;
+    EXPECT_FALSE(service->try_submit(
+            make_async_write_task(service, "reject_new_rejected", 'r',
+                                  [&](const AsyncCacheWriteTask&) { ++rejected_callback_count; })));
+    EXPECT_EQ(service->pending_count(), 2);
+    EXPECT_EQ(service->queued_count(), 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
+    EXPECT_EQ(rejected_callback_count, 0);
+
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return finalized == 2; }));
+    }
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), queued_hash));
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), rejected_hash));
+    EXPECT_EQ(rejected_callback_count, 0);
+}
+
+TEST_F(AsyncCacheWriteServiceTest, EvictedCallbackRunsOutsideQueueMutex) {
+    auto cache = create_cache("async_write_service_callback_outside_lock");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 2;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    const auto active_hash = BlockFileCache::hash("callback_outside_active");
+    const auto replacement_hash = BlockFileCache::hash("callback_outside_replacement");
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool active_entered = false;
+    bool release_active = false;
+    bool replacement_entered = false;
+    bool victim_callback_entered = false;
+    bool release_victim_callback = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&& args) {
+                const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
+                std::unique_lock lock(mutex);
+                if (task->cache_hash == active_hash) {
+                    active_entered = true;
+                    cv.notify_all();
+                    cv.wait(lock, [&]() { return release_active; });
+                } else if (task->cache_hash == replacement_hash) {
+                    replacement_entered = true;
+                    cv.notify_all();
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_active = true;
+            release_victim_callback = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    ASSERT_TRUE(
+            service->try_submit(make_async_write_task(service, "callback_outside_active", 'a')));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return active_entered; }));
+    }
+    ASSERT_TRUE(service->try_submit(make_async_write_task(
+            service, "callback_outside_victim", 'v', [&](const AsyncCacheWriteTask&) {
+                EXPECT_EQ(service->options().queue_full_policy,
+                          AsyncCacheWriteQueueFullPolicy::DROP_OLDEST);
+                std::unique_lock lock(mutex);
+                victim_callback_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_victim_callback; });
+            })));
+
+    auto replacement_future = std::async(std::launch::async, [&]() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        return service->try_submit(
+                make_async_write_task(service, "callback_outside_replacement", 'r'));
+    });
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return victim_callback_entered; }));
+        release_active = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(
+                cv.wait_for(lock, std::chrono::seconds(5), [&]() { return replacement_entered; }));
+    }
+    EXPECT_EQ(replacement_future.wait_for(std::chrono::milliseconds(0)),
+              std::future_status::timeout);
+    {
+        std::lock_guard lock(mutex);
+        release_victim_callback = true;
+    }
+    cv.notify_all();
+    ASSERT_TRUE(replacement_future.get());
+}
+
+TEST_F(AsyncCacheWriteServiceTest, EnqueueFailureDoesNotLoseOldestTask) {
+    auto cache = create_cache("async_write_service_enqueue_failure");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 2;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool worker_entered = false;
+    bool release_worker = false;
+    size_t finalized = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard worker_guard;
+    SyncPoint::CallbackGuard failure_guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                worker_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &worker_guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto on_finalized = [&](const AsyncCacheWriteTask&) {
+        std::lock_guard lock(mutex);
+        ++finalized;
+        cv.notify_all();
+    };
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "enqueue_failure_active", 'a', on_finalized)));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
+    }
+    const auto oldest_hash = BlockFileCache::hash("enqueue_failure_oldest");
+    const auto rejected_hash = BlockFileCache::hash("enqueue_failure_new");
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "enqueue_failure_oldest", 'o', on_finalized)));
+
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::try_submit:inject_enqueue_failure",
+            [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; }, &failure_guard);
+    size_t rejected_callback_count = 0;
+    const uint64_t baseline_enqueue_failures = service->_reject_enqueue_failure_metric->get_value();
+    EXPECT_FALSE(service->try_submit(
+            make_async_write_task(service, "enqueue_failure_new", 'n',
+                                  [&](const AsyncCacheWriteTask&) { ++rejected_callback_count; })));
+    EXPECT_EQ(service->pending_count(), 2);
+    EXPECT_EQ(service->queued_count(), 1);
+    EXPECT_EQ(service->active_task_count(), 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
+    EXPECT_EQ(service->_reject_enqueue_failure_metric->get_value() - baseline_enqueue_failures, 1);
+    EXPECT_EQ(rejected_callback_count, 0);
+
+    sync_point->clear_call_back("AsyncCacheWriteService::try_submit:inject_enqueue_failure");
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return finalized == 2; }));
+    }
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), oldest_hash));
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), rejected_hash));
+    EXPECT_EQ(rejected_callback_count, 0);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, WatchdogDropsExpiredTaskAndCleansInflightEntry) {
@@ -711,6 +1322,136 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     expect_cache_gap(queued_hash);
 }
 
+TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacement) {
+    auto cache = create_cache("async_write_service_limit_decrease");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 4;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    size_t worker_entries = 0;
+    size_t released_entries = 0;
+    std::vector<size_t> finalized(6, 0);
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                const size_t current_entry = ++worker_entries;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return released_entries >= current_entry; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            released_entries = std::numeric_limits<size_t>::max();
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto finalizer = [&](size_t task_id) {
+        return [&, task_id](const AsyncCacheWriteTask&) {
+            std::lock_guard lock(mutex);
+            ++finalized[task_id];
+            cv.notify_all();
+        };
+    };
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_a", 'a', finalizer(0))));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(
+                cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entries == 1; }));
+    }
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_b", 'b', finalizer(1))));
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_c", 'c', finalizer(2))));
+    const auto old_victim_hash = BlockFileCache::hash("limit_decrease_d");
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_d", 'd', finalizer(3))));
+    ASSERT_EQ(service->pending_count(), 4);
+    ASSERT_EQ(service->queued_count(), 3);
+
+    options.max_pending_tasks = 2;
+    ASSERT_TRUE(service->update_options(options).ok());
+    const uint64_t baseline_above_limit = service->_reject_above_current_limit_metric->get_value();
+    size_t rejected_callback_count = 0;
+    EXPECT_FALSE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_rejected", 'e',
+                                  [&](const AsyncCacheWriteTask&) { ++rejected_callback_count; })));
+    EXPECT_EQ(service->_reject_above_current_limit_metric->get_value() - baseline_above_limit, 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
+    EXPECT_EQ(service->pending_count(), 4);
+
+    {
+        std::lock_guard lock(mutex);
+        released_entries = 1;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(
+                cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entries == 2; }));
+    }
+    EXPECT_EQ(service->pending_count(), 3);
+    EXPECT_FALSE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_still_above", 'g',
+                                  [&](const AsyncCacheWriteTask&) { ++rejected_callback_count; })));
+
+    {
+        std::lock_guard lock(mutex);
+        released_entries = 2;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(
+                cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entries == 3; }));
+    }
+    ASSERT_EQ(service->pending_count(), 2);
+    ASSERT_EQ(service->queued_count(), 1);
+    ASSERT_EQ(service->active_task_count(), 1);
+
+    const auto replacement_hash = BlockFileCache::hash("limit_decrease_f");
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_f", 'f', finalizer(5))));
+    EXPECT_EQ(service->pending_count(), 2);
+    EXPECT_EQ(service->queued_count(), 1);
+    EXPECT_EQ(finalized[3], 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 1);
+    EXPECT_EQ(rejected_callback_count, 0);
+
+    {
+        std::lock_guard lock(mutex);
+        released_entries = std::numeric_limits<size_t>::max();
+    }
+    cv.notify_all();
+    for (int attempt = 0; attempt < 5000 && service->pending_count() != 0; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(finalized[0], 1);
+    EXPECT_EQ(finalized[1], 1);
+    EXPECT_EQ(finalized[2], 1);
+    EXPECT_EQ(finalized[3], 1);
+    EXPECT_EQ(finalized[4], 0);
+    EXPECT_EQ(finalized[5], 1);
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), old_victim_hash));
+    EXPECT_TRUE(is_cache_range_downloaded(cache.get(), replacement_hash));
+}
+
 TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     auto cache = create_cache("async_write_service_resize");
     auto* service = cache->async_write_service();
@@ -729,12 +1470,16 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     invalid_options = options;
     invalid_options.watchdog_drop_secs = invalid_options.watchdog_warn_secs;
     EXPECT_TRUE(service->update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
+    invalid_options = options;
+    invalid_options.queue_full_policy = static_cast<AsyncCacheWriteQueueFullPolicy>(255);
+    EXPECT_TRUE(service->update_options(invalid_options).is<ErrorCode::INVALID_ARGUMENT>());
 
     options.worker_count = 3;
     options.max_pending_tasks = 7;
     options.batch_size = 2;
     options.watchdog_warn_secs = 1;
     options.watchdog_drop_secs = 2;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
     ASSERT_TRUE(service->update_options(options).ok());
     const auto updated = service->options();
     EXPECT_EQ(updated.worker_count, 3);
@@ -742,6 +1487,7 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     EXPECT_EQ(updated.batch_size, 2);
     EXPECT_EQ(updated.watchdog_warn_secs, 1);
     EXPECT_EQ(updated.watchdog_drop_secs, 2);
+    EXPECT_EQ(updated.queue_full_policy, AsyncCacheWriteQueueFullPolicy::DROP_OLDEST);
     EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 3);
 
     options.worker_count = 1;
@@ -749,8 +1495,8 @@ TEST_F(AsyncCacheWriteServiceTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     EXPECT_EQ(service->_desired_worker_count.load(std::memory_order_acquire), 1);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, RuntimeGrowAndShrinkPreserveConcurrentTasks) {
-    auto cache = create_cache("async_write_service_mpmc_consumers");
+TEST_F(AsyncCacheWriteServiceTest, ResizeWorkersPreservesActiveTaskOwnership) {
+    auto cache = create_cache("async_write_service_resize_workers");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
 
@@ -795,7 +1541,7 @@ TEST_F(AsyncCacheWriteServiceTest, RuntimeGrowAndShrinkPreserveConcurrentTasks) 
         ASSERT_TRUE(service->allocate_tracked_buffer(4096, &buffer).ok());
         memset(buffer->data(), static_cast<int>('a' + task_id), buffer->size());
         AsyncCacheWriteTask task {
-                .cache_hash = BlockFileCache::hash("mpmc_consumer_" + std::to_string(task_id)),
+                .cache_hash = BlockFileCache::hash("resize_worker_" + std::to_string(task_id)),
                 .file_offset = 0,
                 .file_size = buffer->size(),
                 .buffer = buffer,
@@ -846,7 +1592,7 @@ TEST_F(AsyncCacheWriteServiceTest, RuntimeGrowAndShrinkPreserveConcurrentTasks) 
     EXPECT_EQ(service->options().worker_count, 1);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
+TEST_F(AsyncCacheWriteServiceTest, LockedQueueRejectNewGrowthRejectionAndDrain) {
     auto cache = create_cache("async_write_service_dynamic_backpressure");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
@@ -867,6 +1613,7 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
     options.worker_count = 1;
     options.max_pending_tasks = max_pending_tasks;
     options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::REJECT_NEW;
     ASSERT_TRUE(service->update_options(options).ok());
 
     std::mutex mutex;
@@ -887,7 +1634,7 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
                 cv.wait(lock, [&]() { return !slow_consumers; });
                 if (record_drain_samples) {
                     // This excludes active tasks, unlike pending_count(), and therefore observes
-                    // the actual MPMC backlog after each dequeue.
+                    // the actual FIFO backlog after each dequeue.
                     drain_queue_sizes.emplace_back(service->queued_count());
                 }
             },
@@ -1017,6 +1764,131 @@ TEST_F(AsyncCacheWriteServiceTest, DynamicMpmcQueueGrowthRejectionAndDrain) {
                             [](size_t size) { return size == 0; }));
 }
 
+TEST_F(AsyncCacheWriteServiceTest, ConcurrentDropOldestMaintainsCounterConservation) {
+    auto cache = create_cache("async_write_service_concurrent_drop_oldest");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+
+    constexpr size_t producer_count = 4;
+    constexpr size_t tasks_per_producer = 64;
+    constexpr size_t producer_tasks = producer_count * tasks_per_producer;
+    constexpr size_t total_tasks = producer_tasks + 1;
+    constexpr size_t max_pending_tasks = 16;
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = max_pending_tasks;
+    options.batch_size = 4;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    const auto active_hash = BlockFileCache::hash("concurrent_drop_oldest_0");
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool active_entered = false;
+    bool release_active = false;
+    size_t worker_tasks = 0;
+    std::vector<size_t> finalized(total_tasks, 0);
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&& args) {
+                const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
+                std::unique_lock lock(mutex);
+                ++worker_tasks;
+                if (task->cache_hash == active_hash) {
+                    active_entered = true;
+                    cv.notify_all();
+                    cv.wait(lock, [&]() { return release_active; });
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_active = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    std::vector<AsyncCacheWriteTask> tasks;
+    tasks.reserve(total_tasks);
+    for (size_t task_id = 0; task_id < total_tasks; ++task_id) {
+        tasks.emplace_back(make_async_write_task(
+                service, "concurrent_drop_oldest_" + std::to_string(task_id),
+                static_cast<char>('a' + task_id % 26), [&, task_id](const AsyncCacheWriteTask&) {
+                    std::lock_guard lock(mutex);
+                    ++finalized[task_id];
+                    cv.notify_all();
+                }));
+    }
+
+    const uint64_t baseline_submitted = service->_submitted_metric->get_value();
+    const uint64_t baseline_finished = service->_finished_metric->get_value();
+    const uint64_t baseline_worker_finished = service->_worker_finished_metric->get_value();
+    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
+    const uint64_t baseline_rejected = service->_rejected_metric->get_value();
+    ASSERT_TRUE(service->try_submit(std::move(tasks[0])));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return active_entered; }));
+    }
+
+    std::atomic<size_t> accepted {0};
+    std::vector<std::thread> producers;
+    producers.reserve(producer_count);
+    std::barrier start_barrier(producer_count);
+    for (size_t producer_id = 0; producer_id < producer_count; ++producer_id) {
+        producers.emplace_back([&, producer_id]() {
+            start_barrier.arrive_and_wait();
+            const size_t first_task = 1 + producer_id * tasks_per_producer;
+            for (size_t offset = 0; offset < tasks_per_producer; ++offset) {
+                if (service->try_submit(std::move(tasks[first_task + offset]))) {
+                    accepted.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+    for (auto& producer : producers) {
+        producer.join();
+    }
+
+    EXPECT_EQ(accepted.load(std::memory_order_relaxed), producer_tasks);
+    EXPECT_EQ(service->pending_count(), max_pending_tasks);
+    EXPECT_EQ(service->queued_count(), max_pending_tasks - 1);
+    EXPECT_EQ(service->active_task_count(), 1);
+    EXPECT_EQ(service->_submitted_metric->get_value() - baseline_submitted, total_tasks);
+    EXPECT_EQ(service->_rejected_metric->get_value() - baseline_rejected, 0);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted,
+              total_tasks - max_pending_tasks);
+
+    {
+        std::lock_guard lock(mutex);
+        release_active = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(10), [&]() {
+            return std::all_of(finalized.begin(), finalized.end(),
+                               [](size_t count) { return count == 1; });
+        }));
+    }
+    EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(service->queued_count(), 0);
+    EXPECT_EQ(service->active_task_count(), 0);
+    EXPECT_EQ(worker_tasks, max_pending_tasks);
+    EXPECT_EQ(service->_finished_metric->get_value() - baseline_finished, total_tasks);
+    EXPECT_EQ(service->_worker_finished_metric->get_value() - baseline_worker_finished,
+              max_pending_tasks);
+    EXPECT_EQ((service->_worker_finished_metric->get_value() - baseline_worker_finished) +
+                      (service->_evicted_oldest_metric->get_value() - baseline_evicted),
+              service->_submitted_metric->get_value() - baseline_submitted);
+}
+
 TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     auto* factory = FileCacheFactory::instance();
     factory->_caches.clear();
@@ -1029,6 +1901,7 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     const int32_t old_batch_size = config::async_file_cache_write_batch_size;
     const int64_t old_warn_secs = config::async_file_cache_write_watchdog_warn_secs;
     const int64_t old_drop_secs = config::async_file_cache_write_watchdog_drop_secs;
+    const std::string old_queue_full_policy = config::async_file_cache_write_queue_full_policy;
     const auto path = caches_dir / "async_write_service_config_update";
     std::error_code error;
     Defer restore {[&]() {
@@ -1046,6 +1919,9 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
                             .ok());
         EXPECT_TRUE(config::set_config("async_file_cache_write_watchdog_drop_secs",
                                        std::to_string(old_drop_secs))
+                            .ok());
+        EXPECT_TRUE(config::set_config("async_file_cache_write_queue_full_policy",
+                                       old_queue_full_policy)
                             .ok());
         EXPECT_TRUE(
                 config::set_config("enable_async_file_cache_write", old_enable ? "true" : "false")
@@ -1084,6 +1960,8 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     const int32_t new_batch_size = old_batch_size + 1;
     const int64_t new_warn_secs = old_warn_secs + 1;
     const int64_t new_drop_secs = std::max(old_drop_secs + 1, new_warn_secs + 1);
+    const std::string new_queue_full_policy =
+            old_queue_full_policy == "drop_oldest" ? "reject_new" : "drop_oldest";
     ASSERT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
                                    std::to_string(new_workers))
                         .ok());
@@ -1099,6 +1977,10 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     ASSERT_TRUE(config::set_config("async_file_cache_write_watchdog_warn_secs",
                                    std::to_string(new_warn_secs))
                         .ok());
+    EXPECT_FALSE(config::set_config("async_file_cache_write_queue_full_policy", "invalid").ok());
+    ASSERT_TRUE(
+            config::set_config("async_file_cache_write_queue_full_policy", new_queue_full_policy)
+                    .ok());
     ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "true").ok());
 
     const auto updated = cache->async_write_service()->options();
@@ -1108,6 +1990,118 @@ TEST_F(AsyncCacheWriteServiceTest, MutableConfigUpdatesServicesExplicitly) {
     EXPECT_EQ(updated.batch_size, new_batch_size);
     EXPECT_EQ(updated.watchdog_warn_secs, new_warn_secs);
     EXPECT_EQ(updated.watchdog_drop_secs, new_drop_secs);
+    EXPECT_EQ(updated.queue_full_policy,
+              async_cache_write_queue_full_policy_from_string(new_queue_full_policy));
+}
+
+TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForConcurrentReplacementAndDrains) {
+    auto cache = create_cache("async_write_service_shutdown_replacement");
+    auto* service = cache->async_write_service();
+    ASSERT_NE(service, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 2;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    const auto active_hash = BlockFileCache::hash("shutdown_replacement_active");
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool active_entered = false;
+    bool release_active = false;
+    bool victim_callback_entered = false;
+    bool release_victim_callback = false;
+    std::vector<size_t> finalized(3, 0);
+    std::promise<void> shutdown_stopped_accepting;
+    auto shutdown_stopped_accepting_future = shutdown_stopped_accepting.get_future();
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard worker_guard;
+    SyncPoint::CallbackGuard shutdown_guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&& args) {
+                const auto* task = try_any_cast<const AsyncCacheWriteTask*>(args[0]);
+                if (task->cache_hash != active_hash) {
+                    return;
+                }
+                std::unique_lock lock(mutex);
+                active_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_active; });
+            },
+            &worker_guard);
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::shutdown:after_stop_accepting",
+            [&](auto&&) { shutdown_stopped_accepting.set_value(); }, &shutdown_guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_active = true;
+            release_victim_callback = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto finalizer = [&](size_t task_id) {
+        return [&, task_id](const AsyncCacheWriteTask&) {
+            std::lock_guard lock(mutex);
+            ++finalized[task_id];
+            cv.notify_all();
+        };
+    };
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "shutdown_replacement_active", 'a', finalizer(0))));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return active_entered; }));
+    }
+    ASSERT_TRUE(service->try_submit(make_async_write_task(
+            service, "shutdown_replacement_victim", 'v', [&](const AsyncCacheWriteTask&) {
+                std::unique_lock lock(mutex);
+                ++finalized[1];
+                victim_callback_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_victim_callback; });
+            })));
+
+    auto replacement_future = std::async(std::launch::async, [&]() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+        return service->try_submit(
+                make_async_write_task(service, "shutdown_replacement_new", 'n', finalizer(2)));
+    });
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5),
+                                [&]() { return victim_callback_entered; }));
+    }
+
+    auto shutdown_future = std::async(std::launch::async, [service]() { service->shutdown(); });
+    ASSERT_EQ(shutdown_stopped_accepting_future.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    EXPECT_EQ(shutdown_future.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+    {
+        std::lock_guard lock(mutex);
+        release_victim_callback = true;
+    }
+    cv.notify_all();
+    ASSERT_TRUE(replacement_future.get());
+    EXPECT_EQ(shutdown_future.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+
+    {
+        std::lock_guard lock(mutex);
+        release_active = true;
+    }
+    cv.notify_all();
+    ASSERT_EQ(shutdown_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    shutdown_future.get();
+    EXPECT_EQ(finalized, (std::vector<size_t> {1, 1, 1}));
+    EXPECT_EQ(service->pending_count(), 0);
+    EXPECT_EQ(service->queued_count(), 0);
+    EXPECT_EQ(service->active_task_count(), 0);
 }
 
 TEST_F(AsyncCacheWriteServiceTest, ShutdownWaitsForRegisteredSubmitterAndRejectsItsTask) {

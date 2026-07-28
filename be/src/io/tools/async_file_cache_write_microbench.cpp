@@ -81,6 +81,8 @@ DEFINE_int32(producer_threads, 16, "Concurrent foreground readers or task produc
 DEFINE_int32(reader_workers, 16, "Async write workers used by the reader comparison");
 DEFINE_string(worker_counts, "1,4,16",
               "Comma-separated async write worker counts used by service scaling cases");
+DEFINE_string(queue_full_policies, "reject_new,drop_oldest",
+              "Comma-separated service queue policies: reject_new or drop_oldest");
 DEFINE_uint64(repetitions, 5, "Measured repetitions of every selected benchmark case");
 DEFINE_uint64(backpressure_pending_tasks, 64,
               "Pending-task limit used by the saturated service case");
@@ -168,6 +170,25 @@ Status parse_positive_integer_list(std::string_view text, std::vector<size_t>* v
     return Status::OK();
 }
 
+/// Parse queue policies while rejecting spellings that production configuration would reject.
+Status parse_queue_full_policies(std::string_view text,
+                                 std::vector<AsyncCacheWriteQueueFullPolicy>* policies) {
+    DORIS_CHECK(policies != nullptr);
+    policies->clear();
+    std::stringstream stream {std::string(text)};
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        if (token != "reject_new" && token != "drop_oldest") {
+            return Status::InvalidArgument("unsupported queue full policy: {}", token);
+        }
+        policies->emplace_back(async_cache_write_queue_full_policy_from_string(token));
+    }
+    if (policies->empty()) {
+        return Status::InvalidArgument("queue_full_policies cannot be empty");
+    }
+    return Status::OK();
+}
+
 /// Split the selected benchmark groups while preserving a small command-line surface.
 /// @param text Raw mode string.
 std::vector<std::string> parse_modes(std::string_view text) {
@@ -192,7 +213,8 @@ bool mode_enabled(const std::vector<std::string>& modes, std::string_view target
 
 /// Validate sizes and concurrency before allocating cache capacity or starting threads.
 Status validate_flags(const std::vector<std::string>& modes,
-                      const std::vector<size_t>& worker_counts) {
+                      const std::vector<size_t>& worker_counts,
+                      const std::vector<AsyncCacheWriteQueueFullPolicy>& queue_full_policies) {
     if (modes.empty()) {
         return Status::InvalidArgument("benchmark_mode cannot be empty");
     }
@@ -202,6 +224,7 @@ Status validate_flags(const std::vector<std::string>& modes,
         }
     }
     DORIS_CHECK(!worker_counts.empty());
+    DORIS_CHECK(!queue_full_policies.empty());
     if (FLAGS_producer_threads <= 0 || FLAGS_reader_workers <= 0) {
         return Status::InvalidArgument("producer_threads and reader_workers must be positive");
     }
@@ -323,15 +346,11 @@ public:
         _running.store(true, std::memory_order_release);
         _thread = std::thread([this]() {
             while (_running.load(std::memory_order_acquire)) {
-                update_max(&_peak_pending, _service->pending_count());
-                update_max(&_peak_queued, _service->queued_count());
-                update_max(&_peak_inflight, _index->size());
+                sample();
                 std::this_thread::sleep_for(
                         std::chrono::microseconds(FLAGS_queue_sample_interval_us));
             }
-            update_max(&_peak_pending, _service->pending_count());
-            update_max(&_peak_queued, _service->queued_count());
-            update_max(&_peak_inflight, _index->size());
+            sample();
         });
     }
 
@@ -348,8 +367,19 @@ public:
     size_t peak_pending() const { return _peak_pending.load(std::memory_order_relaxed); }
     size_t peak_queued() const { return _peak_queued.load(std::memory_order_relaxed); }
     size_t peak_inflight() const { return _peak_inflight.load(std::memory_order_relaxed); }
+    size_t peak_buffer_bytes() const { return _peak_buffer_bytes.load(std::memory_order_relaxed); }
 
 private:
+    /// Capture one internally consistent set of independently sampled public gauges.
+    void sample() {
+        update_max(&_peak_pending, _service->pending_count());
+        update_max(&_peak_queued, _service->queued_count());
+        update_max(&_peak_inflight, _index->size());
+        const int64_t buffer_memory_bytes = _service->buffer_memory_bytes();
+        DORIS_CHECK(buffer_memory_bytes >= 0);
+        update_max(&_peak_buffer_bytes, static_cast<size_t>(buffer_memory_bytes));
+    }
+
     /// Atomically preserve the largest sampled gauge value.
     static void update_max(std::atomic<size_t>* maximum, size_t value) {
         size_t current = maximum->load(std::memory_order_relaxed);
@@ -365,6 +395,7 @@ private:
     std::atomic<size_t> _peak_pending {0};
     std::atomic<size_t> _peak_queued {0};
     std::atomic<size_t> _peak_inflight {0};
+    std::atomic<size_t> _peak_buffer_bytes {0};
 };
 
 /// Poll one asynchronous completion predicate with a bounded failure mode.
@@ -468,6 +499,7 @@ public:
         config::async_file_cache_write_max_pending_tasks_per_disk =
                 static_cast<int64_t>(std::max(FLAGS_reader_operations, FLAGS_service_operations));
         config::async_file_cache_write_batch_size = 16;
+        config::async_file_cache_write_queue_full_policy = "reject_new";
 
         DORIS_CHECK(ExecEnv::GetInstance()->file_cache_factory() == nullptr);
         ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<FDCache>());
@@ -508,13 +540,16 @@ public:
     /// Apply one explicit worker/queue snapshot to the production service.
     /// @param workers Active background writer count.
     /// @param max_pending Maximum accepted tasks, including active workers.
-    Status configure_service(size_t workers, size_t max_pending) {
+    /// @param queue_full_policy Admission behavior at the pending limit.
+    Status configure_service(size_t workers, size_t max_pending,
+                             AsyncCacheWriteQueueFullPolicy queue_full_policy) {
         auto options = service()->options();
         options.worker_count = workers;
         options.max_pending_tasks = max_pending;
         options.batch_size = 16;
         options.watchdog_warn_secs = static_cast<int64_t>(FLAGS_timeout_seconds);
         options.watchdog_drop_secs = static_cast<int64_t>(FLAGS_timeout_seconds * 2);
+        options.queue_full_policy = queue_full_policy;
         return service()->update_options(options);
     }
 
@@ -554,8 +589,8 @@ Status verify_cached_range(BlockFileCache* cache, const UInt128Wrapper& hash, si
     RETURN_IF_ERROR(cache->get_downloaded_blocks_if_fully_covered(hash, offset, size, context,
                                                                   &blocks, &fully_covered));
     if (!fully_covered) {
-        return Status::InternalError("cache range [{}, {}) was not persisted", offset,
-                                     offset + size);
+        return Status::InternalError<false>("cache range [{}, {}) was not persisted", offset,
+                                            offset + size);
     }
     return Status::OK();
 }
@@ -569,6 +604,7 @@ struct AsyncWriteResult {
     size_t operations {0};
     size_t accepted {0};
     size_t rejected {0};
+    size_t evicted {0};
     size_t persisted {0};
     size_t bytes_per_operation {0};
     double foreground_seconds {0};
@@ -577,6 +613,9 @@ struct AsyncWriteResult {
     size_t peak_pending {0};
     size_t peak_queued {0};
     size_t peak_inflight {0};
+    size_t peak_buffer_bytes {0};
+    int64_t queue_lock_wait_p99_us {0};
+    int64_t queue_lock_hold_p99_us {0};
     LatencySummary latency;
 };
 
@@ -596,7 +635,7 @@ void print_async_write_result(const AsyncWriteResult& result, size_t repetition)
               << " repetition=" << repetition << " producers=" << result.producers
               << " workers=" << result.workers << " operations=" << result.operations
               << " accepted=" << result.accepted << " rejected=" << result.rejected
-              << " persisted=" << result.persisted
+              << " evicted=" << result.evicted << " persisted=" << result.persisted
               << " bytes_per_operation=" << result.bytes_per_operation
               << " foreground_seconds=" << result.foreground_seconds
               << " drain_seconds=" << result.drain_seconds
@@ -607,7 +646,9 @@ void print_async_write_result(const AsyncWriteResult& result, size_t repetition)
               << " p95_us=" << result.latency.p95_us << " p99_us=" << result.latency.p99_us
               << " max_us=" << result.latency.maximum_us << " peak_pending=" << result.peak_pending
               << " peak_queued=" << result.peak_queued << " peak_inflight=" << result.peak_inflight
-              << '\n';
+              << " peak_buffer_bytes=" << result.peak_buffer_bytes
+              << " queue_lock_wait_p99_us=" << result.queue_lock_wait_p99_us
+              << " queue_lock_hold_p99_us=" << result.queue_lock_hold_p99_us << '\n';
 }
 
 /// Compare cold-miss caller latency with synchronous and asynchronous cache persistence.
@@ -621,7 +662,8 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, s
     RETURN_IF_ERROR(environment->clear_cache());
     RETURN_IF_ERROR(environment->configure_service(
             static_cast<size_t>(FLAGS_reader_workers),
-            static_cast<size_t>(FLAGS_reader_operations + FLAGS_reader_workers)));
+            static_cast<size_t>(FLAGS_reader_operations + FLAGS_reader_workers),
+            AsyncCacheWriteQueueFullPolicy::REJECT_NEW));
 
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
     const size_t operation_count = static_cast<size_t>(FLAGS_reader_operations);
@@ -729,6 +771,7 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, s
             .peak_pending = sampler.peak_pending(),
             .peak_queued = sampler.peak_queued(),
             .peak_inflight = sampler.peak_inflight(),
+            .peak_buffer_bytes = sampler.peak_buffer_bytes(),
             .latency = summarize_latencies(latencies),
     };
     print_async_write_result(result, repetition);
@@ -742,17 +785,19 @@ struct ServiceTaskRecord {
     size_t size {0};
 };
 
-/// Exercise producer admission, inflight publication, MPMC consumption, and real persistence.
+/// Exercise producer admission, inflight publication, locked FIFO consumption, and persistence.
 /// @param environment Shared real cache, cleared before the case.
 /// @param variant Stable output label.
 /// @param workers Active service consumers.
 /// @param max_pending Bounded pending-task limit.
+/// @param queue_full_policy Admission behavior at the pending limit.
 /// @param repetition One-based repetition index included in output.
 Status run_service_case(BenchmarkEnvironment* environment, std::string variant, size_t workers,
-                        size_t max_pending, size_t repetition) {
+                        size_t max_pending, AsyncCacheWriteQueueFullPolicy queue_full_policy,
+                        size_t repetition) {
     DORIS_CHECK(environment != nullptr);
     RETURN_IF_ERROR(environment->clear_cache());
-    RETURN_IF_ERROR(environment->configure_service(workers, max_pending));
+    RETURN_IF_ERROR(environment->configure_service(workers, max_pending, queue_full_policy));
 
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
     const size_t operation_count = static_cast<size_t>(FLAGS_service_operations);
@@ -766,6 +811,7 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
     std::atomic<size_t> completed {0};
     ConcurrentError error;
     QueuePeakSampler sampler(environment->service(), environment->index());
+    const uint64_t baseline_evicted = environment->service()->evicted_oldest_count();
     sampler.start();
 
     for (size_t producer = 0; producer < producer_count; ++producer) {
@@ -869,9 +915,20 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             }
         }
     }
-    if (persisted != accepted.load(std::memory_order_relaxed)) {
-        return Status::InternalError("only {} of {} accepted service tasks persisted", persisted,
-                                     accepted.load(std::memory_order_relaxed));
+    const size_t accepted_count = accepted.load(std::memory_order_relaxed);
+    DORIS_CHECK(persisted <= accepted_count);
+    const size_t evicted =
+            static_cast<size_t>(environment->service()->evicted_oldest_count() - baseline_evicted);
+    if (queue_full_policy == AsyncCacheWriteQueueFullPolicy::REJECT_NEW &&
+        persisted != accepted_count) {
+        return Status::InternalError("only {} of {} accepted REJECT_NEW tasks persisted", persisted,
+                                     accepted_count);
+    }
+    if (queue_full_policy == AsyncCacheWriteQueueFullPolicy::DROP_OLDEST &&
+        accepted_count - persisted != evicted) {
+        return Status::InternalError(
+                "{} accepted DROP_OLDEST tasks produced {} persisted and {} evicted",
+                accepted_count, persisted, evicted);
     }
 
     const double foreground_seconds =
@@ -883,8 +940,9 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             .producers = producer_count,
             .workers = workers,
             .operations = operation_count,
-            .accepted = accepted.load(std::memory_order_relaxed),
+            .accepted = accepted_count,
             .rejected = rejected.load(std::memory_order_relaxed),
+            .evicted = evicted,
             .persisted = persisted,
             .bytes_per_operation = FLAGS_service_task_size,
             .foreground_seconds = foreground_seconds,
@@ -893,6 +951,9 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             .peak_pending = sampler.peak_pending(),
             .peak_queued = sampler.peak_queued(),
             .peak_inflight = sampler.peak_inflight(),
+            .peak_buffer_bytes = sampler.peak_buffer_bytes(),
+            .queue_lock_wait_p99_us = environment->service()->queue_lock_wait_p99_us(),
+            .queue_lock_hold_p99_us = environment->service()->queue_lock_hold_p99_us(),
             .latency = summarize_latencies(latencies),
     };
     print_async_write_result(result, repetition);
@@ -978,7 +1039,8 @@ Status run_index_case(std::string variant, size_t key_count, bool populate, size
 
 /// Run the selected benchmark groups in a fixed, directly comparable order.
 Status run_benchmarks(const std::vector<std::string>& modes,
-                      const std::vector<size_t>& worker_counts) {
+                      const std::vector<size_t>& worker_counts,
+                      const std::vector<AsyncCacheWriteQueueFullPolicy>& queue_full_policies) {
     const size_t reader_bytes = FLAGS_reader_operations * FLAGS_block_size;
     const size_t service_bytes = FLAGS_service_operations * FLAGS_service_task_size;
     const size_t workload_bytes = std::max(reader_bytes, service_bytes);
@@ -992,6 +1054,7 @@ Status run_benchmarks(const std::vector<std::string>& modes,
     std::cout << "CONFIG cache_path=" << FLAGS_cache_path << " cache_capacity=" << cache_capacity
               << " block_size=" << FLAGS_block_size << " request_size=" << FLAGS_request_size
               << " producer_threads=" << FLAGS_producer_threads
+              << " queue_full_policies=" << FLAGS_queue_full_policies
               << " repetitions=" << FLAGS_repetitions << '\n';
 
     for (size_t repetition = 1; repetition <= FLAGS_repetitions; ++repetition) {
@@ -1002,15 +1065,21 @@ Status run_benchmarks(const std::vector<std::string>& modes,
                                             "async_write", repetition));
         }
         if (mode_enabled(modes, "service")) {
-            for (size_t workers : worker_counts) {
-                RETURN_IF_ERROR(run_service_case(
-                        &environment, "drain_workers_" + std::to_string(workers), workers,
-                        static_cast<size_t>(FLAGS_service_operations + workers), repetition));
+            for (AsyncCacheWriteQueueFullPolicy policy : queue_full_policies) {
+                const std::string policy_name(
+                        async_cache_write_queue_full_policy_to_string(policy));
+                for (size_t workers : worker_counts) {
+                    RETURN_IF_ERROR(run_service_case(
+                            &environment, policy_name + "_drain_workers_" + std::to_string(workers),
+                            workers, static_cast<size_t>(FLAGS_service_operations + workers),
+                            policy, repetition));
+                }
+                RETURN_IF_ERROR(run_service_case(&environment, policy_name + "_backpressure",
+                                                 worker_counts.back(),
+                                                 std::min<size_t>(FLAGS_backpressure_pending_tasks,
+                                                                  FLAGS_service_operations),
+                                                 policy, repetition));
             }
-            RETURN_IF_ERROR(run_service_case(
-                    &environment, "backpressure", worker_counts.back(),
-                    std::min<size_t>(FLAGS_backpressure_pending_tasks, FLAGS_service_operations),
-                    repetition));
         }
         if (mode_enabled(modes, "index")) {
             RETURN_IF_ERROR(
@@ -1055,12 +1124,17 @@ int main(int argc, char** argv) {
     std::vector<size_t> worker_counts;
     doris::Status status =
             doris::io::parse_positive_integer_list(FLAGS_worker_counts, &worker_counts);
+    std::vector<doris::io::AsyncCacheWriteQueueFullPolicy> queue_full_policies;
+    if (status.ok()) {
+        status = doris::io::parse_queue_full_policies(FLAGS_queue_full_policies,
+                                                      &queue_full_policies);
+    }
     const auto modes = doris::io::parse_modes(FLAGS_benchmark_mode);
     if (status.ok()) {
-        status = doris::io::validate_flags(modes, worker_counts);
+        status = doris::io::validate_flags(modes, worker_counts, queue_full_policies);
     }
     if (status.ok()) {
-        status = doris::io::run_benchmarks(modes, worker_counts);
+        status = doris::io::run_benchmarks(modes, worker_counts, queue_full_policies);
     }
     if (!status.ok()) {
         std::cerr << "Benchmark failed: " << status.to_string() << '\n';
