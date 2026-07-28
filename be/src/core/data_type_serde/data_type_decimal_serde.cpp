@@ -262,7 +262,13 @@ public:
     DecimalParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
                            UInt32 target_precision, int32_t target_scale,
                            ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnDecimal<T>&>(column).get_data()),
+            : DecimalParquetConsumer(assert_cast<ColumnDecimal<T>&>(column).get_data(), context,
+                                     target_precision, target_scale, state) {}
+
+    DecimalParquetConsumer(typename ColumnDecimal<T>::Container& data,
+                           const ParquetDecodeContext& context, UInt32 target_precision,
+                           int32_t target_scale, ParquetMaterializationState* state = nullptr)
+            : _data(data),
               _context(context),
               _target_precision(target_precision),
               _target_scale(target_scale),
@@ -395,6 +401,59 @@ private:
     UInt32 _target_precision;
     int32_t _target_scale;
     ParquetMaterializationState* _state;
+};
+
+template <PrimitiveType T>
+class DecimalPredicateParquetConsumer final : public ParquetFixedValueConsumer,
+                                              public ParquetBinaryValueConsumer {
+public:
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
+
+    DecimalPredicateParquetConsumer(const ParquetDecodeContext& context, UInt32 target_precision,
+                                    int32_t target_scale, bool enable_strict_mode,
+                                    ParquetLogicalValueConsumer& consumer)
+            : _context(context),
+              _target_precision(target_precision),
+              _target_scale(target_scale),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(0, static_cast<UInt32>(target_scale)) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
+            return converter.consume(values, num_values, value_width);
+        });
+    }
+
+    Status consume(const StringRef* values, size_t num_values) override {
+        return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
+            return converter.consume(values, num_values);
+        });
+    }
+
+private:
+    template <typename Convert>
+    Status convert_and_publish(size_t num_values, Convert&& convert) {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        DecimalParquetConsumer<T> converter(_logical_values, _context, _target_precision,
+                                            _target_scale, &state);
+        RETURN_IF_ERROR(convert(converter));
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(FieldType), _conversion_nulls.data());
+    }
+
+    const ParquetDecodeContext& _context;
+    UInt32 _target_precision;
+    int32_t _target_scale;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    typename ColumnDecimal<T>::Container _logical_values;
+    IColumn::Filter _conversion_nulls;
 };
 
 } // namespace
@@ -789,6 +848,35 @@ Status DataTypeDecimalSerDe<T>::read_column_from_parquet(IColumn& column,
         state.dictionary_generation = source.dictionary_generation();
     }
     return state.materialize_dictionary(column, source, num_values);
+}
+
+template <PrimitiveType T>
+bool DataTypeDecimalSerDe<T>::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    if (context.encoding == ParquetValueEncoding::DICTIONARY ||
+        context.logical_type != ParquetLogicalType::DECIMAL) {
+        return false;
+    }
+    return context.physical_type == ParquetPhysicalType::INT32 ||
+           context.physical_type == ParquetPhysicalType::INT64 ||
+           context.physical_type == ParquetPhysicalType::BYTE_ARRAY ||
+           context.physical_type == ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY;
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                    get_name());
+    }
+    DecimalPredicateParquetConsumer<T> predicate_consumer(context, static_cast<UInt32>(precision),
+                                                          scale, enable_strict_mode, consumer);
+    if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
+        return source.decode_binary_values(num_values, predicate_consumer);
+    }
+    return source.decode_fixed_values(num_values, predicate_consumer);
 }
 
 template <PrimitiveType T>

@@ -247,6 +247,23 @@ Status RuntimeFilterExpr::execute_on_raw_fixed_values(const uint8_t* values, siz
                                               matches);
 }
 
+bool RuntimeFilterExpr::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                         int column_id) const {
+    // Definition levels do not carry a payload for NULL. Preserve null-aware semantics on the
+    // ordinary wrapper path instead of treating an absent byte slice as a non-match.
+    return !_null_aware && _impl->can_execute_on_raw_binary_values(data_type, column_id);
+}
+
+Status RuntimeFilterExpr::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                       const DataTypePtr& data_type, int column_id,
+                                                       uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("Runtime filter {} cannot evaluate raw binary values",
+                                    _filter_id);
+    }
+    return _impl->execute_on_raw_binary_values(values, num_values, data_type, column_id, matches);
+}
+
 bool RuntimeFilterExpr::can_execute_on_reader_values(const DataTypePtr& data_type,
                                                      int column_id) const {
     if (_null_aware || _impl == nullptr || data_type == nullptr || _impl->get_num_children() == 0) {
@@ -260,9 +277,8 @@ bool RuntimeFilterExpr::can_execute_on_reader_values(const DataTypePtr& data_typ
     const auto probe_type = remove_nullable(slot->data_type());
     // CHAR/VARCHAR/STRING share the same runtime-filter representation; every other logical type
     // must match exactly so Parquet conversions cannot be interpreted with the wrong RF template.
-    return reader_type->equals(*probe_type) ||
-           (is_string_type(reader_type->get_primitive_type()) &&
-            is_string_type(probe_type->get_primitive_type()));
+    return reader_type->equals(*probe_type) || (is_string_type(reader_type->get_primitive_type()) &&
+                                                is_string_type(probe_type->get_primitive_type()));
 }
 
 ZoneMapFilterResult RuntimeFilterExpr::evaluate_dictionary_filter(

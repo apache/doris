@@ -760,8 +760,7 @@ Status NativeColumnReader::select_with_runtime_filter(
     RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     row_filter->clear();
     *used_filter = false;
-    if (_nested || conjuncts.empty() ||
-        !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+    if (_nested || conjuncts.empty() || !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
             return conjunct != nullptr && conjunct->root() != nullptr &&
                    conjunct->root()->is_rf_wrapper() &&
                    conjunct->root()->can_execute_on_reader_values(_type, column_id);

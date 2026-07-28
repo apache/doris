@@ -742,6 +742,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(
     _materialization_state.enable_strict_mode = enable_strict_mode;
     RETURN_IF_ERROR(_chunk_reader->init());
     RETURN_IF_ERROR(init_decode_context(*field, _ctz, &_decode_context));
+    // Decoder-direct predicates may be the first typed read for this column, so bind the
+    // file-local SerDe before either materialization or a dictionary probe can initialize it.
+    const DataTypePtr file_type = remove_nullable(_field_schema->data_type);
+    _serde_type = file_type.get();
+    _serde = file_type->get_serde();
     return Status::OK();
 }
 
@@ -1123,7 +1128,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_fixed_width_filter
     bool used_filter = false;
     RETURN_IF_ERROR(_chunk_reader->filter_fixed_width_values(
             conjuncts, column_id, _select_vector, &_fixed_width_predicate_nulls,
-            &_fixed_width_predicate_matches, projected_column, row_filter, &used_filter));
+            &_fixed_width_predicate_matches, projected_column, row_filter, *_serde, _decode_context,
+            _materialization_state.enable_strict_mode, &used_filter));
     // Chunk encodings are prevalidated before any definition level is consumed, so a false result
     // here would make a materializing fallback observe an advanced level cursor.
     DORIS_CHECK(used_filter);
@@ -1145,22 +1151,43 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_fixed_width_filter(
     if (_in_nested || conjuncts.empty()) {
         return Status::OK();
     }
+    const bool has_null_map_predicate = std::ranges::any_of(conjuncts, [&](const auto& conjunct) {
+        return conjunct != nullptr &&
+               conjunct->can_execute_on_null_map(_field_schema->data_type, column_id);
+    });
+    if (has_null_map_predicate && projected_column != nullptr) {
+        // Definition levels can decide predicate-only columns without touching payloads. A selected
+        // projected NULL still needs nullable-column assembly, which remains on the typed path.
+        return Status::OK();
+    }
     if (!std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
             return conjunct != nullptr &&
-                   conjunct->can_execute_on_raw_fixed_values(_field_schema->data_type, column_id);
+                   (conjunct->can_execute_on_raw_fixed_values(_field_schema->data_type,
+                                                              column_id) ||
+                    conjunct->can_execute_on_raw_binary_values(_field_schema->data_type,
+                                                               column_id) ||
+                    conjunct->can_execute_on_null_map(_field_schema->data_type, column_id));
         })) {
         return Status::OK();
     }
     // Validate every advertised value encoding before touching either cursor. A late fallback
     // cannot rewind definition levels or a previously decoded fixed-width page.
-    const bool supported_encodings = std::ranges::all_of(
-            _chunk_meta.meta_data.encodings, [&](const tparquet::Encoding::type encoding) {
-                return ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::
-                               supports_raw_fixed_filter_encoding(encoding,
-                                                                  _chunk_meta.meta_data.type) ||
-                       encoding == tparquet::Encoding::RLE ||
-                       encoding == tparquet::Encoding::BIT_PACKED;
-            });
+    const bool has_raw_value_predicate = std::ranges::any_of(conjuncts, [&](const auto& conjunct) {
+        return !conjunct->can_execute_on_null_map(_field_schema->data_type, column_id);
+    });
+    const bool supported_encodings =
+            !has_raw_value_predicate ||
+            std::ranges::all_of(_chunk_meta.meta_data.encodings,
+                                [&](const tparquet::Encoding::type encoding) {
+                                    return ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::
+                                                   supports_raw_fixed_filter_encoding(
+                                                           encoding, _chunk_meta.meta_data.type) ||
+                                           ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::
+                                                   supports_raw_binary_filter_encoding(
+                                                           encoding, _chunk_meta.meta_data.type) ||
+                                           encoding == tparquet::Encoding::RLE ||
+                                           encoding == tparquet::Encoding::BIT_PACKED;
+                                });
     if (!supported_encodings) {
         return Status::OK();
     }
@@ -1179,7 +1206,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_fixed_width_filter(
     } else {
         RETURN_IF_ERROR(_chunk_reader->parse_page_header());
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-        if (!_chunk_reader->can_filter_fixed_width_values(conjuncts, column_id)) {
+        if (!_chunk_reader->can_filter_fixed_width_values(conjuncts, column_id, _serde.get(),
+                                                          &_decode_context)) {
             return Status::OK();
         }
         size_t has_read = 0;

@@ -180,20 +180,38 @@ public:
                                                    tparquet::Type::type physical_type) {
         switch (encoding) {
         case tparquet::Encoding::PLAIN:
-            return physical_type == tparquet::Type::INT32 ||
+            return physical_type == tparquet::Type::BOOLEAN ||
+                   physical_type == tparquet::Type::INT32 ||
                    physical_type == tparquet::Type::INT64 ||
+                   physical_type == tparquet::Type::INT96 ||
                    physical_type == tparquet::Type::FLOAT ||
-                   physical_type == tparquet::Type::DOUBLE;
+                   physical_type == tparquet::Type::DOUBLE ||
+                   physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY;
+        case tparquet::Encoding::RLE:
+            return physical_type == tparquet::Type::BOOLEAN;
         case tparquet::Encoding::BYTE_STREAM_SPLIT:
             return physical_type == tparquet::Type::INT32 ||
                    physical_type == tparquet::Type::INT64 ||
                    physical_type == tparquet::Type::FLOAT ||
-                   physical_type == tparquet::Type::DOUBLE;
+                   physical_type == tparquet::Type::DOUBLE ||
+                   physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY;
         case tparquet::Encoding::DELTA_BINARY_PACKED:
             return physical_type == tparquet::Type::INT32 || physical_type == tparquet::Type::INT64;
         default:
             return false;
         }
+    }
+
+    static bool supports_raw_binary_filter_encoding(tparquet::Encoding::type encoding,
+                                                    tparquet::Type::type physical_type) {
+        if (physical_type == tparquet::Type::BYTE_ARRAY) {
+            return encoding == tparquet::Encoding::PLAIN ||
+                   encoding == tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY ||
+                   encoding == tparquet::Encoding::DELTA_BYTE_ARRAY;
+        }
+        return physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY &&
+               (encoding == tparquet::Encoding::PLAIN ||
+                encoding == tparquet::Encoding::BYTE_STREAM_SPLIT);
     }
 
     // Evaluate selected fixed-width values and return one keep byte per selected logical row.
@@ -202,8 +220,12 @@ public:
     Status filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
                                      ColumnSelectVector& select_vector, NullMap* selected_nulls,
                                      IColumn::Filter* physical_matches, IColumn* projected_column,
-                                     IColumn::Filter* row_filter, bool* used_filter);
-    bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id) const;
+                                     IColumn::Filter* row_filter, const DataTypeSerDe& serde,
+                                     const ParquetDecodeContext& decode_context,
+                                     bool enable_strict_mode, bool* used_filter);
+    bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
+                                       const DataTypeSerDe* serde,
+                                       const ParquetDecodeContext* decode_context) const;
 
     Status filter_dictionary_indices(const IColumn::Filter& dictionary_filter,
                                      ColumnSelectVector& select_vector,

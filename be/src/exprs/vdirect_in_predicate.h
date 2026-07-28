@@ -147,6 +147,34 @@ public:
         return Status::OK();
     }
 
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        if (!_hybrid_set_values_match_child_type || data_type == nullptr || _filter == nullptr ||
+            get_num_children() != 1) {
+            return false;
+        }
+        const auto slot = std::dynamic_pointer_cast<VSlotRef>(get_child(0));
+        if (slot == nullptr || slot->column_id() != column_id || slot->data_type() == nullptr) {
+            return false;
+        }
+        return is_string_type(remove_nullable(data_type)->get_primitive_type()) &&
+               is_string_type(remove_nullable(slot->data_type())->get_primitive_type());
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Direct IN predicate cannot evaluate raw binary values");
+        }
+        DORIS_CHECK(values != nullptr || num_values == 0);
+        DORIS_CHECK(matches != nullptr || num_values == 0);
+        // Probe immutable decoder slices directly; constructing ColumnString first would copy
+        // every rejected payload and defeat predicate-only late materialization.
+        _filter->find_batch_raw_binary(values, num_values, matches);
+        return Status::OK();
+    }
+
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         *cloned_expr = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
@@ -222,6 +250,7 @@ private:
             RETURN_RAW_FIXED_SIZE(TYPE_DATEV2);
             RETURN_RAW_FIXED_SIZE(TYPE_DATETIMEV2);
             RETURN_RAW_FIXED_SIZE(TYPE_TIMESTAMPTZ);
+            RETURN_RAW_FIXED_SIZE(TYPE_TIMEV2);
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL32);
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL64);
             RETURN_RAW_FIXED_SIZE(TYPE_DECIMALV2);

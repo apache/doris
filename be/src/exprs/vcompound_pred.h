@@ -67,6 +67,52 @@ public:
         return Status::OK();
     }
 
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR ||
+                (_op == TExprOpcode::COMPOUND_NOT && _children.size() == 1)) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_fixed_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override {
+        if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw fixed values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_fixed_values(values, num_values, value_width,
+                                                              data_type, column_id, child_matches);
+                });
+    }
+
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR ||
+                (_op == TExprOpcode::COMPOUND_NOT && _children.size() == 1)) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_binary_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw binary values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_binary_values(values, num_values, data_type,
+                                                               column_id, child_matches);
+                });
+    }
+
     bool can_evaluate_zonemap_filter() const override {
         switch (_op) {
         case TExprOpcode::COMPOUND_AND:
@@ -484,6 +530,36 @@ public:
     }
 
 private:
+    template <typename ExecuteChild>
+    Status _execute_raw_compound(size_t num_values, uint8_t* matches,
+                                 ExecuteChild&& execute_child) const {
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            for (const auto& child : _children) {
+                RETURN_IF_ERROR(execute_child(child, matches));
+            }
+            return Status::OK();
+        }
+
+        IColumn::Filter combined(num_values, _op == TExprOpcode::COMPOUND_NOT ? 1 : 0);
+        for (const auto& child : _children) {
+            IColumn::Filter child_matches(num_values, 1);
+            RETURN_IF_ERROR(execute_child(child, child_matches.data()));
+            for (size_t row = 0; row < num_values; ++row) {
+                if (_op == TExprOpcode::COMPOUND_OR) {
+                    combined[row] |= child_matches[row];
+                } else {
+                    combined[row] = child_matches[row] == 0 ? 1 : 0;
+                }
+            }
+        }
+        // Raw kernels receive an existing selection mask, so composition must preserve rows that
+        // an earlier conjunct already rejected instead of replacing the caller's mask.
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= combined[row];
+        }
+        return Status::OK();
+    }
+
     static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL
         return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
