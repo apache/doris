@@ -45,12 +45,14 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.manifest.PartitionEntry;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
@@ -75,6 +77,7 @@ import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.InternalRowPartitionComputer;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.Projection;
@@ -103,21 +106,12 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
-    private static final String PARTITION_LEGACY_NAME = "partition.legacy-name";
     private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
     private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
     private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
-    }
-
-    /**
-     * Extract the legacy partition name configuration from Paimon table options.
-     */
-    public static boolean isLegacyPartitionName(Table paimonTable) {
-        return Boolean.parseBoolean(
-                paimonTable.options().getOrDefault(PARTITION_LEGACY_NAME, "true"));
     }
 
     public static List<InternalRow> read(
@@ -150,58 +144,106 @@ public class PaimonUtil {
         return rows;
     }
 
-    public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<Partition> paimonPartitions, boolean legacyPartitionName) {
+    public static PaimonPartitionInfo generatePartitionInfo(Table table, List<Column> partitionColumns,
+            List<PartitionEntry> partitionEntries) {
 
-        if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
+        if (CollectionUtils.isEmpty(partitionColumns) || partitionEntries.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
+        }
+
+        CoreOptions options = new CoreOptions(table.options());
+        InternalRowPartitionComputer partitionComputer = new InternalRowPartitionComputer(
+                options.partitionDefaultName(),
+                table.rowType().project(table.partitionKeys()),
+                table.partitionKeys().toArray(new String[0]),
+                options.legacyPartitionName());
+        List<Type> types = partitionColumns.stream()
+                .map(Column::getType)
+                .collect(Collectors.toList());
+        List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
+        Map<String, Integer> displayNameCounts = Maps.newHashMap();
+
+        for (PartitionEntry partitionEntry : partitionEntries) {
+            Map<String, String> typedSpec = getPartitionInfoMap(
+                    table, partitionEntry.partition(), TimeUtils.getTimeZone().getID());
+            if (typedSpec == null) {
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+
+            List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
+            LinkedHashMap<String, String> orderedTypedSpec = new LinkedHashMap<>();
+            for (Column partitionColumn : partitionColumns) {
+                String partitionColumnName = partitionColumn.getName();
+                Preconditions.checkState(typedSpec.containsKey(partitionColumnName),
+                        "Partition column not found in Paimon typed spec: " + partitionColumnName);
+                String partitionValue = typedSpec.get(partitionColumnName);
+                partitionValues.add(partitionValue);
+                orderedTypedSpec.put(partitionColumnName, partitionValue);
+            }
+
+            PartitionItem partitionItem;
+            try {
+                partitionItem = toListPartitionItem(partitionValues, types);
+            } catch (Exception e) {
+                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
+                        partitionColumns, partitionValues, e);
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+
+            LinkedHashMap<String, String> displaySpec;
+            try {
+                // Delegate display-name generation to Paimon so partition.default-name and
+                // partition.legacy-name exactly follow the table's physical partition naming.
+                // The canonical typed spec above remains the logical identity used for pruning.
+                displaySpec = partitionComputer.generatePartValues(partitionEntry.partition());
+            } catch (Exception e) {
+                LOG.warn("Failed to generate Paimon partition display name, table: {}, partition: {}",
+                        table.name(), orderedTypedSpec, e);
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
+            String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
+            String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            candidates.add(new PaimonPartitionCandidate(
+                    partitionEntry, orderedTypedSpec, partitionItem, displayName));
+            displayNameCounts.merge(displayName, 1, Integer::sum);
         }
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
-        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
-        List<Type> types = partitionColumns.stream()
-                .map(Column::getType)
-                .collect(Collectors.toList());
+        for (PaimonPartitionCandidate candidate : candidates) {
+            String partitionName = candidate.displayName;
+            if (displayNameCounts.get(candidate.displayName) > 1) {
+                // A physical Paimon path is not a logical partition identity: null, blank
+                // strings, and a literal default-name value can share that path. Add a stable
+                // suffix derived from the typed BinaryRow only for such ambiguous display names.
+                partitionName += "#typed=" + BASE64_ENCODER.encodeToString(
+                        candidate.partitionEntry.partition().toBytes());
+            }
 
-        for (Partition partition : paimonPartitions) {
-            Map<String, String> spec = partition.spec();
-            // Paimon partition specs contain logical values, which may include path separators.
-            // Build partition values directly instead of parsing them as a Hive partition path.
-            List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
-            LinkedHashMap<String, String> orderedPartitionSpec = new LinkedHashMap<>();
-            for (Column partitionColumn : partitionColumns) {
-                String partitionColumnName = partitionColumn.getName();
-                String partitionValue = spec.get(partitionColumnName);
-                // When partition.legacy-name = true (default), Paimon stores DATE type as days since
-                // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
-                // When partition.legacy-name = false, the value is already a human read date string.
-                if (legacyPartitionName && partitionColumn.getType().isDateV2()) {
-                    partitionValue = DateTimeUtils.formatDate(Integer.parseInt(partitionValue));
-                }
-                partitionValues.add(partitionValue);
-                orderedPartitionSpec.put(partitionColumnName, partitionValue);
-            }
-            String partitionPath = PartitionPathUtils.generatePartitionPath(orderedPartitionSpec);
-            String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
-            Partition previousPartition = nameToPartition.putIfAbsent(partitionName, partition);
-            Preconditions.checkState(previousPartition == null,
-                    "Duplicate Paimon partition name: " + partitionName);
-            PartitionItem partitionItem;
-            try {
-                // partition values return by paimon api, may have problem,
-                // to avoid affecting the query, we catch exceptions here
-                partitionItem = toListPartitionItem(partitionValues, types);
-            } catch (Exception e) {
-                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
-                        partitionColumns, partition.spec(), e);
-                continue;
-            }
-            PartitionItem previousPartitionItem = nameToPartitionItem.putIfAbsent(partitionName, partitionItem);
-            Preconditions.checkState(previousPartitionItem == null,
-                    "Duplicate Paimon partition item name: " + partitionName);
+            PartitionEntry entry = candidate.partitionEntry;
+            Partition partition = new Partition(candidate.typedSpec, entry.recordCount(),
+                    entry.fileSizeInBytes(), entry.fileCount(), entry.lastFileCreationTime(), false);
+            Preconditions.checkState(nameToPartitionItem.putIfAbsent(partitionName, candidate.partitionItem) == null,
+                    "Duplicate typed Paimon partition: " + partitionName);
+            Preconditions.checkState(nameToPartition.putIfAbsent(partitionName, partition) == null,
+                    "Duplicate typed Paimon partition metadata: " + partitionName);
         }
-        return partitionInfo;
+        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+    }
+
+    private static final class PaimonPartitionCandidate {
+        private final PartitionEntry partitionEntry;
+        private final Map<String, String> typedSpec;
+        private final PartitionItem partitionItem;
+        private final String displayName;
+
+        private PaimonPartitionCandidate(PartitionEntry partitionEntry, Map<String, String> typedSpec,
+                PartitionItem partitionItem, String displayName) {
+            this.partitionEntry = partitionEntry;
+            this.typedSpec = typedSpec;
+            this.partitionItem = partitionItem;
+            this.displayName = displayName;
+        }
     }
 
     public static ListPartitionItem toListPartitionItem(List<String> partitionValues, List<Type> types)
@@ -209,12 +251,8 @@ public class PaimonUtil {
         Preconditions.checkState(partitionValues.size() == types.size(), partitionValues + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
-            // null  will in partition 'null'
-            // "null" will in partition 'null'
-            // NULL  will in partition 'null'
-            // "NULL" will in partition 'NULL'
-            // values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
-            values.add(new PartitionValue(partitionValue, false));
+            // Keep a typed null distinct from an empty string and the literal string "null".
+            values.add(new PartitionValue(partitionValue, partitionValue == null));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));

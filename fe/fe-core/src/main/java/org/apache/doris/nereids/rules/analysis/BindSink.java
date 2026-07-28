@@ -885,7 +885,7 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> staticPartitionColNames = staticPartitions.keySet();
         if (!staticPartitionColNames.isEmpty()) {
             Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            partitionColumnNames.addAll(table.getPartitionColumnNames(Optional.empty()));
+            partitionColumnNames.addAll(table.getWritePartitionColumnNames());
             for (String columnName : staticPartitionColNames) {
                 if (!partitionColumnNames.contains(columnName)) {
                     throw new AnalysisException(String.format(

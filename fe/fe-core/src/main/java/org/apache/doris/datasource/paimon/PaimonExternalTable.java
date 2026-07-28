@@ -259,10 +259,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
-        if (isPartitionInvalid(snapshot)) {
+        PaimonPartitionInfo partitionInfo = getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo();
+        if (partitionInfo.getPruningStatus() == PaimonPartitionInfo.PruningStatus.UNPRUNABLE) {
             return PartitionType.UNPARTITIONED;
         }
-        return getPartitionColumns(snapshot).size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
+        return getPaimonSchemaCacheValue(snapshot).getPartitionColumns().isEmpty()
+                ? PartitionType.UNPARTITIONED : PartitionType.LIST;
     }
 
     @Override
@@ -271,17 +273,18 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
+    public Set<String> getWritePartitionColumnNames() {
+        return getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)).getPartitionColumns().stream()
+                .map(column -> column.getName().toLowerCase()).collect(Collectors.toSet());
+    }
+
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        if (isPartitionInvalid(snapshot)) {
+        PaimonPartitionInfo partitionInfo = getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo();
+        if (partitionInfo.getPruningStatus() == PaimonPartitionInfo.PruningStatus.UNPRUNABLE) {
             return Collections.emptyList();
         }
         return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
-    }
-
-    public boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
-        PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
-        return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
     }
 
     @Override
