@@ -246,15 +246,15 @@ public class CloudGlobalTransactionMgrTest {
 
             notified.set(false);
             notifyMethod.invoke(transactionMgr,
-                    incompleteLazyCommitResponse.toBuilder().clearIsLazyCommitIncomplete().build(),
+                    incompleteLazyCommitResponse.toBuilder().setIsLazyCommitIncomplete(false).build(),
                     tabletCommitInfos);
             Assert.assertTrue(notified.get());
 
             notified.set(false);
             notifyMethod.invoke(transactionMgr,
                     incompleteLazyCommitResponse.toBuilder()
-                            .clearIsLazyCommit()
-                            .clearIsLazyCommitIncomplete()
+                            .setIsLazyCommit(false)
+                            .setIsLazyCommitIncomplete(false)
                             .build(),
                     tabletCommitInfos);
             Assert.assertTrue(notified.get());

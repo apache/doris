@@ -2653,7 +2653,7 @@ void MetaServiceImpl::commit_txn_eventually(
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
         } else {
-            response->clear_is_lazy_commit_incomplete();
+            response->set_is_lazy_commit_incomplete(false);
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats

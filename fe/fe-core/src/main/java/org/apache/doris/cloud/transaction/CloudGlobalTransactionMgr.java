@@ -831,9 +831,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 commitTxnResponse = MetaServiceProxy.getInstance().commitTxn(commitTxnRequest);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("retryTime:{}, isLazyCommit:{}, isLazyCommitIncomplete:{}, commitTxnResponse:{}",
-                            retryTime, commitTxnResponse.getIsLazyCommit(),
-                            commitTxnResponse.getIsLazyCommitIncomplete(), commitTxnResponse);
+                    LOG.debug("retryTime:{}, commitTxnResponse:{}", retryTime, commitTxnResponse);
                 }
                 if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;

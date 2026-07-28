@@ -3491,7 +3491,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_TRUE(res.has_is_lazy_commit());
         ASSERT_TRUE(res.is_lazy_commit());
-        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
