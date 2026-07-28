@@ -19,10 +19,13 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.thrift.TFileFormatType;
 
 import lombok.Data;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,7 +45,7 @@ public class IcebergSplit extends FileSplit {
     private Integer formatVersion;
     private List<DeleteFile> deleteFiles = new ArrayList<>();
     private List<IcebergDeleteFileFilter> deleteFileFilters = new ArrayList<>();
-    private Map<StorageProperties.Type, StorageProperties> config;
+    private Map<StorageTypeId, StorageAdapter> config;
     // tableLevelRowCount will be set only table-level count push down opt is available.
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
@@ -52,10 +55,19 @@ public class IcebergSplit extends FileSplit {
     private Long firstRowId = null;
     private Long lastUpdatedSequenceNumber = null;
     private String serializedSplit;
+    // maybe mixed file format type in one table. so need record it for every split
+    private FileFormat splitFileFormat;
+    private boolean positionDeleteSystemTableSplit = false;
+    private TFileFormatType positionDeleteFileFormat;
+    private int positionDeleteContent;
+    private String positionDeleteOriginalPath;
+    private String positionDeleteReferencedDataFilePath;
+    private Long positionDeleteContentOffset;
+    private Long positionDeleteContentSizeInBytes;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
-                        Integer formatVersion, Map<StorageProperties.Type, StorageProperties> config,
+                        Integer formatVersion, Map<StorageTypeId, StorageAdapter> config,
                         List<String> partitionList, String originalPath) {
         super(file, start, length, fileLength, 0, hosts, partitionList);
         this.formatVersion = formatVersion;
@@ -76,6 +88,15 @@ public class IcebergSplit extends FileSplit {
                 Collections.emptyList(), DUMMY_PATH.toStorageLocation().toString());
         split.setSerializedSplit(serializedSplit);
         split.setSelfSplitWeight(Math.max(rowCount, 1L));
+        return split;
+    }
+
+    public static IcebergSplit newPositionDeleteSysTableSplit(LocationPath file, long start, long length,
+            long fileLength, Map<StorageTypeId, StorageAdapter> config, String originalPath) {
+        IcebergSplit split = new IcebergSplit(file, start, length, fileLength, null, null, config,
+                Collections.emptyList(), originalPath);
+        split.setPositionDeleteSystemTableSplit(true);
+        split.setSelfSplitWeight(Math.max(length, 1L));
         return split;
     }
 }

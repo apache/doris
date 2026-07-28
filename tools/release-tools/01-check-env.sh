@@ -46,7 +46,7 @@ problems=0
 echo "== Apache Doris ${TAG} - signing environment check =="
 
 # 1. required tools
-for t in git gpg svn sha512sum curl gzip; do
+for t in git gpg svn svnmucc sha512sum curl gzip; do
   if command -v "$t" >/dev/null 2>&1; then ok "tool: $t"; else err "missing tool: $t"; problems=$((problems+1)); fi
 done
 

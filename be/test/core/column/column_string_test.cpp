@@ -190,6 +190,26 @@ TEST_F(ColumnStringTest, is_variable_length) {
     ColumnString64::MutablePtr col64 = ColumnString64::create();
     EXPECT_TRUE(col64->is_variable_length());
 }
+
+TEST(ColumnStringStandaloneTest, insert_range_from_ignore_overflow_to_string64_from_string32) {
+    auto src = ColumnString::create();
+    src->insert_data("a", 1);
+    src->insert_data("bc", 2);
+    src->insert_data("def", 3);
+
+    auto dst = ColumnString64::create();
+    dst->insert_range_from_ignore_overflow(*src, 0, src->size());
+    ASSERT_EQ(dst->size(), 3);
+    EXPECT_EQ(dst->get_data_at(0).to_string(), "a");
+    EXPECT_EQ(dst->get_data_at(1).to_string(), "bc");
+    EXPECT_EQ(dst->get_data_at(2).to_string(), "def");
+
+    dst->insert_range_from_ignore_overflow(*src, 1, 2);
+    ASSERT_EQ(dst->size(), 5);
+    EXPECT_EQ(dst->get_data_at(3).to_string(), "bc");
+    EXPECT_EQ(dst->get_data_at(4).to_string(), "def");
+}
+
 TEST_F(ColumnStringTest, sanity_check) {
     auto test_func = [](auto& col) {
         auto& chars = col->get_chars();

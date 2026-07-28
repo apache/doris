@@ -36,8 +36,10 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.collect.Lists;
 import org.junit.After;
@@ -45,6 +47,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -303,6 +306,53 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.doReturn(getTxnResponse).when(mockProxy).getTxn(Mockito.any());
             Mockito.doReturn(abortTxnResponse).when(mockProxy).abortTxn(Mockito.any());
             masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
+        }
+    }
+
+    @Test
+    public void testAbortRoutineLoadTransactionWithAttachment() throws Exception {
+        long transactionId = 123534;
+        long jobId = 1001;
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment(
+                Cloud.RLTaskTxnCommitAttachmentPB.newBuilder()
+                        .setJobId(jobId)
+                        .setTaskId(Cloud.UniqueIdPB.newBuilder().setHi(1).setLo(2))
+                        .setProgress(Cloud.RoutineLoadProgressPB.newBuilder())
+                        .setFirstErrorMsg("invalid source row")
+                        .build());
+        TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+        Mockito.when(callback.getId()).thenReturn(jobId);
+        masterTransMgr.getCallbackFactory().addCallback(callback);
+
+        MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            Mockito.doAnswer(invocation -> {
+                Cloud.AbortTxnRequest request = invocation.getArgument(0);
+                Assert.assertTrue(request.hasCommitAttachment());
+                Assert.assertEquals("invalid source row", request.getCommitAttachment()
+                        .getRlTaskTxnCommitAttachment().getFirstErrorMsg());
+                return AbortTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setTxnInfo(buildTxnInfo(transactionId).toBuilder()
+                                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_ABORTED)
+                                .setReason("data quality error")
+                                .setCommitAttachment(request.getCommitAttachment()))
+                        .build();
+            }).when(mockProxy).abortTxn(Mockito.any());
+
+            masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId,
+                    "data quality error", attachment, Lists.newArrayList());
+
+            ArgumentCaptor<TransactionState> txnStateCaptor = ArgumentCaptor.forClass(TransactionState.class);
+            Mockito.verify(callback).afterAborted(txnStateCaptor.capture(), Mockito.eq(true),
+                    Mockito.eq("data quality error"));
+            RLTaskTxnCommitAttachment callbackAttachment =
+                    (RLTaskTxnCommitAttachment) txnStateCaptor.getValue().getTxnCommitAttachment();
+            Assert.assertEquals("invalid source row", callbackAttachment.getFirstErrorMsg());
+        } finally {
+            masterTransMgr.getCallbackFactory().removeCallback(jobId);
         }
     }
 

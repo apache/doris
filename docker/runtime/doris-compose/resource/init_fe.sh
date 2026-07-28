@@ -92,6 +92,10 @@ fe_daemon() {
 run_fe() {
     export DORIS_TDE_AK=${TDE_AK}
     export DORIS_TDE_SK=${TDE_SK}
+    export DORIS_TDE_AWS_AK=${TDE_AWS_AK}
+    export DORIS_TDE_AWS_SK=${TDE_AWS_SK}
+    export DORIS_TDE_ALIYUN_AK=${TDE_ALIYUN_AK}
+    export DORIS_TDE_ALIYUN_SK=${TDE_ALIYUN_SK}
     health_log "run start_fe.sh"
 
     # Add cluster_snapshot parameter for first startup only (

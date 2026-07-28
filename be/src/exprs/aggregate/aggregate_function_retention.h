@@ -91,7 +91,7 @@ struct RetentionState {
     }
 
     void insert_result_into(IColumn& to, size_t events_size, const uint8_t* arg_events) const {
-        auto& data_to = assert_cast<ColumnUInt8&>(to).get_data();
+        auto& data_to = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(to).get_data();
 
         ColumnArray::Offset64 current_offset = data_to.size();
         data_to.resize(current_offset + events_size);
@@ -143,6 +143,12 @@ public:
         }
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        for (size_t i = 0; i < get_argument_types().size(); ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
+    }
+
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).merge(this->data(rhs));
@@ -158,7 +164,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
         if (is_column_nullable(to_nested_col)) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);

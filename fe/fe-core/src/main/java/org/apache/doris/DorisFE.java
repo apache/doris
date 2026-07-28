@@ -42,6 +42,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tls.server.FeServerStarterFactory;
@@ -89,6 +90,8 @@ public class DorisFE {
     private static String LOCK_FILE_PATH;
 
     private static final String LOCK_FILE_NAME = "process.lock";
+    private static final String LOCAL_RESOURCE_GROUP_ENV = "DORIS_LOCAL_RESOURCE_GROUP";
+    private static String effectiveLocalResourceGroupSource = "DEFAULT";
     private static FileChannel processLockFileChannel;
     private static FileLock processFileLock;
 
@@ -136,7 +139,8 @@ public class DorisFE {
             return;
         }
 
-        CommandLineOptions cmdLineOpts = parseArgs(args);
+        CommandLine commandLine = parseArgs(args);
+        CommandLineOptions cmdLineOpts = buildCommandLineOptions(commandLine);
 
         try {
             // init config
@@ -145,6 +149,9 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
+
+            // The command line value overrides fe.conf, so this can only run once Config is loaded.
+            resolveLocalResourceGroup(commandLine);
 
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
@@ -164,6 +171,8 @@ public class DorisFE {
                 Log4jConfig.foreground = true;
             }
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
+            LOG.info("effective local_resource_group={}, source={}",
+                    Config.local_resource_group, effectiveLocalResourceGroupSource);
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
@@ -361,7 +370,7 @@ public class DorisFE {
      *              Specify the meta version to decode log value
      *
      */
-    private static CommandLineOptions parseArgs(String[] args) {
+    private static CommandLine parseArgs(String[] args) {
         CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
         options.addOption("v", "version", false, "Print the version of Doris Frontend");
@@ -382,6 +391,8 @@ public class DorisFE {
         options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
         options.addOption(Option.builder().longOpt(FeConstants.DROP_BACKENDS_KEY)
                 .desc("When this FE becomes MASTER, drop all backends from cluster metadata (destructive)").build());
+        options.addOption(null, "local_resource_group", true,
+                "Specify the local resource group for the current FE");
 
         CommandLine cmd = null;
         try {
@@ -392,6 +403,12 @@ public class DorisFE {
             System.exit(-1);
         }
 
+        return cmd;
+    }
+
+    // Keeps the original decision order: the version / helper / image modes return before the
+    // recovery and drop-backends system properties are applied, so those flags stay ignored there.
+    private static CommandLineOptions buildCommandLineOptions(CommandLine cmd) {
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
             return new CommandLineOptions(true, "", null, "");
@@ -492,6 +509,34 @@ public class DorisFE {
 
         // helper node is null, means no helper node is specified
         return new CommandLineOptions(false, null, null, "");
+    }
+
+    // Precedence: command line option, environment variable, fe.conf.
+    private static void resolveLocalResourceGroup(CommandLine cmd) {
+        String localResourceGroup = Strings.nullToEmpty(Config.local_resource_group);
+        String source = localResourceGroup.isEmpty() ? "DEFAULT" : "FE_CONF";
+        if (System.getenv().containsKey(LOCAL_RESOURCE_GROUP_ENV)) {
+            localResourceGroup = Strings.nullToEmpty(System.getenv(LOCAL_RESOURCE_GROUP_ENV));
+            source = "ENV";
+        }
+        if (cmd.hasOption("local_resource_group")) {
+            localResourceGroup = Strings.nullToEmpty(cmd.getOptionValue("local_resource_group"));
+            source = "CMDLINE";
+        }
+
+        Config.local_resource_group = localResourceGroup;
+        if (!localResourceGroup.isEmpty()) {
+            try {
+                // Must be a valid tag.location value, it is matched against the backends' location tag.
+                Tag.create(Tag.TYPE_LOCATION, localResourceGroup);
+            } catch (Exception e) {
+                // Logging is not initialized yet at this point, so report on stderr.
+                System.err.println("Invalid local_resource_group: " + localResourceGroup + ", " + e.getMessage());
+                System.exit(-1);
+            }
+        }
+        // Logging is initialized later; the effective value is logged there.
+        effectiveLocalResourceGroupSource = source;
     }
 
     private static void printVersion() {

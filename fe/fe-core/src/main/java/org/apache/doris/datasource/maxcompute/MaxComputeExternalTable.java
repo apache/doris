@@ -135,18 +135,37 @@ public class MaxComputeExternalTable extends ExternalTable {
      * @return all values of partitionPath
      */
     static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
-        String[] partitionFragments = partitionPath.split("/");
+        String[] partitionFragments = partitionPath.split("/", -1);
         if (partitionFragments.length != partitionColumns.size()) {
             throw new RuntimeException("Failed to parse partition values of path: " + partitionPath);
         }
-        List<String> partitionValues = new ArrayList<>(partitionFragments.length);
-        for (int i = 0; i < partitionFragments.length; i++) {
-            String prefix = partitionColumns.get(i) + "=";
-            if (partitionFragments[i].startsWith(prefix)) {
-                partitionValues.add(partitionFragments[i].substring(prefix.length()));
-            } else {
-                partitionValues.add(partitionFragments[i]);
+        Map<String, String> partitionNameToValue = Maps.newHashMapWithExpectedSize(partitionFragments.length);
+        for (String partitionFragment : partitionFragments) {
+            int separatorIndex = partitionFragment.indexOf('=');
+            if (separatorIndex <= 0) {
+                throw new RuntimeException("Failed to parse partition values of path: " + partitionPath);
             }
+
+            String partitionName = partitionFragment.substring(0, separatorIndex);
+            if (!partitionColumns.contains(partitionName)) {
+                throw new RuntimeException("Unexpected partition column " + partitionName + " in path: "
+                        + partitionPath);
+            }
+
+            String partitionValue = partitionFragment.substring(separatorIndex + 1);
+            if (partitionNameToValue.put(partitionName, partitionValue) != null) {
+                throw new RuntimeException("Duplicate partition column " + partitionName + " in path: "
+                        + partitionPath);
+            }
+        }
+
+        List<String> partitionValues = new ArrayList<>(partitionColumns.size());
+        for (String partitionColumn : partitionColumns) {
+            if (!partitionNameToValue.containsKey(partitionColumn)) {
+                throw new RuntimeException("Missing partition column " + partitionColumn + " in path: "
+                        + partitionPath);
+            }
+            partitionValues.add(partitionNameToValue.get(partitionColumn));
         }
         return partitionValues;
     }

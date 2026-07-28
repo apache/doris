@@ -223,6 +223,8 @@ struct ArrayAggregateImpl {
         Arena arena;
         auto nullable_column = make_nullable(data->get_ptr());
         const IColumn* columns[] = {nullable_column.get()};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*res_column);
         for (int64_t i = 0; i < offsets.size(); ++i) {
             auto start = offsets[i - 1]; // -1 is ok.
             auto end = offsets[i];
@@ -448,6 +450,8 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
         Arena arena;
         auto nullable_column = make_nullable(data->get_ptr());
         const IColumn* columns[] = {nullable_column.get()};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*res_column);
         for (int64_t i = 0; i < offsets.size(); ++i) {
             auto start = offsets[i - 1]; // -1 is ok.
             auto end = offsets[i];

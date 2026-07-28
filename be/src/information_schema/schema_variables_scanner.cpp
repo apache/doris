@@ -86,6 +86,15 @@ Status SchemaVariablesScanner::get_next_block_internal(Block* block, bool* eos) 
 
 Status SchemaVariablesScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
+    constexpr int num_columns = 4;
+    for (const auto& row : _var_result.variables) {
+        if (row.size() < num_columns) {
+            return Status::InternalError(
+                    "Incomplete variable entry from FE (expected {} fields, got {}), "
+                    "please retry",
+                    num_columns, row.size());
+        }
+    }
     auto row_num = _var_result.variables.size();
     std::vector<void*> datas(row_num);
     // variables names

@@ -172,7 +172,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).count);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                this->data(place).count);
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,

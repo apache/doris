@@ -366,6 +366,61 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
     return true;
 }
 
+inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
+    return op == Op::EQ && can_evaluate(arguments);
+}
+
+inline bool dictionary_value_matches(const Field& value, const Field& literal, Op op) {
+    switch (op) {
+    case Op::EQ:
+        return value == literal;
+    case Op::NE:
+        return value != literal;
+    case Op::LT:
+        return value < literal;
+    case Op::LE:
+        return value <= literal;
+    case Op::GT:
+        return value > literal;
+    case Op::GE:
+        return value >= literal;
+    }
+    __builtin_unreachable();
+}
+
+inline ZoneMapFilterResult evaluate_dictionary(const DictionaryEvalContext& ctx,
+                                               const VExprSPtrs& arguments, Op op) {
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    const auto* dictionary = ctx.slot(slot_literal->slot_index);
+    if (dictionary == nullptr || dictionary->data_type == nullptr) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    DORIS_CHECK(
+            expr_zonemap::data_types_compatible(dictionary->data_type, slot_literal->slot_type));
+    if (slot_literal->literal.is_null()) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
+    // Compare typed Fields so dictionary filtering preserves the regular expression semantics for
+    // strings, dates, decimals, floating-point edge cases, and every other supported logical type.
+    return std::ranges::any_of(dictionary->values,
+                               [&](const Field& value) {
+                                   return dictionary_value_matches(value, slot_literal->literal,
+                                                                   effective_op);
+                               })
+                   ? ZoneMapFilterResult::kMayMatch
+                   : ZoneMapFilterResult::kNoMatch;
+}
+
+inline ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                                 const VExprSPtrs& arguments, Op op) {
+    DORIS_CHECK(op == Op::EQ);
+    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    DORIS_CHECK(slot_literal.has_value());
+    return expr_zonemap::eval_eq_bloom_filter(ctx, *slot_literal);
+}
+
 inline std::optional<Op> op_from_name(std::string_view name) {
     if (name == NameEquals::name) {
         return Op::EQ;
@@ -580,6 +635,30 @@ public:
     bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
         return comparison_zonemap_detail::op_from_name(name).has_value() &&
                comparison_zonemap_detail::can_evaluate(arguments);
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx,
+                                                   const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        DORIS_CHECK(op.has_value());
+        return comparison_zonemap_detail::evaluate_dictionary(ctx, arguments, *op);
+    }
+
+    bool can_evaluate_dictionary_filter(const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        return op.has_value() && comparison_zonemap_detail::can_evaluate(arguments);
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                              const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        DORIS_CHECK(op.has_value());
+        return comparison_zonemap_detail::evaluate_bloom_filter(ctx, arguments, *op);
+    }
+
+    bool can_evaluate_bloom_filter(const VExprSPtrs& arguments) const override {
+        auto op = comparison_zonemap_detail::op_from_name(name);
+        return op.has_value() && comparison_zonemap_detail::can_evaluate_equality(arguments, *op);
     }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.

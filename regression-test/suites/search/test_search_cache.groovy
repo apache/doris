@@ -134,5 +134,35 @@ suite("test_search_cache", "p0") {
     """
     assertEquals(complex_cached, complex_uncached)
 
+    // Test 7: SEARCH DSL + score() must not reuse bitmap-only DSL cache.
+    // A warmed DSL cache or repeated score query would return 0.0 scores if cache hit
+    // skipped scorer collection.
+    def score_cached_1 = sql """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
+        id, score() AS s FROM ${tableName}
+        WHERE search('title:apple')
+        ORDER BY s DESC
+        LIMIT 10
+    """
+
+    def score_cached_2 = sql """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true,enable_inverted_index_query_cache=true) */
+        id, score() AS s FROM ${tableName}
+        WHERE search('title:apple')
+        ORDER BY s DESC
+        LIMIT 10
+    """
+
+    assertEquals(score_cached_1.size(), score_cached_2.size())
+    assertTrue(score_cached_1.size() > 0)
+    assertEquals(score_cached_1.collect { it[0] as int }.sort(),
+            score_cached_2.collect { it[0] as int }.sort())
+    for (def row : score_cached_1) {
+        assertTrue(Double.parseDouble(row[1].toString()) > 0.0)
+    }
+    for (def row : score_cached_2) {
+        assertTrue(Double.parseDouble(row[1].toString()) > 0.0)
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

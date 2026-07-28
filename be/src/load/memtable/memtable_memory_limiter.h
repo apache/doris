@@ -44,7 +44,8 @@ public:
     // If yes, it will flush memtable to try to reduce memory consumption.
     // Every write operation will call this API to check if need flush memtable OR hang
     // when memory is not available.
-    void handle_memtable_flush(std::function<bool()> cancel_check);
+    void handle_memtable_flush(std::function<bool()> cancel_check, WorkloadGroup* wg = nullptr);
+    void handle_table_memtable_backpressure(std::function<bool()> cancel_check, int64_t table_id);
 
     void register_writer(std::weak_ptr<MemTableWriter> writer);
 
@@ -64,6 +65,7 @@ private:
     bool _hard_limit_reached();
     bool _load_usage_low();
     int64_t _need_flush();
+    int64_t _table_flush_pending_memtable_count(int64_t table_id);
     int64_t _flush_active_memtables(int64_t need_flush);
     void _refresh_mem_tracker();
     std::mutex _lock;

@@ -228,6 +228,23 @@ private:
                                      SourceReadBreakdown& source_read_breakdown,
                                      const IOContext* io_ctx);
 
+    /// Read local cache only when downloaded blocks fully cover the request; otherwise read remote
+    /// data directly without writing file cache.
+    /// @param[in] offset Original request offset.
+    /// @param[out] result Destination buffer for the original request.
+    /// @param[in] bytes_req Original request size.
+    /// @param[in] is_dryrun True if local cache IO should be skipped.
+    /// @param[out] bytes_read Total bytes read for the request.
+    /// @param[in,out] stats Read statistics updated for local or remote work.
+    /// @param[in,out] source_read_breakdown Source bytes used by profile metrics.
+    /// @param[in] io_ctx IO context passed to cache lookup and remote read.
+    /// @return OK on success; otherwise an error from cache lookup, cache read, or remote read.
+    Status _read_remote_only_on_cache_miss(size_t offset, Slice result, size_t bytes_req,
+                                           bool is_dryrun, size_t* bytes_read,
+                                           ReadStatistics& stats,
+                                           SourceReadBreakdown& source_read_breakdown,
+                                           const IOContext* io_ctx);
+
     /// Fall back to S3: clear peer_result, allocate buffer, and read from remote storage.
     /// @param[in] empty_start Start offset of the contiguous remote-read range.
     /// @param[in] span_size Size of the remote-read range in bytes.

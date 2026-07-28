@@ -77,15 +77,17 @@ inline MinDeltaResultType calculate_min_delta_result(int64_t first_op, int64_t l
     //    Insert then delete within the same window yields no visible change.
     // 2) UPDATE -> DELETE = DELETE:
     //    Update then delete; downstream only needs the pre-delete snapshot.
-    // 3) DELETE -> APPEND = INSERT:
-    //    Delete then append (rebuild) is equivalent to inserting a new value.
+    // 3) DELETE -> APPEND/UPDATE = UPDATE_BEFORE_AFTER:
+    //    A DELETE as the first op means the key already existed before this window, so deleting
+    //    then re-adding it is an update of the pre-existing row (BEFORE = the deleted row's old
+    //    value), not a fresh insert.
     static constexpr std::array<std::array<ResultType, 3>, 3> kTransitionMatrix = {{
             // first_op = APPEND
             {ResultType::INSERT, ResultType::INSERT, ResultType::SKIP},
             // first_op = UPDATE
             {ResultType::UPDATE_BEFORE_AFTER, ResultType::UPDATE_BEFORE_AFTER, ResultType::DELETE},
             // first_op = DELETE
-            {ResultType::INSERT, ResultType::INSERT, ResultType::DELETE},
+            {ResultType::UPDATE_BEFORE_AFTER, ResultType::UPDATE_BEFORE_AFTER, ResultType::DELETE},
     }};
 
     // Fallback for unknown/invalid op codes: avoid out-of-bounds and keep changes conservatively.

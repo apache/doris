@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
+#include "roaring/roaring64map.hh"
 
 namespace doris {
 class RowDescriptor;
@@ -39,6 +40,7 @@ class DeletePredicate final : public VExpr {
 
 public:
     DeletePredicate(const std::vector<int64_t>& deleted_rows);
+    DeletePredicate(const roaring::Roaring64Map& deletion_vector);
     ~DeletePredicate() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
@@ -55,6 +57,7 @@ public:
 
 private:
     std::string _expr_name;
-    const std::vector<int64_t>& _deleted_rows;
+    const std::vector<int64_t>* _deleted_rows = nullptr;
+    const roaring::Roaring64Map* _deletion_vector = nullptr;
 };
 } // namespace doris::format

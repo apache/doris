@@ -408,8 +408,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             InPredicate inPredicate = (InPredicate) expr;
             com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
                     inPredicate.isNotIn()
-                            ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
-                            : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN;
+                            ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN
+                            : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN;
 
             String columnName = convertSlotRefToColumnName(expr.getChild(0));
             if (!table.getColumnNameToOdpsColumn().containsKey(columnName)) {

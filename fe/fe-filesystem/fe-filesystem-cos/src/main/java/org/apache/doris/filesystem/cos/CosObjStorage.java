@@ -69,6 +69,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -103,6 +104,11 @@ public class CosObjStorage implements ObjStorage<COSClient> {
         return properties.isUsePathStyle();
     }
 
+    /** Returns the URI schemes this provider accepts (e.g. {@code {cos, cosn, s3, s3a}}). */
+    public Set<String> getSupportedSchemes() {
+        return properties.getSupportedSchemes();
+    }
+
     @Override
     public COSClient getClient() throws IOException {
         if (closed.get()) {
@@ -121,6 +127,15 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     protected COSClient buildCosClient(String region) throws IOException {
         COSCredentials cred = buildCredentials();
         ClientConfig clientConfig = new ClientConfig();
+        // Note on use_path_style: unlike the S3/OSS/OBS SDKs, the native COS SDK has no
+        // path-style addressing mode — it always renders the bucket as a host subdomain
+        // (bucket-appid.<endpoint-suffix>) and puts only the object key in the request path
+        // (see COSClient#buildUrlAndHost). There is therefore no client setting to apply here.
+        // This is harmless for COS: bucket names are always of the form name-appid, which is a
+        // valid DNS label, so virtual-hosted access always works. The use_path_style flag is
+        // still honored where it matters — URI parsing in S3CompatibleFileSystem — so a
+        // path-style URL supplied by the user is parsed into the correct (bucket, key) and the
+        // request is then re-issued virtual-hosted to that same bucket.
         clientConfig.setRegion(new Region(region));
         clientConfig.setHttpProtocol(HttpProtocol.https);
         clientConfig.setEndPointSuffix(stripScheme(properties.getEndpoint()));
@@ -155,7 +170,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         ListObjectsRequest request = new ListObjectsRequest();
         request.setBucketName(uri.bucket());
         request.setPrefix(uri.key());
@@ -186,7 +201,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public RemoteObject headObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             ObjectMetadata metadata = getClient().getObjectMetadata(uri.bucket(), uri.key());
             return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
@@ -203,7 +218,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public void putObject(String remotePath, RequestBody requestBody) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(requestBody.contentLength());
         try (InputStream content = requestBody.content()) {
@@ -215,7 +230,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public void deleteObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient().deleteObject(uri.bucket(), uri.key());
         } catch (CosServiceException e) {
@@ -230,8 +245,8 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public void copyObject(String srcPath, String dstPath) throws IOException {
-        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, false);
-        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, false);
+        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient().copyObject(new CopyObjectRequest(
                     src.bucket(), src.key(), dst.bucket(), dst.key()));
@@ -243,7 +258,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             InitiateMultipartUploadResult result = getClient().initiateMultipartUpload(
                     new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
@@ -257,7 +272,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     @Override
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             RequestBody body) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try (InputStream content = body.content()) {
             com.qcloud.cos.model.UploadPartRequest request = new com.qcloud.cos.model.UploadPartRequest();
             request.setBucketName(uri.bucket());
@@ -277,7 +292,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
     @Override
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         List<PartETag> partEtags = parts.stream()
                 .map(part -> new PartETag(part.partNumber(), part.etag()))
                 .collect(Collectors.toList());
@@ -292,7 +307,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient().abortMultipartUpload(new AbortMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId));
@@ -304,7 +319,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
 
     @Override
     public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
             if (fromByte > 0) {
@@ -382,7 +397,7 @@ public class CosObjStorage implements ObjStorage<COSClient> {
             Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
             URL url = cos.generatePresignedUrl(bucket, objectKey, expiration, HttpMethodName.PUT,
                     new HashMap<>(), new HashMap<>());
-            LOG.info("Generated COS presigned URL for key={}", objectKey);
+            LOG.debug("Generated COS presigned URL for key={}", objectKey);
             return url.toString();
         } catch (CosClientException e) {
             LOG.warn("Failed to generate COS presigned URL for key={} in region={}",

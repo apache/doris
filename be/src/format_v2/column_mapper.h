@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -33,7 +32,6 @@
 #include "format_v2/file_reader.h"
 
 namespace doris {
-class ColumnPredicate;
 class RuntimeState;
 } // namespace doris
 
@@ -41,11 +39,6 @@ namespace doris::format {
 
 struct ColumnDefinition;
 struct TableFilter;
-
-// Table-level simple predicates grouped by table/global output position. The key is not
-// LocalColumnId: TableColumnMapper resolves it through ColumnMapping before creating file pruning
-// hints.
-using TableColumnPredicates = std::map<GlobalIndex, std::vector<std::shared_ptr<ColumnPredicate>>>;
 
 enum class TableColumnMappingMode {
     // Match by ColumnDefinition::identifier TYPE_INT as field id.
@@ -157,12 +150,17 @@ struct ColumnMapping {
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
+    // One-row constant owns variable-width payloads; Field<TYPE_VARBINARY> is only a borrowed
+    // StringView and cannot safely outlive the Base64 decode buffer used to construct it.
+    ColumnPtr initial_default_column;
 
     std::string debug_string() const;
 };
 
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
+    bool allow_idless_complex_wrapper_projection = false;
+    bool enable_row_lineage_virtual_columns = false;
 
     std::string debug_string() const;
 };
@@ -170,6 +168,10 @@ struct TableColumnMapperOptions {
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr);
 const Field* find_partition_value(const ColumnDefinition& table_column,
                                   const std::map<std::string, Field>& partition_values);
+// Apply the same case-insensitive logical name, string identifier, and bidirectional alias rules
+// used by TableColumnMapper's BY_NAME mode.
+const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column,
+                                            const std::vector<ColumnDefinition>& file_schema);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this
@@ -189,21 +191,18 @@ public:
                                   const std::vector<ColumnDefinition>& file_schema);
 
     // Convert a table-level scan request into a file-local scan request. table_filters preserve
-    // row-level filtering semantics and are rewritten as file-local conjuncts. table_column_predicates
-    // are converted only into file-layer pruning hints and do not participate in batch row
-    // filtering.
+    // row-level filtering semantics and are rewritten as file-local conjuncts. File-layer pruning
+    // such as ZoneMap, dictionary, and bloom filter derives from those localized VExpr conjuncts.
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
-                                       const TableColumnPredicates& table_column_predicates,
                                        const std::vector<ColumnDefinition>& projected_columns,
                                        FileScanRequest* file_request,
                                        RuntimeState* runtime_state = nullptr);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
-    // a safe cast. Expressions that cannot be pushed down safely should be handled through
-    // reader_expression_map or table-level finalize/filter fallback.
+    // a safe cast. Expressions that cannot be pushed down safely should be handled by the
+    // table-level finalize/filter fallback.
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
-                                    const TableColumnPredicates& table_column_predicates,
                                     FileScanRequest* file_request,
                                     RuntimeState* runtime_state = nullptr);
     void clear() {
@@ -224,9 +223,6 @@ protected:
     // lazily read the rest. Row-oriented readers such as CSV/Text materialize one row at a time and
     // should keep all required columns in one scan list.
     virtual bool enable_lazy_materialization() const { return true; }
-    // File-layer column predicate filters are reader-specific pruning hints. Parquet consumes them
-    // for row-group/page-index/statistics pruning; simple delimited readers do not.
-    virtual bool enable_column_predicate_filters() const { return true; }
     // Row-oriented readers such as CSV/Text cannot physically read only a nested child from one
     // delimited text field. They must scan the whole complex top-level field and let TableReader
     // rematerialize the requested table child after row-level filters have run.
@@ -272,7 +268,7 @@ protected:
 };
 
 // Parquet consumes the full FileScanRequest shape: predicate columns for lazy materialization and
-// top-level column_predicate_filters for statistics/page-index pruning.
+// file-local conjuncts for ZoneMap, dictionary, and bloom-filter pruning.
 class ParquetColumnMapper final : public TableColumnMapper {
 public:
     using TableColumnMapper::TableColumnMapper;
@@ -280,14 +276,13 @@ public:
 
 // Mapper for readers that always materialize every required file column before filtering. The
 // table-to-file schema mapping is still generic, but the FileScanRequest layout is simpler:
-// predicate_columns and column_predicate_filters are not populated.
+// predicate_columns are not populated.
 class MaterializedColumnMapper final : public TableColumnMapper {
 public:
     using TableColumnMapper::TableColumnMapper;
 
 protected:
     bool enable_lazy_materialization() const override { return false; }
-    bool enable_column_predicate_filters() const override { return false; }
     bool force_full_complex_scan_projection() const override { return true; }
 };
 

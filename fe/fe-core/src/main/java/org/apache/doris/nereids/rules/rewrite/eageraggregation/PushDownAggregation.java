@@ -18,13 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -57,7 +56,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -129,7 +127,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
 
         Set<AggregateFunction> aggFunctions = Sets.newHashSet();
         boolean hasDecomposedAggIf = false;
-        boolean hasCaseWhen = false;
+        boolean containsNullToNonNull = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
         for (NamedExpression aggOutput : agg.getOutputExpressions()) {
             List<AggregateFunction> funcs = Lists.newArrayList();
@@ -143,14 +141,18 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     if (aggFunction.containsVolatileExpression()) {
                         return agg;
                     }
-                    // CaseWhen and If (which CASE WHEN is normalized into) must both be checked.
-                    // When an agg function contains an If/CaseWhen whose condition tests IS NULL
-                    // (e.g. count(if(col IS NULL, value, NULL))), pushing it to the nullable side
-                    // of an outer join produces wrong results: null-extended rows make "col IS NULL"
-                    // TRUE at the top level, but the pre-aggregated count slot becomes NULL after
-                    // null-extension, and ifnull(sum(NULL), 0) = 0 instead of the correct 1.
-                    if (!hasCaseWhen && aggFunction.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
-                        hasCaseWhen = true;
+                    // NullToNonNullFunction / AlwaysNotNullable: expressions that can convert NULL
+                    // input to non-NULL output (e.g. COALESCE, NVL, IF, CASE WHEN, Array).
+                    // When an agg function contains such an expression wrapping a column from the
+                    // nullable side of an outer join, null-extended rows would produce non-NULL values
+                    // that get counted by the aggregation. But the pre-aggregation on the base table
+                    // cannot see null-extended rows (they are produced by the join), so the push-down
+                    // would lose those contributions — producing wrong results.
+                    if (!containsNullToNonNull
+                            && aggFunction.children().stream().anyMatch(
+                                    arg -> arg.anyMatch(e ->
+                                            NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
+                        containsNullToNonNull = true;
                     }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
                             && !(aggFunction instanceof Count)) {
@@ -189,13 +191,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
 
-        groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         if (!checkSubTreePattern(agg.child())) {
             return agg;
         }
+        groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, hasCaseWhen,
+                groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, containsNullToNonNull,
                 new BilateralState());
         if (groupKeys.isEmpty()) {
             return agg;
@@ -265,9 +267,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 }
                 LogicalAggregate<Plan> eagerAgg =
                         agg.withAggOutputChild(newOutputExpressions, child);
-                NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
-                return normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
-                        context.getCascadesContext());
+                return eagerAgg;
             }
         } catch (RuntimeException e) {
             String msg = "PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString();

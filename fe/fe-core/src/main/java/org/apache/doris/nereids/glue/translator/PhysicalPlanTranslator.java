@@ -38,9 +38,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -852,6 +850,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        scanNode.setPushDownCountSlotIds(context.getRelationPushCountArgumentExprIds(fileScan.getRelationId())
+                .stream()
+                .map(exprId -> Objects.requireNonNull(context.findSlotRef(exprId),
+                        "missing slot for pushed-down COUNT argument " + exprId).getSlotId())
+                .collect(Collectors.toList()));
         scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
 
         if (fileScan.getStats() != null) {
@@ -879,10 +882,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
-        if (olapScan.isIncrementalScan()) {
-            olapTable = new RowBinlogTableWrapper(((OlapTableStreamWrapper) olapTable).getBaseTable(),
-                    (OlapTableStreamWrapper) olapTable);
-        }
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
         List<SlotDescriptor> slotDescriptors = tupleDescriptor.getSlots();
@@ -899,7 +898,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // generate base index tuple because this fragment partitioned expr relay on slots of based index
-        if (!olapScan.isIncrementalScan() && olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+        if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
             generateTupleDesc(olapScan.getBaseOutputs(), olapTable, context);
         }
 
@@ -961,21 +960,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
         }
 
-        if (olapScan.isIncrementalScan()) {
-            olapScanNode.setSelectedIndexInfo(olapTable.getBaseIndexId(), false, "binlog<row> read");
-        } else {
-            // TODO:  remove this switch?
-            switch (olapScan.getTable().getKeysType()) {
-                case AGG_KEYS:
-                case UNIQUE_KEYS:
-                case DUP_KEYS:
-                    PreAggStatus preAgg = olapScan.getPreAggStatus();
-                    olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
-                            preAgg.getOffReason());
-                    break;
-                default:
-                    throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
-            }
+        // TODO:  remove this switch?
+        switch (olapScan.getTable().getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+            case DUP_KEYS:
+                PreAggStatus preAgg = olapScan.getPreAggStatus();
+                olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
+                        preAgg.getOffReason());
+                break;
+            default:
+                throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
         }
 
         // apply change scan info if present
@@ -1411,6 +1406,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         context.setRelationPushAggOp(
                 storageLayerAggregate.getRelation().getRelationId(), pushAggOp);
+        context.setRelationPushCountArgumentExprIds(
+                storageLayerAggregate.getRelation().getRelationId(),
+                pushAggOp == TPushAggOp.COUNT
+                        ? storageLayerAggregate.getCountArgumentExprIds() : ImmutableList.of());
 
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
@@ -2497,14 +2496,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
-        // TODO: open comment when support `enable_local_shuffle_planner`
-        // for (Plan child : setOperation.children()) {
-        //     PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
-        //     if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
-        //         setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-        //         break;
-        //     }
-        // }
+        // Storage-bucketed children only appear when the FE local shuffle planner is active:
+        // ChildrenPropertiesRegulator and RequestPropertyDeriver both gate the bucket-shuffle
+        // alternative on enableLocalShufflePlanner. Gate the marker on the same flag so the
+        // dependency is explicit and a future planner change that produced a STORAGE_BUCKETED
+        // distribution outside the local-shuffle planner cannot silently mark BUCKET_SHUFFLE here.
+        //
+        // Within that gate a storage-bucketed child means the regulator chose the bucket shuffle
+        // alternative (it enforces the other children onto the basic child's buckets), so the marker
+        // simply follows that decision. It must not re-check the table id independently: the basic
+        // child selection in the regulator is the single place that vets the layout, and re-checking
+        // here could suppress a bucket shuffle the property model already committed to and desync a
+        // parent that aligned to the set operation output.
+        //
+        // Unlike hash join, BUCKET_SHUFFLE is not exclusive with isColocate above: for a set
+        // operation isColocate describes the bucket-aligned scheduling of the fragment (the
+        // basic child scans buckets directly), while BUCKET_SHUFFLE describes how the other
+        // children arrive (bucket-shuffle exchanges). Both routes converge to the same
+        // bucket-hash local exchange requirement in SetOperationNode.enforceAndDeriveLocalExchange.
+        if (context.getSessionVariable() != null
+                && context.getSessionVariable().isEnableLocalShufflePlanner()) {
+            for (Plan child : setOperation.children()) {
+                PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+                if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+                    setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                    break;
+                }
+            }
+        }
 
         return setOperationFragment;
     }
@@ -3049,9 +3068,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private boolean shouldPreserveStorageKeySlots(OlapScanNode scanNode) {
-        if (scanNode.isIncrementalScan()) {
-            return false;
-        }
         long selectedIndexId = scanNode.getSelectedIndexId() == -1
                 ? scanNode.getOlapTable().getBaseIndexId()
                 : scanNode.getSelectedIndexId();

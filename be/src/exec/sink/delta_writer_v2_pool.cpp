@@ -17,6 +17,7 @@
 
 #include "exec/sink/delta_writer_v2_pool.h"
 
+#include "exec/sink/vtablet_finder.h"
 #include "load/delta_writer/delta_writer_v2.h"
 #include "runtime/runtime_profile.h"
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
@@ -26,8 +27,11 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -73,7 +77,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier,
-                table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
+                initialSelectedPartitions(table, scanParams),
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), "",
@@ -106,6 +110,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
+    }
+
+    private static SelectedPartitions initialSelectedPartitions(
+            ExternalTable table, Optional<TableScanParams> scanParams) {
+        if ((table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
+                && scanParams.isPresent() && scanParams.get().isOptions()) {
+            // A relation-scoped historical snapshot cannot reuse partitions cached for the
+            // statement-level latest snapshot; Paimon will prune its selected snapshot instead.
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        return table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table));
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -198,6 +213,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     }
 
     @Override
+    protected boolean hasSameScanState(LogicalCatalogRelation other) {
+        if (!Utils.isSameClass(this, other)) {
+            return false;
+        }
+        LogicalFileScan that = (LogicalFileScan) other;
+        return Objects.equals(selectedPartitions, that.selectedPartitions)
+                && Objects.equals(tableSample, that.tableSample)
+                && hasSameSnapshot(tableSnapshot, that.tableSnapshot)
+                && hasSameScanParams(scanParams, that.scanParams);
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         if (cachedOutputs.isPresent()) {
             return cachedOutputs.get();
@@ -205,16 +232,22 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
         if (table instanceof IcebergExternalTable) {
             // iceberg v3 need append row lineage columns
-            return computeIcebergOutput((IcebergExternalTable) table);
+            return computeIcebergOutput();
+        } else if (scanParams.isPresent() && scanParams.get().isOptions()
+                && (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)) {
+            List<Column> schema = table instanceof PaimonSysExternalTable
+                    ? ((PaimonSysExternalTable) table).getFullSchema(scanParams.get())
+                    : ((PaimonExternalTable) table).getFullSchema(scanParams.get());
+            return computeOutput(schema);
         } else {
             return super.computeOutput();
         }
     }
 
-    private List<Slot> computeIcebergOutput(IcebergExternalTable iceTable) {
+    private List<Slot> computeOutput(List<Column> schema) {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Builder<Slot> slots = ImmutableList.builder();
-        table.getFullSchema()
+        schema
                 .stream()
                 .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .forEach(slots::add);
@@ -225,6 +258,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return slots.build();
     }
 
+    private List<Slot> computeIcebergOutput() {
+        return computeOutput(table.getFullSchema());
+    }
+
     @Override
     public List<Slot> computeAsteriskOutput() {
         return super.computeAsteriskOutput();
@@ -233,8 +270,13 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     @Override
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
-        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
+        if (table instanceof IcebergExternalTable) {
             return true;
+        } else if (table instanceof IcebergSysExternalTable) {
+            // Position deletes use the native reader, which supports nested column pruning. Other
+            // Iceberg system tables are materialized as StructLike rows by the SDK and consumed by
+            // ordinal in the JNI reader, so their nested struct layout must remain unchanged.
+            return ((IcebergSysExternalTable) table).isPositionDeletesTable();
         } else if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;
             if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
@@ -260,6 +302,23 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return false;
     }
 
+    private boolean hasSameSnapshot(Optional<TableSnapshot> left, Optional<TableSnapshot> right) {
+        if (!left.isPresent() || !right.isPresent()) {
+            return left.isPresent() == right.isPresent();
+        }
+        return left.get().getType() == right.get().getType()
+                && Objects.equals(left.get().getValue(), right.get().getValue());
+    }
+
+    private boolean hasSameScanParams(Optional<TableScanParams> left, Optional<TableScanParams> right) {
+        if (!left.isPresent() || !right.isPresent()) {
+            return left.isPresent() == right.isPresent();
+        }
+        return Objects.equals(left.get().getParamType(), right.get().getParamType())
+                && Objects.equals(left.get().getMapParams(), right.get().getMapParams())
+                && Objects.equals(left.get().getListParams(), right.get().getListParams());
+    }
+
     /**
      * SelectedPartitions contains the selected partitions and the total partition number.
      * Mainly for hive table partition pruning.
@@ -268,7 +327,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
-        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false);
+        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
+                Optional.empty());
         /**
          * total partition number
          */
@@ -289,11 +349,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public final boolean hasPartitionPredicate;
 
         /**
+         * sorted partition ranges for binary search filtering.
+         * Frozen at construction time to ensure consistency with selectedPartitions.
+         * Empty if binary search is not applicable (e.g., default partition only).
+         */
+        public final Optional<SortedPartitionRanges<String>> sortedPartitionRanges;
+
+        /**
          * Constructor for SelectedPartitions.
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
-            this(totalPartitionNum, selectedPartitions, isPruned, false);
+            this(totalPartitionNum, selectedPartitions, isPruned, false, Optional.empty());
         }
 
         /**
@@ -301,11 +368,21 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, Optional.empty());
+        }
+
+        /**
+         * Constructor for SelectedPartitions with sorted partition ranges.
+         */
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
+            this.sortedPartitionRanges = sortedPartitionRanges;
         }
 
         @Override
@@ -320,12 +397,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             return isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
                     && Objects.equals(
-                    selectedPartitions.keySet(), that.selectedPartitions.keySet());
+                    selectedPartitions.keySet(), that.selectedPartitions.keySet())
+                    && Objects.equals(
+                    sortedPartitionRanges.isPresent(), that.sortedPartitionRanges.isPresent());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate);
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges.isPresent());
         }
     }
 

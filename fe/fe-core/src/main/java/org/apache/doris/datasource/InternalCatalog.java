@@ -2310,15 +2310,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         boolean tableHasExist = false;
-        BinlogConfig dbBinlogConfig;
-        db.readLock();
-        try {
-            dbBinlogConfig = new BinlogConfig(db.getBinlogConfig());
-        } finally {
-            db.readUnlock();
-        }
-        BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
-        createTableBinlogConfig.mergeFromProperties(createTableInfo.getProperties());
+        Pair<BinlogConfig, BinlogConfig> binlogConfigs =
+                db.getBinlogConfigsForCreateTable(createTableInfo.getProperties());
+        BinlogConfig dbBinlogConfig = binlogConfigs.first;
+        BinlogConfig createTableBinlogConfig = binlogConfigs.second;
         if (dbBinlogConfig.getEnable() && !createTableBinlogConfig.isEnableForCCR() && !createTableInfo.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
@@ -2326,6 +2321,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Cannot create temporary table with binlog enable");
         }
         createTableInfo.getProperties().putAll(createTableBinlogConfig.toProperties());
+        createTableInfo.createCommitTSOColumnIfNecessary(createTableBinlogConfig);
 
         // get keys type
         KeysDesc keysDesc = createTableInfo.getKeysDesc();
@@ -2838,6 +2834,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     if (Config.isCloudMode()) {
                         throw new AnalysisException("Binlog<Row> is not supported in the cloud mode yet");
+                    }
+                    if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite
+                            && !CollectionUtils.isEmpty(keysDesc.getOrderByKeysColumnNames())) {
+                        throw new AnalysisException(
+                                "Unique merge-on-write tables with cluster keys do not support binlog<Row>");
                     }
                     if (keysType == KeysType.DUP_KEYS && binlogConfig.getNeedHistoricalValue()) {
                         throw new AnalysisException("Duplicate table model don't support record historical value");

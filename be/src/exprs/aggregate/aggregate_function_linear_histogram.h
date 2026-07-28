@@ -24,6 +24,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -171,7 +173,7 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
 
-        auto& column = assert_cast<ColumnString&>(to);
+        auto& column = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to);
         column.insert_data(buffer.GetString(), buffer.GetSize());
     }
 };
@@ -232,6 +234,14 @@ public:
                 scale);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColVecType>(columns[0]);
+        this->template check_argument_column_type<ColumnFloat64>(columns[1]);
+        if constexpr (has_offset) {
+            this->template check_argument_column_type<ColumnFloat64>(columns[2]);
+        }
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -250,6 +260,11 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        this->template check_result_column_type_as<ColumnString>(to);
     }
 
 private:

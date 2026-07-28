@@ -33,7 +33,8 @@ import java.util.Objects;
 /**
  * expr is true predicate.
  */
-public class IsTrue extends Expression implements UnaryExpression, AlwaysNotNullable {
+public class IsTrue extends Expression
+        implements UnaryExpression, AlwaysNotNullable, NullToNonNullFunction {
 
     public IsTrue(Expression e) {
         super(ImmutableList.of(e));
@@ -57,6 +58,11 @@ public class IsTrue extends Expression implements UnaryExpression, AlwaysNotNull
     @Override
     public String computeToSql() throws UnboundException {
         return child().toSql() + " IS TRUE";
+    }
+
+    @Override
+    public String shapeInfo() {
+        return child().shapeInfo() + " IS TRUE";
     }
 
     @Override

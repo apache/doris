@@ -56,6 +56,7 @@
 #include "exec/sink/vrow_distribution.h"
 #include "exec/sink/writer/async_result_writer.h"
 #include "exprs/vexpr_fwd.h"
+#include "load/delta_writer/delta_writer_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_profile.h"
@@ -85,7 +86,7 @@ class DeltaWriterV2Map;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    DorisVector<uint32_t> row_idxes;
+    TabletAddRowsPayload row_payload;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;

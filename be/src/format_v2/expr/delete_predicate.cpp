@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
@@ -34,7 +35,14 @@
 namespace doris::format {
 
 DeletePredicate::DeletePredicate(const std::vector<int64_t>& deleted_rows)
-        : VExpr(), _deleted_rows(deleted_rows) {
+        : VExpr(), _deleted_rows(&deleted_rows) {
+    _node_type = TExprNodeType::PREDICATE;
+    _opcode = TExprOpcode::DELETE;
+    _data_type = std::make_shared<DataTypeBool>();
+}
+
+DeletePredicate::DeletePredicate(const roaring::Roaring64Map& deletion_vector)
+        : VExpr(), _deletion_vector(&deletion_vector) {
     _node_type = TExprNodeType::PREDICATE;
     _opcode = TExprOpcode::DELETE;
     _data_type = std::make_shared<DataTypeBool>();
@@ -84,7 +92,8 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
             assert_cast<const ColumnInt64&>(*block->get_by_position(slot).column).get_data();
     const auto count = row_ids.size();
     auto res_col = ColumnBool::create(count, 0);
-    if (_deleted_rows.empty()) {
+    if ((_deleted_rows == nullptr || _deleted_rows->empty()) &&
+        (_deletion_vector == nullptr || _deletion_vector->isEmpty())) {
         block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
         *result_column_id = static_cast<int>(block->get_columns().size() - 1);
         return Status::OK();
@@ -94,8 +103,26 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
         *result_column_id = static_cast<int>(block->get_columns().size() - 1);
         return Status::OK();
     }
-    const int64_t* delete_rows = _deleted_rows.data();
-    const int64_t* delete_rows_end = delete_rows + _deleted_rows.size();
+    if (_deletion_vector != nullptr) {
+        auto it = _deletion_vector->begin();
+        it.move(cast_set<uint64_t>(row_ids[0]));
+        const auto end = _deletion_vector->end();
+        const auto last_row_id = cast_set<uint64_t>(row_ids[count - 1]);
+        while (it != end && *it <= last_row_id) {
+            const auto row = cast_set<int64_t>(*it);
+            if (const auto row_it = std::ranges::lower_bound(row_ids, row);
+                row_it != row_ids.end() && *row_it == row) {
+                res_col->get_data()[row_it - row_ids.begin()] = true;
+            }
+            ++it;
+        }
+        block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
+        *result_column_id = static_cast<int>(block->get_columns().size() - 1);
+        return Status::OK();
+    }
+
+    const int64_t* delete_rows = _deleted_rows->data();
+    const int64_t* delete_rows_end = delete_rows + _deleted_rows->size();
     const int64_t* start_pos = std::lower_bound(delete_rows, delete_rows_end, row_ids[0]);
     int64_t start_index = start_pos - delete_rows;
     const int64_t* end_pos = std::upper_bound(start_pos, delete_rows_end, row_ids[count - 1]);

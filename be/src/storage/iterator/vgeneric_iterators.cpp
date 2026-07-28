@@ -137,7 +137,7 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block,
                                                 _sequence_id_idx, *rhs._block, -1);
     }
-    // When the sequence/LSN column is equal too, fall back to data_id ordering.
+    // When the sequence column is equal too, fall back to data_id ordering.
     // Otherwise pick the sort direction by `_small_seq_first`:
     //   false => larger value sorts first; true => smaller value sorts first.
     auto result = col_cmp_res == 0 ? (_use_insert_order_when_same ? (data_id() > rhs.data_id())

@@ -235,11 +235,14 @@ suite('test_cast', "arrow_flight_sql") {
         select cast(map(1, 10) as map<int, int>);
     """
 
-    qt_map_to_map2 """
-        select cast(map(123456789011, 10) as map<int, int>);
-    """
+    // Arrow Map cannot represent null keys. These casts intentionally produce null map keys.
+    if (!context.useArrowFlightSql()) {
+        qt_map_to_map2 """
+            select cast(map(123456789011, 10) as map<int, int>);
+        """
 
-    qt_map_to_map3 """
-        select cast(map(123456789011, 123456789011) as map<int, int>);
-    """
+        qt_map_to_map3 """
+            select cast(map(123456789011, 123456789011) as map<int, int>);
+        """
+    }
 }

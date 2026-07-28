@@ -1022,15 +1022,24 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         Assertions.assertEquals("struct<city:text,data:array<map<int,struct<a:int,b:double>>>>", columnType.toSql());
 
         setAccessPathAndAssertType(slot, ImmutableList.of("s", "city"), "STRUCT<city:TEXT>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "KEYS"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "KEYS"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "a"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "b"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "a"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "b"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
 
         setAccessPathsAndAssertType(slot,
                 ImmutableList.of(

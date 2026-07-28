@@ -49,6 +49,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
@@ -92,6 +93,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .predicate_access_paths {},
                                  .rs_splits {},
                                  .return_columns {},
+                                 .tso_predicate_column_id {},
                                  .output_columns {},
                                  .extra_columns {},
                                  .common_expr_ctxs_push_down {},
@@ -155,6 +157,22 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
            stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+}
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats) {
+    io::IOContext io_ctx {
+            .reader_type = reader_type,
+            .expiration_time = expiration_time,
+            .query_id = &state->query_id(),
+            .file_cache_stats = file_cache_stats,
+            .is_inverted_index = true,
+    };
+    if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
+        io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    return io_ctx;
 }
 
 Status OlapScanner::_prepare_impl() {
@@ -314,13 +332,9 @@ Status OlapScanner::_prepare_impl() {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
-        io::IOContext io_ctx {
-                .reader_type = _tablet_reader_params.reader_type,
-                .expiration_time = tablet->ttl_seconds(),
-                .query_id = &_state->query_id(),
-                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
-                .is_inverted_index = true,
-        };
+        auto io_ctx = build_score_runtime_collection_io_context(
+                _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
+                &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
@@ -353,41 +367,50 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
 }
 
 // For binlog partition-based incremental read. Pushes down [start_tso, end_tso] range
-// predicates onto the binlog timestamp column for row-binlog scans. Also ensures the
-// timestamp column is part of return_columns so the predicates can be evaluated by the
-// storage layer.
-Status OlapScanner::_init_row_binlog_tso_predicates() {
-    if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
-        return Status::OK();
-    }
-
+// predicates onto the TSO column. If the TSO column is not already returned, pass it as
+// a storage-only predicate column instead of widening scan output.
+Status OlapScanner::_init_tso_predicates() {
     if (!_start_tso.has_value() && !_end_tso.has_value()) {
         return Status::OK();
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = tablet_schema->binlog_timestamp_col_idx();
+    int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
+                                ? tablet_schema->binlog_tso_col_idx()
+                                : tablet_schema->commit_tso_col_idx();
+    const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
+                                             ? BINLOG_TSO_COL
+                                             : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
-                                     BINLOG_TIMESTAMP_COL);
+                                     column_name);
     }
 
     auto data_type = std::make_shared<DataTypeInt64>();
     if (_start_tso.has_value()) {
         Field start_value = Field::create_field<TYPE_BIGINT>(*_start_tso);
         _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-                tso_index, std::string(kRowBinlogTimestampColName), data_type, start_value, false));
+                tso_index, column_name, data_type, start_value, false));
     }
     if (_end_tso.has_value()) {
         Field end_value = Field::create_field<TYPE_BIGINT>(*_end_tso);
         _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
-                tso_index, std::string(kRowBinlogTimestampColName), data_type, end_value, false));
+                tso_index, column_name, data_type, end_value, false));
     }
+
+    // The storage-layer statistics fast path (VStatisticsIterator, picked when
+    // push_down_agg_type is COUNT/MINMAX) bypasses SegmentIterator and returns raw
+    // segment row counts without applying any column predicate. The commit-tso
+    // predicate injected above is row-level, so the fast path would both miscount
+    // (ignoring commit_tso <= snapshot_tso) and crash on a column-count DCHECK when
+    // the tso predicate column is not in return_columns. Disable it here, matching
+    // the binlog DETAIL/MIN_DELTA handling.
+    _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
 
     if (std::find(_tablet_reader_params.return_columns.begin(),
                   _tablet_reader_params.return_columns.end(),
                   tso_index) == _tablet_reader_params.return_columns.end()) {
-        _tablet_reader_params.return_columns.push_back(tso_index);
+        _tablet_reader_params.tso_predicate_column_id = static_cast<ColumnId>(tso_index);
     }
 
     return Status::OK();
@@ -421,7 +444,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
-    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/op/lsn/before
+    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/tso/op/before
     // columns to drive the row-level merge in BlockReader. The storage-layer
     // statistics fast path (VStatisticsIterator, picked when push_down_agg_type
     // is COUNT/MINMAX) bypasses SegmentIterator entirely, returning raw segment
@@ -497,8 +520,8 @@ Status OlapScanner::_init_tablet_reader_params(
     };
 
     // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
-    // every key column, every requested value column, the binlog meta columns (op / lsn /
-    // tso) and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
+    // every key column, every requested value column, the binlog meta columns (tso / op)
+    // and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
     const bool need_before_columns =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
@@ -510,12 +533,11 @@ Status OlapScanner::_init_tablet_reader_params(
             add_return_column_if_absent(cid);
         }
 
-        if (int32_t op_idx = tablet_schema->field_index(std::string(kRowBinlogOpColName));
-            op_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
+        if (int32_t tso_idx = tablet_schema->binlog_tso_col_idx(); tso_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(tso_idx));
         }
-        if (int32_t lsn_idx = tablet_schema->binlog_lsn_col_idx(); lsn_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(lsn_idx));
+        if (int32_t op_idx = tablet_schema->binlog_op_col_idx(); op_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
 
         for (auto cid : _return_columns) {
@@ -584,7 +606,7 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     }
 
-    RETURN_IF_ERROR(_init_row_binlog_tso_predicates());
+    RETURN_IF_ERROR(_init_tso_predicates());
 
     // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
     // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit

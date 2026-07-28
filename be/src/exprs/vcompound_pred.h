@@ -112,6 +112,95 @@ public:
         }
     }
 
+    bool can_evaluate_dictionary_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    bool is_safe_to_execute_on_selected_rows() const override {
+        // Boolean composition introduces no data-dependent failure of its own. Reuse the generic
+        // child walk so AND/OR remain eligible only when every nested expression is independently
+        // safe; applying VectorizedFnCall's scalar-function allowlist to this structural node would
+        // incorrectly disable selected-row execution for otherwise safe predicates.
+        return VExpr::is_safe_to_execute_on_selected_rows();
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_dictionary_filter()) {
+                    continue;
+                }
+                if (child->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_dictionary_filter());
+                if (child->evaluate_dictionary_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
+
+    bool can_evaluate_bloom_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_bloom_filter()) {
+                    continue;
+                }
+                if (child->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_bloom_filter());
+                if (child->evaluate_bloom_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
+
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
         bool all_pass = true;

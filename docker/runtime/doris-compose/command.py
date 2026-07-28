@@ -554,6 +554,30 @@ class UpCommand(Command):
             default="",
             help="tde sk")
 
+        parser.add_argument(
+            "--tde-aws-ak",
+            type=str,
+            default="",
+            help="tde aws ak")
+
+        parser.add_argument(
+            "--tde-aws-sk",
+            type=str,
+            default="",
+            help="tde aws sk")
+
+        parser.add_argument(
+            "--tde-aliyun-ak",
+            type=str,
+            default="",
+            help="tde aliyun ak")
+
+        parser.add_argument(
+            "--tde-aliyun-sk",
+            type=str,
+            default="",
+            help="tde aliyun sk")
+
         # if default==True, use this style to parser, like --detach
         if self._support_boolean_action():
             parser.add_argument(
@@ -674,16 +698,18 @@ class UpCommand(Command):
 
             instance_id = getattr(args, 'instance_id', None)
             cluster_snapshot = getattr(args, 'cluster_snapshot', '')
+            env = getattr(args, 'env', None)
             enable_storage_vault = CLUSTER.is_true(
-                CLUSTER.get_env_value(args.env, "ENABLE_STORAGE_VAULT"))
+                CLUSTER.get_env_value(env, "ENABLE_STORAGE_VAULT"))
 
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks if args.be_disks is not None else ["HDD=1"], args.be_cluster, args.reg_be, args.extra_hosts, args.env,
+                args.be_disks if args.be_disks is not None else ["HDD=1"], args.be_cluster, args.reg_be, args.extra_hosts, env,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
+                args.tde_aws_ak, args.tde_aws_sk, args.tde_aliyun_ak, args.tde_aliyun_sk,
                 external_ms_cluster, instance_id, cluster_snapshot,
                 enable_storage_vault)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(

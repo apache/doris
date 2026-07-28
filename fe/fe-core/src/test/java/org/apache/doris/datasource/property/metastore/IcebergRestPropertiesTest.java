@@ -17,15 +17,18 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.OSSProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -135,6 +138,169 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.OAUTH2_SERVER_URI));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.SCOPE));
+    }
+
+    @Test
+    public void testOAuth2UserSessionFlow() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.session-timeout", "60000");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertTrue(restProps.isIcebergRestUserSessionEnabled());
+        Assertions.assertEquals(AuthProperties.AUTH_TYPE_OAUTH2, catalogProps.get(AuthProperties.AUTH_TYPE));
+        Assertions.assertEquals("60000", catalogProps.get(CatalogProperties.AUTH_SESSION_TIMEOUT_MS));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
+    }
+
+    @Test
+    public void testOAuth2UserSessionCatalogInitKeepsBootstrapCredential() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.oauth2.credential", "client_credentials");
+        props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
+        props.put("iceberg.rest.oauth2.scope", "read write");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+
+        Assertions.assertEquals(AuthProperties.AUTH_TYPE_OAUTH2, catalogProps.get(AuthProperties.AUTH_TYPE));
+        Assertions.assertEquals("client_credentials", catalogProps.get(OAuth2Properties.CREDENTIAL));
+        Assertions.assertEquals("http://auth.example.com/token", catalogProps.get(OAuth2Properties.OAUTH2_SERVER_URI));
+        Assertions.assertEquals("read write", catalogProps.get(OAuth2Properties.SCOPE));
+
+        Map<String, String> tokenProps = new HashMap<>();
+        tokenProps.put("iceberg.rest.uri", "http://localhost:8080");
+        tokenProps.put("iceberg.rest.security.type", "oauth2");
+        tokenProps.put("iceberg.rest.session", "user");
+        tokenProps.put("iceberg.rest.oauth2.token", "static-access-token");
+
+        IcebergRestProperties tokenRestProps = new IcebergRestProperties(tokenProps);
+        tokenRestProps.initNormalizeAndCheckProps();
+
+        Map<String, String> tokenCatalogProps = tokenRestProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("static-access-token", tokenCatalogProps.get(OAuth2Properties.TOKEN));
+    }
+
+    @Test
+    public void testOAuth2UserSessionCatalogInitUsesDelegatedAccessToken() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.oauth2.credential", "client_credentials");
+        props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
+        props.put("iceberg.rest.oauth2.scope", "read write");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogPropertiesForCatalogInit(
+                SessionContext.of(new DelegatedCredential(
+                        DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token")));
+
+        Assertions.assertEquals("delegated-access-token", catalogProps.get(OAuth2Properties.TOKEN));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.OAUTH2_SERVER_URI));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.SCOPE));
+    }
+
+    @Test
+    public void testOAuth2UserSessionCatalogInitUsesDelegatedTokenExchangeCredential() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.oauth2.delegated-token-mode", "token_exchange");
+        props.put("iceberg.rest.oauth2.credential", "client_credentials");
+        props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
+        props.put("iceberg.rest.oauth2.scope", "read write");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogPropertiesForCatalogInit(
+                SessionContext.of(new DelegatedCredential(
+                        DelegatedCredential.Type.ID_TOKEN, "delegated-id-token")));
+
+        Assertions.assertEquals("delegated-id-token", catalogProps.get(OAuth2Properties.ID_TOKEN_TYPE));
+        Assertions.assertEquals("client_credentials", catalogProps.get(OAuth2Properties.CREDENTIAL));
+        Assertions.assertEquals("http://auth.example.com/token", catalogProps.get(OAuth2Properties.OAUTH2_SERVER_URI));
+        Assertions.assertEquals("read write", catalogProps.get(OAuth2Properties.SCOPE));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));
+    }
+
+    @Test
+    public void testInitCatalogDoesNotCaptureCurrentDelegatedCredential() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.oauth2.credential", "client_credentials");
+        props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
+        props.put("iceberg.rest.oauth2.scope", "read write");
+
+        CapturingIcebergRestProperties restProps = new CapturingIcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        ConnectContext context = new ConnectContext();
+        context.setSessionContext(SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token")));
+        context.setThreadLocalInfo();
+        try {
+            restProps.initCatalog("test_catalog", new HashMap<>(), new ArrayList<>());
+
+            Assertions.assertFalse(restProps.capturedCatalogProps.containsKey(OAuth2Properties.TOKEN));
+            Assertions.assertEquals("client_credentials",
+                    restProps.capturedCatalogProps.get(OAuth2Properties.CREDENTIAL));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testOAuth2DelegatedTokenMode() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+
+        IcebergRestProperties defaultProps = new IcebergRestProperties(props);
+        defaultProps.initNormalizeAndCheckProps();
+        Assertions.assertEquals(IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN,
+                defaultProps.getDelegatedTokenMode());
+
+        props.put("iceberg.rest.oauth2.delegated-token-mode", "token_exchange");
+        IcebergRestProperties tokenExchangeProps = new IcebergRestProperties(props);
+        tokenExchangeProps.initNormalizeAndCheckProps();
+        Assertions.assertEquals(IcebergRestProperties.DelegatedTokenMode.TOKEN_EXCHANGE,
+                tokenExchangeProps.getDelegatedTokenMode());
+
+        props.put("iceberg.rest.oauth2.delegated-token-mode", "invalid");
+        IcebergRestProperties invalidProps = new IcebergRestProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, invalidProps::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testUserSessionRequiresOAuth2SecurityType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.session", "user");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(exception.getMessage().contains("iceberg.rest.session=user requires oauth2"));
     }
 
     @Test
@@ -765,22 +931,22 @@ public class IcebergRestPropertiesTest {
         s3Props.put("s3.access_key", "s3AccessKey");
         s3Props.put("s3.secret_key", "s3SecretKey");
         s3Props.put("s3.region", "us-east-1");
-        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+        s3Props.put("fs.s3.support", "true");
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
 
         Map<String, String> ossProps = new HashMap<>();
         ossProps.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         ossProps.put("oss.access_key", "ossAccessKey");
         ossProps.put("oss.secret_key", "ossSecretKey");
-        ossProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss = (OSSProperties) StorageProperties.createPrimary(ossProps);
+        ossProps.put("fs.oss.support", "true");
+        StorageAdapter oss = StorageAdapter.of(ossProps);
 
         Map<String, String> restPropsMap = new HashMap<>();
         restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
         IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageList = new ArrayList<>();
+        List<StorageAdapter> storageList = new ArrayList<>();
         storageList.add(s3);
         storageList.add(oss);
 
@@ -802,15 +968,15 @@ public class IcebergRestPropertiesTest {
         s3Props.put("s3.access_key", "s3AccessKey");
         s3Props.put("s3.secret_key", "s3SecretKey");
         s3Props.put("s3.region", "us-east-1");
-        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+        s3Props.put("fs.s3.support", "true");
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
 
         Map<String, String> restPropsMap = new HashMap<>();
         restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
         IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageList = new ArrayList<>();
+        List<StorageAdapter> storageList = new ArrayList<>();
         storageList.add(s3);
 
         Map<String, String> fileIOProperties = new HashMap<>();
@@ -830,29 +996,29 @@ public class IcebergRestPropertiesTest {
         s3Props.put("s3.access_key", "s3AK");
         s3Props.put("s3.secret_key", "s3SK");
         s3Props.put("s3.region", "us-east-1");
-        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+        s3Props.put("fs.s3.support", "true");
+        StorageAdapter s3 = StorageAdapter.of(s3Props);
 
         Map<String, String> ossProps1 = new HashMap<>();
         ossProps1.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
         ossProps1.put("oss.access_key", "ossAK1");
         ossProps1.put("oss.secret_key", "ossSK1");
-        ossProps1.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss1 = (OSSProperties) StorageProperties.createPrimary(ossProps1);
+        ossProps1.put("fs.oss.support", "true");
+        StorageAdapter oss1 = StorageAdapter.of(ossProps1);
 
         Map<String, String> ossProps2 = new HashMap<>();
         ossProps2.put("oss.endpoint", "oss-cn-shanghai.aliyuncs.com");
         ossProps2.put("oss.access_key", "ossAK2");
         ossProps2.put("oss.secret_key", "ossSK2");
-        ossProps2.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        OSSProperties oss2 = (OSSProperties) StorageProperties.createPrimary(ossProps2);
+        ossProps2.put("fs.oss.support", "true");
+        StorageAdapter oss2 = StorageAdapter.of(ossProps2);
 
         Map<String, String> restPropsMap = new HashMap<>();
         restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
         IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
         restProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageList = new ArrayList<>();
+        List<StorageAdapter> storageList = new ArrayList<>();
         storageList.add(s3);
         storageList.add(oss1);
         storageList.add(oss2);
@@ -864,5 +1030,22 @@ public class IcebergRestPropertiesTest {
         // First non-S3Properties (oss1) should be used
         Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
+    }
+
+    private static class CapturingIcebergRestProperties extends IcebergRestProperties {
+        private Map<String, String> capturedCatalogProps;
+
+        private CapturingIcebergRestProperties(Map<String, String> props) {
+            super(props);
+        }
+
+        @Override
+        protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> options,
+                Configuration conf) {
+            capturedCatalogProps = new HashMap<>(options);
+            // Return an uninitialized RESTSessionCatalog: asCatalog(empty) on it is a cheap, lazy wrapper
+            // (no REST/OAuth network call), which is all initCatalog does with the result here.
+            return new RESTSessionCatalog();
+        }
     }
 }

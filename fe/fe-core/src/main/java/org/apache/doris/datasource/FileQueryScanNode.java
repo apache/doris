@@ -81,6 +81,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -181,7 +182,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setSlotId(slot.getId().asInt());
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -210,7 +211,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setSlotId(slot.getId().asInt());
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
@@ -226,6 +227,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
+    }
+
+    protected boolean isFileSlot(TColumnCategory category) {
+        return category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -270,10 +275,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = desc.getTable().getFullSchema();
-        Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
-        for (int i = 0; i < columns.size(); i++) {
-            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+        List<String> columnNames = getFileColumnNames();
+        Map<String, Integer> columnNameMap = new HashMap<>(columnNames.size());
+        for (int i = 0; i < columnNames.size(); i++) {
+            columnNameMap.putIfAbsent(columnNames.get(i), i);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
@@ -293,6 +298,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             columnIdxs.add(idx);
         }
         params.setColumnIdxs(columnIdxs);
+    }
+
+    protected List<String> getFileColumnNames() {
+        return desc.getTable().getFullSchema().stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
     }
 
     public TFileScanRangeParams getFileScanRangeParams() {
@@ -476,8 +487,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 pathPartitionKeys, partitionValuesFromPath.getIsNull());
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        // set file format type, and the type might fall back to native format in setScanParams
-        rangeDesc.setFormatType(getFileFormatType());
+        // Seed connector-specific setup with the scan-level default. A connector may then
+        // override it with the actual format carried by an individual split.
+        rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
         rangeDesc.setFileCacheAdmission(admissionResult);
 

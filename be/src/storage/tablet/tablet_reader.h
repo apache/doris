@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -156,6 +157,8 @@ public:
 
         // return_columns is init from query schema
         std::vector<ColumnId> return_columns;
+        // TSO predicate column that is absent from return_columns but must be read by storage.
+        std::optional<ColumnId> tso_predicate_column_id;
         // output_columns only contain columns in OrderByExprs and outputExprs
         std::set<int32_t> output_columns;
         // Extra storage key columns that are present only for scan-schema alignment.

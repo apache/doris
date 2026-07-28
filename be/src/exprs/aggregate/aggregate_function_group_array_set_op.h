@@ -22,8 +22,12 @@
 #include <string>
 
 #include "core/assert_cast.h"
+#include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
@@ -105,7 +109,7 @@ struct GroupArraySetOpNumericBaseData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& to_nested_col = arr_to.get_data();
         DCHECK(to_nested_col.is_nullable())
@@ -133,8 +137,9 @@ struct GroupArraySetOpNumericBaseData {
             }
         };
 
-        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
-        auto& nested_col = assert_cast<ColVecType&>(col_null->get_nested_column());
+        auto* col_null = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(&to_nested_col);
+        auto& nested_col = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
+                col_null->get_nested_column());
         offsets_to.push_back(offsets_to.back() + this->set->size() +
                              (this->set->contain_null() ? 1 : 0));
         insert_values(nested_col, this->set, col_null);
@@ -157,9 +162,11 @@ struct GroupArrayNumericIntersectData : public GroupArraySetOpNumericBaseData<T>
         } else if (!this->set->empty()) {
             // for intersect, need to create a new set to store the intersection result
             Set new_set = std::make_unique<NullableNumericOrDateSetType>();
-            const auto& col_nullable = assert_cast<const ColumnNullable&>(*column_data);
+            const auto& col_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column_data);
             const ColVecType& nested_column_data =
-                    assert_cast<const ColVecType&>(col_nullable.get_nested_column());
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                            col_nullable.get_nested_column());
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element = col_nullable.is_null_at(offset + i);
                 const typename PrimitiveTypeTraits<T>::CppType* src_data =
@@ -238,6 +245,7 @@ public:
 };
 
 struct GroupArraySetOpStringBaseData {
+    using ColVecType = ColumnString;
     using Set = std::unique_ptr<NullableStringSet>;
 
     GroupArraySetOpStringBaseData() : set(std::make_unique<NullableStringSet>()) {}
@@ -279,10 +287,10 @@ struct GroupArraySetOpStringBaseData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& data_to = arr_to.get_data();
-        auto* col_null = assert_cast<ColumnNullable*>(&data_to);
+        auto* col_null = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(&data_to);
         auto res_size = this->set->size();
 
         if (this->set->contain_null()) {
@@ -307,9 +315,11 @@ struct GroupArrayStringIntersectData : public GroupArraySetOpStringBaseData {
     static std::string get_name() { return "group_array_intersect"; }
 
     void process_col_data(const auto& column_data, size_t offset, size_t arr_size) {
-        const auto* col_null = assert_cast<const ColumnNullable*>(column_data.get());
+        const auto* col_null =
+                assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column_data.get());
         const auto& nested_column_data =
-                assert_cast<const ColumnString&>(col_null->get_nested_column());
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
+                        col_null->get_nested_column());
 
         if (!init) {
             for (size_t i = 0; i < arr_size; ++i) {
@@ -376,9 +386,11 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
     static std::string get_name() { return "group_array_union"; }
 
     void process_col_data(const auto& column_data, size_t offset, size_t arr_size) {
-        const auto* col_null = assert_cast<const ColumnNullable*>(column_data.get());
+        const auto* col_null =
+                assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column_data.get());
         const auto& nested_column_data =
-                assert_cast<const ColumnString&>(col_null->get_nested_column());
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
+                        col_null->get_nested_column());
 
         for (size_t i = 0; i < arr_size; ++i) {
             if (col_null->is_null_at(offset + i)) {
@@ -429,6 +441,69 @@ public:
     DataTypePtr get_return_type() const override { return argument_type; }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        const IColumn* column = columns[0];
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+            column = &nullable_column->get_nested_column();
+        }
+
+        const auto* array_column = check_and_get_column<ColumnArray>(*column);
+        if (UNLIKELY(array_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument 0 type check failed: Column type {} ({}) is "
+                    "not ColumnArray or Nullable(ColumnArray)",
+                    get_name(), columns[0]->get_name(), typeid(*columns[0]).name()));
+        }
+
+        const IColumn& array_data_column = array_column->get_data();
+        const auto* nullable_nested = check_and_get_column<ColumnNullable>(array_data_column);
+        if (UNLIKELY(nullable_nested == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument 0 type check failed: Array nested column "
+                    "type {} ({}) is not ColumnNullable",
+                    get_name(), array_data_column.get_name(), typeid(array_data_column).name()));
+        }
+
+        const IColumn& nested_data_column = nullable_nested->get_nested_column();
+        if (UNLIKELY(check_and_get_column<typename ImplData::ColVecType>(nested_data_column) ==
+                     nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument 0 type check failed: Array nested data column "
+                    "type {} ({}) does not match expected physical column type {}",
+                    get_name(), nested_data_column.get_name(), typeid(nested_data_column).name(),
+                    typeid(typename ImplData::ColVecType).name()));
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        const auto* array_column = check_and_get_column<ColumnArray>(to);
+        if (UNLIKELY(array_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} ({}) is not "
+                    "ColumnArray",
+                    get_name(), to.get_name(), typeid(to).name()));
+        }
+
+        const IColumn& array_data_column = array_column->get_data();
+        const auto* nullable_nested = check_and_get_column<ColumnNullable>(array_data_column);
+        if (UNLIKELY(nullable_nested == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Array nested column type {} "
+                    "({}) is not ColumnNullable",
+                    get_name(), array_data_column.get_name(), typeid(array_data_column).name()));
+        }
+
+        const IColumn& nested_data_column = nullable_nested->get_nested_column();
+        if (UNLIKELY(check_and_get_column<typename ImplData::ColVecType>(nested_data_column) ==
+                     nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Array nested data column "
+                    "type {} ({}) does not match expected physical column type {}",
+                    get_name(), nested_data_column.get_name(), typeid(nested_data_column).name(),
+                    typeid(typename ImplData::ColVecType).name()));
+        }
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {

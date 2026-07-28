@@ -67,6 +67,9 @@ Authentication result is state-driven:
 
 ```java
 AuthenticationResult ok = AuthenticationResult.success(principal);
+AuthenticationResult okWithCredentialExpiration = AuthenticationResult.success(principal, expiresAtMillis);
+AuthenticationResult okWithoutCredentialExpiration =
+    AuthenticationResult.success(principal, AuthenticationResult.NO_CREDENTIAL_EXPIRATION);
 AuthenticationResult needMore = AuthenticationResult.continueWith(state, challenge);
 AuthenticationResult failed = AuthenticationResult.failure("Invalid credential");
 ```

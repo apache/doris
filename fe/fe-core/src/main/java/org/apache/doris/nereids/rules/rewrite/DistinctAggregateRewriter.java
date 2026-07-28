@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -83,6 +84,13 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
     private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
             Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
 
+    enum Strategy {
+        SPLIT_IN_REWRITE, MULTI_STRATEGY, SPLIT_IN_CASCADES
+    }
+
+    private static final String errorString = "Unsupported query: GROUP_CONCAT(DISTINCT ... ORDER BY ...)"
+            + " cannot be used together with a multi-argument COUNT(DISTINCT ...).";
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -92,25 +100,41 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
                         .thenApply(ctx -> rewrite(ctx.root, ctx.connectContext))
                         .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
-                        .when(agg -> agg.getGroupByExpressions().isEmpty()
-                                && agg.mustUseMultiDistinctAgg() && !AggregateUtils.containsCountDistinctMultiExpr(agg))
-                        .then(this::convertToMultiDistinct)
+                        .when(agg -> agg.getGroupByExpressions().isEmpty() && agg.mustUseMultiDistinctAgg())
+                        .then(agg -> {
+                            // count(distinct a,b) cannot use multi_distinct
+                            if (AggregateUtils.containsCountDistinctMultiExpr(agg)) {
+                                throw new AnalysisException(errorString);
+                            }
+                            return convertToMultiDistinct(agg);
+                        })
                         .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );
     }
 
     @VisibleForTesting
-    boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+    Strategy chooseStrategy(LogicalAggregate<? extends Plan> aggregate) {
         // count(distinct a,b) cannot use multi_distinct
-        if (AggregateUtils.containsCountDistinctMultiExpr(aggregate)) {
-            return false;
-        }
-        if (aggregate.mustUseMultiDistinctAgg()) {
-            return true;
+        boolean mustSplit = AggregateUtils.containsCountDistinctMultiExpr(aggregate);
+        boolean mustUseMulti = aggregate.mustUseMultiDistinctAgg();
+        if (mustSplit && mustUseMulti) {
+            throw new AnalysisException(errorString);
         }
         ConnectContext ctx = ConnectContext.get();
+        if (mustSplit) {
+            if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+                return Strategy.SPLIT_IN_CASCADES;
+            }
+            return Strategy.SPLIT_IN_REWRITE;
+        }
+        if (mustUseMulti) {
+            return Strategy.MULTI_STRATEGY;
+        }
         if (ctx.getSessionVariable().aggPhase == 1 || ctx.getSessionVariable().aggPhase == 2) {
-            return true;
+            return Strategy.MULTI_STRATEGY;
+        }
+        if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+            return Strategy.SPLIT_IN_CASCADES;
         }
         if (aggregate.getStats() == null || aggregate.child().getStats() == null) {
             StatsDerive derive = new StatsDerive(false);
@@ -120,12 +144,12 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         Statistics aggChildStats = aggregate.child().getStats();
         Set<Expression> dstArgs = aggregate.getDistinctArguments();
         if (isDistinctKeySatisfyDistribution(aggregate)) {
-            return false;
+            return Strategy.SPLIT_IN_REWRITE;
         }
         // has unknown statistics, split to bottom and top agg
         if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
                 || AggregateUtils.hasUnknownStatistics(dstArgs, aggChildStats)) {
-            return true;
+            return Strategy.MULTI_STRATEGY;
         }
 
         double gbyNdv = aggStats.getRowCount();
@@ -138,8 +162,12 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         double inputRows = aggChildStats.getRowCount();
         // group by key ndv is low, distinct key ndv is high, multi_distinct is better
         // otherwise split to bottom and top agg
-        return gbyNdv < inputRows * AggregateUtils.LOW_CARDINALITY_THRESHOLD
-                && dstNdv > inputRows * AggregateUtils.HIGH_CARDINALITY_THRESHOLD;
+        if (gbyNdv < inputRows * AggregateUtils.LOW_CARDINALITY_THRESHOLD
+                && dstNdv > inputRows * AggregateUtils.HIGH_CARDINALITY_THRESHOLD) {
+            return Strategy.MULTI_STRATEGY;
+        } else {
+            return Strategy.SPLIT_IN_REWRITE;
+        }
     }
 
     private boolean isDistinctKeySatisfyDistribution(LogicalAggregate<? extends Plan> aggregate) {
@@ -249,14 +277,15 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         if (aggregate.distinctFuncNum() == 0) {
             return null;
         }
-        if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+        Strategy strategy = chooseStrategy(aggregate);
+        if (strategy == Strategy.MULTI_STRATEGY) {
+            return convertToMultiDistinct(aggregate);
+        } else if (strategy == Strategy.SPLIT_IN_REWRITE) {
+            return splitDistinctAgg(aggregate);
+        } else if (strategy == Strategy.SPLIT_IN_CASCADES) {
             return null;
         }
-        if (shouldUseMultiDistinct(aggregate)) {
-            return convertToMultiDistinct(aggregate);
-        } else {
-            return splitDistinctAgg(aggregate);
-        }
+        return null;
     }
 
     private Plan convertToMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {

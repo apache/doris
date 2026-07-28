@@ -26,10 +26,9 @@ import org.apache.doris.datasource.property.metastore.IcebergHMSMetaStorePropert
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.IcebergS3TablesMetaStoreProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.MinioProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -47,17 +46,17 @@ public class CatalogConnectivityTestCoordinator {
 
     private final String catalogName;
     private final MetastoreProperties metastoreProperties;
-    private final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private final Map<StorageTypeId, StorageAdapter> storageAdaptersMap;
 
     private String warehouseLocation;
 
     public CatalogConnectivityTestCoordinator(
             String catalogName,
             MetastoreProperties metastoreProperties,
-            Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
+            Map<StorageTypeId, StorageAdapter> storageAdaptersMap) {
         this.catalogName = catalogName;
         this.metastoreProperties = metastoreProperties;
-        this.storagePropertiesMap = storagePropertiesMap;
+        this.storageAdaptersMap = storageAdaptersMap;
     }
 
     /**
@@ -70,9 +69,9 @@ public class CatalogConnectivityTestCoordinator {
         testMetadataService();
 
         // 2. Test object storage for warehouse (if applicable)
-        StorageProperties testObjectStorageProperties = getTestObjectStorageProperties();
-        if (testObjectStorageProperties != null) {
-            testObjectStorageForWarehouse(testObjectStorageProperties);
+        StorageAdapter testObjectStorageAdapter = getTestObjectStorageAdapter();
+        if (testObjectStorageAdapter != null) {
+            testObjectStorageForWarehouse(testObjectStorageAdapter);
         }
 
         // 3. Test explicitly configured HDFS (if applicable)
@@ -112,14 +111,14 @@ public class CatalogConnectivityTestCoordinator {
      * Check if object storage test should be performed.
      * Also caches the matched storage for later use in testObjectStorageForWarehouse().
      */
-    private StorageProperties getTestObjectStorageProperties() {
+    private StorageAdapter getTestObjectStorageAdapter() {
         if (StringUtils.isBlank(this.warehouseLocation)) {
             LOG.debug("Skip object storage test: no warehouse location from metadata service for catalog '{}'",
                     catalogName);
             return null;
         }
 
-        StorageProperties matchedObjectStorage = findMatchingObjectStorage(this.warehouseLocation);
+        StorageAdapter matchedObjectStorage = findMatchingObjectStorage(this.warehouseLocation);
         if (matchedObjectStorage == null) {
             LOG.debug("Skip object storage test: no storage configured for warehouse '{}' in catalog '{}'",
                     this.warehouseLocation, catalogName);
@@ -135,11 +134,11 @@ public class CatalogConnectivityTestCoordinator {
      *
      * @throws DdlException if test fails
      */
-    private void testObjectStorageForWarehouse(StorageProperties testObjectStorageProperties) throws DdlException {
+    private void testObjectStorageForWarehouse(StorageAdapter testObjectStorageAdapter) throws DdlException {
         LOG.info("Testing {} connectivity for warehouse '{}' in catalog '{}'",
-                testObjectStorageProperties.getStorageName(), this.warehouseLocation, catalogName);
+                testObjectStorageAdapter.getStorageName(), this.warehouseLocation, catalogName);
 
-        StorageConnectivityTester tester = createStorageTester(testObjectStorageProperties, this.warehouseLocation);
+        StorageConnectivityTester tester = createStorageTester(testObjectStorageAdapter, this.warehouseLocation);
 
         // Test FE connection
         try {
@@ -168,16 +167,16 @@ public class CatalogConnectivityTestCoordinator {
      * @param warehouse warehouse location
      * @return matching storage properties, or null if not found
      */
-    private StorageProperties findMatchingObjectStorage(String warehouse) {
+    private StorageAdapter findMatchingObjectStorage(String warehouse) {
         // Check S3/Minio
         if (warehouse.startsWith("s3://") || warehouse.startsWith("s3a://")) {
             // Priority: Minio > S3 (if Minio is configured, use it for s3://)
-            StorageProperties minio = storagePropertiesMap.get(StorageProperties.Type.MINIO);
+            StorageAdapter minio = storageAdaptersMap.get(StorageTypeId.MINIO);
             if (minio != null && isConfiguredStorage(minio)) {
                 return minio;
             }
 
-            StorageProperties s3 = storagePropertiesMap.get(StorageProperties.Type.S3);
+            StorageAdapter s3 = storageAdaptersMap.get(StorageTypeId.S3);
             if (s3 != null && isConfiguredStorage(s3)) {
                 return s3;
             }
@@ -189,18 +188,22 @@ public class CatalogConnectivityTestCoordinator {
      * Check if storage has credentials configured.
      * Check for access key, IAM role, or other authentication methods.
      */
-    private boolean isConfiguredStorage(StorageProperties storage) {
-        // For S3: check access key or IAM role
-        if (storage instanceof S3Properties) {
-            S3Properties s3 = (S3Properties) storage;
+    private boolean isConfiguredStorage(StorageAdapter storage) {
+        if (!(storage.getSpiProperties() instanceof S3CompatibleFileSystemProperties)) {
+            // For other storage types, assume configured if exists
+            return true;
+        }
+        S3CompatibleFileSystemProperties s3 = (S3CompatibleFileSystemProperties) storage.getSpiProperties();
+
+        // For S3: check access key or IAM role (legacy getS3IAMRole == SPI getRoleArn)
+        if (storage.getType() == StorageTypeId.S3) {
             return StringUtils.isNotBlank(s3.getAccessKey())
-                    || StringUtils.isNotBlank(s3.getS3IAMRole());
+                    || StringUtils.isNotBlank(s3.getRoleArn());
         }
 
         // For Minio: check access key
-        if (storage instanceof MinioProperties) {
-            MinioProperties minio = (MinioProperties) storage;
-            return StringUtils.isNotBlank(minio.getAccessKey());
+        if (storage.getType() == StorageTypeId.MINIO) {
+            return StringUtils.isNotBlank(s3.getAccessKey());
         }
 
         // For other storage types, assume configured if exists
@@ -211,19 +214,17 @@ public class CatalogConnectivityTestCoordinator {
      * Check if HDFS test should be performed.
      */
     private boolean shouldTestHdfs() {
-        StorageProperties hdfsStorage = storagePropertiesMap.get(StorageProperties.Type.HDFS);
-        if (!(hdfsStorage instanceof HdfsProperties)) {
+        StorageAdapter hdfs = storageAdaptersMap.get(StorageTypeId.HDFS);
+        if (hdfs == null) {
             return false;
         }
-
-        HdfsProperties hdfs = (HdfsProperties) hdfsStorage;
 
         if (!hdfs.isExplicitlyConfigured()) {
             LOG.debug("Skip HDFS test: not explicitly configured by user for catalog '{}'", catalogName);
             return false;
         }
 
-        if (StringUtils.isBlank(hdfs.getDefaultFS())) {
+        if (StringUtils.isBlank(getHdfsDefaultFs(hdfs))) {
             LOG.debug("Skip HDFS test: fs.defaultFS not configured for catalog '{}'", catalogName);
             return false;
         }
@@ -232,13 +233,21 @@ public class CatalogConnectivityTestCoordinator {
     }
 
     /**
+     * Legacy {@code HdfsProperties.getDefaultFS()}: the resolved fs.defaultFS value, which the
+     * HDFS backend map carries under the same key whenever it is non-blank.
+     */
+    private static String getHdfsDefaultFs(StorageAdapter hdfs) {
+        return hdfs.getBackendConfigProperties().get("fs.defaultFS");
+    }
+
+    /**
      * Test explicitly configured HDFS.
      *
      * @throws DdlException if test fails
      */
     private void testExplicitlyConfiguredHdfs() throws DdlException {
-        HdfsProperties hdfs = (HdfsProperties) storagePropertiesMap.get(StorageProperties.Type.HDFS);
-        String defaultFS = hdfs.getDefaultFS();
+        StorageAdapter hdfs = storageAdaptersMap.get(StorageTypeId.HDFS);
+        String defaultFS = getHdfsDefaultFs(hdfs);
 
         LOG.info("Testing HDFS connectivity for '{}' in catalog '{}'", defaultFS, catalogName);
 
@@ -311,20 +320,20 @@ public class CatalogConnectivityTestCoordinator {
     /**
      * Create storage connectivity tester based on properties type and location.
      */
-    private StorageConnectivityTester createStorageTester(StorageProperties props, String location) {
+    private StorageConnectivityTester createStorageTester(StorageAdapter adapter, String location) {
         // S3
-        if (props instanceof S3Properties) {
-            return new S3ConnectivityTester((S3Properties) props, location);
+        if (adapter.getType() == StorageTypeId.S3) {
+            return new S3ConnectivityTester(adapter, location);
         }
 
         // Minio
-        if (props instanceof MinioProperties) {
-            return new MinioConnectivityTester((MinioProperties) props, location);
+        if (adapter.getType() == StorageTypeId.MINIO) {
+            return new MinioConnectivityTester(adapter, location);
         }
 
         // HDFS
-        if (props instanceof HdfsProperties) {
-            return new HdfsConnectivityTester((HdfsProperties) props);
+        if (adapter.getType() == StorageTypeId.HDFS) {
+            return new HdfsConnectivityTester(adapter);
         }
 
         // Default: no-op tester

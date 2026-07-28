@@ -40,7 +40,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -116,7 +116,7 @@ public class RestoreJobTest {
     private SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
 
     private Repository repo = Mockito.spy(new Repository(repoId, "repo", false, "bos://my_repo",
-            BrokerProperties.of("broker", Maps.newHashMap())));
+            StorageAdapter.ofBroker("broker", Maps.newHashMap())));
 
     private BackupMeta backupMeta;
 

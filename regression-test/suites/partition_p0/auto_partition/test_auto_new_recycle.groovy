@@ -111,8 +111,6 @@ suite("test_auto_new_recycle", "nonConcurrent") {
         );
     """
 
-    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 20)
-
     sql """
     insert into auto_recycle select date_add('2020-01-01 00:00:00', interval number day) from numbers("number" = "100");
     """
@@ -171,6 +169,7 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     """
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
     sleep(8000)
+    waitUntilSafeExecutionTime("NOT_CROSS_DAY_BOUNDARY", 100)
     sql """
         insert into auto_recycle select date_add(now(), interval number-5 day) from numbers("number" = "8");
     """

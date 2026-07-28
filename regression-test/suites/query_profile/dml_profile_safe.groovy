@@ -60,7 +60,7 @@ def waitForProfile = { masterHTTPAddr, taskType, sqlToken ->
     return false
 }
 
-suite("dml_profile_safe") {
+suite("dml_profile_safe", "nonConcurrent") {
     sql """set enable_nereids_planner = true;"""
     sql """set enable_fallback_to_original_planner = false;"""
 

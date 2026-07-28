@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -272,10 +273,10 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     void testNotPushCountCaseWhenWithElseToNullableSideViaProject() {
         // When CASE WHEN has an ELSE clause (e.g. CASE WHEN cond THEN -121 ELSE 2 END),
         // NormalizeAggregate extracts if(cond, -121, 2) into a Project as a slot,
-        // so the aggregate becomes count(#slot). At the agg level, hasCaseWhen=false
+        // so the aggregate becomes count(#slot). At the agg level, containsNullToNonNull=false
         // because count(#slot) contains no If/CaseWhen.
         //
-        // EagerAggRewriter must recheck hasCaseWhen after substituting through the
+        // EagerAggRewriter must recheck containsNullToNonNull after substituting through the
         // Project (in createContextFromProject), otherwise count(if(cond, -121, 2))
         // is incorrectly pushed to the nullable side of an outer join.
         //
@@ -465,6 +466,27 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testEmptyContextDoesNotAddRelationAggregate() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        try {
+            PlanChecker planChecker = PlanChecker.from(connectContext).analyze("select * from t1");
+            Plan analyzedPlan = planChecker.getPlan();
+            LogicalRelation relation = findFirstPlan(analyzedPlan, LogicalRelation.class);
+            Assertions.assertNotNull(relation, analyzedPlan.treeString());
+            PushDownAggContext context = new PushDownAggContext(
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
+                    planChecker.getCascadesContext(),
+                    true, false, false, new BilateralState(), false);
+
+            Plan rewritten = relation.accept(new EagerAggRewriter(), context);
+
+            Assertions.assertSame(relation, rewritten, rewritten.treeString());
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+        }
+    }
+
+    @Test
     void testVolatileJoinConjunctBlocksPushDown() {
         connectContext.getSessionVariable().setEagerAggregationMode(1);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
@@ -545,6 +567,241 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             LogicalFilter<?> filter = findFirstPlan(plan, LogicalFilter.class);
             Assertions.assertNotNull(filter, plan.treeString());
             Assertions.assertFalse(containsPlan(filter.child(), LogicalAggregate.class), plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    // =========================================================================
+    // NullToNonNullFunction safety guard tests:
+    // Agg functions wrapping expressions that convert NULL to non-NULL values
+    // (IsNull, NullSafeEqual, COALESCE, NVL, NULL_OR_EMPTY, NOT_NULL_OR_EMPTY)
+    // must NOT be pushed to the nullable side of outer joins. Null-extended rows
+    // would produce non-NULL values at the top level, but the pre-aggregation
+    // cannot see those rows, producing wrong results.
+    // =========================================================================
+
+    @Test
+    void testNotPushBareIsNullToNullableSideOfOuterJoin() {
+        // count(col IS NULL): IsNull converts NULL input to TRUE,
+        // so null-extended rows contribute 1. Pushed pre-agg on the base table
+        // would miss those rows.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side (left side of RIGHT JOIN)
+            // count(t1.name IS NULL) must NOT be pushed to t1
+            String sql = "select count(t1.name IS NULL), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side (right side of LEFT JOIN)
+            // count(t2.name IS NULL) must NOT be pushed to t2
+            sql = "select count(t2.name IS NULL), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushNullSafeEqualToNullableSideOfOuterJoin() {
+        // count(col <=> value): NullSafeEqual always returns TRUE/FALSE (never NULL),
+        // so null-extended rows contribute to the count. Pushed pre-agg would miss them.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side
+            // count(t1.name <=> NULL) must NOT be pushed to t1
+            String sql = "select count(t1.name <=> NULL), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side
+            // count(t2.name <=> 'x') must NOT be pushed to t2
+            sql = "select count(t2.name <=> 'x'), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushCoalesceToNullableSideOfOuterJoin() {
+        // count(coalesce(col, default)): COALESCE converts NULL input to default,
+        // so null-extended rows contribute 1. Pushed pre-agg would miss them.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side
+            String sql = "select count(coalesce(t1.name, 'default')), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side
+            sql = "select count(coalesce(t2.name, 'x')), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushNvlToNullableSideOfOuterJoin() {
+        // count(nvl(col, default)): NVL converts NULL input to default.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side
+            String sql = "select count(nvl(t1.name, 'default')), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side
+            sql = "select count(nvl(t2.name, 0)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushNullOrEmptyToNullableSideOfOuterJoin() {
+        // count(null_or_empty(col)): NULL_OR_EMPTY converts NULL to TRUE.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side
+            String sql = "select count(null_or_empty(t1.name)), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side
+            sql = "select count(null_or_empty(t2.name)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushNotNullOrEmptyToNullableSideOfOuterJoin() {
+        // count(not_null_or_empty(col)): NOT_NULL_OR_EMPTY converts NULL to FALSE
+        // (non-NULL).
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side
+            String sql = "select count(not_null_or_empty(t1.name)), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side
+            sql = "select count(not_null_or_empty(t2.name)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testNotPushAlwaysNotNullableToNullableSideOfOuterJoin() {
+        // count(array(col)): Array is AlwaysNotNullable (not NullToNonNullFunction),
+        // but it still converts NULL input to non-NULL output (array(NULL) → [NULL]),
+        // so it must be caught by the AlwaysNotNullable fallback branch in
+        // NullToNonNullFunction.canConvertNullToNonNull().
+        // Pushing pre-agg under the nullable side would miss null-extended row contributions.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side, array(t1.name) on the nullable side
+            String sql = "select count(array(t1.name)), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side, array(t2.name) on the nullable side
+            sql = "select count(array(t2.name)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+
+            // Verify that array on the non-nullable side CAN still be pushed.
+            // INNER JOIN: array on either side is safe because no null-extended rows
+            sql = "select count(array(t1.name)), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
+                    .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
             connectContext.getSessionVariable().setDisableJoinReorder(false);

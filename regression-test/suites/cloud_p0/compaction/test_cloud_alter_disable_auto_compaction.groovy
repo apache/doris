@@ -28,8 +28,9 @@ suite("test_cloud_alter_disable_auto_compaction", "p0,docker") {
         'cloud_cluster_check_interval_second=1',
     ]
     options.beConfigs += [
-        // Short sync interval for faster property propagation
-        'tablet_sync_interval_s=5',
+        // Short sync intervals for faster tablet meta property propagation
+        'schedule_sync_tablets_interval_s=1',
+        'tablet_sync_interval_s=1',
         // Trigger cumulative compaction after 5 rowsets
         'cumulative_compaction_min_deltas=5',
         // Enable file cache (required for sync_meta to work)
@@ -116,7 +117,8 @@ suite("test_cloud_alter_disable_auto_compaction", "p0,docker") {
         assertTrue(result[0][1].contains('"disable_auto_compaction" = "true"'))
 
         // Wait for sync_meta to propagate the change to BE
-        // tablet_sync_interval_s is set to 5 seconds, so wait a bit longer
+        // schedule_sync_tablets_interval_s and tablet_sync_interval_s are set to 1 second,
+        // so wait a bit longer.
         logger.info("Waiting for sync_meta to propagate disable_auto_compaction=true to BE...")
         sleep(10000)
 

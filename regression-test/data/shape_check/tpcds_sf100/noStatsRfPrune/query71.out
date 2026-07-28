@@ -31,6 +31,6 @@ PhysicalResultSink
 --------------------------filter((item.i_manager_id = 1))
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
-----------------------filter(t_meal_time IN ('breakfast', 'dinner'))
+----------------------filter(time_dim.t_meal_time IN ('breakfast', 'dinner'))
 ------------------------PhysicalOlapScan[time_dim]
 

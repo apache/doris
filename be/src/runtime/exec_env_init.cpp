@@ -517,7 +517,6 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
         exit(-1);
     }
-    std::unordered_set<std::string> cache_path_set;
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
         throw Exception(
@@ -525,23 +524,16 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                                    doris::config::file_cache_path, rest.msg()));
     }
 
-    doris::Status cache_status;
-    for (auto& cache_path : cache_paths) {
-        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
-            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
-            continue;
-        }
-
-        cache_status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                cache_path.path, cache_path.init_settings());
-        if (!cache_status.ok()) {
-            if (!doris::config::ignore_broken_disk) {
-                throw Exception(
-                        Status::FatalError("failed to init file cache, err: {}", cache_status));
-            }
-            LOG(WARNING) << "failed to init file cache, err: " << cache_status;
-        }
-        cache_path_set.emplace(cache_path.path);
+    auto cache_status = doris::io::FileCacheFactory::instance()->create_file_caches(
+            cache_paths, [](const std::string&, const Status& status) {
+                if (!doris::config::ignore_broken_disk) {
+                    return false;
+                }
+                LOG(WARNING) << "failed to init file cache, err: " << status;
+                return true;
+            });
+    if (!cache_status.ok()) {
+        throw Exception(Status::FatalError("failed to init file cache, err: {}", cache_status));
     }
 }
 
@@ -872,7 +864,8 @@ void ExecEnv::destroy() {
     SAFE_STOP(_stream_load_recorder_manager);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
-    // stop pipline step 2, cgroup execution
+    // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still
+    // report status through FragmentMgr's async thread pool.
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
@@ -885,6 +878,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
+    // Workload group schedulers own the query pipeline, scan, and memtable flush queues.
+    // Release them after fragment/load resources have stopped submitting cleanup work.
+    if (_workload_group_manager) {
+        _workload_group_manager->destroy_schedulers();
+    }
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // _id_manager must be destoried before tablet schema cache

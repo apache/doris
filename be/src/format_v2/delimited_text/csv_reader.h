@@ -25,6 +25,7 @@
 #include "util/slice.h"
 
 namespace doris {
+class EncloseCsvLineReaderCtx;
 class SlotDescriptor;
 } // namespace doris
 
@@ -61,6 +62,7 @@ private:
                                  Slice value) override;
     Slice _normalize_value(Slice value) const override;
     bool _can_split() const override;
+    void _on_bom_removed(size_t bom_size) override;
 
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     char _enclose = 0;
@@ -68,6 +70,7 @@ private:
     bool _trim_tailing_spaces = false;
     bool _empty_field_as_null = false;
     bool _keep_cr = false;
+    std::shared_ptr<EncloseCsvLineReaderCtx> _enclose_reader_ctx;
 };
 
 } // namespace doris::format::csv

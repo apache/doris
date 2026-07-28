@@ -18,6 +18,7 @@
 #pragma once
 
 #include <compare>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -35,6 +36,10 @@ namespace doris {
 class HybridSetBase;
 class RuntimeState;
 class TExprNode;
+
+namespace segment_v2 {
+class BloomFilter;
+} // namespace segment_v2
 } // namespace doris
 
 namespace doris::expr_zonemap {
@@ -44,6 +49,31 @@ struct InZonemapMaterializedSet {
     std::vector<Field> values;
     Field min_value;
     Field max_value;
+};
+
+// Dictionary pruning evaluates file-level dictionary values, not row-level data. A kNoMatch result
+// means no non-null dictionary entry can satisfy the expression, so the whole row group can be
+// skipped only for dictionary-encoded columns whose dictionary contains all non-null values.
+struct DictionaryEvalContext {
+    struct SlotDictionary {
+        DataTypePtr data_type;
+        std::vector<Field> values;
+    };
+
+    const SlotDictionary* slot(int slot_index) const;
+    std::map<int, SlotDictionary> slots;
+};
+
+// Bloom-filter pruning can only disprove equality-style predicates. A kNoMatch result means every
+// literal candidate required by the expression is definitely absent from the file bloom filter.
+struct BloomFilterEvalContext {
+    struct SlotBloomFilter {
+        DataTypePtr data_type;
+        const segment_v2::BloomFilter* bloom_filter = nullptr;
+    };
+
+    const SlotBloomFilter* slot(int slot_index) const;
+    std::map<int, SlotBloomFilter> slots;
 };
 
 struct SlotLiteral {
@@ -115,11 +145,33 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
                                     bool is_not_in, const std::vector<Field>& values,
                                     const Field& min_value, const Field& max_value);
 
+ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
+                                       const SlotLiteral& slot_literal);
+
+ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const VExprSPtr& slot_expr,
+                                       bool is_not_in, const std::vector<Field>& values);
+
+ZoneMapFilterResult eval_eq_bloom_filter(const BloomFilterEvalContext& ctx,
+                                         const SlotLiteral& slot_literal);
+
+ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
+                                         const VExprSPtr& slot_expr, bool is_not_in,
+                                         const std::vector<Field>& values);
+
 // Return the only slot ordinal referenced by a zonemap-evaluable expression in its current
 // binding. Expressions that are unsupported by zonemap pruning, reference multiple slots, or use an
 // invalid negative slot ordinal return a negative value.
 int single_slot_zonemap_index(const VExprContextSPtr& ctx);
 
+int single_slot_dictionary_index(const VExprContextSPtr& ctx);
+
+int single_slot_bloom_filter_index(const VExprContextSPtr& ctx);
+
 bool is_expr_zonemap_filter_enabled(const RuntimeState* state);
 
 } // namespace doris::expr_zonemap
+
+namespace doris {
+using DictionaryEvalContext = expr_zonemap::DictionaryEvalContext;
+using BloomFilterEvalContext = expr_zonemap::BloomFilterEvalContext;
+} // namespace doris

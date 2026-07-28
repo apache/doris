@@ -322,9 +322,9 @@ public class SchemaChangeHandler extends AlterHandler {
     private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
-        if (!newColumn.isVisible()) {
-            // row binlog schema is generated from visible columns only, so schema change must not
-            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+        if (!newColumn.isVisible() && !newColumn.isKey()) {
+            // Row-binlog writes visible columns plus hidden key columns. Skip hidden non-key
+            // system columns such as sequence/delete/version/skip-bitmap columns.
             return;
         }
 
@@ -371,8 +371,8 @@ public class SchemaChangeHandler extends AlterHandler {
             } else {
                 if (columnName.contains(Column.BINLOG_BEFORE_PREFIX)) {
                     lastBeforeValueCol = columnName;
-                } else if (columnName.equals(Column.BINLOG_LSN_COL) || columnName.equals(Column.BINLOG_OPERATION_COL)
-                        || columnName.equals(Column.BINLOG_TIMESTAMP_COL)) {
+                } else if (columnName.equals(Column.BINLOG_TSO_COL) || columnName.equals(Column.BINLOG_LSN_COL)
+                        || columnName.equals(Column.BINLOG_OPERATION_COL)) {
                     continue;
                 } else {
                     lastValueCol = columnName;
@@ -1434,6 +1434,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Can not enable sequence column support, already supported sequence column.");
             } else if (newColName.equalsIgnoreCase(Column.VERSION_COL)) {
                 throw new DdlException("Can not enable version column support, already supported version column.");
+            } else if (newColName.equalsIgnoreCase(Column.COMMIT_TSO_COL)) {
+                throw new DdlException(
+                        "Can not enable commit tso column support, already supported commit tso column.");
             } else {
                 if (ignoreSameColumn && newColumn.equals(foundColumn)) {
                     //for add columns rpc, allow add same type column.

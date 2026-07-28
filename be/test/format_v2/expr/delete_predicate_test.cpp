@@ -62,6 +62,17 @@ protected:
         VExprContext context(delete_predicate);
         return delete_predicate->execute(&context, block, result_column_id);
     }
+
+    static Status execute_delete_predicate(const roaring::Roaring64Map& deletion_vector,
+                                           Block* block, int* result_column_id) {
+        auto delete_predicate = std::make_shared<DeletePredicate>(deletion_vector);
+        delete_predicate->_open_finished = true;
+        delete_predicate->add_child(
+                std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>()));
+
+        VExprContext context(delete_predicate);
+        return delete_predicate->execute(&context, block, result_column_id);
+    }
 };
 
 TEST_F(DeletePredicateTest, MatchDeletedRowsInInputRange) {
@@ -73,6 +84,19 @@ TEST_F(DeletePredicateTest, MatchDeletedRowsInInputRange) {
     ASSERT_TRUE(status.ok()) << status;
 
     EXPECT_EQ(result_column_id, 1);
+    EXPECT_EQ(result_column_data(block, result_column_id),
+              std::vector<UInt8>({0, 1, 0, 0, 1, 0, 1, 1}));
+}
+
+TEST_F(DeletePredicateTest, MatchCompressedDeletionVectorWithoutExpansion) {
+    // The cached DV remains a Roaring bitmap all the way into the file-level predicate. Include
+    // values on both sides of the current batch to exercise the iterator range seek.
+    const roaring::Roaring64Map deletion_vector {1, 4, 8, 12, 20};
+    auto block = make_block({0, 1, 2, 3, 4, 5, 8, 12});
+
+    int result_column_id = -1;
+    const auto status = execute_delete_predicate(deletion_vector, &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
     EXPECT_EQ(result_column_data(block, result_column_id),
               std::vector<UInt8>({0, 1, 0, 0, 1, 0, 1, 1}));
 }

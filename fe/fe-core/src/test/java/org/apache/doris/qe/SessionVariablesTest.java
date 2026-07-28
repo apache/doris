@@ -80,6 +80,39 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testForwardQueryCacheVariables() {
+        // A forwarded statement is planned by the master in a fresh
+        // ConnectContext that only sees what getForwardVariables() sends, so
+        // every session variable the query cache reads at plan time must
+        // travel: the switch and its incremental companion (both planner gates
+        // and the eligibility check), and the three the cache param carries
+        // (a forced refresh must not be dropped, and entries must be sized by
+        // the session's limits, not the master's defaults).
+        SessionVariable follower = new SessionVariable();
+        follower.setEnableQueryCache(true);
+        follower.setEnableQueryCacheIncremental(true);
+        follower.setQueryCacheForceRefresh(true);
+        follower.setQueryCacheEntryMaxBytes(4096);
+        follower.setQueryCacheEntryMaxRows(64);
+        Map<String, String> vars = follower.getForwardVariables();
+        Assertions.assertEquals("true", vars.get(SessionVariable.ENABLE_QUERY_CACHE));
+        Assertions.assertEquals("true", vars.get(SessionVariable.ENABLE_QUERY_CACHE_INCREMENTAL));
+        Assertions.assertEquals("true", vars.get(SessionVariable.QUERY_CACHE_FORCE_REFRESH));
+        Assertions.assertEquals("4096", vars.get(SessionVariable.QUERY_CACHE_ENTRY_MAX_BYTES));
+        Assertions.assertEquals("64", vars.get(SessionVariable.QUERY_CACHE_ENTRY_MAX_ROWS));
+
+        SessionVariable master = new SessionVariable();
+        Assertions.assertFalse(master.getEnableQueryCache());
+        Assertions.assertFalse(master.getEnableQueryCacheIncremental());
+        master.setForwardedSessionVariables(vars);
+        Assertions.assertTrue(master.getEnableQueryCache());
+        Assertions.assertTrue(master.getEnableQueryCacheIncremental());
+        Assertions.assertTrue(master.isQueryCacheForceRefresh());
+        Assertions.assertEquals(4096, master.getQueryCacheEntryMaxBytes());
+        Assertions.assertEquals(64, master.getQueryCacheEntryMaxRows());
+    }
+
+    @Test
     public void testInsertVisibleTimeoutReturnMode() throws Exception {
         connectContext.setThreadLocalInfo();
         SessionVariable sessionVar = connectContext.getSessionVariable();
@@ -170,6 +203,16 @@ public class SessionVariablesTest extends TestWithFeService {
                         + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
                         + "The legacy Coordinator path keeps the existing behavior."
         }, varAttr.description());
+    }
+
+    @Test
+    public void testExternalTableBatchModeDefaultsAndFuzzyAttribute() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.getEnableExternalTableBatchMode());
+
+        Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertTrue(varAttr.fuzzy());
     }
 
     @Test
@@ -380,5 +423,17 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertEquals(0.9, opts.getPredicateLmStage1SurvivalRatioThreshold());
         Assertions.assertTrue(opts.isSetPredicateLmMinScanRows());
         Assertions.assertEquals(131072, opts.getPredicateLmMinScanRows());
+    }
+
+    @Test
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
 }

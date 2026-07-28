@@ -18,11 +18,13 @@
 package org.apache.doris.datasource.credentials;
 
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -34,13 +36,13 @@ public abstract class AbstractVendedCredentialsProvider {
 
     /**
      * Get temporary storage attribute maps containing vendor credentials
-     * This is the core method: format conversion via StorageProperties.createAll()
+     * This is the core method: format conversion via StorageAdapter.ofAll()
      *
      * @param metastoreProperties Metastore properties
      * @param tableObject Table object (generics, support different data sources)
      * @return Storage attribute mapping containing temporary credentials
      */
-    public final <T> Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMapWithVendedCredentials(
+    public final <T> Map<StorageTypeId, StorageAdapter> getStoragePropertiesMapWithVendedCredentials(
             MetastoreProperties metastoreProperties,
             T tableObject) {
 
@@ -62,13 +64,18 @@ public abstract class AbstractVendedCredentialsProvider {
                 return null;
             }
 
-            // 3. Key steps: Format conversion via StorageProperties.createAll()
+            // 3. Key steps: Format conversion via StorageAdapter.ofAll()
             // This avoids writing duplicate transformation logic in the VendedCredentials class
-            List<StorageProperties> vendedStorageProperties = StorageProperties.createAll(filteredCredentials);
+            List<StorageAdapter> vendedStorageAdapters = StorageAdapter.ofAll(filteredCredentials);
 
-            // 4. Convert to Map format
-            Map<StorageProperties.Type, StorageProperties> vendedPropertiesMap = vendedStorageProperties.stream()
-                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+            // 4. Convert to Map format. LinkedHashMap keeps the binding order (default HDFS pad
+            // first, explicit providers after) so downstream values() iteration merges backend
+            // maps in the same last-writer-wins order as the legacy enum-keyed HashMap.
+            Map<StorageTypeId, StorageAdapter> vendedPropertiesMap = vendedStorageAdapters.stream()
+                    .collect(Collectors.toMap(StorageAdapter::getType, Function.identity(),
+                            (a, b) -> {
+                                throw new IllegalStateException("Duplicate storage type: " + a.getType());
+                            }, LinkedHashMap::new));
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Successfully applied vended credentials for table: {}", getTableName(tableObject));
@@ -89,7 +96,7 @@ public abstract class AbstractVendedCredentialsProvider {
 
     /**
      * Extract original vendored credentials from table objects (subclass implementation)
-     * Returns the original format attribute, which is responsible for the conversion by StorageProperties.createAll()
+     * Returns the original format attribute, which is responsible for the conversion by StorageAdapter.ofAll()
      */
     protected abstract <T> Map<String, String> extractRawVendedCredentials(T tableObject);
 

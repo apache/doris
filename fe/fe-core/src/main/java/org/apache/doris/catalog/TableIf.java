@@ -46,6 +46,36 @@ import java.util.concurrent.TimeUnit;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
+    class TableStatusStats {
+        private final long rows;
+        private final long dataLength;
+        private final long avgRowLength;
+        private final long indexLength;
+
+        public TableStatusStats(long rows, long dataLength, long avgRowLength, long indexLength) {
+            this.rows = rows;
+            this.dataLength = dataLength;
+            this.avgRowLength = avgRowLength;
+            this.indexLength = indexLength;
+        }
+
+        public long getRows() {
+            return rows;
+        }
+
+        public long getDataLength() {
+            return dataLength;
+        }
+
+        public long getAvgRowLength() {
+            return avgRowLength;
+        }
+
+        public long getIndexLength() {
+            return indexLength;
+        }
+    }
+
     long UNKNOWN_ROW_COUNT = -1;
 
     default void readLock() {
@@ -175,6 +205,10 @@ public interface TableIf {
     long getAvgRowLength();
 
     long getIndexLength();
+
+    default TableStatusStats getTableStatusStats() {
+        return new TableStatusStats(getCachedRowCount(), getDataLength(), getAvgRowLength(), getIndexLength());
+    }
 
     long getLastCheckTime();
 

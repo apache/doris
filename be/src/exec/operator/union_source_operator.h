@@ -122,13 +122,6 @@ public:
     }
 
 private:
-    bool _has_data(RuntimeState* state) const {
-        auto& local_state = get_local_state(state);
-        if (_child_size == 0) {
-            return local_state._need_read_for_const_expr;
-        }
-        return local_state._shared_state->data_queue.remaining_has_data();
-    }
     bool has_more_const(RuntimeState* state) const {
         auto& local_state = get_local_state(state);
         return state->per_fragment_instance_idx() == 0 &&

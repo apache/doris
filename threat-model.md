@@ -101,12 +101,12 @@ ports / inputs each family exposes; `In model?` ties to §4.3.
 | 4 | **FE auth providers** | `fe/fe-authentication/` | Pluggable: native, LDAP | **Yes** |
 | 5 | **FE connectors** (catalogs) | `fe/fe-connector/{iceberg,hudi,hms,jdbc,paimon,trino,maxcompute,es}` | Outbound to external systems; in-process JAR loading | **Yes** (memory safety only; data trusted per §4.6) |
 | 6 | **BE Java extensions** | `fe/be-java-extensions/` | In-process JVM in BE | **Yes** (memory safety; UDF code trusted per §4.6) |
-| 7 | **HDFS / FS broker** | `fs_brokers/apache_hdfs_broker/` | Thrift RPC (cluster-internal) | **Yes** (internal trust per §4.4) |
+| 7 | **HDFS / FS broker client** | `fe/fe-filesystem/fe-filesystem-broker/` | Thrift RPC to external broker (cluster-internal); the in-tree `apache_hdfs_broker` daemon has been removed | **Yes** (internal trust per §4.4) |
 | 8 | Web UI | `ui/` + `webroot/` | Served via FE 8030 (auth gated) | **Yes** |
 | 9 | Vendored MySQL source | `mysql/mysql-{9.4.0,9.5.0}/` | None (reference only, not built or shipped) | **No** *(maintainer, Q4)* |
 | 10 | Sample / dev / CI | `samples/`, `docker/`, `pytest/`, `regression-test/`, `jdbc-version-test/`, `task_executor_simulator/`, `hooks/`, `build-support/` | None at runtime | **No** *(maintainer, Q4)* |
 | 11 | All FE plugins | `fe_plugins/` (`auditdemo`, `auditloader`, `sparksql-converter`, `trino-converter`) | FE plugin SPI | **No** *(maintainer, Q4, M4)* — `auditloader` included; users opting in take ownership |
-| 12 | Client SDKs / extensions / CDC client | `sdk/`, `extension/`, `cdc_client` | Client-side libraries | **No** *(maintainer, Q4)* — separately versioned |
+| 12 | Client SDKs / extensions / CDC client | `extension/`, `cdc_client` (Doris SDKs now maintained out-of-tree in a separate `doris-sdk` repo) | Client-side libraries | **No** *(maintainer, Q4)* — separately versioned |
 
 ---
 
@@ -649,7 +649,7 @@ primary; cite externally only when closing a specific report**
   `task_executor_simulator/` has an XYZ issue."** — Per §4.2 row 10.
 - **"`fe_plugins/*` (including `auditloader`) has an XYZ issue."**
   — `OUT-OF-MODEL: unsupported-component` per §4.2 row 11 (M4).
-- **"`sdk/` / `extension/` / `cdc_client/` has an XYZ issue."** —
+- **"`extension/` / `cdc_client/` has an XYZ issue."** —
   Per §4.2 row 12.
 - **"`ADMIN SET CONFIG ...` allows arbitrary file path / arbitrary
   command."** — Requires `ADMIN_PRIV`; admin trusted by §4.7 (M3).

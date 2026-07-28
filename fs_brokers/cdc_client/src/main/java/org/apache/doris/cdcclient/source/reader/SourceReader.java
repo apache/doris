@@ -101,7 +101,7 @@ public interface SourceReader {
     default void applySchemaChange(Map<TableId, TableChanges.TableChange> updatedSchemas) {}
 
     /** Serialize current tableSchemas to JSON for persistence via commitOffset. */
-    default String serializeTableSchemas() {
+    default String serializeTableSchemas() throws IOException {
         return null;
     }
 

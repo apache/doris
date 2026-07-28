@@ -22,8 +22,10 @@
 #include <memory>
 
 #include "arrow/array/builder_binary.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/value/jsonb_value.h"
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
@@ -116,6 +118,9 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
 Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                   int64_t start, int64_t end,
                                                   const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);

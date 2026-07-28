@@ -18,18 +18,17 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -150,9 +149,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 context.needOutputCount(), rightFuncs);
         boolean rightNeedOutputCount = needOutputCountForJoinChild(join, toRight, toLeft,
                 context.needOutputCount(), leftFuncs);
-        Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.of(context.forOneBranch(leftFuncs,
+        Optional<PushDownAggContext> leftChildContext = toLeft ? Optional.ofNullable(context.forOneBranch(leftFuncs,
                 leftAliasMap, leftChildGroupByKeys, passThroughBigJoin, leftNeedOutputCount)) : Optional.empty();
-        Optional<PushDownAggContext> rightChildContext = toRight ? Optional.of(context.forOneBranch(rightFuncs,
+        Optional<PushDownAggContext> rightChildContext = toRight ? Optional.ofNullable(context.forOneBranch(rightFuncs,
                 rightAliasMap, rightChildGroupByKeys, passThroughBigJoin, rightNeedOutputCount)) : Optional.empty();
 
         Plan newLeft = join.left();
@@ -223,7 +222,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return Pair.of(false, false);
         }
         if (deduplicateOnly) {
-            return adjustPushSideForCaseWhen(join, context, toLeft, toRight);
+            return adjustPushSideForNullToNonNull(join, context, toLeft, toRight);
         }
         if (toLeft && toRight) {
             return join.getJoinType().isInnerOrCrossJoin()
@@ -231,7 +230,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     : Pair.of(false, false);
         }
         // one-side push down
-        Pair<Boolean, Boolean> pushSide = adjustPushSideForCaseWhen(join, context, toLeft, toRight);
+        Pair<Boolean, Boolean> pushSide = adjustPushSideForNullToNonNull(join, context, toLeft, toRight);
         if (!pushSide.first && !pushSide.second) {
             return pushSide;
         }
@@ -251,13 +250,14 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 && hasAggNeedJoinMultiplicityRecovery(oppositeAggFunctions);
     }
 
-    private Pair<Boolean, Boolean> adjustPushSideForCaseWhen(
+    private Pair<Boolean, Boolean> adjustPushSideForNullToNonNull(
             LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context,
             boolean toLeft, boolean toRight) {
-        // Do not push aggregation to the nullable side of outer joins when agg function contains case-when.
-        // CaseWhen expressions may produce non-null values from null-padded rows (e.g., WHEN col IS NULL THEN -54),
+        // Do not push aggregation to the nullable side of outer joins when agg function contains
+        // a NullToNonNullFunction (e.g. COALESCE, NVL, IF, CASE WHEN, NULL_OR_EMPTY).
+        // These expressions may produce non-null values from null-padded rows,
         // so pre-aggregation before the join loses those contributions.
-        if (!(context.hasDecomposedAggIf || context.hasCaseWhen)) {
+        if (!(context.hasDecomposedAggIf || context.containsNullToNonNull)) {
             return Pair.of(toLeft, toRight);
         }
         JoinType joinType = join.getJoinType();
@@ -274,8 +274,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         return Pair.of(toLeft, toRight);
     }
 
-    // Do not push agg(literal) or agg(preserved_side_col) to the nullable side of outer joins.
-    // Aggregates like count(*), sum(2), min(1) etc. aggregate over all physical rows,
+    // Do not push count(*)/agg(literal)(e.g. sum(2), min(1)) to the nullable side of outer joins.
+    // Aggregates without input from the nullable side aggregate over all physical rows,
     // including null-extended rows from the outer join.
     // After pushdown to the nullable side, unmatched rows produce NULL for the pre-aggregated value,
     // losing the contribution of those rows (e.g. sum(2) should add 2 per unmatched row,
@@ -383,21 +383,23 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aggFunctions.add(newAggFunc);
         }
         // After pushing expressions past the project, the agg functions may now
-        // contain If/CaseWhen that were hidden behind slot references before.
-        // e.g. count(#slot) where #slot = if(cond, a, b) in the project.
-        // We must re-check and update hasCaseWhen accordingly.
-        boolean newHasCaseWhen = context.hasCaseWhen;
-        if (!newHasCaseWhen) {
+        // contain NullToNonNull expressions that were hidden behind slot references before.
+        // e.g. count(#slot) where #slot = coalesce(a, 0) in the project.
+        // We must re-check and update containsNullToNonNull accordingly.
+        boolean newContainsNullToNonNull = context.containsNullToNonNull;
+        if (!newContainsNullToNonNull) {
             for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
-                    newHasCaseWhen = true;
+                if (aggFunc.children().stream().anyMatch(
+                        arg -> arg.anyMatch(e ->
+                                NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
+                    newContainsNullToNonNull = true;
                     break;
                 }
             }
         }
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughBigJoin(),
-                context.hasDecomposedAggIf, newHasCaseWhen,
+                context.hasDecomposedAggIf, newContainsNullToNonNull,
                 context.getBilateralState(), context.needOutputCount());
         return newContext;
     }
@@ -528,7 +530,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     .collect(Collectors.toList());
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
-                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen,
+                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.containsNullToNonNull,
                     context.getBilateralState(), context.needOutputCount());
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
@@ -745,6 +747,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalRelation(LogicalRelation relation, PushDownAggContext context) {
+        if (context.aggFuncAndGroupKeyAllEmpty()) {
+            return relation;
+        }
         return genAggregate(relation, context);
     }
 
@@ -771,6 +776,43 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (isPushDisabledByVariable(context)) {
             return child;
         }
+        // Forbid creating a scalar aggregate (aggregate without GROUP BY keys) during
+        // push-down. A scalar aggregate emits 1 row even when its input is empty
+        // (SQL standard: SELECT COUNT(*) FROM empty_table returns 1 row with 0).
+        // When placed below a join, that 1 row joins with rows from the other side,
+        // producing phantom rows that do not exist in the original query.
+        //
+        // This guard is placed at the aggregate-creation boundary rather than upstream
+        // (e.g. visitLogicalJoin or createContextFromProject) because context.groupKeys
+        // can change during intermediate rewrites. Checking groupKeys.isEmpty() early
+        // would either fire on a stale empty state (missing a later filter that adds
+        // keys) or fail to fire because a constant key has not yet been resolved to
+        // empty input slots. Example plan that reaches genAggregate with groupKeys=[]:
+        //
+        //   Aggregate(group=[k], sum(z))
+        //     CrossJoin
+        //       Project(1 AS k, A.v + B.v AS z)
+        //         InnerJoin(A.id = B.id)
+        //           Scan A
+        //           Scan B
+        //       Scan R
+        //
+        // Walk:
+        // 1. visitLogicalJoin(crossJoin): parentContext.groupKeys=[k]
+        //    → fillGroupByKeys puts k in leftChildGroupByKeys → forOneBranch succeeds
+        // 2. visitLogicalProject: createContextFromProject maps k through "1 AS k"
+        //    → literal 1 has no input slots → newContext.groupKeys=[]
+        // 3. visitLogicalJoin(innerJoin): sum(A.v+B.v) spans both sides
+        //    → toLeft=false, toRight=false → falls back to genAggregate with groupKeys=[]
+        //    → without this guard, creates scalar agg below crossJoin → phantom rows
+        //
+        // If the guard were at visitLogicalJoin step 1, groupKeys=[k] (non-empty) would
+        // pass. If at createContextFromProject step 2, it would block before a downstream
+        // filter had the chance to add keys. Only genAggregate sees the final state.
+        // See regression test: scalar_agg_pushdown.groovy
+        if (context.getGroupKeys().isEmpty()) {
+            return child;
+        }
         if (checkStats(child, context) || isPushEnabledByVariable(context)) {
             List<NamedExpression> aggOutputExpressions = new ArrayList<>();
             for (AggregateFunction func : context.getAggFunctions()) {
@@ -791,21 +833,23 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 aggOutputExpressions.add(outputCountAlias.get());
             }
             LogicalAggregate genAgg = new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
-            NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
-            Plan normalized = normalizeAggregate.normalizeAgg(genAgg, Optional.empty(),
-                    context.getCascadesContext());
 
             for (AggregateFunction func : context.getAggFunctions()) {
                 Alias a = context.getAliasMap().get(func);
-                Slot pushedSlot = normalized.getOutput().stream()
+                Slot pushedSlot = genAgg.getOutput().stream()
                         .filter(slot -> slot.getExprId().equals(a.getExprId()))
                         .findFirst()
                         .orElse(a.toSlot());
                 context.getBilateralState().registerPushedAggFuncSlot(a.getExprId(), pushedSlot);
             }
             outputCountAlias.ifPresent(
-                    alias -> context.getBilateralState().registerCountSlot(normalized, alias.toSlot()));
-            return normalized;
+                    alias -> context.getBilateralState().registerCountSlot(genAgg, alias.toSlot()));
+            // Return non-normalized aggregate directly. The optimizer fix-point loop
+            // will invoke NormalizeAggregate rule in the next iteration if needed.
+            // Explicit normalization here is redundant (the original aggregate was
+            // already normalized) and could alter expression shapes that the push-down
+            // logic relies on for correct NullToNonNullFunction detection.
+            return genAgg;
         } else {
             return child;
         }

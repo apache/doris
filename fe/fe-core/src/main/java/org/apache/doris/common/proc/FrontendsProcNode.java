@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
@@ -123,7 +124,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
-            info.add(Integer.toString(Config.http_port));
+            info.add(Integer.toString(HttpURLUtil.getHttpPort()));
 
             if (fe.getNodeName().equals(env.getNodeName())) {
                 info.add(Integer.toString(Config.query_port));
@@ -163,6 +164,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // To indicate which FE we currently connected
             info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
             info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
+            info.add(fe.getLocalResourceGroup());
 
             infos.add(info);
         }

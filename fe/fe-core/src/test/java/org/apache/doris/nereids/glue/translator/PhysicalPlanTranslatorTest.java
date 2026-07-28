@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -57,6 +59,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -76,6 +79,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
@@ -216,6 +220,51 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
+    public void testRfPartitionPruneSnapshotSurvivesEnablementChange() throws Exception {
+        int oldRuntimeFilterType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldEnablePartitionPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        boolean oldEnableRuntimeFilterPrune =
+                connectContext.getSessionVariable().isEnableRuntimeFilterPrune();
+        boolean oldDisableJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
+        try {
+            connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
+            connectContext.getSessionVariable().setDisableJoinReorder(true);
+
+            Planner planner = getSQLPlanner("select p.* from test_db.partitioned_t p "
+                    + "join [broadcast] test_db.t d on p.p1 = d.a");
+            List<OlapScanNode> scanNodes = new ArrayList<>();
+            for (PlanFragment fragment : planner.getFragments()) {
+                PlanNode root = fragment.getPlanRoot();
+                if (root != null) {
+                    root.collect(OlapScanNode.class, scanNodes);
+                }
+            }
+            OlapScanNode partitionedScan = scanNodes.stream()
+                    .filter(scan -> scan.getOlapTable().getName().equals("partitioned_t"))
+                    .findFirst()
+                    .orElseThrow();
+            Assertions.assertEquals(2, partitionedScan.getSelectedPartitionIds().size());
+
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            TPlanNode thriftScanNode = partitionedScan.treeToThrift().getNodes().get(0);
+
+            Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetPartitionBoundaries());
+            Assertions.assertEquals(Sets.newHashSet(partitionedScan.getSelectedPartitionIds()),
+                    thriftScanNode.olap_scan_node.getPartitionBoundaries().stream()
+                            .map(boundary -> boundary.getPartitionId())
+                            .collect(Collectors.toSet()));
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldRuntimeFilterType);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(oldEnablePartitionPrune);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPrune(oldEnableRuntimeFilterPrune);
+            connectContext.getSessionVariable().setDisableJoinReorder(oldDisableJoinReorder);
+        }
+    }
+
+    @Test
     public void testNereidsFileScanCarryPartitionPredicateSignal() throws Exception {
         PhysicalFileScan fileScan = Mockito.mock(PhysicalFileScan.class);
         PlanTranslatorContext context = new PlanTranslatorContext();
@@ -264,6 +313,37 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 }
             }
         });
+    }
+
+    @Test
+    public void testPartitionTopNPrunesPartitionKeyFromSortInfo() throws Exception {
+        connectContext.getSessionVariable().setEnablePartitionTopN(true);
+        String sql = "select * from (select a, b, rank() over(partition by a order by a, b) as rk "
+                + "from test_db.t) t where rk <= 1";
+        Planner planner = getSQLPlanner(sql);
+        Assertions.assertNotNull(planner);
+
+        List<PartitionSortNode> partitionSortNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                root.collect(PartitionSortNode.class, partitionSortNodes);
+            }
+        }
+        Assertions.assertFalse(partitionSortNodes.isEmpty());
+
+        Field sortInfoField = PartitionSortNode.class.getDeclaredField("info");
+        sortInfoField.setAccessible(true);
+        SortInfo sortInfo = (SortInfo) sortInfoField.get(partitionSortNodes.get(0));
+        List<Expr> orderingExprs = sortInfo.getOrderingExprs();
+        Assertions.assertEquals(1, orderingExprs.size());
+        // The redundant partition key `a` must be pruned, leaving exactly the slot `b`. Assert the slot
+        // identity directly: a substring check on the WITH_TABLE-rendered SQL would false-pass because the
+        // table prefix `test_db` already contains the letter "b".
+        Expr orderingExpr = orderingExprs.get(0);
+        Assertions.assertInstanceOf(SlotRef.class, orderingExpr);
+        Assertions.assertEquals("b", ((SlotRef) orderingExpr).getColumnName());
+        Assertions.assertNotEquals("a", ((SlotRef) orderingExpr).getColumnName());
     }
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {

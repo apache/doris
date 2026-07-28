@@ -50,10 +50,6 @@ public class OlapTableStream extends BaseTableStream {
     @SerializedName("pct")
     private Map<Long, Long> partitionConsumptionTime;
 
-    // temporary var, would be removed after full implementation
-    @SerializedName("hpo")
-    private Map<Long, Long> historicalPartitionOffset;
-
     @SerializedName("hpt")
     private Map<Long, Long> historicalPartitionTSO;
 
@@ -67,7 +63,6 @@ public class OlapTableStream extends BaseTableStream {
         Preconditions.checkArgument(baseTable instanceof OlapTable);
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
-        this.historicalPartitionOffset = new HashMap<>();
         this.historicalPartitionTSO = new HashMap<>();
         this.baseTable = baseTable;
     }
@@ -104,7 +99,6 @@ public class OlapTableStream extends BaseTableStream {
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                     .forEach(p -> {
-                                historicalPartitionOffset.put(p.getId(), p.getVisibleVersion());
                                 historicalPartitionTSO.put(p.getId(), p.getTso());
                                     }
                     );
@@ -189,11 +183,21 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public boolean hasHistoricalData(long partitionId) {
-        return historicalPartitionOffset.containsKey(partitionId);
+        return historicalPartitionTSO.containsKey(partitionId);
+    }
+
+    public boolean hasConsumedData(long partitionId) {
+        return partitionOffset.containsKey(partitionId);
     }
 
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
-        return Pair.of(partitionOffset.get(partitionId), historicalPartitionOffset.get(partitionId));
+        // if partition has historical data, return <historical tso, current tso>
+        // otherwise, return <current consumed tso, current tso>
+        Long left = partitionOffset.get(partitionId);
+        if (historicalPartitionTSO.containsKey(partitionId)) {
+            left = historicalPartitionTSO.get(partitionId);
+        }
+        return Pair.of(left, getBaseTableNullable().getPartition(partitionId).getTso());
     }
 
     @Override
@@ -201,7 +205,7 @@ public class OlapTableStream extends BaseTableStream {
             throws UserException {
         Preconditions.checkArgument(update instanceof OlapTableStreamUpdate);
         // check valid
-        ((OlapTableStreamUpdate) update).checkPartitionOffset(getDBName(), getName(), historicalPartitionOffset,
+        ((OlapTableStreamUpdate) update).checkPartitionOffset(getDBName(), getName(), historicalPartitionTSO,
                 partitionOffset);
     }
 
@@ -209,17 +213,10 @@ public class OlapTableStream extends BaseTableStream {
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts) {
         Map<Long, Long> next = ((OlapTableStreamUpdate) update).getNext();
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
-            if (historicalPartitionOffset.containsKey(entry.getKey())) {
-                historicalPartitionOffset.remove(entry.getKey());
-                if (historicalPartitionTSO == null) {
-                    partitionOffset.put(entry.getKey(), entry.getValue());
-                } else {
-                    partitionOffset.put(entry.getKey(), historicalPartitionTSO.get(entry.getKey()));
-                    historicalPartitionTSO.remove(entry.getKey());
-                }
-            } else {
-                partitionOffset.put(entry.getKey(), entry.getValue());
+            if (historicalPartitionTSO.containsKey(entry.getKey())) {
+                historicalPartitionTSO.remove(entry.getKey());
             }
+            partitionOffset.put(entry.getKey(), entry.getValue());
             partitionConsumptionTime.put(entry.getKey(), ts);
         }
     }
@@ -234,11 +231,6 @@ public class OlapTableStream extends BaseTableStream {
             }
         }
         for (Long partitionId : partitionConsumptionTime.keySet()) {
-            if (!validPartitionIds.contains(partitionId)) {
-                stalePartitionIds.add(partitionId);
-            }
-        }
-        for (Long partitionId : historicalPartitionOffset.keySet()) {
             if (!validPartitionIds.contains(partitionId)) {
                 stalePartitionIds.add(partitionId);
             }
@@ -259,7 +251,6 @@ public class OlapTableStream extends BaseTableStream {
         for (Long partitionId : partitionIds) {
             partitionOffset.remove(partitionId);
             partitionConsumptionTime.remove(partitionId);
-            historicalPartitionOffset.remove(partitionId);
             if (historicalPartitionTSO != null) {
                 historicalPartitionTSO.remove(partitionId);
             }

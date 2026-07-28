@@ -49,6 +49,7 @@
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
 #include "io/cache/peer_file_cache_reader.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
@@ -105,6 +106,14 @@ bvar::Adder<uint64_t> g_peer_race_both_fail("peer_race_both_fail");
 bvar::Adder<uint64_t> g_peer_cross_compute_group_read("peer_cross_compute_group_read");
 bvar::Adder<uint64_t> g_peer_same_compute_group_read("peer_same_compute_group_read");
 bvar::Adder<uint64_t> g_peer_lazy_fetch_triggered("peer_lazy_fetch_triggered");
+
+static bool use_remote_only_on_cache_miss(const IOContext* io_ctx) {
+    if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
+        return true;
+    }
+    auto* limiter = io_ctx->remote_scan_cache_write_limiter;
+    return limiter != nullptr && limiter->remote_only_on_miss();
+}
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -1080,6 +1089,93 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     return Status::OK();
 }
 
+Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
+        size_t offset, Slice result, size_t bytes_req, bool is_dryrun, size_t* bytes_read,
+        ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
+        const IOContext* io_ctx) {
+    auto read_remote = [&]() -> Status {
+        stats.hit_cache = false;
+        stats.from_peer_cache = false;
+        stats.skip_cache = true;
+        s3_read_counter << 1;
+        if (is_dryrun) [[unlikely]] {
+            *bytes_read = bytes_req;
+            g_read_cache_indirect_bytes << 0;
+            g_read_cache_indirect_total_bytes << bytes_req;
+            return Status::OK();
+        }
+
+        size_t remote_bytes_read = bytes_req;
+        SCOPED_RAW_TIMER(&stats.remote_read_timer);
+        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, Slice(result.data, bytes_req),
+                                                     &remote_bytes_read, io_ctx));
+        *bytes_read = remote_bytes_read;
+        DCHECK_EQ(*bytes_read, bytes_req);
+        source_read_breakdown.remote_bytes += remote_bytes_read;
+        g_read_cache_indirect_bytes << remote_bytes_read;
+        g_read_cache_indirect_total_bytes << remote_bytes_read;
+        return Status::OK();
+    };
+
+    g_read_cache_indirect_num << 1;
+    CacheContext cache_context(io_ctx);
+    cache_context.stats = &stats;
+    cache_context.tablet_id = _tablet_id;
+    FileBlocks file_blocks;
+    bool fully_covered = false;
+    {
+        SCOPED_RAW_TIMER(&stats.get_timer);
+        RETURN_IF_ERROR(_cache->get_downloaded_blocks_if_fully_covered(
+                _cache_hash, offset, bytes_req, cache_context, &file_blocks, &fully_covered));
+    }
+    if (!fully_covered) {
+        return read_remote();
+    }
+
+    size_t local_read_bytes = 0;
+    size_t current_offset = offset;
+    size_t end_offset = offset + bytes_req - 1;
+    for (auto& block : file_blocks) {
+        if (current_offset > end_offset) {
+            break;
+        }
+        const auto& block_range = block->range();
+        if (block_range.right < current_offset) {
+            continue;
+        }
+
+        size_t read_left = std::max(current_offset, block_range.left);
+        size_t read_right = std::min(end_offset, block_range.right);
+        size_t read_size = read_right - read_left + 1;
+        if (is_dryrun) [[unlikely]] {
+            g_skip_local_cache_io_sum_bytes << read_size;
+        } else {
+            SCOPED_RAW_TIMER(&stats.local_read_timer);
+            Status st = block->read(Slice(result.data + (read_left - offset), read_size),
+                                    read_left - block_range.left);
+            if (!st.ok()) {
+                if (st.is<ErrorCode::NOT_FOUND>()) {
+                    _cache->remove_if_cached_async(_cache_hash);
+                }
+                LOG_EVERY_N(WARNING, 100)
+                        << "Read data failed from file cache in remote-only-on-miss path. "
+                        << "Fallback to remote. err=" << st.msg()
+                        << ", block state=" << block->state();
+                return read_remote();
+            }
+            source_read_breakdown.local_bytes += read_size;
+            local_read_bytes += read_size;
+        }
+        current_offset = read_right + 1;
+    }
+
+    *bytes_read = bytes_req;
+    stats.hit_cache = true;
+    g_read_cache_indirect_bytes << local_read_bytes;
+    g_read_cache_indirect_total_bytes << bytes_req;
+    return Status::OK();
+}
+
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_read_at);
@@ -1132,6 +1228,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             if (io_ctx->file_cache_stats) {
                 _update_stats(stats, source_read_breakdown, io_ctx->file_cache_stats,
                               file_cache_read_type);
+                auto* limiter = io_ctx->remote_scan_cache_write_limiter;
+                if (limiter != nullptr) {
+                    io_ctx->file_cache_stats->remote_only_on_miss_triggered =
+                            io_ctx->file_cache_stats->remote_only_on_miss_triggered ||
+                            limiter->remote_only_on_miss();
+                    io_ctx->file_cache_stats->remote_only_on_miss_threshold_bytes =
+                            limiter->threshold_bytes();
+                }
             }
             if (!io_ctx->is_warmup) {
                 FileCacheStatistics fcache_stats_increment;
@@ -1141,6 +1245,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             }
         }
     }};
+
+    if (use_remote_only_on_cache_miss(io_ctx)) {
+        read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
+                                                  stats, source_read_breakdown, io_ctx);
+        return read_st;
+    }
 
     size_t already_read = 0;
     if (_try_read_from_cached_files_directly(offset, result, bytes_req, is_dryrun, stats,
@@ -1173,6 +1283,7 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
     dryrun_ctx.query_id = nullptr;
     dryrun_ctx.file_cache_stats = nullptr;
     dryrun_ctx.file_reader_stats = nullptr;
+    dryrun_ctx.remote_scan_cache_write_limiter = nullptr;
 
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
             << fmt::format("[verbose] Submitting prefetch task for offset={} size={}, file={}",
@@ -1254,7 +1365,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                   int64_t& num_peer_io_total, int64_t& bytes_read_from_local,
                                   int64_t& bytes_read_from_remote, int64_t& bytes_read_from_peer,
                                   int64_t& local_io_timer, int64_t& remote_io_timer,
-                                  int64_t& peer_io_timer) {
+                                  int64_t& peer_io_timer, int64_t& write_cache_io_timer,
+                                  int64_t& bytes_write_into_cache) {
         if (has_source_bytes) {
             if (source_read_breakdown.local_bytes != 0) {
                 num_local_io_total++;
@@ -1283,6 +1395,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
             remote_io_timer += read_stats.remote_read_timer;
         }
         local_io_timer += read_stats.local_read_timer;
+        write_cache_io_timer += read_stats.local_write_timer;
+        bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     };
 
     switch (read_type) {
@@ -1296,7 +1410,9 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 statis->inverted_index_bytes_read_from_local,
                 statis->inverted_index_bytes_read_from_remote,
                 statis->inverted_index_bytes_read_from_peer, statis->inverted_index_local_io_timer,
-                statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer);
+                statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer,
+                statis->inverted_index_write_cache_io_timer,
+                statis->inverted_index_bytes_write_into_cache);
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,
@@ -1307,7 +1423,9 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                            statis->segment_footer_index_bytes_read_from_peer,
                            statis->segment_footer_index_local_io_timer,
                            statis->segment_footer_index_remote_io_timer,
-                           statis->segment_footer_index_peer_io_timer);
+                           statis->segment_footer_index_peer_io_timer,
+                           statis->segment_footer_index_write_cache_io_timer,
+                           statis->segment_footer_index_bytes_write_into_cache);
         break;
     }
 

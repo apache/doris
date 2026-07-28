@@ -188,6 +188,11 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(icebergSchema).when(mockedIcebergTable).schema();
+        // The scan now resolves initial defaults from the statement-pinned schema id, so the
+        // mocked table must expose the same historical-schema lookup as a real Iceberg table.
+        Mockito.doAnswer(invocation -> ImmutableMap.of(
+                mockedIcebergTable.schema().schemaId(), mockedIcebergTable.schema()))
+                .when(mockedIcebergTable).schemas();
 
         // Mock newScan() chain used by IcebergScanNode.createTableScan()
         TableScan mockedTableScan = Mockito.mock(TableScan.class, Mockito.RETURNS_DEEP_STUBS);
@@ -198,6 +203,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).filter(ArgumentMatchers.<org.apache.iceberg.expressions.Expression>any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).planWith(ArgumentMatchers.any());
         Mockito.doReturn(null).when(mockedTableScan).snapshot();
+        // Keep the scan schema aligned with the mocked table schema. IcebergScanNode reads the
+        // selected scan schema when serializing initial defaults, and several tests temporarily
+        // replace the table schema to exercise partition transforms.
+        Mockito.doAnswer(invocation -> mockedIcebergTable.schema()).when(mockedTableScan).schema();
         Mockito.doReturn(CloseableIterable.withNoopClose(java.util.Collections.emptyList()))
                 .when(mockedTableScan).planFiles();
 

@@ -81,10 +81,12 @@ struct AggregateFunctionArrayAggData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
-        auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
+        auto* col_null = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(&to_nested_col);
+        auto& vec =
+                assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(col_null->get_nested_column())
+                        .get_data();
         size_t num_rows = null_map->size();
         auto& nested_column_data = nested_column->get_data();
         for (size_t i = 0; i < num_rows; ++i) {
@@ -177,10 +179,11 @@ struct AggregateFunctionArrayAggData<T> {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
-        auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column());
+        auto* col_null = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(&to_nested_col);
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
+                col_null->get_nested_column());
         size_t num_rows = null_map->size();
         for (size_t i = 0; i < num_rows; ++i) {
             col_null->get_null_map_data().push_back((*null_map)[i]);
@@ -252,7 +255,7 @@ struct AggregateFunctionArrayAggData<T> {
     void reset() { column_data->clear(); }
 
     void insert_result_into(IColumn& to) const {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
         size_t num_rows = column_data->size();
         for (size_t i = 0; i < num_rows; ++i) {
@@ -311,7 +314,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
         DCHECK(to_nested_col.is_nullable());
         this->data(place).insert_result_into(to);
@@ -360,6 +363,9 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
+        if constexpr (is_string_type(Data::PType)) {
+            check_array_nullable_string_column_type(*dst, true);
+        }
         auto& to_arr = assert_cast<ColumnArray&>(*dst);
         auto& to_nested_col = to_arr.get_data();
         DCHECK(num_rows == columns[0]->size());
@@ -399,7 +405,52 @@ public:
 
     DataTypePtr get_serialized_type() const override { return return_type; }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (is_string_type(Data::PType)) {
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(*columns[0]);
+            if (UNLIKELY(nullable_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} argument 0 type check failed: Column type {} is "
+                        "not ColumnNullable",
+                        get_name(), columns[0]->get_name()));
+            }
+            this->template check_argument_column_type<ColumnString>(
+                    &nullable_column->get_nested_column());
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        if constexpr (is_string_type(Data::PType)) {
+            check_array_nullable_string_column_type(to, true);
+        }
+    }
+
 private:
+    void check_array_nullable_string_column_type(const IColumn& column,
+                                                 bool is_result_column) const {
+        const auto* array_column = check_and_get_column<ColumnArray>(column);
+        if (UNLIKELY(array_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} {} type check failed: Column type {} is not "
+                    "ColumnArray",
+                    get_name(), is_result_column ? "result" : "argument", column.get_name()));
+        }
+
+        const auto& nested_column = array_column->get_data();
+        const auto* nullable_column = check_and_get_column<ColumnNullable>(nested_column);
+        if (UNLIKELY(nullable_column == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} {} type check failed: Column type {} is not "
+                    "ColumnNullable",
+                    get_name(), is_result_column ? "result" : "argument",
+                    nested_column.get_name()));
+        }
+        this->template check_result_column_type_as<ColumnString>(
+                nullable_column->get_nested_column());
+    }
+
     DataTypePtr return_type;
 };
 

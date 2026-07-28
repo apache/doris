@@ -20,7 +20,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemTransferUtil;
@@ -221,8 +222,23 @@ public class AcidUtil {
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
     public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
-            Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+            Map<String, String> txnValidIds, Map<StorageTypeId, StorageAdapter> storagePropertiesMap,
                                               boolean isFullAcid) throws Exception {
+        return getAcidState(fileSystem, partition, txnValidIds, storagePropertiesMap, isFullAcid,
+                partition.getPath());
+    }
+
+    /**
+     * Variant taking the partition location already normalized by the same {@code LocationPath}
+     * resolution that selected {@code fileSystem}. Concrete filesystems only accept their native
+     * schemes, so when the legacy cross-scheme fallback fires (e.g. a {@code cos://} HMS location
+     * served by s3.* storage properties) the raw partition path must not be globbed directly;
+     * using the normalized path keeps base/delta listing and the BE-facing AcidInfo locations
+     * consistent with the non-transactional listing path.
+     */
+    public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
+            Map<String, String> txnValidIds, Map<StorageTypeId, StorageAdapter> storagePropertiesMap,
+            boolean isFullAcid, String partitionPath) throws Exception {
 
         // Ref: https://issues.apache.org/jira/browse/HIVE-18192
         // Readers should use the combination of ValidTxnList and ValidWriteIdList(Table) for snapshot isolation.
@@ -248,8 +264,7 @@ public class AcidUtil {
             throw new RuntimeException("Miss ValidWriteIdList");
         }
 
-        String partitionPath = partition.getPath();
-        //hdfs://xxxxx/user/hive/warehouse/username/data_id=200103
+        //partitionPath eg: hdfs://xxxxx/user/hive/warehouse/username/data_id=200103
 
         List<FileEntry> lsPartitionPath =
                 FileSystemTransferUtil.globList(fileSystem, partitionPath + "/*", false);
@@ -396,7 +411,7 @@ public class AcidUtil {
                 continue;
             }
             entries.stream().filter(e -> fileFilter.accept(locationName(e.location()))).forEach(entry -> {
-                LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                LocationPath path = LocationPath.ofAdapters(entry.location().uri(), storagePropertiesMap);
                 fileCacheValue.addFile(entry, path);
             });
         }
@@ -406,13 +421,13 @@ public class AcidUtil {
             List<FileEntry> entries = FileSystemTransferUtil.globList(fileSystem, bestBasePath, false);
             entries.stream().filter(e -> fileFilter.accept(locationName(e.location())))
                     .forEach(entry -> {
-                        LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                        LocationPath path = LocationPath.ofAdapters(entry.location().uri(), storagePropertiesMap);
                         fileCacheValue.addFile(entry, path);
                     });
         }
 
         if (isFullAcid) {
-            fileCacheValue.setAcidInfo(new AcidInfo(partition.getPath(), deleteDeltas));
+            fileCacheValue.setAcidInfo(new AcidInfo(partitionPath, deleteDeltas));
         } else if (!deleteDeltas.isEmpty()) {
             throw new RuntimeException("No Hive Full Acid Table have delete_delta_* Dir.");
         }

@@ -54,10 +54,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
+import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
@@ -96,6 +98,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class ThriftPlansBuilder {
     private static final Logger LOG = LogManager.getLogger(ThriftPlansBuilder.class);
@@ -252,7 +255,22 @@ public class ThriftPlansBuilder {
             }
         }
 
+        Map<Integer, List<TPipelineFragmentParams>> olapSinkParamsByFragmentId = Maps.newLinkedHashMap();
+        for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
+            for (TPipelineFragmentParams fragmentParams : kv.getValue().getParamsList()) {
+                TDataSink outputSink = fragmentParams.getFragment().getOutputSink();
+                if (outputSink != null && outputSink.getType() == TDataSinkType.OLAP_TABLE_SINK) {
+                    olapSinkParamsByFragmentId.computeIfAbsent(fragmentParams.getFragmentId(),
+                            ignored -> new ArrayList<>()).add(fragmentParams);
+                }
+            }
+        }
+        for (List<TPipelineFragmentParams> sinkParams : olapSinkParamsByFragmentId.values()) {
+            assignAdaptiveRandomBucketForSinkParams(sinkParams);
+        }
+
         ConnectContext connectContext = coordinatorContext.connectContext;
+
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
             TPipelineFragmentParamsList fragments = kv.getValue();
             for (TPipelineFragmentParams fragmentParams : fragments.getParamsList()) {
@@ -269,6 +287,49 @@ public class ThriftPlansBuilder {
                 }
             }
         }
+    }
+
+    private static void assignAdaptiveRandomBucketForSinkParams(List<TPipelineFragmentParams> sinkParams) {
+        if (sinkParams.isEmpty()) {
+            return;
+        }
+        TOlapTableSink sink = sinkParams.get(0).getFragment().getOutputSink().getOlapTableSink();
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        List<Long> sinkBackendIds = sinkParams.stream()
+                .map(TPipelineFragmentParams::getBackendId)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        int sinkInstanceNum = sinkParams.stream()
+                .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
+                .sum();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket planning in nereids fragment={}, sinkBackendIds={}, "
+                            + "sinkInstanceNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, sinkInstanceNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), sinkInstanceNum);
+        for (TPipelineFragmentParams sinkParam : sinkParams) {
+            Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
+                    assignments.get(sinkParam.getBackendId());
+            if (partitionAssignments == null) {
+                continue;
+            }
+            TOlapTableSink copiedSink = deepCopyOlapTableSinkForCurrentBackend(sinkParam);
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    copiedSink.getPartition().getPartitions(),
+                    partitionAssignments);
+        }
+    }
+
+    private static TOlapTableSink deepCopyOlapTableSinkForCurrentBackend(TPipelineFragmentParams sinkParam) {
+        TDataSink copiedOutputSink = sinkParam.getFragment().getOutputSink().deepCopy();
+        sinkParam.getFragment().setOutputSink(copiedOutputSink);
+        return copiedOutputSink.getOlapTableSink();
     }
 
     private static Multiset<DistributedPlanWorker> computeInstanceNumPerWorker(

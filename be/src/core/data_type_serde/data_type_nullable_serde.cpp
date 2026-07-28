@@ -24,11 +24,13 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
@@ -342,6 +344,10 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_array_range(*arrow_array, start, end);
+        check_arrow_validity_bitmap(*arrow_array);
+    }
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
     for (auto i = start; i < end; ++i) {

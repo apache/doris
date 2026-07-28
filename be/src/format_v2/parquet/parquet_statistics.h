@@ -15,34 +15,54 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "core/field.h"
+#include "core/string_ref.h"
+#include "exprs/vexpr_fwd.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/selection_vector.h"
-
-namespace parquet {
-class BloomFilter;
-class FileMetaData;
-class ParquetFileReader;
-class Statistics;
-} // namespace parquet
 
 namespace cctz {
 class time_zone;
 } // namespace cctz
 
 namespace doris {
-class ColumnPredicate;
+class RuntimeState;
+namespace segment_v2 {
+class BloomFilter;
+struct ZoneMap;
+} // namespace segment_v2
 } // namespace doris
 
 namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
+struct ParquetFileContext;
+struct ParquetTypeDescriptor;
+
+namespace detail {
+Status validate_native_bloom_filter_layout(int64_t offset, uint32_t header_size,
+                                           int64_t payload_size, int64_t declared_length,
+                                           size_t file_size);
+bool can_use_native_footer_min_max(const ParquetTypeDescriptor& type_descriptor,
+                                   const tparquet::Statistics& statistics,
+                                   bool has_type_defined_order);
+bool has_supported_type_defined_order(const tparquet::FileMetaData& metadata, int leaf_column_id);
+tparquet::Statistics sanitize_native_footer_statistics(const ParquetTypeDescriptor& type_descriptor,
+                                                       const tparquet::Statistics& statistics,
+                                                       bool has_type_defined_order);
+} // namespace detail
 
 // ============================================================================
 // ============================================================================
@@ -50,11 +70,12 @@ struct ParquetColumnSchema;
 struct ParquetPruningStats {
     int64_t total_row_groups = 0;                    // total row groups in the file
     int64_t selected_row_groups = 0;                 // row groups selected after pruning
-    int64_t filtered_row_groups_by_statistics = 0;   // row groups pruned by min/max statistics
+    int64_t filtered_row_groups_by_statistics = 0;   // row groups pruned by ZoneMap statistics
     int64_t filtered_row_groups_by_dictionary = 0;   // row groups pruned by dictionary
     int64_t filtered_row_groups_by_bloom_filter = 0; // row groups pruned by bloom filter
     int64_t filtered_row_groups_by_page_index = 0;   // row groups fully pruned by page index
     int64_t filtered_group_rows = 0;                 // rows in pruned row groups
+    int64_t filtered_bytes = 0;                      // requested bytes in pruned row groups
     int64_t filtered_page_rows = 0;                  // rows pruned by page index
     int64_t selected_row_ranges = 0;                 // selected row range count
     int64_t page_index_read_calls = 0;               // Page Index read count
@@ -62,6 +83,10 @@ struct ParquetPruningStats {
     int64_t row_group_filter_time = 0;               // row-group pruning time (ns)
     int64_t page_index_filter_time = 0;              // page-index pruning time (ns)
     int64_t read_page_index_time = 0;                // page-index read time (ns)
+    int64_t parse_page_index_time = 0;               // lazy page-index materialization time (ns)
+    int64_t expr_zonemap_unusable_evals = 0;         // VExpr ZoneMap unusable evaluations
+    int64_t in_zonemap_point_check_count = 0;        // VExpr IN ZoneMap point checks
+    int64_t in_zonemap_range_only_count = 0;         // VExpr IN ZoneMap range-only checks
 };
 
 struct ParquetColumnStatistics {
@@ -75,35 +100,57 @@ struct ParquetColumnStatistics {
     bool has_any_statistics() const { return has_null_count || has_min_max; }
 };
 
-// ============================================================================
-// ============================================================================
-//     statistics(TransformColumnStatistics + check_statistics)
-//     -> dictionary(read_dictionary_words + predicate::evaluate_and)
-//     -> bloom filter(bloom_filter_prune_reason)
-// ============================================================================
-struct ParquetStatisticsUtils {
-    static ParquetColumnStatistics TransformColumnStatistics(
-            const ParquetColumnSchema& column_schema,
-            const std::shared_ptr<::parquet::Statistics>& statistics,
-            const cctz::time_zone* timezone = nullptr);
-
-    static bool BloomFilterExcludes(const ParquetColumnSchema& column_schema,
-                                    const format::FileColumnPredicateFilter& column_filter,
-                                    const ::parquet::BloomFilter& bloom_filter);
+struct NativeParquetPageIndex {
+    tparquet::ColumnIndex column_index;
+    tparquet::OffsetIndex offset_index;
 };
 
-Status select_row_groups_by_statistics(
-        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
+enum class ParquetMetadataProbeMode {
+    ALL,
+    FOOTER_ONLY,
+    EXPENSIVE_ONLY,
+};
+
+bool can_use_parquet_page_index(const format::FileScanRequest& request,
+                                const RuntimeState* runtime_state);
+
+// ============================================================================
+// ============================================================================
+//     VExpr ZoneMap(TransformColumnStatistics + evaluate_zonemap_filter)
+//     -> page-index ZoneMap(evaluate_zonemap_filter)
+//     dictionary(read_dictionary_words + evaluate_dictionary_filter)
+//     -> bloom filter(evaluate_bloom_filter)
+// ============================================================================
+struct ParquetStatisticsUtils {
+    static std::shared_ptr<segment_v2::ZoneMap> MakeZoneMap(
+            const ParquetColumnStatistics& statistics);
+
+    static ParquetColumnStatistics TransformColumnStatistics(
+            const ParquetColumnSchema& column_schema, const tparquet::Statistics* statistics,
+            int64_t column_value_count, const cctz::time_zone* timezone = nullptr);
+
+    static bool NativeBloomFilterExcludes(const ParquetColumnSchema& column_schema, int slot_index,
+                                          const VExprContextSPtrs& conjuncts,
+                                          const segment_v2::BloomFilter& bloom_filter);
+};
+
+Status select_row_groups_by_metadata(
+        const tparquet::FileMetaData& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
-        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr);
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
+        const RuntimeState* runtime_state = nullptr, ParquetFileContext* file_context = nullptr,
+        const ParquetColumnReaderProfile& column_reader_profile = {},
+        ParquetMetadataProbeMode probe_mode = ParquetMetadataProbeMode::ALL);
 
-Status select_row_group_ranges_by_page_index(
-        ::parquet::ParquetFileReader* file_reader,
+Status select_row_group_ranges_by_native_page_index(
+        const tparquet::FileMetaData& metadata,
+        const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, int row_group_idx, int64_t row_group_rows,
+        const format::FileScanRequest& request, int64_t row_group_rows,
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
-        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr);
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr,
+        const RuntimeState* runtime_state = nullptr);
 
 } // namespace doris::format::parquet

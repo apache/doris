@@ -70,6 +70,9 @@ private:
     typename PrimitiveTypeTraits<T>::CppType value;
 
 public:
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool NeedCheckColumnType = true;
+
     SingleValueDataFixed() = default;
     SingleValueDataFixed(bool has_value_, typename PrimitiveTypeTraits<T>::CppType value_)
             : has_value(has_value_), value(value_) {}
@@ -96,10 +99,14 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).get_data().push_back(
-                    value);
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .get_data()
+                    .push_back(value);
         } else {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .insert_default();
         }
     }
 
@@ -213,6 +220,9 @@ private:
     typename PrimitiveTypeTraits<T>::CppType value;
 
 public:
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static constexpr bool NeedCheckColumnType = true;
+
     SingleValueDataDecimal() = default;
     SingleValueDataDecimal(bool has_value_, typename PrimitiveTypeTraits<T>::CppType value_)
             : has_value(has_value_), value(value_) {}
@@ -239,10 +249,13 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_data(
-                    (const char*)&value, 0);
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .insert_data((const char*)&value, 0);
         } else {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&, TypeCheckOnRelease::DISABLE>(
+                    to)
+                    .insert_default();
         }
     }
 
@@ -366,6 +379,9 @@ private:
     char small_data[MAX_SMALL_STRING_SIZE]; /// Including the terminating zero.
 
 public:
+    using ColVecType = ColumnString;
+    static constexpr bool NeedCheckColumnType = true;
+
     ~SingleValueDataString() = default;
 
     constexpr static bool IsFixedLength = false;
@@ -378,9 +394,10 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<ColumnString&>(to).insert_data(get_data(), size);
+            assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(get_data(),
+                                                                                    size);
         } else {
-            assert_cast<ColumnString&>(to).insert_default();
+            assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_default();
         }
     }
 
@@ -533,6 +550,8 @@ private:
     int be_exec_version = -1;
 
 public:
+    static constexpr bool NeedCheckColumnType = false;
+
     SingleValueDataComplexType() = default;
     SingleValueDataComplexType(const DataTypes& argument_types, int be_version) {
         column_type = argument_types[0];
@@ -810,6 +829,20 @@ public:
         this->data(place).insert_result_into(to);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (Data::NeedCheckColumnType) {
+            this->template check_argument_column_type<typename Data::ColVecType>(columns[0]);
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        if constexpr (Data::NeedCheckColumnType) {
+            this->template check_result_column_type_as<typename Data::ColVecType>(to);
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
@@ -933,7 +966,9 @@ public:
                     this->data(place).reset();
                     if (has_null) {
                         const auto& null_map_data =
-                                assert_cast<const ColumnUInt8*>(columns[1])->get_data();
+                                assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
+                                        columns[1])
+                                        ->get_data();
                         for (size_t i = current_frame_start; i < current_frame_end; ++i) {
                             if (null_map_data[i] == 0) {
                                 this->data(place).change_if_better(*columns[0], i, arena);

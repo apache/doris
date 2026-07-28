@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.operations;
 
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
@@ -226,6 +227,15 @@ public interface ExternalMetadataOps {
         throw new UnsupportedOperationException("Add column operation is not supported for this table type.");
     }
 
+    default void addColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column, ColumnPosition position,
+            long updateTime) throws UserException {
+        if (!columnPath.isNested()) {
+            addColumn(dorisTable, column, position, updateTime);
+            return;
+        }
+        throw new UnsupportedOperationException("Nested add column operation is not supported for this table type.");
+    }
+
     /**
      * add columns for external table
      *
@@ -250,6 +260,15 @@ public interface ExternalMetadataOps {
         throw new UnsupportedOperationException("Drop column operation is not supported for this table type.");
     }
 
+    default void dropColumn(ExternalTable dorisTable, ColumnPath columnPath, long updateTime)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            dropColumn(dorisTable, columnPath.getTopLevelName(), updateTime);
+            return;
+        }
+        throw new UnsupportedOperationException("Nested drop column operation is not supported for this table type.");
+    }
+
     /**
      * rename column for external table
      *
@@ -263,6 +282,15 @@ public interface ExternalMetadataOps {
         throw new UnsupportedOperationException("Rename column operation is not supported for this table type.");
     }
 
+    default void renameColumn(ExternalTable dorisTable, ColumnPath columnPath, String newName, long updateTime)
+            throws UserException {
+        if (!columnPath.isNested()) {
+            renameColumn(dorisTable, columnPath.getTopLevelName(), newName, updateTime);
+            return;
+        }
+        throw new UnsupportedOperationException("Nested rename column operation is not supported for this table type.");
+    }
+
     /**
      * update column for external table
      *
@@ -274,6 +302,30 @@ public interface ExternalMetadataOps {
     default void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         throw new UnsupportedOperationException("Modify column operation is not supported for this table type.");
+    }
+
+    default void modifyColumn(ExternalTable dorisTable, ColumnPath columnPath, Column column, ColumnPosition position,
+            long updateTime) throws UserException {
+        if (!columnPath.isNested()) {
+            modifyColumn(dorisTable, column, position, updateTime);
+            return;
+        }
+        throw new UnsupportedOperationException("Nested modify column operation is not supported for this table type.");
+    }
+
+    /**
+     * modify column comment for external table
+     *
+     * @param dorisTable
+     * @param columnPath
+     * @param comment
+     * @param updateTime
+     * @throws UserException
+     */
+    default void modifyColumnComment(ExternalTable dorisTable, ColumnPath columnPath, String comment, long updateTime)
+            throws UserException {
+        throw new UnsupportedOperationException(
+                "Modify column comment operation is not supported for this table type.");
     }
 
     /**

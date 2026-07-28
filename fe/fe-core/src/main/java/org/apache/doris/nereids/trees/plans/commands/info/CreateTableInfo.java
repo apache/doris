@@ -24,7 +24,9 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
@@ -295,6 +297,14 @@ public class CreateTableInfo {
 
     public List<SortFieldInfo> getSortOrderFields() {
         return sortOrderFields;
+    }
+
+    private boolean isEffectiveRowBinlogEnabled() {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        BinlogConfig binlogConfig = db == null
+                ? BinlogConfig.fromProperties(properties)
+                : db.getBinlogConfigsForCreateTable(properties).second;
+        return binlogConfig.isEnableForStreaming();
     }
 
     public void setRollups(List<RollupDefinition> rollups) {
@@ -610,6 +620,7 @@ public class CreateTableInfo {
 
             try {
                 if (Config.random_add_order_by_keys_for_mow && isEnableMergeOnWrite && sortOrderFields.isEmpty()
+                        && !isEffectiveRowBinlogEnabled()
                         && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
                     // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
                     List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
@@ -1744,6 +1755,20 @@ public class CreateTableInfo {
             String sortCol = sortField.getColumnName();
             if (!sortColSet.add(sortCol)) {
                 throw new AnalysisException("Duplicate sort order column: " + sortCol);
+            }
+        }
+    }
+
+    /**
+     * check if add Commit TSO Column
+     */
+    public void createCommitTSOColumnIfNecessary(BinlogConfig binlogConfig) {
+        // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
+        // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
+        if (keysType.equals(KeysType.DUP_KEYS)
+                || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+            if (binlogConfig.isRowFormat()) {
+                columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
             }
         }
     }

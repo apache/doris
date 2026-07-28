@@ -36,7 +36,6 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
@@ -169,7 +168,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                     Math.max(Config.max_meta_object_cache_num, 1),
-                    ignored -> listTableNames(),
+                    ignored -> loadTableNamePairs(SessionContext.empty(), true),
                     localTableName -> Optional.ofNullable(
                             buildTableForInit(null, localTableName,
                                     Util.genIdByName(extCatalog.getName(), name, localTableName),
@@ -179,19 +178,29 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     private List<Pair<String, String>> listTableNames() {
+        return loadTableNamePairs(SessionContext.current(), true);
+    }
+
+    private List<Pair<String, String>> loadTableNamePairs(SessionContext ctx, boolean updateTableNameLookup) {
         List<Pair<String, String>> tableNames;
-        lowerCaseToTableName.clear();
+        if (updateTableNameLookup) {
+            lowerCaseToTableName.clear();
+        }
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames().stream()
                     .map(tableName -> {
-                        lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                        if (updateTableNameLookup) {
+                            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                        }
                         return Pair.of(tableName, tableName);
                     })
                     .collect(Collectors.toList());
         } else if (name.equals(MysqlDb.DATABASE_NAME)) {
             tableNames = ExternalMysqlDatabase.listTableNames().stream()
                     .map(tableName -> {
-                        lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                        if (updateTableNameLookup) {
+                            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                        }
                         return Pair.of(tableName, tableName);
                     })
                     .collect(Collectors.toList());
@@ -210,7 +219,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     }
                 }
             }
-            tableNames = extCatalog.listTableNames(null, remoteName).stream().map(tableName -> {
+            tableNames = extCatalog.listTableNames(ctx, remoteName).stream().map(tableName -> {
                 String localTableName = extCatalog.fromRemoteTableName(remoteName, tableName);
                 if (this.isStoredTableNamesLowerCase()) {
                     localTableName = localTableName.toLowerCase();
@@ -218,11 +227,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     // Mode 2: preserve original remote case for display
                     localTableName = tableName;
                 }
-                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                if (updateTableNameLookup) {
+                    lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                }
                 return Pair.of(tableName, localTableName);
             }).collect(Collectors.toList());
         }
-        if (LOG.isDebugEnabled()) {
+        if (LOG.isDebugEnabled() && updateTableNameLookup) {
             LOG.debug("after list tables in {}.{}, lowerCaseToTableName: {}",
                     getCatalog().getName(), getFullName(), lowerCaseToTableName);
         }
@@ -430,20 +441,31 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public boolean isTableExist(String tableName) {
+        SessionContext sessionContext = SessionContext.current();
         String remoteTblName = tableName;
         if (this.isTableNamesCaseInsensitive()) {
-            remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
-            if (remoteTblName == null) {
-                // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
-                // to prevent lowerCaseToTableName from being empty in some cases
-                listTableNames();
+            if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
+                Optional<Pair<String, String>> tableNamePair = loadTableNamePairs(sessionContext, false).stream()
+                        .filter(pair -> matchesLocalTableName(pair.value(), tableName))
+                        .findFirst();
+                if (!tableNamePair.isPresent()) {
+                    return false;
+                }
+                remoteTblName = tableNamePair.get().key();
+            } else {
                 remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
                 if (remoteTblName == null) {
-                    return false;
+                    // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
+                    // to prevent lowerCaseToTableName from being empty in some cases
+                    listTableNames();
+                    remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
+                    if (remoteTblName == null) {
+                        return false;
+                    }
                 }
             }
         }
-        return extCatalog.tableExist(ConnectContext.get().getSessionContext(), remoteName, remoteTblName);
+        return extCatalog.tableExist(sessionContext, remoteName, remoteTblName);
     }
 
     // ATTN: this method only returned cached tables.
@@ -484,12 +506,22 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
+        SessionContext sessionContext = SessionContext.current();
+        if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
+            return loadTableNamePairs(sessionContext, false).stream()
+                    .map(Pair::value)
+                    .collect(Collectors.toSet());
+        }
         return Sets.newHashSet(metaCache.listNames());
     }
 
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
+        SessionContext sessionContext = SessionContext.current();
+        if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
+            return getTableNullableWithoutCache(sessionContext, tableName);
+        }
         String finalName = getLocalTableName(tableName, false);
         if (finalName == null) {
             return null;
@@ -498,6 +530,30 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // otherwise, if 2 databases have the same table name, the id will be the same.
         return metaCache.getMetaObj(finalName,
                 Util.genIdByName(extCatalog.getName(), name, finalName)).orElse(null);
+    }
+
+    private T getTableNullableWithoutCache(SessionContext ctx, String tableName) {
+        Optional<Pair<String, String>> tableNamePair = loadTableNamePairs(ctx, false).stream()
+                .filter(pair -> matchesLocalTableName(pair.value(), tableName))
+                .findFirst();
+        if (!tableNamePair.isPresent()) {
+            return null;
+        }
+        String remoteTableName = tableNamePair.get().key();
+        String localTableName = tableNamePair.get().value();
+        return buildTableForInit(remoteTableName, localTableName,
+                Util.genIdByName(extCatalog.getName(), name, localTableName),
+                extCatalog, this, false);
+    }
+
+    private boolean matchesLocalTableName(String localTableName, String tableName) {
+        if (this.isStoredTableNamesLowerCase()) {
+            return localTableName.equals(tableName.toLowerCase());
+        }
+        if (this.isTableNamesCaseInsensitive()) {
+            return localTableName.equalsIgnoreCase(tableName);
+        }
+        return localTableName.equals(tableName);
     }
 
     /**

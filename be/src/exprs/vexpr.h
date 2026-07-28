@@ -45,6 +45,7 @@
 #include "core/value/large_int_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
@@ -173,10 +174,34 @@ public:
                                   uint8_t* __restrict result_filter_data, size_t rows,
                                   bool accept_null, bool* can_filter_all) const;
 
+    // Raw fixed-width evaluation is an optional expression capability used before a storage reader
+    // materializes a column. `matches` is ANDed in place; callers handle NULL rows separately
+    // because raw value streams contain only non-NULL payloads.
+    virtual bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                 int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                               size_t value_width, const DataTypePtr& data_type,
+                                               int column_id, uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
+    }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
                            [](VExprSPtr child) { return child->is_blockable(); });
+    }
+
+    [[nodiscard]] virtual bool is_deterministic() const {
+        return std::ranges::all_of(
+                _children, [](const VExprSPtr& child) { return child->is_deterministic(); });
+    }
+
+    [[nodiscard]] virtual bool is_safe_to_execute_on_selected_rows() const {
+        return is_deterministic() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                   return child->is_safe_to_execute_on_selected_rows();
+               });
     }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
@@ -186,6 +211,10 @@ public:
 
     virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
     virtual bool can_evaluate_zonemap_filter() const { return false; }
+    virtual ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const;
+    virtual bool can_evaluate_dictionary_filter() const { return false; }
+    virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const;
+    virtual bool can_evaluate_bloom_filter() const { return false; }
 
     // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {

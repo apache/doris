@@ -119,6 +119,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DECLARE_Bool(enable_arrow_input_validation);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 
@@ -533,6 +536,7 @@ DECLARE_mInt64(vertical_compaction_max_segment_size);
 DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 // Enable RLE batch Put optimization for compaction
 DECLARE_mBool(enable_rle_batch_put_optimization);
+DECLARE_Bool(enable_bmi2_optimizations);
 
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
@@ -918,6 +922,11 @@ DECLARE_mDouble(min_flush_thread_num_per_cpu);
 // Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
 
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DECLARE_mBool(enable_table_memtable_flush_backpressure);
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DECLARE_mInt32(table_memtable_flush_pending_count_limit);
+
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
 DECLARE_mInt32(tablet_meta_checkpoint_min_interval_secs);
@@ -1255,6 +1264,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit_segment_meta);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1387,6 +1397,10 @@ DECLARE_Bool(enable_feature_binlog);
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
 
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DECLARE_Bool(enable_row_store_compact_jsonb);
+
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
@@ -1411,8 +1425,6 @@ DECLARE_mString(kerberos_krb5_conf_path);
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
 
-// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
-DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
@@ -1516,6 +1528,8 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max WAL count for one table before rejecting async group commit loads. 0 means no limit.
+DECLARE_mInt32(group_commit_max_wal_num_per_table);
 // Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
 DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
@@ -1606,6 +1620,7 @@ DECLARE_mInt64(s3_get_token_limit);
 DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
+DECLARE_mInt64(s3_rate_limiter_log_interval);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
@@ -1747,6 +1762,9 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+// Max incremental merges on one query cache entry before forcing a full
+// recompute to compact the entry (see query_cache.h QueryCacheRuntime).
+DECLARE_mInt32(query_cache_max_incremental_merge_count);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 // Enable validation to check the correctness of table size.

@@ -219,7 +219,6 @@ private:
                                                 uint32_t nrows_read_limit, uint16_t& nrows_read,
                                                 bool read_rowids);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
-    void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);

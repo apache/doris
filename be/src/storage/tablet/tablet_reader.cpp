@@ -181,6 +181,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
+    _reader_context.tso_predicate_column_id = read_params.tso_predicate_column_id;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;

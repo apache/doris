@@ -831,6 +831,11 @@ public class EditLog {
                     Env.getCurrentEnv().replayCreateFunction(function);
                     break;
                 }
+                case OperationType.OP_ADD_FUNCTIONS: {
+                    final CreateFunctionInfo info = (CreateFunctionInfo) journal.getData();
+                    Env.getCurrentEnv().replayCreateFunctions(info);
+                    break;
+                }
                 case OperationType.OP_DROP_FUNCTION: {
                     FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
                     Env.getCurrentEnv().replayDropFunction(function);
@@ -2133,6 +2138,10 @@ public class EditLog {
 
     public void logAddFunction(Function function) {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
+    }
+
+    public void logAddFunctions(List<Function> functions) {
+        logEdit(OperationType.OP_ADD_FUNCTIONS, new CreateFunctionInfo(functions));
     }
 
     public void logAddGlobalFunction(Function function) {

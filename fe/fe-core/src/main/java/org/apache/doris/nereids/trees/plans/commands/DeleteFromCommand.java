@@ -212,7 +212,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 return;
             } catch (Exception e2) {
                 LOG.warn("delete from command failed", e2);
-                throw e;
+                // Preserve both failure causes so the fallback execution error is not masked.
+                throw buildDeleteFallbackException(e, e2);
             }
         }
 
@@ -283,6 +284,21 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         } catch (Exception e) {
             throw new AnalysisException("set session variable by delete from command failed", e);
         }
+    }
+
+    // Build an exception that keeps both the initial predicate-check failure and the fallback failure.
+    private AnalysisException buildDeleteFallbackException(Exception initialException,
+            Exception fallbackException) {
+        String initialMessage = StringUtils.defaultIfBlank(
+                initialException.getMessage(), initialException.toString());
+        String fallbackMessage = StringUtils.defaultIfBlank(
+                fallbackException.getMessage(), fallbackException.toString());
+        AnalysisException mergedException = new AnalysisException(
+                "Delete fallback execution failed: " + fallbackMessage
+                        + ". Initial predicate check failed: " + initialMessage,
+                fallbackException);
+        mergedException.addSuppressed(initialException);
+        return mergedException;
     }
 
     private List<Partition> getSelectedPartitions(

@@ -23,7 +23,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------filter(( not (cast(b as BIGINT) * 0) IS NULL))
+----------filter(( not (cast(test_simplify_range_tbl_1.b as BIGINT) * 0) IS NULL))
 ------------PhysicalOlapScan[test_simplify_range_tbl_1]
 
 -- !sql_3_result --

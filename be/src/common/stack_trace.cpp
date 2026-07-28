@@ -22,6 +22,12 @@
 
 #include <fmt/format.h>
 
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#include <libunwind.h>
+#else
+#include <execinfo.h>
+#endif
+
 #include <atomic>
 #include <filesystem>
 #include <limits>
@@ -38,13 +44,8 @@
 #include "common/memory_sanitizer.h"
 #include "common/symbol_index.h"
 #include "exec/common/hex.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
-
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
-#include <libunwind.h>
-#else
-#include <execinfo.h>
-#endif
 
 namespace {
 /// Currently this variable is set up once on server startup.
@@ -304,13 +305,17 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 }
 
 void StackTrace::tryCapture() {
-    // When unw_backtrace is not available, fall back on the standard
-    // `backtrace` function from execinfo.h.
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__) // TODO
-    size = unw_backtrace(frame_pointers.data(), capacity);
+    int frame_count = 0;
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+    frame_count = unw_backtrace(frame_pointers.data(), capacity);
 #else
-    size = backtrace(frame_pointers.data(), capacity);
+    frame_count = backtrace(frame_pointers.data(), capacity);
 #endif
+    size = frame_count > 0 ? static_cast<size_t>(frame_count) : 0;
+    if (doris::config::enable_debug_points &&
+        doris::DebugPoints::instance()->is_enable("StackTrace::tryCapture.empty_trace")) {
+        size = 0;
+    }
     __msan_unpoison(frame_pointers.data(), size * sizeof(frame_pointers[0]));
 }
 
@@ -482,11 +487,17 @@ std::string StackTrace::toString(int start_pointers_index,
                                  const std::string& dwarf_location_info_mode) const {
     // Default delete the first three frame pointers, which are inside the stack_trace.cpp.
     start_pointers_index += 3;
+    if (start_pointers_index < 0 || static_cast<size_t>(start_pointers_index) >= size) {
+        // Unwind can legitimately return fewer frames than the internal frames we normally hide.
+        return toStringCached({}, 0, 0, dwarf_location_info_mode);
+    }
+
+    const auto first_frame = static_cast<size_t>(start_pointers_index);
     StackTrace::FramePointers frame_pointers_raw {};
-    std::copy(frame_pointers.begin() + start_pointers_index, frame_pointers.end(),
+    std::copy(frame_pointers.begin() + first_frame, frame_pointers.end(),
               frame_pointers_raw.begin());
-    return toStringCached(frame_pointers_raw, offset, size - start_pointers_index,
-                          dwarf_location_info_mode);
+    return toStringCached(frame_pointers_raw, offset > first_frame ? offset - first_frame : 0,
+                          size - first_frame, dwarf_location_info_mode);
 }
 
 std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size,

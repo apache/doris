@@ -47,7 +47,7 @@ public class PaimonPredicateConverter {
 
     public PaimonPredicateConverter(RowType rowType) {
         this.builder = new PredicateBuilder(rowType);
-        this.fieldNames = rowType.getFields().stream().map(f -> f.name().toLowerCase()).collect(Collectors.toList());
+        this.fieldNames = rowType.getFields().stream().map(DataField::name).collect(Collectors.toList());
         this.paimonFieldTypes = rowType.getFields().stream().map(DataField::type).collect(Collectors.toList());
     }
 
@@ -100,7 +100,7 @@ public class PaimonPredicateConverter {
             return null;
         }
         String colName = slotRef.getColumnName();
-        int idx = fieldNames.indexOf(colName);
+        int idx = getFieldIndex(colName);
         DataType dataType = paimonFieldTypes.get(idx);
         List<Object> valueList = new ArrayList<>();
         for (int i = 1; i < predicate.getChildren().size(); i++) {
@@ -132,7 +132,7 @@ public class PaimonPredicateConverter {
             return null;
         }
         String colName = slotRef.getColumnName();
-        int idx = fieldNames.indexOf(colName);
+        int idx = getFieldIndex(colName);
         DataType dataType = paimonFieldTypes.get(idx);
         Object value = dataType.accept(new PaimonValueConverter(literalExpr));
         if (value == null) {
@@ -172,6 +172,15 @@ public class PaimonPredicateConverter {
             }
         }
         return null;
+    }
+
+    private int getFieldIndex(String colName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(colName)) {
+                return i;
+            }
+        }
+        return fieldNames.indexOf(colName);
     }
 
 
