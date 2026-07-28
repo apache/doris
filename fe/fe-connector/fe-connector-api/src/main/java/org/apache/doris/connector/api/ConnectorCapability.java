@@ -236,5 +236,22 @@ public enum ConnectorCapability {
      * inherits it through the per-table set the gateway reflects from its sibling, exactly like
      * {@link #SUPPORTS_NESTED_COLUMN_PRUNE}.</p>
      */
-    SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE
+    SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
+    /**
+     * Indicates the connector accepts the relation-scoped {@code @options('k'='v', ...)} scan-param
+     * clause, whose keys are the SOURCE's own scan-option vocabulary (e.g. paimon's
+     * {@code scan.snapshot-id} / {@code scan.mode}).
+     *
+     * <p>{@code BindRelation} rejects {@code @options} up front for any table whose connector does not
+     * declare this. That rejection is REQUIRED, not cosmetic: {@code @options} changes WHICH data a
+     * relation reads, and a table type that silently ignored it would answer a historical query with
+     * latest data. The declaring connector owns the whole option vocabulary — fe-core never inspects a
+     * key — via {@code ConnectorMetadata.resolveTimeTravel(ConnectorTimeTravelSpec.Kind#OPTIONS)}, which
+     * validates the keys and resolves them into an immutable pin.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> Per-table so a connector may honor the clause on its
+     * data tables while declining it on the subset of system tables whose readers cannot observe a
+     * selected snapshot.</p>
+     */
+    SUPPORTS_SCAN_PARAM_OPTIONS
 }

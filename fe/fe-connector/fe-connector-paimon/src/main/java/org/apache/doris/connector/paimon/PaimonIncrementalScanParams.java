@@ -311,9 +311,12 @@ public final class PaimonIncrementalScanParams {
             return scanOptions;
         }
         // HashMap (not Map.of / immutable) — it must hold null VALUES (the reset markers).
+        // #65984 widened the reset from {scan.snapshot-id, scan.mode} to paimon's WHOLE inherited
+        // read-state family: a base table can legally persist scan.tag-name / scan.timestamp-millis /
+        // scan.version too (ALTER TABLE SET, TBLPROPERTIES, table-default.*), and any of them merged with
+        // incremental-between either throws in the paimon SDK or silently resolves to the stale pin.
         Map<String, String> withResets = new HashMap<>();
-        withResets.put(PAIMON_SCAN_SNAPSHOT_ID, null);
-        withResets.put(PAIMON_SCAN_MODE, null);
+        PaimonScanParams.inheritedReadStateKeys().forEach(key -> withResets.put(key, null));
         withResets.putAll(scanOptions);
         return withResets;
     }

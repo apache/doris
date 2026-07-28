@@ -59,6 +59,9 @@ public class PluginDrivenScanNodeSysTableGuardTest {
         Mockito.doReturn(null).when(node).getScanParams();
         Mockito.doReturn(null).when(node).getQueryTableSnapshot();
         Mockito.doReturn(false).when(node).sysTableSupportsTimeTravel();
+        // P6.6: @incr / @options are asked PER system table. Default to "this view honors neither", the
+        // paimon-like baseline; the capability-specific cases below flip it.
+        Mockito.doReturn(false).when(node).sysTableSupportsScanParam(Mockito.any());
         return node;
     }
 
@@ -162,8 +165,8 @@ public class PluginDrivenScanNodeSysTableGuardTest {
         // -> red.
         UserException ex = Assertions.assertThrows(UserException.class,
                 node::checkSysTableScanConstraints);
-        Assertions.assertTrue(ex.getMessage().contains("scan params"),
-                "incremental-read rejection must carry the scan-params message, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("does not support INCR scan params"),
+                "incremental-read rejection must name the missing capability, got: " + ex.getMessage());
     }
 
     @Test
@@ -183,5 +186,57 @@ public class PluginDrivenScanNodeSysTableGuardTest {
                 node::checkSysTableScanConstraints);
         Assertions.assertTrue(ex.getMessage().contains("scan params"),
                 "scan-params rejection must take precedence over time travel, got: " + ex.getMessage());
+    }
+
+    // ---------------------------------------------------------------------
+    // P6.6 (#65984): @incr / @options are answered PER system table
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void sysTableAllowsIncrementalReadWhenThatViewDeclaresIt() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        TableScanParams incr = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(true).when(incr).incrementalRead();
+        Mockito.doReturn(incr).when(node).getScanParams();
+        Mockito.doReturn(true).when(node).sysTableSupportsScanParam(Mockito.any());
+
+        // WHY: #65984 made this a per-view question -- paimon's $audit_log/$binlog/$partitions/$ro CAN
+        // serve a commit range while $files cannot, because its reader enumerates LATEST partitions first.
+        // A connector-wide boolean cannot express that. MUTATION: reverting to the blanket "@incr is
+        // rejected for EVERY connector" -> this reds.
+        Assertions.assertDoesNotThrow(node::checkSysTableScanConstraints);
+    }
+
+    @Test
+    public void sysTableRejectsOptionsWhenThatViewDeclinesIt() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        TableScanParams options = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(true).when(options).isOptions();
+        Mockito.doReturn(options).when(node).getScanParams();
+
+        // WHY: a view that consults latest metadata internally (paimon $files/$buckets) would answer a
+        // historical question with current data. It must fail loud naming the missing capability, so the
+        // user learns WHICH one is absent. MUTATION: defaulting the per-view answer to true -> no throw.
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("does not support OPTIONS scan params"),
+                "options rejection must name the missing capability, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void sysTableAllowsOptionsWhenThatViewDeclaresIt() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        TableScanParams options = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(true).when(options).isOptions();
+        Mockito.doReturn(options).when(node).getScanParams();
+        Mockito.doReturn(true).when(node).sysTableSupportsScanParam(Mockito.any());
+
+        // A declaring view ($audit_log, $partitions, $table_indexes, ...) must reach the connector, which
+        // materializes the view at the selected snapshot. Note the connector-wide time-travel flag stays
+        // FALSE here: @options is NOT gated on it.
+        Assertions.assertDoesNotThrow(node::checkSysTableScanConstraints);
     }
 }

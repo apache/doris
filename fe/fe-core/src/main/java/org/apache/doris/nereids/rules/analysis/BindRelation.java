@@ -632,10 +632,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (sysTablePlan.isNative()) {
             List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
             ExternalTable sysExternalTable = sysTablePlan.getSysExternalTable();
-            if (sysExternalTable instanceof PaimonSysExternalTable) {
-                validatePaimonSystemTableScanParams(
-                        (PaimonSysExternalTable) sysExternalTable, unboundRelation.getScanParams());
-            }
+            // Per-system-table scan-param capability (which metadata view honors @incr / @options) is
+            // asked of the connector at split generation by PluginDrivenScanNode.checkSysTableScanConstraints,
+            // which owns the user-facing message. Binding only needs the base table's gate above.
             return Optional.of(new LogicalFileScan(
                     unboundRelation.getRelationId(),
                     sysExternalTable,
@@ -885,26 +884,23 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
+    /**
+     * Rejects {@code @options(...)} on any table whose connector cannot honor it. This gate is
+     * REQUIRED, not cosmetic: {@code @options} changes WHICH version a relation reads, and the
+     * option map only reaches a connector through the MVCC pin path ({@link StatementContext#loadSnapshots}
+     * -> {@code ConnectorMetadata.resolveTimeTravel}). A table that is not MVCC-capable never enters that
+     * path, so without this check the clause would be silently dropped and a historical question answered
+     * with latest data. The option KEYS are not inspected here — the declaring connector owns the whole
+     * vocabulary and validates them while resolving the pin.
+     */
     private void validateOptionsTarget(TableIf table, TableScanParams scanParams) {
         if (scanParams == null || !scanParams.isOptions()) {
             return;
         }
-        if (!(table instanceof PaimonExternalTable)) {
-            throw new AnalysisException("OPTIONS scan params are only supported for Paimon tables.");
-        }
-        try {
-            PaimonScanParams.validateOptions(scanParams.getMapParams());
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-    }
-
-    private void validatePaimonSystemTableScanParams(
-            PaimonSysExternalTable table, TableScanParams scanParams) {
-        try {
-            PaimonScanParams.validateSystemTable(table.getSysTableType(), scanParams);
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException(e.getMessage(), e);
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsScanParamOptions()) {
+            throw new AnalysisException(
+                    "OPTIONS scan params are not supported for table " + table.getName() + ".");
         }
     }
 

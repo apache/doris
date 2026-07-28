@@ -309,49 +309,44 @@ public class StatementContextTest {
     }
 
     @Test
-    public void testSelectorFreePaimonOptionsPreloadLatestSnapshotBeforeLock() {
+    public void testScanParamOptionsRelationIsTreatedAsNonLatest() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
-        PaimonExternalTable paimonExternalTable = Mockito.mock(PaimonExternalTable.class);
-        DatabaseIf<TableIf> database = mockDatabase();
-        CatalogIf<?> catalog = mockCatalog();
-        MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
 
+        // WHY: an @options relation carries a relation-scoped selector, so it must NOT be counted as a
+        // latest-only relation -- the same rule @branch/@tag/@incr follow. Upstream #65984 kept the latest
+        // warmup for an @options map that happens to select no version, but deciding that needs the
+        // connector's option vocabulary and this runs BEFORE binding resolves any pin. Skipping the warmup
+        // costs only latency (the metadata is then loaded lazily under the lock), never correctness.
+        // MUTATION: restoring a selector-free exemption here -> loadSnapshot/getBaseSchema get called.
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
-        Mockito.when(paimonExternalTable.getId()).thenReturn(18L);
-        Mockito.when(paimonExternalTable.getName()).thenReturn("paimon_tbl");
-        Mockito.when(paimonExternalTable.getDatabase()).thenReturn(database);
-        Mockito.when(database.getFullName()).thenReturn("db");
-        Mockito.when(database.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.getName()).thenReturn("ctl");
-        Mockito.when(paimonExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
-        Mockito.when(paimonExternalTable.supportsLatestSnapshotPreload()).thenReturn(true);
-        Mockito.when(paimonExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
-                .thenReturn(mvccSnapshot);
-        Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
-        Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(paimonExternalTable.initSelectedPartitions(Mockito.any()))
-                .thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.getId()).thenReturn(18L);
+        Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(table.supportsLatestSnapshotPreload()).thenReturn(true);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(
-                    paimonExternalTable,
+                    table,
                     Optional.empty(),
                     Optional.of(new TableScanParams(
                             TableScanParams.OPTIONS,
                             ImmutableMap.of("scan.plan-sort-partition", "true"),
                             Collections.emptyList())));
 
-            executePreload(statementContext);
+            ExternalMetadataPreloadResult result = executePreload(statementContext);
 
-            Mockito.verify(paimonExternalTable, Mockito.times(1))
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.getCandidateTableCount());
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
+            Mockito.verify(table, Mockito.never())
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
-            Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(table, Mockito.never()).getBaseSchema();
         } finally {
             statementContext.close();
         }

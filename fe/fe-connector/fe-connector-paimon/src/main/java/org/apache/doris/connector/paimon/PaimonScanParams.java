@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.connector.paimon;
 
-import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.connector.api.DorisConnectorException;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.paimon.CoreOptions;
@@ -38,12 +38,37 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Validation and application rules for relation-scoped Paimon scan parameters.
+ * Validation and application rules for relation-scoped Paimon scan parameters
+ * ({@code @options('scan.snapshot-id'='1', ...)}).
+ *
+ * <p>Ported from upstream {@code org.apache.doris.datasource.paimon.PaimonScanParams} (#65984). It lands
+ * in the connector rather than fe-core because every rule here is expressed in the paimon SDK's own
+ * vocabulary ({@link CoreOptions} keys, {@link TimeTravelUtil}, {@link FileStoreTable}) — fe-core is
+ * paimon-SDK-free since P5-T29 and never inspects an option key. The engine hands the raw
+ * {@code @options} map over as a {@code ConnectorTimeTravelSpec.Kind#OPTIONS} spec, exactly as it does
+ * for the {@code @incr} window (see {@link PaimonIncrementalScanParams}).
+ *
+ * <p>The upstream {@code validateSystemTable(String, TableScanParams)} entry point does NOT appear here:
+ * it took an fe-core type, and its per-system-table capability matrix is expressed instead as
+ * {@link #supportsIncrementalRead} / {@link #supportsOptions}, which
+ * {@code PaimonScanPlanProvider} publishes through the generic SPI hooks
+ * {@code ConnectorScanPlanProvider.supportsSystemTableIncrementalRead/Options}. Its one residual check
+ * survives as {@link #validateSystemTableOptions}.
  */
 public final class PaimonScanParams {
+    /** Prefix of every marker this class puts in a resolved map; never reaches the paimon SDK. */
+    private static final String INTERNAL_PREFIX = "doris.internal.paimon.";
     private static final String PINNED_FILE_CREATION_TIME =
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
+    /**
+     * Marks a pin as originating from {@code @options} rather than from a time-travel / {@code @incr}
+     * selector. The three families share one carrier (the handle's scan-option map), but only this one
+     * needs {@link #applyOptions}' read-state isolation, and only its keys are drawn from the
+     * {@code @options} vocabulary — so the family must be recoverable at the {@code Table.copy}
+     * chokepoint. Stripped there along with every other marker.
+     */
+    private static final String PINNED_OPTIONS_MARKER = "doris.internal.paimon.options";
 
     private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.of(
             CoreOptions.SCAN_MODE.key(),
@@ -68,7 +93,7 @@ public final class PaimonScanParams {
             CoreOptions.SCAN_TAG_NAME.key(),
             CoreOptions.SCAN_VERSION.key());
 
-    private static final Set<String> INHERITED_READ_STATE_KEYS = inheritedReadStateKeys();
+    private static final Set<String> INHERITED_READ_STATE_KEYS = buildInheritedReadStateKeys();
 
     // FilesScan enumerates the latest partitions before applying its range-aware per-partition scan,
     // so it cannot safely read a range when a partition in that range has since been dropped.
@@ -89,7 +114,7 @@ public final class PaimonScanParams {
 
     public static void validateOptions(Map<String, String> options) {
         if (options.containsKey(CoreOptions.SCAN_FALLBACK_BRANCH.key())) {
-            throw new IllegalArgumentException("Paimon query option '"
+            throw new DorisConnectorException("Paimon query option '"
                     + CoreOptions.SCAN_FALLBACK_BRANCH.key()
                     + "' is not supported because it requires rebuilding the table through the catalog factory.");
         }
@@ -98,7 +123,7 @@ public final class PaimonScanParams {
                 .filter(key -> !QUERY_OPTION_KEYS.contains(key))
                 .collect(Collectors.toSet());
         if (!unsupported.isEmpty()) {
-            throw new IllegalArgumentException("Unsupported Paimon query option(s): " + unsupported);
+            throw new DorisConnectorException("Unsupported Paimon query option(s): " + unsupported);
         }
 
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
@@ -106,13 +131,13 @@ public final class PaimonScanParams {
                 && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
             // Paimon 1.3.1 does not validate this newer mode, but its starting scanner
             // requires the creation timestamp and otherwise fails after analysis.
-            throw new IllegalArgumentException("Paimon scan mode 'from-creation-timestamp' requires query option '"
+            throw new DorisConnectorException("Paimon scan mode 'from-creation-timestamp' requires query option '"
                     + CoreOptions.SCAN_CREATION_TIME_MILLIS.key() + "'.");
         }
 
         long positionCount = options.keySet().stream().filter(STARTUP_POSITION_KEYS::contains).count();
         if (positionCount > 1) {
-            throw new IllegalArgumentException(
+            throw new DorisConnectorException(
                     "Only one Paimon startup position can be specified: " + STARTUP_POSITION_KEYS);
         }
 
@@ -123,7 +148,7 @@ public final class PaimonScanParams {
                     .get();
             String mode = scanMode.toLowerCase(Locale.ROOT);
             if (!isCompatibleStartupMode(position, mode)) {
-                throw new IllegalArgumentException("Paimon scan mode '" + mode
+                throw new DorisConnectorException("Paimon scan mode '" + mode
                         + "' is incompatible with startup position '" + position + "'.");
             }
         }
@@ -143,7 +168,16 @@ public final class PaimonScanParams {
         return table.copy(isolatedOptions);
     }
 
-    private static Set<String> inheritedReadStateKeys() {
+    /**
+     * Paimon's inherited read-state family: startup mode, startup position and incremental range, plus
+     * every fallback key. Shared with {@link PaimonIncrementalScanParams#applyResetsIfIncremental}, which
+     * nulls the whole family so a value persisted on the base table cannot leak into a relation-scoped read.
+     */
+    public static Set<String> inheritedReadStateKeys() {
+        return INHERITED_READ_STATE_KEYS;
+    }
+
+    private static Set<String> buildInheritedReadStateKeys() {
         ImmutableSet.Builder<String> keys = ImmutableSet.builder();
         for (ConfigOption<?> option : Arrays.asList(
                 CoreOptions.SCAN_TIMESTAMP,
@@ -201,7 +235,7 @@ public final class PaimonScanParams {
             }
         }
         if (!(table instanceof FileStoreTable)) {
-            throw new IllegalArgumentException("Paimon startup options require a file-store data table.");
+            throw new DorisConnectorException("Paimon startup options require a file-store data table.");
         }
         FileStoreTable fileStoreTable = (FileStoreTable) table;
         if (options.containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())) {
@@ -314,8 +348,24 @@ public final class PaimonScanParams {
 
     private static Map<String, String> userOptions(Map<String, String> options) {
         return options.entrySet().stream()
-                .filter(entry -> !entry.getKey().startsWith("doris.internal.paimon."))
+                .filter(entry -> !entry.getKey().startsWith(INTERNAL_PREFIX))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    /**
+     * Stamps a resolved {@code @options} map so the {@code Table.copy} chokepoint can tell it apart from a
+     * time-travel or {@code @incr} pin, which share the same carrier but must not get this family's
+     * read-state isolation. Applied once, right after resolution.
+     */
+    public static Map<String, String> markAsOptions(Map<String, String> resolved) {
+        Map<String, String> marked = new HashMap<>(resolved);
+        marked.put(PINNED_OPTIONS_MARKER, Boolean.TRUE.toString());
+        return marked;
+    }
+
+    /** Whether {@code scanOptions} is a resolved {@code @options} pin (see {@link #markAsOptions}). */
+    public static boolean isOptionsPin(Map<String, String> scanOptions) {
+        return scanOptions != null && scanOptions.containsKey(PINNED_OPTIONS_MARKER);
     }
 
     public static Optional<Long> getPinnedFileCreationTime(Map<String, String> options) {
@@ -366,25 +416,19 @@ public final class PaimonScanParams {
         return PAIMON_READER_SYSTEM_TABLES.contains(systemTableType.toLowerCase());
     }
 
-    public static void validateSystemTable(String systemTableType, TableScanParams scanParams) {
-        if (scanParams == null) {
-            return;
-        }
-        if (scanParams.incrementalRead() && !supportsIncrementalRead(systemTableType)) {
-            throw new IllegalArgumentException(
-                    "Paimon system table '" + systemTableType + "' does not support INCR scan params.");
-        }
-        if (scanParams.isOptions() && !supportsOptions(systemTableType)) {
-            throw new IllegalArgumentException(
-                    "Paimon system table '" + systemTableType + "' does not support OPTIONS scan params.");
-        }
-        if (scanParams.isOptions()
-                && scanParams.getMapParams().containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())) {
-            throw new IllegalArgumentException(
+    /**
+     * Rejects the ONE option a system table can never honor. Which system table accepts {@code @options}
+     * at all is answered earlier and generically by
+     * {@code PaimonScanPlanProvider.supportsSystemTableOptions}; this covers the residual case where an
+     * accepted system table is handed an option its generic wrapper cannot carry: Paimon's creation-time
+     * file filter is a manifest-entry predicate, and a system-table wrapper has nowhere to put it.
+     * Rejecting is the only safe answer — silently dropping it would widen the read to the whole pinned
+     * snapshot and return rows the user excluded.
+     */
+    public static void validateSystemTableOptions(Map<String, String> options) {
+        if (options.containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())) {
+            throw new DorisConnectorException(
                     "Paimon system tables do not support scan.file-creation-time-millis OPTIONS.");
-        }
-        if (!scanParams.incrementalRead() && !scanParams.isOptions()) {
-            throw new IllegalArgumentException("Paimon system tables only support INCR or OPTIONS scan params.");
         }
     }
 }

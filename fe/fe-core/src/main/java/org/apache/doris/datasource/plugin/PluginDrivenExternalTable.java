@@ -291,6 +291,20 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether THIS table accepts the relation-scoped {@code @options(...)} scan-param clause.
+     * {@code BindRelation} consults this (in place of the legacy exact-class {@code instanceof
+     * PaimonExternalTable} gate) BEFORE any connector round-trip, so a table type that cannot honor the
+     * clause fails loudly instead of silently answering a historical query with latest data. Resolved
+     * per-table via {@link #hasCapability} because a connector may honor the clause on its data tables
+     * while declining it on the system tables whose readers cannot observe a selected snapshot (see
+     * {@code PaimonConnectorMetadata}'s per-sys-table capability refinement). Mirrors
+     * {@link #supportsNestedColumnPrune}.
+     */
+    public boolean supportsScanParamOptions() {
+        return hasCapability(ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS);
+    }
+
+    /**
      * Returns whether THIS table supports {@code ANALYZE ... WITH SAMPLE}. Consulted by
      * {@code AnalysisManager.canSample}, {@code AnalyzeTableCommand.isSamplingPartition}, {@link
      * #createAnalysisTask} (to return a sample-capable task) and the background auto-analyze method choice.

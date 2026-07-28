@@ -51,6 +51,9 @@ import java.util.Objects;
  *   <li>{@link Kind#INCREMENTAL} &mdash; {@code @incr(...)} scan param:
  *       {@code stringValue} is {@code null} and {@code incrementalParams}
  *       carries the raw key/value window arguments.</li>
+ *   <li>{@link Kind#OPTIONS} &mdash; {@code @options(...)} scan param:
+ *       {@code stringValue} is {@code null} and {@code incrementalParams}
+ *       carries the raw key/value source-native scan options.</li>
  * </ul>
  */
 public final class ConnectorTimeTravelSpec {
@@ -74,7 +77,14 @@ public final class ConnectorTimeTravelSpec {
         /** {@code @branch('name')}. */
         BRANCH,
         /** {@code @incr(...)}. */
-        INCREMENTAL
+        INCREMENTAL,
+        /**
+         * {@code @options(...)}: relation-scoped, source-native scan options. Unlike every other
+         * kind, fe-core does not even know the option vocabulary — the connector validates the keys
+         * and resolves them into an immutable pin, so two relations over the same table can select
+         * different versions within one statement.
+         */
+        OPTIONS
     }
 
     private final Kind kind;
@@ -158,6 +168,17 @@ public final class ConnectorTimeTravelSpec {
         return new ConnectorTimeTravelSpec(Kind.INCREMENTAL, null, false, rawParams);
     }
 
+    /**
+     * {@code @options(...)}: relation-scoped, source-native scan options. The connector validates
+     * the option vocabulary and resolves the options into a pinned snapshot.
+     *
+     * @param rawParams the raw key/value scan options (defensively copied)
+     */
+    public static ConnectorTimeTravelSpec options(Map<String, String> rawParams) {
+        Objects.requireNonNull(rawParams, "rawParams");
+        return new ConnectorTimeTravelSpec(Kind.OPTIONS, null, false, rawParams);
+    }
+
     /** The flavor of this spec; never null. */
     public Kind getKind() {
         return kind;
@@ -185,7 +206,17 @@ public final class ConnectorTimeTravelSpec {
      * {@link Kind#INCREMENTAL}, an unmodifiable empty map otherwise. Never null.
      */
     public Map<String, String> getIncrementalParams() {
-        return incrementalParams;
+        return kind == Kind.INCREMENTAL ? incrementalParams : Collections.emptyMap();
+    }
+
+    /**
+     * The raw source-native scan options; non-empty only for {@link Kind#OPTIONS}, an unmodifiable
+     * empty map otherwise. Never null. Shares {@link #incrementalParams}' storage because the two
+     * kinds are mutually exclusive on a relation (one scan-param clause per relation), but is
+     * exposed separately so a reader is never misled about which kind the map belongs to.
+     */
+    public Map<String, String> getOptions() {
+        return kind == Kind.OPTIONS ? incrementalParams : Collections.emptyMap();
     }
 
     @Override

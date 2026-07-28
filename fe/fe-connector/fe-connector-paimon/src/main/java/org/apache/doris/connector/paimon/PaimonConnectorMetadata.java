@@ -387,9 +387,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * {@code PaimonSysExternalTable#getSysPaimonTable}).
      *
      * <p>{@code forceJni} mirrors legacy {@code PaimonScanNode.shouldForceJniForSystemTable}: only
-     * {@code binlog} / {@code audit_log} are NAME-forced to the JNI reader. Other sys tables ("ro",
-     * metadata tables) are NOT force-forced here; their JNI-vs-native routing is decided at scan
-     * time by split type (T19), so this must not over-force.
+     * {@code binlog} / {@code audit_log} / {@code row_tracking} are NAME-forced to the JNI reader (the
+     * {@link PaimonScanParams#requiresPaimonReader} set). Other sys tables ("ro", metadata tables) are NOT
+     * force-forced here; their JNI-vs-native routing is decided at scan time by split type (T19), so this
+     * must not over-force.
      */
     @Override
     public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
@@ -425,7 +426,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (sysTable == null) {
             return Optional.empty();
         }
-        boolean forceJni = "binlog".equals(sys) || "audit_log".equals(sys);
+        // #65984 widened the name-forced set to include row_tracking: like binlog/audit_log its rows
+        // are materialized by the paimon reader itself, so the native reader would return wrong rows.
+        // Single source of truth with the sys-table capability matrix (PaimonScanParams).
+        boolean forceJni = PaimonScanParams.requiresPaimonReader(sys);
         PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
                 base.getDatabaseName(), base.getTableName(), sys, forceJni);
         handle.setPaimonTable(sysTable);
@@ -637,10 +641,51 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                         .property(CoreOptions.BRANCH.key(), branchName)
                         .build());
             }
+            case OPTIONS: {
+                // @options carries paimon's OWN scan-option vocabulary. Validate the keys, then RESOLVE
+                // the startup selector down to an immutable pin (scan.snapshot-id / scan.tag-name) right
+                // here, at bind time: a mutable selector (scan.mode=latest, a tag, a wall-clock timestamp)
+                // must not be re-evaluated later, or split planning would read a different version than
+                // the one whose schema was bound. Resolution runs against the LATEST table, because the
+                // options themselves are what selects the version.
+                Map<String, String> resolved =
+                        PaimonScanParams.resolveOptions(table, spec.getOptions());
+                long pinnedId = pinnedSnapshotId(table, resolved);
+                long schemaId = pinnedId < 0
+                        ? -1L
+                        : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
+                // resolved is never empty for a startup selector; for a selector-free @options (e.g. only
+                // scan.manifest-parallelism) it is the user map verbatim, which applySnapshot still
+                // threads -- those keys tune HOW the scan runs, not WHICH version it reads.
+                return Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(pinnedId)
+                        .schemaId(schemaId)
+                        .properties(PaimonScanParams.markAsOptions(resolved))
+                        .build());
+            }
             default:
                 throw new UnsupportedOperationException(
                         "unsupported time-travel kind: " + spec.getKind());
         }
+    }
+
+    /**
+     * The snapshot id a resolved {@code @options} map pins, or {@code -1} when it pins none (a
+     * selector-free option set, an empty table, or a tag whose id is looked up lazily). Only used to
+     * stamp the {@link ConnectorMvccSnapshot}'s identity — the authoritative selector is the resolved
+     * option map itself, which {@link #applySnapshot} threads verbatim.
+     */
+    private long pinnedSnapshotId(Table table, Map<String, String> resolved) {
+        String snapshotId = resolved.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+        if (snapshotId != null) {
+            return Long.parseLong(snapshotId);
+        }
+        String tagName = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
+        if (tagName != null) {
+            return catalogOps.getSnapshotByTag(table, tagName)
+                    .map(PaimonCatalogOps.TagSnapshot::snapshotId).orElse(-1L);
+        }
+        return catalogOps.latestSnapshotId(table).orElse(-1L);
     }
 
     /**
@@ -742,7 +787,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         if (paimonHandle.isSystemTable()) {
-            return paimonHandle;
+            // A system table has no MVCC identity of its own, so a latest-pin (empty properties) leaves it
+            // untouched as before. It CAN however be handed an explicit @options selector resolved against
+            // its SOURCE table (fe-core's PluginDrivenScanNode.resolveSysTableSnapshotPin) -- thread those
+            // options so the metadata view is materialized at the selected snapshot instead of latest.
+            // Only the OPTIONS-shaped selector reaches here: which system table accepts it is gated by
+            // PaimonScanPlanProvider.supportsSystemTableOptions, and @branch/@tag are refused connector-wide
+            // by supportsSystemTableTimeTravel()==false.
+            if (snapshot == null || snapshot.getProperties().isEmpty()) {
+                return paimonHandle;
+            }
+            PaimonScanParams.validateSystemTableOptions(snapshot.getProperties());
+            return paimonHandle.withScanOptions(snapshot.getProperties());
         }
         if (snapshot != null) {
             String branch = snapshot.getProperties().get(CoreOptions.BRANCH.key());

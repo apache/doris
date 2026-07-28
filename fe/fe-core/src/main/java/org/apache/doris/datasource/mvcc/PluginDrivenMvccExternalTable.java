@@ -446,6 +446,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (params.incrementalRead()) {
             return ConnectorTimeTravelSpec.incremental(params.getMapParams());
         }
+        if (params.isOptions()) {
+            // @options carries the SOURCE's own scan-option vocabulary. fe-core hands the raw map over
+            // untouched -- it does not know a single key -- and the connector validates and resolves it
+            // into a pin, exactly like the @incr window params.
+            return ConnectorTimeTravelSpec.options(params.getMapParams());
+        }
         throw new RuntimeException("unsupported scan params: " + params.getParamType());
     }
 
