@@ -96,20 +96,26 @@ import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -282,6 +288,15 @@ import java.util.stream.Stream;
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
 
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
+
+    // A subset of scalar functions that always return NULL on a NULL argument even though they
+    // do not implement PropagateNullable (they are AlwaysNullable because the output can be NULL
+    // for non-NULL input too, e.g. an out-of-range index or a non-matching pattern). Listing them
+    // explicitly keeps the null-in-null-out guarantee while still admitting the core target
+    // functions of dictionary expression push-down. See canEvaluateOnDictionary.
+    private static final Set<String> NULL_PROPAGATING_ALWAYS_NULLABLE_FUNCTIONS = ImmutableSet.of(
+            "element_at", "split_part", "regexp_extract", "regexp_extract_all", "substring_index");
+
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
 
@@ -3131,10 +3146,98 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         for (Expression conjunct : filter.getConjuncts()) {
             for (Expression singleConjunct : ExpressionUtils.extractConjunctionToSet(conjunct)) {
-                planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context));
+                Expr translated = ExpressionTranslator.translate(singleConjunct, context);
+                if (canEvaluateOnDictionary(singleConjunct)) {
+                    translated.setCanDictFilterFromNereids(true);
+                }
+                planNode.addConjunct(translated);
             }
         }
         updateLegacyPlanIdToPhysicalPlan(planNode, filter);
+    }
+
+    /**
+     * Whether a filter conjunct is safe to evaluate on a column's dictionary (distinct
+     * values) rather than per row, letting ORC/Parquet scans run a heavy string predicate
+     * once per distinct value. This is the authoritative check (BE only has a conservative
+     * fallback): the predicate must be an equality/IN whose value side is derived from a
+     * single slot, is deterministic, and preserves NULL semantics.
+     *
+     * <p>NULL preservation is the subtle part. The dictionary carries no NULL entry, so a
+     * NULL source value keeps its NULL dict-code and the rewritten {@code dict_code IN
+     * (surviving)} predicate evaluates to NULL (i.e. "not matched") for it. That only matches
+     * per-row semantics when the value side is itself NULL whenever the source column is NULL
+     * -- i.e. null-in implies null-out. So {@code substr(col, 1, 3) = 'abc'} or
+     * {@code split_by_string(col, ',')[1] = 'x'} are safe, but {@code coalesce(col, 'N') = 'N'},
+     * {@code ifnull}, {@code if}, {@code nullif} and {@code concat_ws} are not: they can turn a
+     * NULL input into a non-NULL output, so their NULL rows would be wrongly dropped.
+     */
+    private static boolean canEvaluateOnDictionary(Expression conjunct) {
+        Expression valueSide;
+        if (conjunct instanceof EqualTo) {
+            EqualTo eq = (EqualTo) conjunct;
+            if (eq.right() instanceof Literal) {
+                valueSide = eq.left();
+            } else if (eq.left() instanceof Literal) {
+                valueSide = eq.right();
+            } else {
+                return false;
+            }
+        } else if (conjunct instanceof InPredicate) {
+            InPredicate in = (InPredicate) conjunct;
+            for (Expression option : in.getOptions()) {
+                if (!(option instanceof Literal)) {
+                    return false;
+                }
+            }
+            valueSide = in.getCompareExpr();
+        } else {
+            return false;
+        }
+        // Single-column derivation: dictionaries are per column, so the value side may
+        // reference exactly one slot (a bare column ref, or a function over one column).
+        if (valueSide.getInputSlots().size() != 1) {
+            return false;
+        }
+        // Deterministic: BE evaluates each distinct value once and caches it, so rand/uuid
+        // and other non-deterministic functions must not be dict-filtered.
+        if (valueSide.containsNondeterministic()) {
+            return false;
+        }
+        // NULL preservation: the value side must be NULL whenever the source column is NULL,
+        // otherwise NULL rows (which have no dictionary entry) would be wrongly filtered out.
+        return isNullPreserving(valueSide);
+    }
+
+    /**
+     * Whether {@code expr} is guaranteed to be NULL whenever any referenced slot is NULL
+     * (null-in implies null-out). Slot refs and casts propagate NULL; literals are constant;
+     * a function propagates NULL only if it is {@link PropagateNullable} or explicitly known to
+     * be null-propagating. Everything else (coalesce/if/nvl/nullif/concat_ws, unknown builtins,
+     * UDFs, case-when) is rejected so a NULL input can never become a non-NULL output.
+     */
+    private static boolean isNullPreserving(Expression expr) {
+        if (expr instanceof SlotReference || expr instanceof Literal) {
+            return true;
+        }
+        if (expr instanceof Cast) {
+            return isNullPreserving(((Cast) expr).child());
+        }
+        if (expr instanceof BoundFunction) {
+            BoundFunction fn = (BoundFunction) expr;
+            boolean nullPropagating = fn instanceof PropagateNullable
+                    || NULL_PROPAGATING_ALWAYS_NULLABLE_FUNCTIONS.contains(fn.getName().toLowerCase());
+            if (!nullPropagating) {
+                return false;
+            }
+            for (Expression child : fn.children()) {
+                if (!isNullPreserving(child)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, TableIf table, PlanTranslatorContext context) {

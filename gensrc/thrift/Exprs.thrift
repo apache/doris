@@ -333,6 +333,13 @@ struct TExprNode {
   // distinguish current-scope lambda arguments from captured outer lambda
   // arguments when nested lambda expressions contain duplicated column ids.
   42: optional list<string> lambda_argument_names
+
+  // Set by the planner on a filter conjunct's root node when the predicate is safe to
+  // evaluate on a column's dictionary (deterministic, NULL-insensitive, single dict
+  // column). Lets ORC/Parquet scans run a heavy string predicate once per distinct value.
+  // Authoritative determinism/nullability check lives in the FE; when unset (older FE),
+  // BE falls back to a conservative allowlist.
+  43: optional bool can_dict_filter
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
