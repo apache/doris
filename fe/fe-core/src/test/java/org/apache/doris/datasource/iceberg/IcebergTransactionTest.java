@@ -28,7 +28,9 @@ import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
@@ -36,6 +38,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -44,6 +47,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.transforms.Transform;
 import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Types;
@@ -365,6 +369,66 @@ public class IcebergTransactionTest {
             Mockito.verify(table, Mockito.never()).newTransaction();
             Mockito.verify(table, Mockito.never()).refresh();
         }
+    }
+
+    @Test
+    public void testInsertCommitUsesStatementPinnedWriterMetadata() throws UserException {
+        Schema schema = new Schema(92,
+                Collections.singletonList(Types.NestedField.optional(
+                        1, "id", Types.IntegerType.get())));
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        SortOrder sortOrder = SortOrder.unsorted();
+        IcebergWriteSchemaContext context =
+                IcebergWriteSchemaContext.forSchema(schema, 3, true, true);
+        Table table = Mockito.mock(Table.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        AppendFiles appendFiles = Mockito.mock(AppendFiles.class, Mockito.RETURNS_SELF);
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.properties()).thenReturn(
+                Collections.singletonMap(org.apache.iceberg.TableProperties.FORMAT_VERSION, "3"));
+        Mockito.when(table.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+        Mockito.when(table.sortOrders()).thenReturn(
+                Collections.singletonMap(sortOrder.orderId(), sortOrder));
+        Mockito.when(table.newTransaction()).thenReturn(icebergTxn);
+        Mockito.when(icebergTxn.table()).thenReturn(table);
+        Mockito.when(icebergTxn.newAppend()).thenReturn(appendFiles);
+        Mockito.when(appendFiles.scanManifestsWith(ArgumentMatchers.any()))
+                .thenReturn(appendFiles);
+
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn("pinned_writer_table");
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("file:///tmp/pinned/data.parquet");
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        WriteResult writeResult = WriteResult.builder().addDataFiles(dataFile).build();
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class);
+                MockedStatic<IcebergWriterHelper> mockedWriterHelper =
+                        Mockito.mockStatic(IcebergWriterHelper.class)) {
+            mockedUtils.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            mockedUtils.when(() -> IcebergUtils.getFormatVersion(table)).thenReturn(3);
+            mockedWriterHelper.when(() -> IcebergWriterHelper.convertToWriterResult(
+                            ArgumentMatchers.same(context), ArgumentMatchers.anyList()))
+                    .thenReturn(writeResult);
+
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+            txn.beginInsert(dorisTable, Optional.of(insertContext));
+            txn.finishInsert(NameMapping.createForTest(dbName, "pinned_writer_table"));
+
+            mockedWriterHelper.verify(() -> IcebergWriterHelper.convertToWriterResult(
+                    ArgumentMatchers.same(context), ArgumentMatchers.anyList()));
+            mockedWriterHelper.verify(() -> IcebergWriterHelper.convertToWriterResult(
+                    ArgumentMatchers.any(Table.class), ArgumentMatchers.anyList()), Mockito.never());
+        }
+        Mockito.verify(appendFiles).appendFile(dataFile);
+        Mockito.verify(appendFiles).commit();
     }
 
     private void checkSnapshotAddProperties(Map<String, String> props,

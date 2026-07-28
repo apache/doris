@@ -48,10 +48,12 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -316,6 +318,7 @@ public class IcebergWriteSchemaContextTest {
                 List.of(Types.NestedField.optional(1, "id", Types.IntegerType.get())));
         IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(pinned, 3, true, true);
         Table table = Mockito.mock(Table.class);
+        stubUnpartitionedWriterMetadata(table);
         Mockito.when(table.properties()).thenReturn(ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
         Mockito.when(table.schema()).thenReturn(pinned);
         Assertions.assertDoesNotThrow(() -> context.validateCurrentSchema(table));
@@ -323,6 +326,13 @@ public class IcebergWriteSchemaContextTest {
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> context.validateCurrentSchema(table));
         Assertions.assertTrue(exception.getMessage().contains("retry the statement"));
+        Mockito.when(table.schema()).thenReturn(pinned);
+        Mockito.when(table.specs()).thenReturn(ImmutableMap.of());
+        Assertions.assertThrows(AnalysisException.class, () -> context.validateCurrentSchema(table));
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        Mockito.when(table.specs()).thenReturn(ImmutableMap.of(spec.specId(), spec));
+        Mockito.when(table.sortOrders()).thenReturn(ImmutableMap.of());
+        Assertions.assertThrows(AnalysisException.class, () -> context.validateCurrentSchema(table));
         Mockito.verify(table, Mockito.never()).refresh();
     }
 
@@ -341,6 +351,7 @@ public class IcebergWriteSchemaContextTest {
                 cachedTableSchema.schemaId(), cachedTableSchema));
         Mockito.when(table.properties()).thenReturn(
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+        stubUnpartitionedWriterMetadata(table);
 
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
@@ -397,6 +408,7 @@ public class IcebergWriteSchemaContextTest {
                 branchSchema.schemaId(), branchSchema));
         Mockito.when(table.properties()).thenReturn(
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+        stubUnpartitionedWriterMetadata(table);
 
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
@@ -428,6 +440,58 @@ public class IcebergWriteSchemaContextTest {
         Assertions.assertSame(sink, InsertUtils.pinIcebergWriteSchema(
                 sink, dorisTable, Optional.of("audit"), statementContext));
         Assertions.assertSame(context, statementContext.getIcebergWriteSchemaContext().get());
+    }
+
+    @Test
+    public void testBranchRejectsCurrentPartitionSourceOutsidePinnedSchema() {
+        Schema mainSchema = new Schema(31,
+                List.of(Types.NestedField.required(1, "main_partition", Types.IntegerType.get())));
+        Schema branchSchema = new Schema(30,
+                List.of(Types.NestedField.required(2, "branch_value", Types.IntegerType.get())));
+        PartitionSpec mainSpec = PartitionSpec.builderFor(mainSchema).identity("main_partition").build();
+        Snapshot branchSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(branchSnapshot.schemaId()).thenReturn(branchSchema.schemaId());
+        SnapshotRef branchRef = SnapshotRef.branchBuilder(102L).build();
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(mainSchema);
+        Mockito.when(table.refs()).thenReturn(ImmutableMap.of("audit", branchRef));
+        Mockito.when(table.snapshot(branchRef.snapshotId())).thenReturn(branchSnapshot);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                mainSchema.schemaId(), mainSchema,
+                branchSchema.schemaId(), branchSchema));
+        Mockito.when(table.spec()).thenReturn(mainSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+        Mockito.when(table.location()).thenReturn("file:///tmp/branch_table");
+
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(catalog.getEnableMappingTimestampTz()).thenReturn(true);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getIcebergTable()).thenReturn(table);
+        Mockito.when(dorisTable.getId()).thenReturn(9L);
+        Mockito.when(dorisTable.getName()).thenReturn("branch_table");
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class,
+                () -> IcebergWriteSchemaContext.create(dorisTable, Optional.of("audit")));
+        Assertions.assertTrue(exception.getMessage().contains("pinned"), exception::getMessage);
+        Assertions.assertTrue(exception.getMessage().contains("source field 1"), exception::getMessage);
+    }
+
+    private static void stubUnpartitionedWriterMetadata(Table table) {
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        SortOrder sortOrder = SortOrder.unsorted();
+        Mockito.when(table.spec()).thenReturn(spec);
+        Mockito.when(table.specs()).thenReturn(ImmutableMap.of(spec.specId(), spec));
+        Mockito.when(table.sortOrder()).thenReturn(sortOrder);
+        Mockito.when(table.sortOrders()).thenReturn(ImmutableMap.of(sortOrder.orderId(), sortOrder));
+        Mockito.when(table.location()).thenReturn("file:///tmp/test_table");
     }
 
     private static Types.NestedField defaultField(int id, String name, Type type,

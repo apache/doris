@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
@@ -125,7 +126,14 @@ VIcebergTableWriter::_to_iceberg_partition_columns() {
         id_to_column_idx[_schema->columns()[i].field_id()] = i;
     }
     for (const auto& partition_field : _partition_spec->fields()) {
-        int column_idx = id_to_column_idx[partition_field.source_id()];
+        auto column_idx_it = id_to_column_idx.find(partition_field.source_id());
+        if (column_idx_it == id_to_column_idx.end()) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Iceberg partition field {} references source field {} outside writer schema",
+                    partition_field.field_id(), partition_field.source_id());
+        }
+        int column_idx = column_idx_it->second;
         std::unique_ptr<PartitionColumnTransform> partition_column_transform =
                 PartitionColumnTransforms::create(
                         partition_field, _vec_output_expr_ctxs[column_idx]->root()->data_type());

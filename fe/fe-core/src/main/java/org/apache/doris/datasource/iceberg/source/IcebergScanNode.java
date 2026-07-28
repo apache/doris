@@ -530,7 +530,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             if (!requiresCurrentSemantics
                     && hasSmoothUpgradeSourceBackend(backendPolicy.getBackends())) {
                 requiresCurrentSemantics = requiresMissingRequiredFieldRejection(
-                        scanSchema, desc.getSlots(), getMetadataSchemaHistory());
+                        scanSchema, desc.getSlots(), getRequiredFieldSchemaHistory(scanSchema));
             }
             if (requiresCurrentSemantics) {
                 checkCurrentIcebergScanSemanticsBackendCompatibility(backendPolicy.getBackends());
@@ -642,6 +642,35 @@ public class IcebergScanNode extends FileQueryScanNode {
         Preconditions.checkState(icebergTable instanceof HasTableOperations,
                 "Iceberg table does not expose metadata schema history: %s", icebergTable.name());
         return ((HasTableOperations) icebergTable).operations().current().schemas();
+    }
+
+    /**
+     * Return only schemas that can describe files visible from the selected target.
+     *
+     * <p>The query schema is included explicitly because a schema-only commit does not create a
+     * snapshot. Other schemas are taken from the selected snapshot's parent lineage, excluding
+     * later main-branch and unrelated branch schemas from the rolling-upgrade fence.
+     */
+    @VisibleForTesting
+    List<Schema> getRequiredFieldSchemaHistory(Schema scanSchema) throws UserException {
+        List<Schema> schemas = new ArrayList<>();
+        Set<Integer> schemaIds = new HashSet<>();
+        schemas.add(scanSchema);
+        schemaIds.add(scanSchema.schemaId());
+
+        Snapshot snapshot = createTableScan().snapshot();
+        while (snapshot != null) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId != null && schemaIds.add(schemaId)) {
+                Schema lineageSchema = icebergTable.schemas().get(schemaId);
+                Preconditions.checkState(lineageSchema != null,
+                        "Iceberg snapshot schema %s is absent from table metadata", schemaId);
+                schemas.add(lineageSchema);
+            }
+            Long parentId = snapshot.parentId();
+            snapshot = parentId == null ? null : icebergTable.snapshot(parentId);
+        }
+        return schemas;
     }
 
     private static void addHistoricalEqualityFields(List<NestedField> fields,

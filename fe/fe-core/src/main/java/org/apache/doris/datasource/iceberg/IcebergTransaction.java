@@ -80,6 +80,7 @@ public class IcebergTransaction implements Transaction {
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
     private IcebergInsertCommandContext insertCtx;
+    private Optional<IcebergWriteSchemaContext> writeSchemaContext = Optional.empty();
     private String branchName;
     private Long baseSnapshotId;
     private Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
@@ -127,7 +128,9 @@ public class IcebergTransaction implements Transaction {
     }
 
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
-        ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
+        this.insertCtx = ctx.map(c -> (IcebergInsertCommandContext) c).orElse(null);
+        this.writeSchemaContext = insertCtx == null
+                ? Optional.empty() : insertCtx.getWriteSchemaContext();
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
@@ -145,8 +148,8 @@ public class IcebergTransaction implements Transaction {
                                         + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
                 }
-                if (insertCtx != null && insertCtx.getWriteSchemaContext().isPresent()) {
-                    insertCtx.getWriteSchemaContext().get().validateCurrentSchema(table);
+                if (writeSchemaContext.isPresent()) {
+                    writeSchemaContext.get().validateCurrentSchema(table);
                 }
                 this.transaction = table.newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
@@ -165,6 +168,8 @@ public class IcebergTransaction implements Transaction {
         // For rewrite operations, we work directly on the main table
         this.branchName = null;
         this.isRewriteMode = true;
+        this.insertCtx = null;
+        this.writeSchemaContext = Optional.empty();
 
         try {
             ops.getExecutionAuthenticator().execute(() -> {
@@ -269,6 +274,8 @@ public class IcebergTransaction implements Transaction {
      * Begin delete operation for Iceberg table
      */
     public void beginDelete(ExternalTable dorisTable) throws UserException {
+        this.insertCtx = null;
+        this.writeSchemaContext = Optional.empty();
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
@@ -301,14 +308,16 @@ public class IcebergTransaction implements Transaction {
 
     /** Begin a merge transaction after validating its statement-pinned write schema. */
     public void beginMerge(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
-        ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
+        this.insertCtx = ctx.map(c -> (IcebergInsertCommandContext) c).orElse(null);
+        this.writeSchemaContext = insertCtx == null
+                ? Optional.empty() : insertCtx.getWriteSchemaContext();
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 this.branchName = null;
                 this.table = IcebergUtils.loadFreshIcebergTable(dorisTable);
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
-                if (insertCtx != null && insertCtx.getWriteSchemaContext().isPresent()) {
-                    insertCtx.getWriteSchemaContext().get().validateCurrentSchema(table);
+                if (writeSchemaContext.isPresent()) {
+                    writeSchemaContext.get().validateCurrentSchema(table);
                 }
                 if (table instanceof org.apache.iceberg.HasTableOperations) {
                     int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
@@ -367,7 +376,9 @@ public class IcebergTransaction implements Transaction {
      * Update manifest after delete operation using RowDelta API
      */
     private void updateManifestAfterDelete() {
-        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
+        FileFormat fileFormat = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFileFormat)
+                .orElseGet(() -> IcebergUtils.getFileFormat(transaction.table()));
 
         if (commitDataList.isEmpty()) {
             LOG.info("No delete files to commit");
@@ -452,7 +463,9 @@ public class IcebergTransaction implements Transaction {
             return;
         }
 
-        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
+        FileFormat fileFormat = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFileFormat)
+                .orElseGet(() -> IcebergUtils.getFileFormat(transaction.table()));
 
         List<TIcebergCommitData> dataCommitData = new ArrayList<>();
         List<TIcebergCommitData> deleteCommitData = new ArrayList<>();
@@ -469,8 +482,7 @@ public class IcebergTransaction implements Transaction {
 
         List<DataFile> dataFiles = new ArrayList<>();
         if (!dataCommitData.isEmpty()) {
-            WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(
-                    transaction.table(), dataCommitData);
+            WriteResult writeResult = convertToWriterResult(dataCommitData);
             dataFiles.addAll(Arrays.asList(writeResult.dataFiles()));
         }
 
@@ -533,8 +545,7 @@ public class IcebergTransaction implements Transaction {
             pendingResults = Collections.emptyList();
         } else {
             //convert commitDataList to writeResult
-            WriteResult writeResult = IcebergWriterHelper
-                    .convertToWriterResult(transaction.table(), commitDataList);
+            WriteResult writeResult = convertToWriterResult(commitDataList);
             pendingResults = Lists.newArrayList(writeResult);
         }
 
@@ -548,6 +559,13 @@ public class IcebergTransaction implements Transaction {
                 commitReplaceTxn(pendingResults);
             }
         }
+    }
+
+    private WriteResult convertToWriterResult(List<TIcebergCommitData> dataCommitData) {
+        return writeSchemaContext
+                .map(context -> IcebergWriterHelper.convertToWriterResult(context, dataCommitData))
+                .orElseGet(() -> IcebergWriterHelper.convertToWriterResult(
+                        transaction.table(), dataCommitData));
     }
 
     @Override

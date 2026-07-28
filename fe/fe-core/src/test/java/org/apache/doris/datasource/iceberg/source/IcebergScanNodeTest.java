@@ -92,6 +92,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -1187,6 +1188,80 @@ public class IcebergScanNodeTest {
                 ColumnAccessPath.data(List.of("2", "5"))));
         Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
                 scanSchema, Collections.singletonList(payloadSlot), List.of(historicalSchema)));
+    }
+
+    @Test
+    public void testRequiredFieldFenceExcludesLaterAndOffLineageSchemas() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Types.NestedField required = Types.NestedField.required(
+                2, "required_value", Types.IntegerType.get());
+        Schema ancestorSchema = new Schema(40, List.of(id, required));
+        Schema targetSchema = new Schema(41, List.of(id, required));
+        Schema laterDropSchema = new Schema(42, List.of(id));
+        Schema offLineageSchema = new Schema(43, List.of(id));
+
+        Snapshot ancestorSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(ancestorSnapshot.schemaId()).thenReturn(ancestorSchema.schemaId());
+        Mockito.when(ancestorSnapshot.parentId()).thenReturn(null);
+        Snapshot targetSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(targetSnapshot.schemaId()).thenReturn(targetSchema.schemaId());
+        Mockito.when(targetSnapshot.parentId()).thenReturn(100L);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(targetSnapshot);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(Map.of(
+                ancestorSchema.schemaId(), ancestorSchema,
+                targetSchema.schemaId(), targetSchema,
+                laterDropSchema.schemaId(), laterDropSchema,
+                offLineageSchema.schemaId(), offLineageSchema));
+        Mockito.when(table.snapshot(100L)).thenReturn(ancestorSnapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        node.setTableScan(tableScan);
+        setIcebergTable(node, table);
+        List<Schema> targetHistory = node.getRequiredFieldSchemaHistory(targetSchema);
+        SlotDescriptor requiredSlot = new SlotDescriptor(new SlotId(2), new TupleId(0));
+        requiredSlot.setColumn(IcebergUtils.parseSchema(targetSchema, false, false).get(1));
+
+        Assert.assertEquals(
+                List.of(targetSchema.schemaId(), ancestorSchema.schemaId()),
+                targetHistory.stream().map(Schema::schemaId).collect(Collectors.toList()));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                targetSchema, Collections.singletonList(requiredSlot), targetHistory));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                targetSchema, Collections.singletonList(requiredSlot),
+                List.of(ancestorSchema, targetSchema, laterDropSchema, offLineageSchema)));
+    }
+
+    @Test
+    public void testRequiredFieldFenceIncludesSchemaOnlyTarget() throws Exception {
+        Schema snapshotSchema = new Schema(44,
+                Types.NestedField.required(1, "id", Types.LongType.get()));
+        Schema schemaOnlyTarget = new Schema(45,
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.required(2, "required_value", Types.IntegerType.get()));
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.schemaId()).thenReturn(snapshotSchema.schemaId());
+        Mockito.when(snapshot.parentId()).thenReturn(null);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(Map.of(
+                snapshotSchema.schemaId(), snapshotSchema,
+                schemaOnlyTarget.schemaId(), schemaOnlyTarget));
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        node.setTableScan(tableScan);
+        setIcebergTable(node, table);
+        List<Schema> targetHistory = node.getRequiredFieldSchemaHistory(schemaOnlyTarget);
+        SlotDescriptor requiredSlot = new SlotDescriptor(new SlotId(2), new TupleId(0));
+        requiredSlot.setColumn(IcebergUtils.parseSchema(schemaOnlyTarget, false, false).get(1));
+
+        Assert.assertEquals(
+                List.of(schemaOnlyTarget.schemaId(), snapshotSchema.schemaId()),
+                targetHistory.stream().map(Schema::schemaId).collect(Collectors.toList()));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schemaOnlyTarget, Collections.singletonList(requiredSlot), targetHistory));
     }
 
     @Test

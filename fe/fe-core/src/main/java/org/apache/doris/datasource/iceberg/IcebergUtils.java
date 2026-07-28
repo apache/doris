@@ -2087,8 +2087,13 @@ public class IcebergUtils {
     }
 
     public static boolean shouldCollectColumnStats(Table table, Schema writerSchema) {
-        MetricsConfig metricsConfig = MetricsConfig.forTable(table);
-        if (getFileFormat(table) == FileFormat.ORC) {
+        return shouldCollectColumnStats(
+                writerSchema, MetricsConfig.forTable(table), getFileFormat(table));
+    }
+
+    public static boolean shouldCollectColumnStats(
+            Schema writerSchema, MetricsConfig metricsConfig, FileFormat fileFormat) {
+        if (fileFormat == FileFormat.ORC) {
             // Match the footer collectors: ORC reports top-level collection counts, while Parquet reports leaf fields.
             return writerSchema.columns().stream()
                     .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())

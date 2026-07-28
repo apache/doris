@@ -41,7 +41,10 @@ import org.apache.doris.thrift.TSortField;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.NullOrder;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -156,18 +159,35 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         String writerSchemaJson = writeSchemaContext
                 .map(IcebergWriteSchemaContext::getMergeSchemaJson)
                 .orElse(SchemaParser.toJson(schema));
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElseGet(icebergTable::spec);
+        SortOrder sortOrder = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSortOrder)
+                .orElseGet(icebergTable::sortOrder);
+        FileFormat fileFormat = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFileFormat)
+                .orElseGet(() -> IcebergUtils.getFileFormat(icebergTable));
+        MetricsConfig metricsConfig = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getMetricsConfig)
+                .orElseGet(() -> MetricsConfig.forTable(icebergTable));
         tSink.setSchemaJson(writerSchemaJson);
-        tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable, schema));
+        tSink.setCollectColumnStats(
+                IcebergUtils.shouldCollectColumnStats(schema, metricsConfig, fileFormat));
 
         // partition spec
-        if (icebergTable.spec().isPartitioned()) {
-            tSink.setPartitionSpecsJson(Maps.transformValues(icebergTable.specs(), PartitionSpecParser::toJson));
-            tSink.setPartitionSpecId(icebergTable.spec().specId());
+        if (partitionSpec.isPartitioned()) {
+            Map<Integer, String> partitionSpecsJson = writeSchemaContext
+                    .map(context -> Collections.singletonMap(
+                            partitionSpec.specId(), context.getPartitionSpecJson()))
+                    .orElseGet(() -> Maps.transformValues(
+                            icebergTable.specs(), PartitionSpecParser::toJson));
+            tSink.setPartitionSpecsJson(partitionSpecsJson);
+            tSink.setPartitionSpecId(partitionSpec.specId());
         }
 
         // sort order
-        if (icebergTable.sortOrder().isSorted()) {
-            SortOrder sortOrder = icebergTable.sortOrder();
+        if (sortOrder.isSorted()) {
             Set<Integer> baseColumnFieldIds = writeSchemaContext
                     .map(IcebergWriteSchemaContext::getSchema)
                     .orElseGet(icebergTable::schema).columns().stream()
@@ -191,8 +211,11 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         }
 
         // file info
-        tSink.setFileFormat(getTFileFormatType(IcebergUtils.getFileFormat(icebergTable).name()));
-        tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
+        tSink.setFileFormat(getTFileFormatType(fileFormat.name()));
+        String fileCompression = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getFileCompression)
+                .orElseGet(() -> IcebergUtils.getFileCompress(icebergTable));
+        tSink.setCompressionType(getTFileCompressType(fileCompression));
 
         // hadoop config
         Map<String, String> props = new HashMap<>();
@@ -202,7 +225,9 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         tSink.setHadoopConfig(props);
 
         // location
-        String originalLocation = IcebergUtils.dataLocation(icebergTable);
+        String originalLocation = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getDataLocation)
+                .orElseGet(() -> IcebergUtils.dataLocation(icebergTable));
         LocationPath locationPath = LocationPath.ofAdapters(originalLocation, storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(originalLocation);
@@ -215,9 +240,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
         // delete side
         tSink.setDeleteType(deleteContext.toTFileContent());
-        if (icebergTable.spec().isPartitioned()) {
-            tSink.setPartitionSpecIdForDelete(icebergTable.spec().specId());
-        }
+        tSink.setPartitionSpecIdForDelete(partitionSpec.specId());
 
         if (formatVersion >= 3 && !rewritableDeleteFileSets.isEmpty()) {
             tSink.setRewritableDeleteFileSets(rewritableDeleteFileSets);

@@ -245,9 +245,18 @@ bool external_field_matches_name(const schema::external::TField& field, const st
 }
 
 DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,
-                                                     const schema::external::TField& field) {
+                                                     const schema::external::TField& field,
+                                                     bool prefer_current_name) {
+    if (prefer_current_name && field.__isset.name) {
+        for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+            if (to_lower(field.name) == to_lower(struct_type.get_element_name(field_idx))) {
+                return struct_type.get_element(field_idx);
+            }
+        }
+    }
     for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
-        if (external_field_matches_name(field, struct_type.get_element_name(field_idx))) {
+        const auto& element_name = struct_type.get_element_name(field_idx);
+        if (external_field_matches_name(field, element_name)) {
             return struct_type.get_element(field_idx);
         }
     }
@@ -274,8 +283,10 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
             field.type.__isset.len ? field.type.len : -1);
 }
 
+// NOLINTNEXTLINE(readability-function-size): keep recursive Iceberg type reconstruction together.
 ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
-                                                         DataTypePtr type) {
+                                                         DataTypePtr type,
+                                                         bool prefer_current_name) {
     type = restore_current_primitive_type(field, std::move(type));
     ColumnDefinition column {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
@@ -313,12 +324,13 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             if (child_field == nullptr || !child_field->__isset.name) {
                 continue;
             }
-            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field);
+            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field,
+                                                                       prefer_current_name);
             if (child_type == nullptr) {
                 continue;
             }
-            column.children.push_back(
-                    build_schema_column_from_external_field(*child_field, child_type));
+            column.children.push_back(build_schema_column_from_external_field(
+                    *child_field, child_type, prefer_current_name));
         }
         break;
     }
@@ -332,8 +344,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             return column;
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        auto child =
-                build_schema_column_from_external_field(*item_field, array_type.get_nested_type());
+        auto child = build_schema_column_from_external_field(
+                *item_field, array_type.get_nested_type(), prefer_current_name);
         child.name = "element";
         if (child.has_identifier_name()) {
             child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -350,8 +362,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
         const auto* key_field = get_field_ptr(field.nestedField.map_field.key_field);
         if (key_field != nullptr) {
-            auto child =
-                    build_schema_column_from_external_field(*key_field, map_type.get_key_type());
+            auto child = build_schema_column_from_external_field(
+                    *key_field, map_type.get_key_type(), prefer_current_name);
             child.name = "key";
             if (child.has_identifier_name()) {
                 child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -360,8 +372,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         }
         const auto* value_field = get_field_ptr(field.nestedField.map_field.value_field);
         if (value_field != nullptr) {
-            auto child = build_schema_column_from_external_field(*value_field,
-                                                                 map_type.get_value_type());
+            auto child = build_schema_column_from_external_field(
+                    *value_field, map_type.get_value_type(), prefer_current_name);
             child.name = "value";
             if (child.has_identifier_name()) {
                 child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -602,8 +614,9 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     if (schema_field == nullptr) {
         return Status::OK();
     }
-    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
     const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type,
+                                                                     use_current_semantics);
     if (!use_current_semantics) {
         // IDs and encoded defaults predate the result-changing semantics. Strip only the new
         // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
@@ -650,7 +663,8 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
         }
     }
     if (const auto* field = find_field(*current_schema); field != nullptr) {
-        return build_schema_column_from_external_field(*field, std::move(type));
+        return build_schema_column_from_external_field(
+                *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
     }
     if (!include_historical_schemas) {
         return std::nullopt;
@@ -676,7 +690,8 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
     if (latest_field == nullptr) {
         return std::nullopt;
     }
-    return build_schema_column_from_external_field(*latest_field, std::move(type));
+    return build_schema_column_from_external_field(
+            *latest_field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
 }
 
 Status TableReader::init(TableReadOptions&& options) {

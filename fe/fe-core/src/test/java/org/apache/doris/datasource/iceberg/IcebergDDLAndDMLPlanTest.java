@@ -203,14 +203,14 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             return new IcebergMvccSnapshot(snapshotCacheValue);
         }).when(spyTable).loadSnapshot(ArgumentMatchers.any(), ArgumentMatchers.any());
         Table mockedIcebergTable = Mockito.mock(Table.class);
-        PartitionSpec mockedSpec = Mockito.mock(PartitionSpec.class);
-        Mockito.doReturn(false).when(mockedSpec).isPartitioned();
+        PartitionSpec mockedSpec = PartitionSpec.unpartitioned();
         Mockito.doReturn(ImmutableMap.of(
                 TableProperties.FORMAT_VERSION, "2",
                 TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
                 TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
                 TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName()))
                 .when(mockedIcebergTable).properties();
+        Mockito.doReturn(warehouse + dbName + "/" + tableName).when(mockedIcebergTable).location();
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(SortOrder.unsorted()).when(mockedIcebergTable).sortOrder();

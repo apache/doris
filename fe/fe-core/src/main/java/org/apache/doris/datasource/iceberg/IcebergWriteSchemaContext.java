@@ -55,11 +55,20 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetricsConfig;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SortField;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
@@ -92,7 +101,17 @@ public final class IcebergWriteSchemaContext {
     private final int formatVersion;
     private final Optional<String> branchName;
     private final String schemaJson;
+    private final Schema mergeSchema;
     private final String mergeSchemaJson;
+    private final PartitionSpec partitionSpec;
+    private final String partitionSpecJson;
+    private final SortOrder sortOrder;
+    private final String sortOrderJson;
+    private final FileFormat fileFormat;
+    private final MetricsConfig metricsConfig;
+    private final String fileCompression;
+    private final String dataLocation;
+    private final Map<String, String> writerProperties;
     private final List<Column> columns;
     private final List<Column> mergeColumns;
     private final Map<Integer, Types.NestedField> fieldsById;
@@ -110,8 +129,13 @@ public final class IcebergWriteSchemaContext {
                         ? resolveBranchSchema(table, branchName.get(), dorisTable.getName())
                         : resolveStatementSchema(table, dorisTable);
                 int formatVersion = IcebergUtils.getFormatVersion(table);
+                Map<String, String> properties = ImmutableMap.copyOf(table.properties());
                 return new IcebergWriteSchemaContext(
                         dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
+                        bindPartitionSpec(table.spec(), schema, dorisTable.getName()),
+                        bindSortOrder(table.sortOrder(), schema, dorisTable.getName()),
+                        IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
+                        IcebergUtils.getFileCompress(table), IcebergUtils.dataLocation(table), properties,
                         dorisTable.getCatalog().getEnableMappingVarbinary(),
                         dorisTable.getCatalog().getEnableMappingTimestampTz());
             });
@@ -125,11 +149,30 @@ public final class IcebergWriteSchemaContext {
     public static IcebergWriteSchemaContext forSchema(Schema schema, int formatVersion,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         return new IcebergWriteSchemaContext(-1L, "test_table", schema, formatVersion,
-                Optional.empty(), enableMappingVarbinary, enableMappingTimestampTz);
+                Optional.empty(), PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                FileFormat.PARQUET, MetricsConfig.getDefault(),
+                TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                "file:///tmp/test_table/data", ImmutableMap.of(),
+                enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    @VisibleForTesting
+    public static IcebergWriteSchemaContext forSchema(Schema schema, int formatVersion,
+            PartitionSpec partitionSpec, SortOrder sortOrder, FileFormat fileFormat,
+            MetricsConfig metricsConfig, String fileCompression, String dataLocation,
+            Map<String, String> writerProperties,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return new IcebergWriteSchemaContext(-1L, "test_table", schema, formatVersion,
+                Optional.empty(), partitionSpec, sortOrder, fileFormat, metricsConfig,
+                fileCompression, dataLocation, writerProperties,
+                enableMappingVarbinary, enableMappingTimestampTz);
     }
 
     private IcebergWriteSchemaContext(long tableId, String tableName, Schema schema,
             int formatVersion, Optional<String> branchName,
+            PartitionSpec partitionSpec, SortOrder sortOrder, FileFormat fileFormat,
+            MetricsConfig metricsConfig, String fileCompression, String dataLocation,
+            Map<String, String> writerProperties,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         this.tableId = tableId;
         this.tableName = Objects.requireNonNull(tableName, "tableName should not be null");
@@ -137,9 +180,21 @@ public final class IcebergWriteSchemaContext {
         this.formatVersion = formatVersion;
         this.branchName = Objects.requireNonNull(branchName, "branchName should not be null");
         this.schemaJson = SchemaParser.toJson(schema);
-        Schema mergeSchema = formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+        this.mergeSchema = formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
                 ? IcebergUtils.appendRowLineageFieldsForV3(schema) : schema;
         this.mergeSchemaJson = SchemaParser.toJson(mergeSchema);
+        this.partitionSpec = Objects.requireNonNull(partitionSpec, "partitionSpec should not be null");
+        this.partitionSpecJson = PartitionSpecParser.toJson(partitionSpec);
+        this.sortOrder = Objects.requireNonNull(sortOrder, "sortOrder should not be null");
+        this.sortOrderJson = SortOrderParser.toJson(sortOrder);
+        this.fileFormat = Objects.requireNonNull(fileFormat, "fileFormat should not be null");
+        this.metricsConfig = Objects.requireNonNull(metricsConfig, "metricsConfig should not be null");
+        this.fileCompression = Objects.requireNonNull(
+                fileCompression, "fileCompression should not be null");
+        this.dataLocation = Objects.requireNonNull(dataLocation, "dataLocation should not be null");
+        this.writerProperties = ImmutableMap.copyOf(
+                Objects.requireNonNull(writerProperties, "writerProperties should not be null"));
+        validateWriterMetadataSources(schema, partitionSpec, sortOrder, tableName);
 
         List<Column> parsedColumns = IcebergUtils.parseSchema(
                 schema, enableMappingVarbinary, enableMappingTimestampTz);
@@ -174,6 +229,56 @@ public final class IcebergWriteSchemaContext {
         }
         this.fieldsById = byId.build();
         this.writeDefaultsById = defaults.build();
+    }
+
+    private static PartitionSpec bindPartitionSpec(
+            PartitionSpec partitionSpec, Schema schema, String tableName) {
+        if (!partitionSpec.isPartitioned()) {
+            return PartitionSpec.builderFor(schema)
+                    .withSpecId(partitionSpec.specId())
+                    .build();
+        }
+        try {
+            return PartitionSpecParser.fromJson(schema, PartitionSpecParser.toJson(partitionSpec));
+        } catch (RuntimeException e) {
+            throw new AnalysisException("Iceberg partition spec " + partitionSpec.specId()
+                    + " is incompatible with pinned schema " + schema.schemaId()
+                    + " for table " + tableName + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static SortOrder bindSortOrder(SortOrder sortOrder, Schema schema, String tableName) {
+        if (!sortOrder.isSorted()) {
+            return SortOrder.unsorted();
+        }
+        try {
+            return SortOrderParser.fromJson(schema, SortOrderParser.toJson(sortOrder));
+        } catch (RuntimeException e) {
+            throw new AnalysisException("Iceberg sort order " + sortOrder.orderId()
+                    + " is incompatible with pinned schema " + schema.schemaId()
+                    + " for table " + tableName + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static void validateWriterMetadataSources(
+            Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String tableName) {
+        Map<Integer, Types.NestedField> topLevelFields = schema.columns().stream()
+                .collect(ImmutableMap.toImmutableMap(Types.NestedField::fieldId, field -> field));
+        for (PartitionField field : partitionSpec.fields()) {
+            if (!topLevelFields.containsKey(field.sourceId())) {
+                throw new AnalysisException("Iceberg partition field " + field.fieldId()
+                        + " references source field " + field.sourceId()
+                        + " outside pinned top-level schema " + schema.schemaId()
+                        + " for table " + tableName);
+            }
+        }
+        for (SortField field : sortOrder.fields()) {
+            if (schema.findField(field.sourceId()) == null) {
+                throw new AnalysisException("Iceberg sort field references source field "
+                        + field.sourceId() + " outside pinned schema " + schema.schemaId()
+                        + " for table " + tableName);
+            }
+        }
     }
 
     private static Schema resolveBranchSchema(Table table, String branchName, String tableName) {
@@ -221,7 +326,7 @@ public final class IcebergWriteSchemaContext {
         throw new AnalysisException("Column has no write default and is required, column=" + field.name());
     }
 
-    /** Validate that the table still exposes the schema and format pinned during analysis. */
+    /** Validate that the fresh table can commit files described by the pinned writer metadata. */
     public void validateCurrentSchema(Table table) {
         Schema currentSchema = branchName.isPresent()
                 ? resolveBranchSchema(table, branchName.get(), tableName)
@@ -232,6 +337,18 @@ public final class IcebergWriteSchemaContext {
                     + ": pinned schema " + getSchemaId() + "/format " + formatVersion
                     + ", current schema " + currentSchema.schemaId() + "/format " + currentFormatVersion
                     + "; retry the statement");
+        }
+        PartitionSpec currentSpec = table.specs().get(partitionSpec.specId());
+        if (currentSpec == null || !partitionSpecJson.equals(PartitionSpecParser.toJson(currentSpec))) {
+            throw new AnalysisException("Iceberg partition spec changed during write planning for "
+                    + tableName + ": pinned spec " + partitionSpec.specId()
+                    + " is not available with the same definition; retry the statement");
+        }
+        SortOrder currentSortOrder = table.sortOrders().get(sortOrder.orderId());
+        if (currentSortOrder == null || !sortOrderJson.equals(SortOrderParser.toJson(currentSortOrder))) {
+            throw new AnalysisException("Iceberg sort order changed during write planning for "
+                    + tableName + ": pinned order " + sortOrder.orderId()
+                    + " is not available with the same definition; retry the statement");
         }
     }
 
@@ -259,8 +376,40 @@ public final class IcebergWriteSchemaContext {
         return mergeSchemaJson;
     }
 
+    public Schema getMergeSchema() {
+        return mergeSchema;
+    }
+
     public Schema getSchema() {
         return schema;
+    }
+
+    public PartitionSpec getPartitionSpec() {
+        return partitionSpec;
+    }
+
+    public String getPartitionSpecJson() {
+        return partitionSpecJson;
+    }
+
+    public SortOrder getSortOrder() {
+        return sortOrder;
+    }
+
+    public FileFormat getFileFormat() {
+        return fileFormat;
+    }
+
+    public MetricsConfig getMetricsConfig() {
+        return metricsConfig;
+    }
+
+    public String getFileCompression() {
+        return fileCompression;
+    }
+
+    public String getDataLocation() {
+        return dataLocation;
     }
 
     public List<Column> getColumns() {
@@ -458,11 +607,19 @@ public final class IcebergWriteSchemaContext {
                 && formatVersion == that.formatVersion
                 && tableName.equals(that.tableName)
                 && branchName.equals(that.branchName)
-                && schemaJson.equals(that.schemaJson);
+                && schemaJson.equals(that.schemaJson)
+                && partitionSpecJson.equals(that.partitionSpecJson)
+                && sortOrderJson.equals(that.sortOrderJson)
+                && fileFormat == that.fileFormat
+                && fileCompression.equals(that.fileCompression)
+                && dataLocation.equals(that.dataLocation)
+                && writerProperties.equals(that.writerProperties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableId, tableName, formatVersion, branchName, schemaJson);
+        return Objects.hash(tableId, tableName, formatVersion, branchName, schemaJson,
+                partitionSpecJson, sortOrderJson, fileFormat, fileCompression, dataLocation,
+                writerProperties);
     }
 }

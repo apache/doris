@@ -2389,6 +2389,41 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
     EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
 }
 
+TEST(TableReaderTest, NestedCurrentNameWinsBeforeHistoricalAliasForComplexTypes) {
+    auto profile_field = external_struct_field(
+            "profile", 20,
+            {external_array_field("renamed_payload", 21, external_schema_field("element", 22),
+                                  {"payload"}),
+             external_map_field("payload", 23, external_schema_field("key", 24),
+                                external_schema_field("value", 25))});
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_current_schema_id(200);
+    scan_params.__set_history_schema_info({external_schema(200, {profile_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto payload_type = std::make_shared<DataTypeMap>(string_type, string_type);
+    auto renamed_payload_type = std::make_shared<DataTypeArray>(int_type);
+    auto profile_type = std::make_shared<DataTypeStruct>(
+            DataTypes {payload_type, renamed_payload_type}, Strings {"payload", "renamed_payload"});
+    ColumnDefinition profile_column = make_table_column(-1, "profile", profile_type);
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &profile_column).ok());
+
+    ASSERT_TRUE(context.schema_column.has_value());
+    ASSERT_EQ(context.schema_column->children.size(), 2);
+    EXPECT_EQ(remove_nullable(context.schema_column->children[0].type)->get_primitive_type(),
+              TYPE_ARRAY);
+    ASSERT_EQ(context.schema_column->children[0].children.size(), 1);
+    EXPECT_EQ(remove_nullable(context.schema_column->children[1].type)->get_primitive_type(),
+              TYPE_MAP);
+    ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
+}
+
 TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAlias) {
     auto renamed_field = external_schema_field("renamed_b", 1, {"b"});
     renamed_field.field_ptr->__set_name_mapping_is_authoritative(true);
