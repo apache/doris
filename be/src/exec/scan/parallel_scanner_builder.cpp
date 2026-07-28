@@ -237,8 +237,8 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
                             {.rs_splits = std::move(partitial_read_source.rs_splits),
                              .delete_predicates = entire_read_source.delete_predicates,
                              .delete_bitmap = entire_read_source.delete_bitmap},
-                            take_initial_file_cache_stats(
-                                    &_tablet_preload_file_cache_stats, tablet->tablet_id())));
+                            take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                          tablet->tablet_id())));
 
                     // Reset for next scanner
                     partitial_read_source = TabletReadSource();
@@ -274,9 +274,8 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
                                    {.rs_splits = std::move(partitial_read_source.rs_splits),
                                     .delete_predicates = entire_read_source.delete_predicates,
                                     .delete_bitmap = entire_read_source.delete_bitmap},
-                                   take_initial_file_cache_stats(
-                                           &_tablet_preload_file_cache_stats,
-                                           tablet->tablet_id())));
+                                   take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                                 tablet->tablet_id())));
         }
     }
 
