@@ -193,8 +193,7 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
     RETURN_IF_ERROR(_rssid_to_rid.read_columns_by_plan(*tablet_schema, value_cids, _rsid_to_rowset,
                                                        old_value_block, &read_index, true,
                                                        nullptr));
-    RETURN_IF_ERROR(_rssid_to_rid.fill_old_delete_signs(old_value_block, read_index, num_rows,
-                                                        &_old_delete_signs));
+    RETURN_IF_ERROR(_fill_old_delete_signs(old_value_block, read_index, num_rows));
 
     {
         auto mutable_before_columns_guard = before_block->mutate_columns_scoped();
@@ -236,8 +235,7 @@ Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t n
         RETURN_IF_ERROR(_rssid_to_rid.read_columns_by_plan(
                 *_context.tablet_schema, std::vector<uint32_t> {}, _rsid_to_rowset,
                 old_delete_sign_block, &read_index, true, nullptr));
-        RETURN_IF_ERROR(_rssid_to_rid.fill_old_delete_signs(old_delete_sign_block, read_index,
-                                                            num_rows, &_old_delete_signs));
+        RETURN_IF_ERROR(_fill_old_delete_signs(old_delete_sign_block, read_index, num_rows));
     }
     DCHECK_EQ(_old_delete_signs.size(), num_rows);
 
@@ -247,6 +245,13 @@ Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t n
         }
     }
     return Status::OK();
+}
+
+Status PrimaryKeyModelRowRetriever::_fill_old_delete_signs(
+        const Block& old_value_block, const std::map<uint32_t, uint32_t>& read_index,
+        size_t num_rows) {
+    return _rssid_to_rid.fill_old_delete_signs(old_value_block, read_index, num_rows,
+                                              &_old_delete_signs);
 }
 
 std::string PrimaryKeyModelRowRetriever::_full_encode_keys(

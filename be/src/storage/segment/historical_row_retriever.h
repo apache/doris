@@ -98,6 +98,9 @@ public:
     std::vector<int64_t>& get_operators() override { return _operators; };
 
 private:
+    Status _fill_old_delete_signs(const Block& old_value_block,
+                                  const std::map<uint32_t, uint32_t>& read_index, size_t num_rows);
+
     void _maybe_invalid_row_cache(const std::string& key);
 
     // used for unique-key with merge on write and segment min_max key
