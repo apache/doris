@@ -325,6 +325,7 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendBinaryResultRow(resultSet);
     }
+
     @Test
     public void testShouldDisableCloudVersionCacheOnRetryForE230() {
         String originalCloudUniqueId = Config.cloud_unique_id;
