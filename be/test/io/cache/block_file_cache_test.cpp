@@ -3496,6 +3496,139 @@ TEST_F(BlockFileCacheTest, disk_scan_dynamic_disable_cancels_round) {
     EXPECT_TRUE(fs::exists(file_path));
 }
 
+TEST_F(BlockFileCacheTest, disk_scan_does_not_follow_v2_prefix_symlink) {
+    static_assert(FSFileCacheStorage::USE_CACHE_VERSION2);
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+
+    auto outside_prefix = caches_dir / "disk_scan_outside_prefix";
+    if (fs::exists(outside_prefix)) {
+        fs::remove_all(outside_prefix);
+    }
+    Defer cleanup {[&] {
+        std::error_code ec;
+        fs::remove_all(outside_prefix, ec);
+    }};
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+
+    auto key = io::BlockFileCache::hash("disk_scan_does_not_follow_v2_prefix_symlink");
+    auto key_string = key.to_string();
+    auto outside_sentinel = outside_prefix / (key_string + "_0") / "0";
+    create_cache_file(outside_sentinel, "outside");
+    auto prefix_link =
+            fs::path(cache_base_path) / key_string.substr(0, FSFileCacheStorage::KEY_PREFIX_LENGTH);
+    std::error_code ec;
+    fs::create_directory_symlink(outside_prefix, prefix_link, ec);
+    ASSERT_FALSE(ec) << ec.message();
+
+    auto result = run_disk_scan_once_for_test(cache);
+    EXPECT_EQ(result.candidates, 0);
+    EXPECT_EQ(result.repaired_files, 0);
+    EXPECT_TRUE(fs::exists(outside_sentinel));
+    EXPECT_EQ(fs::file_size(outside_sentinel), 7);
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_does_not_follow_key_dir_symlink) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+
+    auto outside_key_dir = caches_dir / "disk_scan_outside_key_dir";
+    if (fs::exists(outside_key_dir)) {
+        fs::remove_all(outside_key_dir);
+    }
+    Defer cleanup {[&] {
+        std::error_code ec;
+        fs::remove_all(outside_key_dir, ec);
+    }};
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+
+    auto key = io::BlockFileCache::hash("disk_scan_does_not_follow_key_dir_symlink");
+    auto outside_sentinel = outside_key_dir / "0";
+    create_cache_file(outside_sentinel, "outside");
+    auto key_dir_link = key_dir_path(key, 0);
+    fs::create_directories(key_dir_link.parent_path());
+    std::error_code ec;
+    fs::create_directory_symlink(outside_key_dir, key_dir_link, ec);
+    ASSERT_FALSE(ec) << ec.message();
+
+    auto result = run_disk_scan_once_for_test(cache);
+    EXPECT_EQ(result.candidates, 0);
+    EXPECT_EQ(result.repaired_files, 0);
+    EXPECT_TRUE(fs::exists(outside_sentinel));
+    EXPECT_EQ(fs::file_size(outside_sentinel), 7);
+}
+
+TEST_F(BlockFileCacheTest, disk_scan_mutation_rejects_replaced_prefix_symlink) {
+    static_assert(FSFileCacheStorage::USE_CACHE_VERSION2);
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    DiskScanConfigGuard config_guard;
+    auto sp = SyncPoint::get_instance();
+    Defer clear_sync_points {[sp] { sp->clear_all_call_backs(); }};
+
+    auto outside_prefix = caches_dir / "disk_scan_mutation_outside_prefix";
+    if (fs::exists(outside_prefix)) {
+        fs::remove_all(outside_prefix);
+    }
+    Defer cleanup {[&] {
+        std::error_code ec;
+        fs::remove_all(outside_prefix, ec);
+    }};
+
+    io::BlockFileCache cache(cache_base_path, disk_scan_test_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_for_async_open(cache);
+
+    auto key = io::BlockFileCache::hash("disk_scan_mutation_rejects_replaced_prefix_symlink");
+    auto file_path = key_dir_path(key, 0) / "0";
+    create_cache_file(file_path, "inside");
+    auto key_string = key.to_string();
+    auto outside_sentinel = outside_prefix / (key_string + "_0") / "0";
+    create_cache_file(outside_sentinel, "outside");
+    auto prefix_path = file_path.parent_path().parent_path();
+    auto saved_prefix = fs::path(prefix_path.native() + ".saved");
+
+    bool replaced = false;
+    sp->set_call_back("BlockFileCache::before_disk_scan_quarantine_rename", [&](auto&&) {
+        ASSERT_FALSE(replaced);
+        std::error_code ec;
+        fs::rename(prefix_path, saved_prefix, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        fs::create_directory_symlink(outside_prefix, prefix_path, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        replaced = true;
+    });
+    sp->enable_processing();
+
+    auto result = run_disk_scan_once_for_test(cache);
+    ASSERT_TRUE(replaced);
+    EXPECT_EQ(result.repaired_files, 0);
+    EXPECT_EQ(result.skipped_candidates, 1);
+    EXPECT_TRUE(fs::exists(outside_sentinel));
+    EXPECT_EQ(fs::file_size(outside_sentinel), 7);
+
+    std::error_code ec;
+    fs::remove(prefix_path, ec);
+    ASSERT_FALSE(ec) << ec.message();
+    fs::rename(saved_prefix, prefix_path, ec);
+    ASSERT_FALSE(ec) << ec.message();
+    EXPECT_TRUE(fs::exists(file_path));
+}
+
 TEST_F(BlockFileCacheTest, disk_scan_quarantine_gc_is_cancellable_and_rate_limited) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

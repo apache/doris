@@ -17,12 +17,19 @@
 
 #include "io/cache/fs_file_cache_storage.h"
 
+#include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <system_error>
+#include <utility>
 
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -43,6 +50,106 @@ namespace doris::io {
 namespace {
 
 constexpr std::string_view DISK_SCAN_QUARANTINE_MARKER = ".disk_scan_quarantine.";
+
+class ScopedFd {
+public:
+    ScopedFd() = default;
+    explicit ScopedFd(int fd) : _fd(fd) {}
+    ~ScopedFd() { reset(); }
+    ScopedFd(const ScopedFd&) = delete;
+    ScopedFd& operator=(const ScopedFd&) = delete;
+    ScopedFd& operator=(ScopedFd&& other) noexcept {
+        reset(other.release());
+        return *this;
+    }
+
+    int get() const { return _fd; }
+    int release() { return std::exchange(_fd, -1); }
+    void reset(int fd = -1) {
+        if (_fd >= 0) {
+            ::close(_fd);
+        }
+        _fd = fd;
+    }
+
+private:
+    int _fd = -1;
+};
+
+struct DirCloser {
+    void operator()(DIR* dir) const {
+        if (dir != nullptr) {
+            ::closedir(dir);
+        }
+    }
+};
+
+using ScopedDir = std::unique_ptr<DIR, DirCloser>;
+
+Status open_disk_scan_parent_no_follow(int disk_scan_root_fd, const std::string& cache_base_path,
+                                       const std::filesystem::path& target, ScopedFd* parent_fd,
+                                       std::string* name) {
+    const auto root = std::filesystem::path(cache_base_path).lexically_normal();
+    const auto relative = target.lexically_normal().lexically_relative(root);
+    if (relative.empty() || relative == "." || relative.is_absolute()) {
+        return Status::InvalidArgument("disk scan path is outside cache root: {}", target.native());
+    }
+    for (const auto& component : relative) {
+        if (component == "." || component == ".." || component.empty()) {
+            return Status::InvalidArgument("disk scan path is outside cache root: {}",
+                                           target.native());
+        }
+    }
+
+    auto target_name = relative.filename().native();
+    if (target_name.empty()) {
+        return Status::InvalidArgument("invalid disk scan path: {}", target.native());
+    }
+
+    ScopedFd current(::fcntl(disk_scan_root_fd, F_DUPFD_CLOEXEC, 0));
+    if (current.get() < 0) {
+        const int error = errno;
+        return Status::IOError("failed to duplicate file cache root {}, error={}", root.native(),
+                               std::strerror(error));
+    }
+    for (const auto& component : relative.parent_path()) {
+        const auto component_name = component.native();
+        int next = ::openat(current.get(), component_name.c_str(),
+                            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        if (next < 0) {
+            const int error = errno;
+            return Status::IOError("failed to open disk scan parent {} below cache root, error={}",
+                                   component_name, std::strerror(error));
+        }
+        current.reset(next);
+    }
+
+    *parent_fd = std::move(current);
+    *name = std::move(target_name);
+    return Status::OK();
+}
+
+Status validate_disk_scan_entry_identity(int parent_fd, const std::string& name,
+                                         const std::filesystem::path& lexical_path) {
+    struct stat lexical_status {};
+    if (::lstat(lexical_path.c_str(), &lexical_status) != 0) {
+        const int error = errno;
+        return Status::IOError("failed to stat disk scan path {}, error={}", lexical_path.native(),
+                               std::strerror(error));
+    }
+    struct stat anchored_status {};
+    if (::fstatat(parent_fd, name.c_str(), &anchored_status, AT_SYMLINK_NOFOLLOW) != 0) {
+        const int error = errno;
+        return Status::IOError("failed to stat anchored disk scan path {}, error={}",
+                               lexical_path.native(), std::strerror(error));
+    }
+    if (lexical_status.st_dev != anchored_status.st_dev ||
+        lexical_status.st_ino != anchored_status.st_ino) {
+        return Status::InternalError("disk scan path escaped or changed identity: {}",
+                                     lexical_path.native());
+    }
+    return Status::OK();
+}
 
 bool parse_disk_scan_quarantine(const std::filesystem::path& path, std::string* original_name) {
     const auto name = path.filename().native();
@@ -188,6 +295,16 @@ Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _iterator_dir_retry_cnt = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_fs_storage_iterator_dir_retry_cnt");
     _cache_base_path = _mgr->_cache_base_path;
+    auto create_status = fs->create_directory(_cache_base_path, false);
+    if (!create_status.ok() && !create_status.is<ErrorCode::ALREADY_EXIST>()) {
+        return create_status;
+    }
+    _disk_scan_root_fd = ::open(_cache_base_path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (_disk_scan_root_fd < 0) {
+        const int error = errno;
+        return Status::IOError("failed to open file cache root {}, error={}", _cache_base_path,
+                               std::strerror(error));
+    }
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
         auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                             fmt::format("FileCacheVersionReader"));
@@ -413,7 +530,8 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
             return Status::Cancelled("file cache disk scan cancelled");
         }
         std::error_code ec;
-        if (!std::filesystem::is_directory(key_dir_path, ec) || ec) {
+        const auto key_dir_status = std::filesystem::symlink_status(key_dir_path, ec);
+        if (ec || key_dir_status.type() != std::filesystem::file_type::directory) {
             return Status::OK();
         }
 
@@ -460,7 +578,8 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
                          file_status.type() == std::filesystem::file_type::directory}));
                 continue;
             }
-            if (!std::filesystem::is_regular_file(block_file_path, ec) || ec) {
+            const auto block_file_status = std::filesystem::symlink_status(block_file_path, ec);
+            if (ec || block_file_status.type() != std::filesystem::file_type::regular) {
                 continue;
             }
             int64_t file_size = 0;
@@ -505,7 +624,8 @@ Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
             }
             std::filesystem::path prefix_path(prefix_path_str);
             std::error_code ec;
-            if (!std::filesystem::is_directory(prefix_path, ec) || ec) {
+            const auto prefix_status = std::filesystem::symlink_status(prefix_path, ec);
+            if (ec || prefix_status.type() != std::filesystem::file_type::directory) {
                 continue;
             }
             auto prefix = prefix_path.filename().native();
@@ -601,11 +721,15 @@ bool FSFileCacheStorage::has_active_writer_for_hash(const UInt128Wrapper& hash) 
 }
 
 Status FSFileCacheStorage::delete_file_for_disk_scan(const std::filesystem::path& path) {
-    std::error_code ec;
-    std::filesystem::remove(path, ec);
-    if (ec && ec != std::errc::no_such_file_or_directory) {
+    ScopedFd parent_fd;
+    std::string name;
+    RETURN_IF_ERROR(open_disk_scan_parent_no_follow(_disk_scan_root_fd, _cache_base_path, path,
+                                                    &parent_fd, &name));
+    RETURN_IF_ERROR(validate_disk_scan_entry_identity(parent_fd.get(), name, path));
+    if (::unlinkat(parent_fd.get(), name.c_str(), 0) != 0 && errno != ENOENT) {
+        const int error = errno;
         return Status::IOError("failed to delete quarantined file {}, error={}", path.native(),
-                               ec.message());
+                               std::strerror(error));
     }
     return Status::OK();
 }
@@ -614,8 +738,9 @@ Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path&
                                                     TokenBucketRateLimiterHolder* repair_limiter,
                                                     DiskScanCancellationCallback should_cancel) {
     struct DirectoryFrame {
-        std::filesystem::path path;
-        std::filesystem::directory_iterator iterator;
+        std::filesystem::path display_path;
+        std::string name_in_parent;
+        ScopedDir dir;
     };
 
     auto is_cancelled = [&] { return should_cancel && should_cancel(); };
@@ -628,84 +753,100 @@ Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path&
         }
         return !is_cancelled();
     };
-    auto open_directory = [](const std::filesystem::path& dir,
-                             std::filesystem::directory_iterator* iterator) -> Status {
-        std::error_code ec;
-        *iterator = std::filesystem::directory_iterator(dir, ec);
-        if (ec) {
-            return Status::IOError("failed to iterate quarantine directory {}, error={}",
-                                   dir.native(), ec.message());
-        }
-        return Status::OK();
-    };
-    auto remove_path = [](const std::filesystem::path& target) -> Status {
-        std::error_code ec;
-        std::filesystem::remove(target, ec);
-        if (ec && ec != std::errc::no_such_file_or_directory) {
-            return Status::IOError("failed to delete quarantine path {}, error={}", target.native(),
-                                   ec.message());
-        }
-        return Status::OK();
-    };
 
-    std::error_code ec;
-    auto root_status = std::filesystem::symlink_status(path, ec);
-    if (ec == std::errc::no_such_file_or_directory ||
-        (!ec && root_status.type() == std::filesystem::file_type::not_found)) {
-        return Status::OK();
+    ScopedFd parent_fd;
+    std::string root_name;
+    RETURN_IF_ERROR(open_disk_scan_parent_no_follow(_disk_scan_root_fd, _cache_base_path, path,
+                                                    &parent_fd, &root_name));
+    RETURN_IF_ERROR(validate_disk_scan_entry_identity(parent_fd.get(), root_name, path));
+    ScopedFd root_fd(::openat(parent_fd.get(), root_name.c_str(),
+                              O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+    if (root_fd.get() < 0) {
+        const int error = errno;
+        if (error == ENOENT) {
+            return Status::OK();
+        }
+        return Status::IOError("failed to open quarantine directory {}, error={}", path.native(),
+                               std::strerror(error));
     }
-    if (ec) {
-        return Status::IOError("failed to stat quarantine directory {}, error={}", path.native(),
-                               ec.message());
+    DIR* raw_root_dir = ::fdopendir(root_fd.get());
+    if (raw_root_dir == nullptr) {
+        const int error = errno;
+        return Status::IOError("failed to iterate quarantine directory {}, error={}", path.native(),
+                               std::strerror(error));
     }
-    if (root_status.type() != std::filesystem::file_type::directory) {
-        return Status::InvalidArgument("quarantine path is not a directory: {}", path.native());
-    }
-
+    root_fd.release();
     std::vector<DirectoryFrame> stack;
-    std::filesystem::directory_iterator root_iterator;
-    RETURN_IF_ERROR(open_directory(path, &root_iterator));
-    stack.push_back({path, std::move(root_iterator)});
+    stack.push_back({path, root_name, ScopedDir(raw_root_dir)});
     while (!stack.empty()) {
         if (is_cancelled()) {
             return Status::Cancelled("quarantine directory deletion cancelled");
         }
 
         auto& frame = stack.back();
-        if (frame.iterator == std::filesystem::directory_iterator()) {
+        errno = 0;
+        dirent* entry = ::readdir(frame.dir.get());
+        if (entry == nullptr) {
+            const int error = errno;
+            if (error != 0) {
+                return Status::IOError("failed to iterate quarantine directory {}, error={}",
+                                       frame.display_path.native(), std::strerror(error));
+            }
             if (!consume_repair_token()) {
                 return Status::Cancelled("quarantine directory deletion cancelled");
             }
             TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::before_delete_quarantine_entry",
-                                     &frame.path);
+                                     &frame.display_path);
             if (is_cancelled()) {
                 return Status::Cancelled("quarantine directory deletion cancelled");
             }
-            RETURN_IF_ERROR(remove_path(frame.path));
+            const int containing_fd = stack.size() == 1
+                                              ? parent_fd.get()
+                                              : ::dirfd(stack[stack.size() - 2].dir.get());
+            if (::unlinkat(containing_fd, frame.name_in_parent.c_str(), AT_REMOVEDIR) != 0 &&
+                errno != ENOENT) {
+                const int unlink_error = errno;
+                return Status::IOError("failed to delete quarantine directory {}, error={}",
+                                       frame.display_path.native(), std::strerror(unlink_error));
+            }
             stack.pop_back();
             continue;
         }
 
-        auto child = frame.iterator->path();
-        frame.iterator.increment(ec);
-        if (ec) {
-            return Status::IOError("failed to iterate quarantine directory {}, error={}",
-                                   frame.path.native(), ec.message());
-        }
-        auto child_status = std::filesystem::symlink_status(child, ec);
-        if (ec == std::errc::no_such_file_or_directory ||
-            (!ec && child_status.type() == std::filesystem::file_type::not_found)) {
-            ec.clear();
+        const std::string child_name(entry->d_name);
+        if (child_name == "." || child_name == "..") {
             continue;
         }
-        if (ec) {
+        const auto child = frame.display_path / child_name;
+        struct stat child_status {};
+        if (::fstatat(::dirfd(frame.dir.get()), child_name.c_str(), &child_status,
+                      AT_SYMLINK_NOFOLLOW) != 0) {
+            const int error = errno;
+            if (error == ENOENT) {
+                continue;
+            }
             return Status::IOError("failed to stat quarantine path {}, error={}", child.native(),
-                                   ec.message());
+                                   std::strerror(error));
         }
-        if (child_status.type() == std::filesystem::file_type::directory) {
-            std::filesystem::directory_iterator child_iterator;
-            RETURN_IF_ERROR(open_directory(child, &child_iterator));
-            stack.push_back({std::move(child), std::move(child_iterator)});
+        if (S_ISDIR(child_status.st_mode)) {
+            ScopedFd child_fd(::openat(::dirfd(frame.dir.get()), child_name.c_str(),
+                                       O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+            if (child_fd.get() < 0) {
+                const int error = errno;
+                if (error == ENOENT) {
+                    continue;
+                }
+                return Status::IOError("failed to open quarantine directory {}, error={}",
+                                       child.native(), std::strerror(error));
+            }
+            DIR* raw_child_dir = ::fdopendir(child_fd.get());
+            if (raw_child_dir == nullptr) {
+                const int error = errno;
+                return Status::IOError("failed to iterate quarantine directory {}, error={}",
+                                       child.native(), std::strerror(error));
+            }
+            child_fd.release();
+            stack.push_back({child, child_name, ScopedDir(raw_child_dir)});
             continue;
         }
 
@@ -716,14 +857,35 @@ Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path&
         if (is_cancelled()) {
             return Status::Cancelled("quarantine directory deletion cancelled");
         }
-        RETURN_IF_ERROR(remove_path(child));
+        if (::unlinkat(::dirfd(frame.dir.get()), child_name.c_str(), 0) != 0 && errno != ENOENT) {
+            const int error = errno;
+            return Status::IOError("failed to delete quarantine path {}, error={}", child.native(),
+                                   std::strerror(error));
+        }
     }
     return Status::OK();
 }
 
 Status FSFileCacheStorage::rename_for_disk_scan(const std::filesystem::path& from,
                                                 const std::filesystem::path& to) {
-    return fs->rename(from, to);
+    if (from.parent_path().lexically_normal() != to.parent_path().lexically_normal()) {
+        return Status::InvalidArgument("disk scan quarantine rename must stay in one directory");
+    }
+    ScopedFd parent_fd;
+    std::string from_name;
+    RETURN_IF_ERROR(open_disk_scan_parent_no_follow(_disk_scan_root_fd, _cache_base_path, from,
+                                                    &parent_fd, &from_name));
+    RETURN_IF_ERROR(validate_disk_scan_entry_identity(parent_fd.get(), from_name, from));
+    const auto to_name = to.filename().native();
+    if (to_name.empty() || to_name == "." || to_name == "..") {
+        return Status::InvalidArgument("invalid disk scan quarantine path: {}", to.native());
+    }
+    if (::renameat(parent_fd.get(), from_name.c_str(), parent_fd.get(), to_name.c_str()) != 0) {
+        const int error = errno;
+        return Status::IOError("failed to quarantine disk scan path {} to {}, error={}",
+                               from.native(), to.native(), std::strerror(error));
+    }
+    return Status::OK();
 }
 
 Status FSFileCacheStorage::exists_for_disk_scan(const std::filesystem::path& path, bool* exists) {
@@ -1391,6 +1553,9 @@ std::string FSFileCacheStorage::get_local_file(const FileCacheKey& key) {
 FSFileCacheStorage::~FSFileCacheStorage() {
     if (_cache_background_load_thread.joinable()) {
         _cache_background_load_thread.join();
+    }
+    if (_disk_scan_root_fd >= 0) {
+        ::close(_disk_scan_root_fd);
     }
 }
 

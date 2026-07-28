@@ -134,6 +134,7 @@ private:
             const std::string& dir, size_t offset);
 
     std::string _cache_base_path;
+    int _disk_scan_root_fd = -1;
     std::thread _cache_background_load_thread;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
     // TODO(Lchangliang): use a more efficient data structure
