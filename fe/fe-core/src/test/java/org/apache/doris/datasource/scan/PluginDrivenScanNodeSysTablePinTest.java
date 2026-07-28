@@ -81,14 +81,21 @@ public class PluginDrivenScanNodeSysTablePinTest {
         Mockito.doReturn(sysTable).when(node).getTargetTable();
         Mockito.doReturn(ts).when(node).getQueryTableSnapshot();
         Mockito.doReturn(source).when(sysTable).getSourceTable();
-        Mockito.when(source.loadSnapshot(Optional.of(ts), Optional.empty())).thenReturn(resolved);
+        Mockito.when(sysTable.resolveScanPin(Optional.of(ts), Optional.empty()))
+                .thenReturn(Optional.of(resolved));
 
-        // WHY: FOR TIME AS OF on a sys table resolves the pin off the source table. MUTATION: returning
-        // Optional.empty() instead of the source fallback -> pin lost -> sys reads latest -> red.
+        // WHY: FOR TIME AS OF on a sys table resolves the pin off the source table -- through the sys
+        // table's own memo, NOT by calling source.loadSnapshot again here. Analysis already resolved this
+        // exact selector there to bind the output schema; a second resolution would hand a MUTABLE selector
+        // (scan.mode=latest, a wall-clock timestamp) a different version than the one the schema was bound
+        // at. MUTATION: returning Optional.empty() instead of the delegation -> pin lost -> sys reads
+        // latest -> red. MUTATION: calling source.loadSnapshot directly -> the verifyNoMoreInteractions
+        // below goes red.
         Optional<MvccSnapshot> result = node.resolveSysTableSnapshotPin();
         Assertions.assertTrue(result.isPresent(), "sys FOR TIME AS OF must resolve a pin off the source");
         Assertions.assertSame(resolved, result.get());
-        Mockito.verify(source).loadSnapshot(Optional.of(ts), Optional.empty());
+        Mockito.verify(sysTable).resolveScanPin(Optional.of(ts), Optional.empty());
+        Mockito.verify(source, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -101,15 +108,18 @@ public class PluginDrivenScanNodeSysTablePinTest {
         Mockito.doReturn(sysTable).when(node).getTargetTable();
         Mockito.doReturn(sp).when(node).getScanParams();
         Mockito.doReturn(source).when(sysTable).getSourceTable();
-        Mockito.when(source.loadSnapshot(Optional.empty(), Optional.of(sp))).thenReturn(resolved);
+        Mockito.when(sysTable.resolveScanPin(Optional.empty(), Optional.of(sp)))
+                .thenReturn(Optional.of(resolved));
 
-        // WHY: t$files@branch('b') / @tag is a snapshot selector legacy iceberg honors for sys tables;
-        // it arrives as scan-params, not a TableSnapshot. MUTATION: dropping the getScanParams()
-        // threading (passing Optional.empty()) -> branch/tag pin lost -> red.
+        // WHY: t$files@branch('b') / @tag / @options is a snapshot selector that arrives as scan-params,
+        // not a TableSnapshot, and it must reach the sys table's resolver verbatim. MUTATION: dropping the
+        // getScanParams() threading (passing Optional.empty()) -> the stubbed call never matches ->
+        // Optional.empty() -> red.
         Optional<MvccSnapshot> result = node.resolveSysTableSnapshotPin();
         Assertions.assertTrue(result.isPresent(), "sys @branch/@tag must resolve a pin off the source");
         Assertions.assertSame(resolved, result.get());
-        Mockito.verify(source).loadSnapshot(Optional.empty(), Optional.of(sp));
+        Mockito.verify(sysTable).resolveScanPin(Optional.empty(), Optional.of(sp));
+        Mockito.verify(source, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
     }
 
     @Test

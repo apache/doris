@@ -17,15 +17,30 @@
 
 package org.apache.doris.datasource.plugin;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.systable.SysTable;
 
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Generic {@link PluginDrivenExternalTable} for a connector system table (e.g. {@code tbl$snapshots}).
@@ -45,6 +60,8 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     private final PluginDrivenExternalTable sourceTable;
     private final String sysTableName;
     private volatile Optional<SchemaCacheValue> cachedSchemaValue;
+    /** See {@link #resolveScanPin}: one resolution per selector, shared by binding and scanning. */
+    private final Map<String, Optional<MvccSnapshot>> scanPinMemo = new ConcurrentHashMap<>();
 
     /**
      * @param source the underlying base table being wrapped
@@ -189,5 +206,173 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
 
     public String getSysTableName() {
         return sysTableName;
+    }
+
+    /**
+     * This reference's own pin, or empty when it has none / must not have one.
+     *
+     * <p>A system table is NOT an {@link MvccTable} and {@code BindRelation} returns from
+     * {@code handleMetaTable} BEFORE {@code StatementContext.loadSnapshots}, so the statement's MVCC map
+     * never holds an entry for it and {@code MvccUtil.getSnapshotFromContext} answers empty. The pin lives
+     * on the SOURCE table, so resolve it from there.
+     *
+     * <p><b>Memoized per (tableSnapshot, scanParams) on this instance</b>, which is what keeps binding and
+     * scanning on ONE resolution. The instance is built per relation by
+     * {@code PluginDrivenSysTable.createSysExternalTable} and then carried on the {@code LogicalFileScan}
+     * into the scan node, so every consumer — {@code LogicalFileScan.computePluginDrivenOutput},
+     * {@code PluginDrivenScanNode.resolveSysTableSnapshotPin}, {@code PluginDrivenScanNode.buildColumnHandles}
+     * — shares one entry. Resolving independently per consumer would re-open the very skew this closes:
+     * a MUTABLE selector ({@code scan.mode=latest}, a wall-clock {@code scan.timestamp-millis}) is resolved
+     * against the LIVE table on each call, so a commit landing between bind and scan would hand the two
+     * different versions.
+     *
+     * <p>Returns empty — i.e. falls back to the latest schema — whenever the connector declines this
+     * selector on this view, so {@code PluginDrivenScanNode.checkSysTableScanConstraints} keeps ownership of
+     * the user-facing rejection instead of this path failing first with a worse message.
+     */
+    public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
+            return Optional.empty();
+        }
+        if (!(sourceTable instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        return scanPinMemo.computeIfAbsent(pinKeyOf(tableSnapshot, scanParams), key -> {
+            if (!selectorSupported(scanParams)) {
+                return Optional.empty();
+            }
+            return Optional.of(((MvccTable) sourceTable).loadSnapshot(tableSnapshot, scanParams));
+        });
+    }
+
+    /**
+     * The full schema of this system table AS OF {@code tableSnapshot}/{@code scanParams}, falling back to
+     * the latest schema when this reference carries no pin.
+     *
+     * <p>Several metadata views derive their columns from the base table ({@code $audit_log} is
+     * {@code rowkind} plus the base row type; so are {@code $ro} and {@code $binlog}), so their schema moves
+     * with the selected snapshot. Binding them from the latest schema while the scan reads the pinned one
+     * made a since-renamed column fail to bind at all and — worse — bound a since-retyped column silently at
+     * the wrong type.
+     */
+    public List<Column> getFullSchemaAt(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        Optional<MvccSnapshot> pin = resolveScanPin(tableSnapshot, scanParams);
+        if (!pin.isPresent()) {
+            return getFullSchema();
+        }
+        return schemaCacheValueAt(pin.get())
+                .map(SchemaCacheValue::getSchema)
+                .orElseGet(this::getFullSchema);
+    }
+
+    /**
+     * Reads this view's schema with {@code pin} threaded onto the SYS handle. Deliberately does NOT go
+     * through {@link #getSchemaCacheValue()}: that memo is the LATEST schema and is shared by the
+     * version-blind callers (DESCRIBE, {@code information_schema}).
+     */
+    private Optional<SchemaCacheValue> schemaCacheValueAt(MvccSnapshot pin) {
+        if (!(pin instanceof PluginDrivenMvccSnapshot) || !(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        ConnectorMvccSnapshot connectorSnapshot = ((PluginDrivenMvccSnapshot) pin).getConnectorSnapshot();
+        if (connectorSnapshot == null) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> sysHandle = resolveConnectorTableHandle(session, metadata);
+        if (!sysHandle.isPresent()) {
+            return Optional.empty();
+        }
+        String dbName = db != null ? db.getRemoteName() : "";
+        ConnectorTableSchema schema =
+                metadata.getTableSchema(session, sysHandle.get(), connectorSnapshot);
+        return Optional.of(toSchemaCacheValue(metadata, session, dbName, getRemoteName(), schema));
+    }
+
+    /**
+     * Whether the connector honors THIS selector on THIS view — the exact mirror of
+     * {@code PluginDrivenScanNode.sysTableSelectorSupported}, so a pin is resolved for precisely the queries
+     * that guard lets through. A connector with no scan provider contributes no capability and declines.
+     *
+     * <p>Package-private + overridable so {@link #resolveScanPin} stays unit-testable without a live
+     * connector, the same reason {@code PluginDrivenScanNode}'s capability questions are.
+     */
+    boolean selectorSupported(Optional<TableScanParams> scanParams) {
+        String bareName = sysTableName == null ? "" : sysTableName.toLowerCase(Locale.ROOT);
+        if (!scanParams.isPresent()) {
+            return askScanProvider(ConnectorScanPlanProvider::supportsSystemTableTimeTravel);
+        }
+        TableScanParams params = scanParams.get();
+        if (params.incrementalRead()) {
+            return askScanProvider(p -> p.supportsSystemTableIncrementalRead(bareName));
+        }
+        if (params.isOptions()) {
+            return askScanProvider(p -> p.supportsSystemTableOptions(bareName));
+        }
+        return askScanProvider(ConnectorScanPlanProvider::supportsSystemTableTimeTravel);
+    }
+
+    private boolean askScanProvider(Predicate<ConnectorScanPlanProvider> question) {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return false;
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> sysHandle = resolveConnectorTableHandle(session, metadata);
+        if (!sysHandle.isPresent()) {
+            return false;
+        }
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider(sysHandle.get());
+        if (scanProvider == null) {
+            return false;
+        }
+        return onPluginClassLoader(scanProvider, () -> question.test(scanProvider));
+    }
+
+    private static <T> T onPluginClassLoader(ConnectorScanPlanProvider provider, Supplier<T> body) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+            return body.get();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    /**
+     * The memo key for one reference's selector, derived exactly the way
+     * {@code StatementContext.versionKeyOf} derives its version key — field by field.
+     *
+     * <p>It must NOT be the selector objects themselves, nor their {@code toString()}:
+     * {@link TableScanParams} defines neither value equality nor {@code toString()}, so an
+     * identity-keyed memo would miss on every lookup and silently reintroduce the double resolution
+     * {@link #resolveScanPin} exists to prevent.
+     */
+    private static String pinKeyOf(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        StringBuilder key = new StringBuilder();
+        if (tableSnapshot != null && tableSnapshot.isPresent()) {
+            TableSnapshot ts = tableSnapshot.get();
+            key.append("v:").append(ts.getType()).append(':').append(ts.getValue());
+        }
+        if (scanParams != null && scanParams.isPresent()) {
+            TableScanParams sp = scanParams.get();
+            key.append("p:").append(sp.getParamType()).append(':').append(sp.getMapParams())
+                    .append(':').append(sp.getListParams());
+        }
+        return key.toString();
     }
 }
