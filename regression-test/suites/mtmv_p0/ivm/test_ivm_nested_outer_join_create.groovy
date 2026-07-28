@@ -19,9 +19,9 @@ suite("test_ivm_nested_outer_join_create") {
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
     sql "set enable_materialized_view_rewrite = false"
-    sql "set enable_ivm_complex_outer_join_delta = false"
 
     sql "drop materialized view if exists test_ivm_nested_outer_join_create_mv"
+    sql "drop materialized view if exists test_ivm_nested_outer_join_create_left_mv"
     sql "drop table if exists test_ivm_nested_outer_join_create_t1"
     sql "drop table if exists test_ivm_nested_outer_join_create_t2"
     sql "drop table if exists test_ivm_nested_outer_join_create_t3"
@@ -72,25 +72,6 @@ suite("test_ivm_nested_outer_join_create") {
         )
     """
 
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW test_ivm_nested_outer_join_create_mv
-            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 1
-            PROPERTIES ('replication_num' = '1')
-            AS
-            SELECT a.k AS a_k, a.v AS a_v, b.k AS b_k, b.v AS b_v, c.k AS c_k, c.v AS c_v
-            FROM test_ivm_nested_outer_join_create_t1 a
-            FULL OUTER JOIN (
-                test_ivm_nested_outer_join_create_t2 b
-                FULL OUTER JOIN test_ivm_nested_outer_join_create_t3 c
-                    ON b.k = c.k
-            ) ON a.k = b.k
-        """
-        exception "null side"
-    }
-
-    sql "set enable_ivm_complex_outer_join_delta = true"
     sql """
         CREATE MATERIALIZED VIEW test_ivm_nested_outer_join_create_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
@@ -106,10 +87,29 @@ suite("test_ivm_nested_outer_join_create") {
         ) ON a.k = b.k
     """
 
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_nested_outer_join_create_left_mv
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT a.k AS a_k, a.v AS a_v, b.k AS b_k, b.v AS b_v, c.k AS c_k, c.v AS c_v
+        FROM (
+            test_ivm_nested_outer_join_create_t1 a
+            FULL OUTER JOIN test_ivm_nested_outer_join_create_t2 b
+                ON a.k = b.k
+        )
+        FULL OUTER JOIN test_ivm_nested_outer_join_create_t3 c
+            ON a.k = c.k
+    """
+
     sql "set show_hidden_columns = true"
     def descResult = sql "desc test_ivm_nested_outer_join_create_mv all"
     assertTrue(descResult.toString().contains("__DORIS_IVM_ROW_ID_COL__"),
             "The created materialized view should use the IVM layout")
+    def leftDescResult = sql "desc test_ivm_nested_outer_join_create_left_mv all"
+    assertTrue(leftDescResult.toString().contains("__DORIS_IVM_ROW_ID_COL__"),
+            "The left-nested materialized view should use the IVM layout")
     sql "set show_hidden_columns = false"
 
     sql """
@@ -126,6 +126,8 @@ suite("test_ivm_nested_outer_join_create") {
     """
     sql "REFRESH MATERIALIZED VIEW test_ivm_nested_outer_join_create_mv INCREMENTAL"
     waitingMTMVTaskFinishedByMvName("test_ivm_nested_outer_join_create_mv")
+    sql "REFRESH MATERIALIZED VIEW test_ivm_nested_outer_join_create_left_mv INCREMENTAL"
+    waitingMTMVTaskFinishedByMvName("test_ivm_nested_outer_join_create_left_mv")
 
     order_qt_nested_outer_join_initial_source """
         SELECT a.k AS a_k, a.v AS a_v, b.k AS b_k, b.v AS b_v, c.k AS c_k, c.v AS c_v
@@ -142,12 +144,30 @@ suite("test_ivm_nested_outer_join_create") {
         FROM test_ivm_nested_outer_join_create_mv
         ORDER BY 1, 3, 5, 2, 4, 6
     """
+    order_qt_nested_outer_join_initial_left_source """
+        SELECT a.k AS a_k, a.v AS a_v, b.k AS b_k, b.v AS b_v, c.k AS c_k, c.v AS c_v
+        FROM (
+            test_ivm_nested_outer_join_create_t1 a
+            FULL OUTER JOIN test_ivm_nested_outer_join_create_t2 b
+                ON a.k = b.k
+        )
+        FULL OUTER JOIN test_ivm_nested_outer_join_create_t3 c
+            ON a.k = c.k
+        ORDER BY 1, 3, 5, 2, 4, 6
+    """
+    order_qt_nested_outer_join_initial_left_mv """
+        SELECT a_k, a_v, b_k, b_v, c_k, c_v
+        FROM test_ivm_nested_outer_join_create_left_mv
+        ORDER BY 1, 3, 5, 2, 4, 6
+    """
 
     sql "INSERT INTO test_ivm_nested_outer_join_create_t1 VALUES (5, 50)"
     sql "INSERT INTO test_ivm_nested_outer_join_create_t2 VALUES (5, 500)"
     sql "DELETE FROM test_ivm_nested_outer_join_create_t3 WHERE k = 1"
     sql "REFRESH MATERIALIZED VIEW test_ivm_nested_outer_join_create_mv INCREMENTAL"
     waitingMTMVTaskFinishedByMvName("test_ivm_nested_outer_join_create_mv")
+    sql "REFRESH MATERIALIZED VIEW test_ivm_nested_outer_join_create_left_mv INCREMENTAL"
+    waitingMTMVTaskFinishedByMvName("test_ivm_nested_outer_join_create_left_mv")
 
     order_qt_nested_outer_join_second_source """
         SELECT a.k AS a_k, a.v AS a_v, b.k AS b_k, b.v AS b_v, c.k AS c_k, c.v AS c_v
@@ -162,6 +182,22 @@ suite("test_ivm_nested_outer_join_create") {
     order_qt_nested_outer_join_second_mv """
         SELECT a_k, a_v, b_k, b_v, c_k, c_v
         FROM test_ivm_nested_outer_join_create_mv
+        ORDER BY 1, 3, 5, 2, 4, 6
+    """
+    order_qt_nested_outer_join_second_left_source """
+        SELECT a.k AS a_k, a.v AS a_v, b.k AS b_k, b.v AS b_v, c.k AS c_k, c.v AS c_v
+        FROM (
+            test_ivm_nested_outer_join_create_t1 a
+            FULL OUTER JOIN test_ivm_nested_outer_join_create_t2 b
+                ON a.k = b.k
+        )
+        FULL OUTER JOIN test_ivm_nested_outer_join_create_t3 c
+            ON a.k = c.k
+        ORDER BY 1, 3, 5, 2, 4, 6
+    """
+    order_qt_nested_outer_join_second_left_mv """
+        SELECT a_k, a_v, b_k, b_v, c_k, c_v
+        FROM test_ivm_nested_outer_join_create_left_mv
         ORDER BY 1, 3, 5, 2, 4, 6
     """
 }

@@ -52,6 +52,21 @@ Snapshot rewrite now uses two explicit logical forms:
 
 IVM no longer uses mock `scan.withTso(tso)` bindings in incremental refresh rewrite.
 
+## Outer Join Null-Side Complexity
+
+Nested outer joins on an outer join's null-producing side are supported during IVM
+normalization and incremental rewrite. The null-side delta path computes both pre-refresh and
+post-refresh snapshots, so a complex subtree can significantly increase plan size, planning time,
+and refresh resource consumption. This is a performance consideration for users, not a session
+variable-controlled syntax restriction. Keep the null-producing side simple when practical, or
+materialize a complex subtree separately if the generated refresh plan is too expensive.
+
+This does not remove the separate row-id correctness requirement for outer joins: the retained
+side row-id must remain deterministic because null-row repair branches use it across the pre/post
+snapshot boundary. Consequently a DUP_KEYS scan (whose `uuid_numeric()` row-id is
+nondeterministic) is still rejected on the retained side; DUP_KEYS on the null-producing side is
+allowed. FULL OUTER JOIN requires deterministic row-ids on both sides.
+
 ## Recursive Delta Rewrite
 
 - `IvmNormalizeMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start

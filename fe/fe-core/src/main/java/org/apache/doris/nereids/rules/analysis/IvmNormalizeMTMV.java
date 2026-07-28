@@ -139,21 +139,19 @@ import java.util.stream.Collectors;
  *
  * <h3>Supported plan nodes</h3>
  * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain, result sink,
- * logical olap table sink. During IVM creation, nested outer joins on a null side require the
- * {@code enable_ivm_complex_outer_join_delta} session variable.
+ * logical olap table sink. Nested outer joins on a null side are supported; their pre/post
+ * snapshot calculation can produce a substantially larger incremental refresh plan.
  */
 public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.NormalizeContext>
         implements CustomRewriter {
     static final class NormalizeContext {
-        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false);
+        private static final NormalizeContext ROOT = new NormalizeContext(true, false);
 
         private final boolean isFirstNonSink;
-        private final boolean isOuterJoinNullSide;
         private final boolean isInsideAggregate;
 
-        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullSide, boolean isInsideAggregate) {
+        private NormalizeContext(boolean isFirstNonSink, boolean isInsideAggregate) {
             this.isFirstNonSink = isFirstNonSink;
-            this.isOuterJoinNullSide = isOuterJoinNullSide;
             this.isInsideAggregate = isInsideAggregate;
         }
 
@@ -161,33 +159,20 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             if (!isFirstNonSink) {
                 return this;
             }
-            return new NormalizeContext(false, isOuterJoinNullSide, isInsideAggregate);
-        }
-
-        private NormalizeContext enterOuterJoinNullSide() {
-            if (isOuterJoinNullSide) {
-                return this;
-            }
-            return new NormalizeContext(isFirstNonSink, true, isInsideAggregate);
+            return new NormalizeContext(false, isInsideAggregate);
         }
 
         private NormalizeContext enterAggregate() {
             if (isInsideAggregate) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, true);
+            return new NormalizeContext(isFirstNonSink, true);
         }
     }
 
     private IvmRewriteResult rewriteResult;
     private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
     private StatementContext statementContext;
-
-    private boolean shouldRejectNestedOuterJoin() {
-        return statementContext.getIvmRewriteContext().map(IvmRewriteContext::isCreate).orElse(false)
-                && !statementContext.getConnectContext().getSessionVariable()
-                        .isEnableIvmComplexOuterJoinDelta();
-    }
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -271,8 +256,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      *
      * <ol>
      *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, LEFT/RIGHT/FULL_OUTER_JOIN</li>
-     *   <li>During IVM creation, rejects an outer join below another outer join null side unless complex
-     *       outer-join delta support is enabled</li>
+     *   <li>Normalizes nested outer joins on either side; null-side pre/post snapshots may make the
+     *       incremental refresh plan substantially larger</li>
      *   <li>Normalizes both children (first non-sink = false)</li>
      *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
      *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
@@ -297,23 +282,9 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support mark join (subquery with disjunction).");
         }
-        if (joinType.isOuterJoin()) {
-            if (context.isOuterJoinNullSide && shouldRejectNestedOuterJoin()) {
-                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                        "IVM OUTER JOIN null side must not contain another outer join by default. "
-                                + "Set enable_ivm_complex_outer_join_delta=true to enable it, but the complex "
-                                + "outer join delta calculation may significantly reduce incremental refresh "
-                                + "performance.");
-            }
-        }
-
         NormalizeContext childContext = context.afterNonSink();
-        NormalizeContext leftChildContext = isNullSideOnLeft(joinType)
-                ? childContext.enterOuterJoinNullSide() : childContext;
-        NormalizeContext rightChildContext = isNullSideOnRight(joinType)
-                ? childContext.enterOuterJoinNullSide() : childContext;
-        Plan newLeft = join.left().accept(this, leftChildContext);
-        Plan newRight = join.right().accept(this, rightChildContext);
+        Plan newLeft = join.left().accept(this, childContext);
+        Plan newRight = join.right().accept(this, childContext);
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
 
         // Find left and right row_id slots from children's output
