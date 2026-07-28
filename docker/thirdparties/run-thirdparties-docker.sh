@@ -98,7 +98,16 @@ HIVE_SHARED_ID="doris-shared"
 : "${HIVE_BASELINE_TARBALL_CACHE:?HIVE_BASELINE_TARBALL_CACHE must be set in custom_settings.env}"
 
 if [[ -z "${IP_HOST:-}" ]]; then
-    if command -v ip >/dev/null 2>&1; then
+    if [[ "${HOST_OS}" == "Darwin" ]]; then
+        # macOS has neither `ip` nor `hostname -I`, and its LAN address would be
+        # the wrong answer anyway: the "host" the `network_mode: host` services
+        # join is the Docker Desktop VM, not this machine. Everything reaches
+        # everything else on the VM's loopback, and Docker Desktop forwards the
+        # Mac's loopback into it, so 127.0.0.1 is consistent on both sides.
+        # (That forwarding is the "host networking" beta -- Settings ->
+        # Resources -> Network. With it off, the ports exist only in the VM.)
+        export IP_HOST=127.0.0.1
+    elif command -v ip >/dev/null 2>&1; then
         export IP_HOST=$(ip -4 addr show scope global | awk '/inet / {print $2}' | cut -d/ -f1 | head -n 1)
     elif command -v hostname >/dev/null 2>&1; then
         export IP_HOST=$(hostname -I 2>/dev/null | awk '{print $1}')
@@ -1238,12 +1247,7 @@ ensure_hosts_alias() {
     local tmp_hosts
     local sudo_cmd=()
 
-    if [[ "$(id -u)" -ne 0 ]]; then
-        sudo_cmd=(sudo)
-    fi
-
     tmp_hosts="$(mktemp)"
-    "${sudo_cmd[@]}" chmod a+w /etc/hosts
     awk -v alias_name="${alias_name}" '
         {
             keep = 1
@@ -1259,6 +1263,20 @@ ensure_hosts_alias() {
         }
     ' /etc/hosts >"${tmp_hosts}"
     printf "%s %s\n" "${alias_ip}" "${alias_name}" >>"${tmp_hosts}"
+
+    # Writing /etc/hosts is the only privileged step in the whole script, so
+    # take it only when the alias is actually missing or points somewhere else.
+    # On macOS sudo has no passwordless default and no tty to prompt on, which
+    # would otherwise abort every re-run of an already-correct environment.
+    if cmp -s "${tmp_hosts}" /etc/hosts; then
+        rm -f "${tmp_hosts}"
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        sudo_cmd=(sudo)
+    fi
+    "${sudo_cmd[@]}" chmod a+w /etc/hosts
     "${sudo_cmd[@]}" cp "${tmp_hosts}" /etc/hosts
     rm -f "${tmp_hosts}"
 }
