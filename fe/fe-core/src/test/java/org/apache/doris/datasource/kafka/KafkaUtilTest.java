@@ -39,6 +39,14 @@ import java.util.Map;
 
 public class KafkaUtilTest {
     @Test
+    public void testGetInfoFailureMessageIncludesComputeGroup() {
+        Assert.assertEquals("failed to get info: no alive backends, compute group: routine-load-compute-group,",
+                KafkaUtil.getInfoFailureMessage("no alive backends", "routine-load-compute-group"));
+        Assert.assertEquals("failed to get info: no alive backends,",
+                KafkaUtil.getInfoFailureMessage("no alive backends", null));
+    }
+
+    @Test
     public void testGetBackendIdsForMetaRequestUsesRoutineLoadComputeGroup() throws Exception {
         String originalCloudUniqueId = Config.cloud_unique_id;
         Backend routineLoadBackend = new Backend(10001L, "127.0.0.1", 9050);

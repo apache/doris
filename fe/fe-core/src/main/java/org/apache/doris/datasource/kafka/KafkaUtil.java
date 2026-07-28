@@ -250,7 +250,7 @@ public class KafkaUtil {
                     if (failedBeIds.isEmpty()) {
                         errorMsg = "no alive backends";
                     }
-                    throw new LoadException("failed to get info: " + errorMsg + ",");
+                    throw new LoadException(getInfoFailureMessage(errorMsg, computeGroupName));
                 }
                 Collections.shuffle(backendIds);
                 long selectedBeId = backendIds.get(0);
@@ -289,7 +289,7 @@ public class KafkaUtil {
             }
 
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
-            throw new LoadException("failed to get info: " + errorMsg + ",");
+            throw new LoadException(getInfoFailureMessage(errorMsg, computeGroupName));
         } finally {
             // Ensure that not all BE added to the blacklist.
             // For single request:
@@ -309,6 +309,12 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
+    }
+
+    static String getInfoFailureMessage(String errorMsg, String computeGroupName) {
+        String computeGroupDetails = Strings.isNullOrEmpty(computeGroupName)
+                ? "" : " compute group: " + computeGroupName + ",";
+        return "failed to get info: " + errorMsg + "," + computeGroupDetails;
     }
 
     static List<Long> getAvailableBackendIdsForMetaRequest(
