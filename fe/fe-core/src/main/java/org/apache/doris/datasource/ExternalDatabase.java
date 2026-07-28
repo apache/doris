@@ -664,6 +664,32 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return true;
     }
 
+    /**
+     * Register a newly created table into the meta cache after DDL execution.
+     * This method builds the table object and updates both the names cache and the meta object cache,
+     * so that the table is immediately visible (e.g., via SHOW CREATE TABLE) without requiring
+     * a manual REFRESH CATALOG.
+     */
+    public void registerTableFromCreate(String tblName) {
+        makeSureInitialized();
+        if (!isInitialized()) {
+            return;
+        }
+        String localName = extCatalog.fromRemoteTableName(this.remoteName, tblName);
+        long tblId = Util.genIdByName(extCatalog.getName(), name, localName);
+        T table = buildTableForInit(tblName, localName, tblId, extCatalog, this, false);
+        if (table == null) {
+            LOG.warn("Failed to build table {}.{} after create, fall back to reset names cache",
+                    this.name, tblName);
+            resetMetaCacheNames();
+            return;
+        }
+        metaCache.updateCache(tblName, localName, table, tblId);
+        lowerCaseToTableName.put(localName.toLowerCase(), localName);
+        setLastUpdateTime(System.currentTimeMillis());
+        LOG.info("register table {}.{} after create", this.name, tblName);
+    }
+
     private boolean isStoredTableNamesLowerCase() {
         return extCatalog.getLowerCaseTableNames() == 1;
     }

@@ -620,7 +620,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(oldName);
-            db.get().resetMetaCacheNames();
+            db.get().registerTableFromCreate(newName);
         }
         LOG.info("after rename table {}.{}.{} to {}, is db exists: {}",
                 dorisCatalog.getName(), dbName, oldName, newName, db.isPresent());

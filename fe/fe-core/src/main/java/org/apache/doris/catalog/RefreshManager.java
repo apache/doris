@@ -185,7 +185,7 @@ public class RefreshManager {
         if (!Strings.isNullOrEmpty(log.getNewTableName())) {
             // this is a rename table op
             db.get().unregisterTable(log.getTableName());
-            db.get().resetMetaCacheNames();
+            db.get().registerTableFromCreate(log.getNewTableName());
             Env.getCurrentEnv().getConstraintManager().renameTable(
                     new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
                     new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
