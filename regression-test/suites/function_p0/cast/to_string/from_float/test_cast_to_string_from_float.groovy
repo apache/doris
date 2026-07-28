@@ -17,7 +17,6 @@
 
 
 suite("test_cast_to_string_from_float") {
-    sql """set debug_skip_fold_constant = "true";"""
     def float_values = [
         "0.0", "-0.0", "1.1", "111.1111", "1.23", "123.456", "123", "1234567", "123456.12345", "1234567.12345", "12345678.12345", "123456789.12345",
         "1234567890000.12345", "0.33", "123.456789", "123.456789123",
@@ -32,8 +31,12 @@ suite("test_cast_to_string_from_float") {
         "-Infinity", "Infinity", "NaN"
     ]
 
-    // for (b in ["false", "true"]) {
-    // sql """set debug_skip_fold_constant = "${b}";"""
+    sql """set debug_skip_fold_constant = "false";"""
+    for (test_str in float_values) {
+        qt_sql_float_fe """select "${test_str}", cast("${test_str}" as float), cast(cast("${test_str}" as float) as string);"""
+    }
+
+    sql """set debug_skip_fold_constant = "true";"""
     for (test_str in float_values) {
         qt_sql_float_be """select "${test_str}", cast("${test_str}" as float), cast(cast("${test_str}" as float) as string);"""
     }
@@ -106,6 +109,13 @@ suite("test_cast_to_string_from_float") {
         "-Infinity",
         "NaN"
     ]
+
+    sql """set debug_skip_fold_constant = "false";"""
+    for (test_str in double_values) {
+        qt_sql_double_fe """select "${test_str}", cast("${test_str}" as double), cast(cast("${test_str}" as double) as string);"""
+    }
+
+    sql """set debug_skip_fold_constant = "true";"""
     for (test_str in double_values) {
         qt_sql_double_be """select "${test_str}", cast("${test_str}" as double), cast(cast("${test_str}" as double) as string);"""
     }
