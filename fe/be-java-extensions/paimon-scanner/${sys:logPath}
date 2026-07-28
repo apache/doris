@@ -1,6 +1,0 @@
-2026-07-10 22:47:55  INFO main org.apache.doris.kerberos.PreExecutionAuthenticatorCache.createAuthenticator(PreExecutionAuthenticatorCache.java:82) - Creating new PreExecutionAuthenticator for configuration, Cache key: hadoop
-2026-07-10 22:47:55  INFO main org.apache.paimon.disk.FileChannelManagerImpl.<init>(FileChannelManagerImpl.java:66) - Created a new FileChannelManager for spilling of task related data to disk (joins, sorting, ...). Used directories:
-	/tmp/junit3216470057608456327/paimon-io-manager-clean
-2026-07-10 22:47:55  INFO main org.apache.paimon.disk.FileChannelManagerImpl.lambda$getFileCloser$0(FileChannelManagerImpl.java:143) - FileChannelManager removed spill file directory /tmp/junit3216470057608456327/paimon-io-manager-clean/paimon-io-c2f0520e-dcd9-4840-b42f-ca5f3119acb7
-2026-07-10 22:47:55  INFO main org.apache.paimon.disk.FileChannelManagerImpl.close(FileChannelManagerImpl.java:131) - Closed FileChannelManager with directories:
-	/tmp/junit3216470057608456327/paimon-io-manager-clean/paimon-io-c2f0520e-dcd9-4840-b42f-ca5f3119acb7
