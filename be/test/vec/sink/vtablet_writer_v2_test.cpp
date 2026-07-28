@@ -509,4 +509,32 @@ TEST_F(TestVTabletWriterV2, fail_two_miss_one_same_tablet) {
     ASSERT_EQ(st, Status::InternalError("test"));
 }
 
+TEST_F(TestVTabletWriterV2, quorum_excludes_streams_not_closing_in_current_stage) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto initial_streams = load_stream_map->get_or_create(1001);
+    auto incremental_streams_1 = load_stream_map->get_or_create(1002, true);
+    auto incremental_streams_2 = load_stream_map->get_or_create(1003, true);
+
+    auto writer = create_vtablet_writer();
+    writer->_load_stream_map = load_stream_map;
+    writer->_tablets_by_node[1002].insert(1);
+    writer->_tablets_by_node[1003].insert(1);
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams {
+            initial_streams->streams().front()};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+
+    // The incremental streams do not participate in the first close stage. They must not be
+    // treated as finished just because they are absent from unfinished_streams.
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    // Once the incremental streams participate in the second stage and finish, they can satisfy
+    // quorum normally.
+    incremental_streams_1->streams().front()->_is_closing.store(true);
+    incremental_streams_2->streams().front()->_is_closing.store(true);
+    unfinished_streams.clear();
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+}
+
 } // namespace doris
