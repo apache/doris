@@ -135,6 +135,13 @@ public:
                 count_inodes_override;
     };
     static void set_inode_estimation_test_hooks(InodeEstimationTestHooks* hooks);
+
+    void set_file_writer_for_test(const FileCacheKey& key, FileWriterPtr writer) {
+        auto file_writer_map_key = std::make_pair(key.hash, key.offset);
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        shard.map[file_writer_map_key] = std::move(writer);
+    }
 #endif
 
 private:
