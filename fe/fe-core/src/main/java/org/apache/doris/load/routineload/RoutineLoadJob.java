@@ -242,7 +242,9 @@ public abstract class RoutineLoadJob
     protected long autoResumeCount;
     // some other msg which need to show to user;
     protected String otherMsg = "";
+    @SerializedName("pauseReason")
     protected ErrorReason pauseReason;
+    @SerializedName("cancelReason")
     protected ErrorReason cancelReason;
 
     @SerializedName("cts")
@@ -2000,7 +2002,8 @@ public abstract class RoutineLoadJob
         });
         try {
             ConnectContext ctx = new ConnectContext();
-            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId)
+                    .orElseThrow(() -> new Exception("Database " + dbId + " does not exist")).getName());
             StatementContext statementContext = new StatementContext();
             statementContext.setConnectContext(ctx);
             ctx.setStatementContext(statementContext);
@@ -2033,6 +2036,11 @@ public abstract class RoutineLoadJob
             }
         } catch (Exception e) {
             this.state = JobState.CANCELLED;
+            if (this.cancelReason == null) {
+                String timeStr = TimeUtils.longToTimeString(System.currentTimeMillis());
+                this.cancelReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                        "FE restart deserialize failed at " + timeStr + ": " + e.getMessage());
+            }
             LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
         if (userIdentity != null) {
