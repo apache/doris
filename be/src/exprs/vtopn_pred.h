@@ -130,6 +130,40 @@ public:
         return Status::OK();
     }
 
+    // Returns true only for a direct slot binding whose logical fixed-width type exactly matches
+    // `data_type`. Eligibility does not depend on whether the dynamic TopN bound has arrived: a
+    // reader may cache this answer during initialization and observe the bound in a later batch.
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+
+    // Compares the contiguous non-NULL physical values with one snapshot of the current TopN bound
+    // and ANDs the result into `matches`. `value_width` must equal the logical Doris value width.
+    // When no bound is available yet, this is deliberately an all-pass operation.
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+
+    // Returns true for a directly bound STRING-like or VARBINARY slot. As with the fixed-width
+    // capability, a not-yet-published bound does not force the scanner onto a materializing path.
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+
+    // Compares decoder-owned immutable byte slices with the current TopN bound and ANDs each
+    // decision into `matches`; it never copies the slices into a ColumnString/ColumnVarbinary.
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
+
+    // Dictionary capability is restricted to a direct slot and NULLS-LAST semantics because the
+    // row-level dictionary-id reader currently drops NULL rows independently of dictionary ids.
+    // It stays enabled before the first bound so late runtime-predicate publication is supported.
+    bool can_evaluate_dictionary_filter() const override;
+
+    // Evaluates every non-NULL entry in the bound slot dictionary against one current-bound
+    // snapshot. kNoMatch proves that no entry can pass; kMayMatch includes both a matching entry and
+    // a not-yet-published bound; kUnsupported reports an absent or incompatible dictionary slot.
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+
     const std::string& expr_name() const override { return _expr_name; }
 
     // only used in external table (for min-max filter). get `slot > xxx`, not `function(slot) > xxx`.

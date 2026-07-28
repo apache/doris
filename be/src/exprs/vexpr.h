@@ -191,8 +191,11 @@ public:
                                   bool accept_null, bool* can_filter_all) const;
 
     // Raw fixed-width evaluation is an optional expression capability used before a storage reader
-    // materializes a column. `matches` is ANDed in place; callers handle NULL rows separately
-    // because raw value streams contain only non-NULL payloads.
+    // materializes a column. The capability query must validate the bound slot and logical type and
+    // remain stable for the reader lifetime. Execution receives `num_values` tightly packed,
+    // non-NULL logical values of `value_width` bytes; it ANDs decisions into the caller-owned
+    // `matches` array and must leave already rejected rows rejected. Callers handle NULL rows from
+    // definition levels because the physical value stream has no payload for them.
     virtual bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
                                                  int column_id) const {
         return false;
@@ -203,8 +206,10 @@ public:
         return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
     }
 
-    // Variable-width Parquet decoders expose immutable slices rather than an IColumn. Expressions
-    // opt in only when Doris string semantics are identical to comparing those decoded bytes.
+    // Variable-width Parquet decoders expose `num_values` immutable, non-NULL slices rather than an
+    // IColumn. The capability query must validate the bound slot and logical type. Execution may
+    // borrow each slice only for the duration of the call and must AND its decisions into `matches`;
+    // expressions opt in only when Doris semantics are identical to comparing the decoded bytes.
     virtual bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
                                                   int column_id) const {
         return false;
@@ -257,6 +262,11 @@ public:
 
     virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
     virtual bool can_evaluate_zonemap_filter() const { return false; }
+    // Dictionary evaluation is an optional conservative pruning capability over non-NULL values.
+    // kNoMatch proves that no dictionary entry can satisfy the expression, kMayMatch means at least
+    // one entry may satisfy it (or pruning cannot currently disprove it), and kUnsupported means the
+    // context lacks a compatible binding. Capability must describe expression shape, not the
+    // current contents of a late-arriving runtime filter, because readers may cache it.
     virtual ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const;
     virtual bool can_evaluate_dictionary_filter() const { return false; }
     virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const;
