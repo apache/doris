@@ -255,6 +255,24 @@ Status RuntimeFilterExpr::execute_on_raw_fixed_values(const uint8_t* values, siz
                                               matches);
 }
 
+bool RuntimeFilterExpr::can_execute_on_reader_values(const DataTypePtr& data_type,
+                                                     int column_id) const {
+    if (_null_aware || _impl == nullptr || data_type == nullptr || _impl->get_num_children() == 0) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_impl->get_child(0));
+    if (slot == nullptr || slot->column_id() != column_id || slot->data_type() == nullptr) {
+        return false;
+    }
+    const auto reader_type = remove_nullable(data_type);
+    const auto probe_type = remove_nullable(slot->data_type());
+    // CHAR/VARCHAR/STRING share the same runtime-filter representation; every other logical type
+    // must match exactly so Parquet conversions cannot be interpreted with the wrong RF template.
+    return reader_type->equals(*probe_type) ||
+           (is_string_type(reader_type->get_primitive_type()) &&
+            is_string_type(probe_type->get_primitive_type()));
+}
+
 ZoneMapFilterResult RuntimeFilterExpr::evaluate_dictionary_filter(
         const DictionaryEvalContext& ctx) const {
     if (!can_evaluate_dictionary_filter()) {

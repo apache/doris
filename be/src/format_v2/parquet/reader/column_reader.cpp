@@ -92,4 +92,15 @@ Status ParquetColumnReader::select_with_fixed_width_filter(const SelectionVector
     return Status::OK();
 }
 
+Status ParquetColumnReader::select_with_runtime_filter(const SelectionVector&, uint16_t, int64_t,
+                                                       const VExprContextSPtrs&, int,
+                                                       MutableColumnPtr*, IColumn::Filter* row_filter,
+                                                       bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    row_filter->clear();
+    *used_filter = false;
+    return Status::OK();
+}
+
 } // namespace doris::format::parquet

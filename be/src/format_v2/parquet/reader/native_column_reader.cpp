@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "core/assert_cast.h"
+#include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -35,6 +36,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -744,6 +747,72 @@ Status NativeColumnReader::select_with_fixed_width_filter(
     advance_selected_span(rows_read);
     update_reader_read_rows(selected_rows);
     update_reader_skip_rows(batch_rows - selected_rows);
+    return Status::OK();
+}
+
+Status NativeColumnReader::select_with_runtime_filter(
+        const SelectionVector& selection, uint16_t selected_rows, int64_t batch_rows,
+        const VExprContextSPtrs& conjuncts, int column_id, MutableColumnPtr* projected_column,
+        IColumn::Filter* row_filter, bool* used_filter) {
+    DORIS_CHECK(row_filter != nullptr);
+    DORIS_CHECK(used_filter != nullptr);
+    RETURN_IF_ERROR(validate_selected_span(batch_rows));
+    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
+    row_filter->clear();
+    *used_filter = false;
+    if (_nested || conjuncts.empty() ||
+        !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->is_rf_wrapper() &&
+                   conjunct->root()->can_execute_on_reader_values(_type, column_id);
+        })) {
+        return Status::OK();
+    }
+
+    const uint8_t* selection_filter = nullptr;
+    RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &selection_filter));
+    auto values = _type->create_column();
+    int64_t rows_read = 0;
+    RETURN_IF_ERROR(read_with_filter(batch_rows, selection_filter, selected_rows == 0, values,
+                                     _type, false, &rows_read));
+    DORIS_CHECK_EQ(rows_read, batch_rows);
+    DORIS_CHECK_EQ(values->size(), selected_rows);
+
+    row_filter->resize_fill(selected_rows, 1);
+    {
+        Block value_block;
+        const auto dummy_type = std::make_shared<DataTypeUInt8>();
+        for (int position = 0; position < column_id; ++position) {
+            value_block.insert(
+                    {ColumnUInt8::create(selected_rows, 0), dummy_type, "runtime_filter_dummy"});
+        }
+        value_block.insert({values->get_ptr(), _type, "runtime_filter_value"});
+        for (const auto& conjunct : conjuncts) {
+            bool can_filter_all = false;
+            // Once eligibility is established, adaptive RF sampling may make a later batch a
+            // no-op but must not send this forward-only reader back to scheduler materialization.
+            RETURN_IF_ERROR(conjunct->root()->execute_filter(conjunct.get(), &value_block,
+                                                             row_filter->data(), selected_rows,
+                                                             false, &can_filter_all));
+            if (can_filter_all) {
+                row_filter->clear();
+                row_filter->resize_fill(selected_rows, 0);
+                break;
+            }
+        }
+    }
+
+    if (projected_column != nullptr) {
+        values->filter(*row_filter);
+        *projected_column = std::move(values);
+    }
+    advance_selected_span(rows_read);
+    if (_profile.reader_select_rows != nullptr) {
+        COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
+    }
+    update_reader_read_rows(selected_rows);
+    update_reader_skip_rows(batch_rows - selected_rows);
+    *used_filter = true;
     return Status::OK();
 }
 

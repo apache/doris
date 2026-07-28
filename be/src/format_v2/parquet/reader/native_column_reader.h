@@ -92,6 +92,10 @@ public:
                                           int64_t batch_rows, const VExprSPtrs& conjuncts,
                                           int column_id, IColumn* projected_column,
                                           IColumn::Filter* row_filter, bool* used_filter) override;
+    Status select_with_runtime_filter(const SelectionVector& selection, uint16_t selected_rows,
+                                      int64_t batch_rows, const VExprContextSPtrs& conjuncts,
+                                      int column_id, MutableColumnPtr* projected_column,
+                                      IColumn::Filter* row_filter, bool* used_filter) override;
     void flush_profile() override;
     bool crossed_page_since_last_batch() override;
     Result<MutableColumnPtr> dictionary_values() override;
