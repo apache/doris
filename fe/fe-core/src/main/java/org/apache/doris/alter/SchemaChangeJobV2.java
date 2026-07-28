@@ -1102,7 +1102,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             try {
                 if (olapTable.getState() == olapTableState) {
                     return;
-                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
+                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE
+                        || olapTable.getState() == OlapTableState.WAITING_STABLE) {
+                    // WAITING_STABLE is a transient sub-state of a pending SCHEMA_CHANGE job (the table is
+                    // not yet stable). If the job is cancelled while still WAITING_STABLE, we must also reset
+                    // the table back to NORMAL; otherwise the table stays stuck in WAITING_STABLE with no
+                    // live job, and every following ALTER / TRUNCATE / DROP PARTITION / RENAME / CANCEL is
+                    // rejected (deadlock, only recoverable by DROP TABLE).
                     olapTable.setState(olapTableState);
                 }
             } finally {
