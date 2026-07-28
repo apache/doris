@@ -350,7 +350,10 @@ public class TSOServiceTest {
                 Assert.assertTrue(e.getMessage().contains("EditLog is null"));
             }
 
-            Assert.assertEquals(0L, tsoService.getWindowEndTSO());
+            TSOService.TSOStatusSnapshot statusSnapshot = tsoService.getStatusSnapshot();
+            Assert.assertFalse(statusSnapshot.isInitialized());
+            Assert.assertTrue(statusSnapshot.getCurrentTso() > 0L);
+            Assert.assertEquals(0L, statusSnapshot.getWindowEndPhysicalTime());
 
             try {
                 tsoService.getTSO();

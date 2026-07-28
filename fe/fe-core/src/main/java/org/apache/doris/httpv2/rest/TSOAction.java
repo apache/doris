@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.tso.TSOService;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.collect.Maps;
@@ -38,6 +39,7 @@ import java.util.Map;
  *
  * Example usage:
  * GET /api/tso
+ * GET /api/tso?local=true
  * Response:
  * {
  *   "window_end_physical_time": 1625097600000,
@@ -54,6 +56,8 @@ public class TSOAction extends RestBaseController {
     /**
      * Get current TSO information.
      * This interface only returns TSO information without increasing the TSO value.
+     * Requests are forwarded to the master FE by default. Set local=true to query
+     * the TSO state of the FE that receives the request.
      *
      * @param request  HTTP request
      * @param response HTTP response
@@ -69,25 +73,24 @@ public class TSOAction extends RestBaseController {
             //check user auth
             executeCheckPassword(request, response);
 
+            if (!Boolean.parseBoolean(request.getParameter("local")) && checkForwardToMaster(request)) {
+                return forwardToMaster(request);
+            }
+
             Env env = Env.getCurrentEnv();
             if (env == null || !env.isReady()) {
                 LOG.warn("TSO HTTP API: FE is not ready");
                 return ResponseEntityBuilder.badRequest("FE is not ready");
             }
-            if (!env.isMaster()) {
-                LOG.warn("TSO HTTP API: current FE is not master");
-                return ResponseEntityBuilder.badRequest("Current FE is not master");
-            }
-            // Get current TSO information without increasing it
-            long windowEndPhysicalTime = env.getTSOService().getWindowEndTSO();
-            long currentTSO = env.getTSOService().getCurrentTSO();
+            TSOService.TSOStatusSnapshot statusSnapshot = env.getTSOService().getStatusSnapshot();
+            long currentTso = statusSnapshot.getCurrentTso();
 
             // Prepare response data with detailed TSO information
             Map<String, Object> result = Maps.newHashMap();
-            result.put("window_end_physical_time", windowEndPhysicalTime);
-            result.put("current_tso", currentTSO);
-            result.put("current_tso_physical_time", TSOTimestamp.extractPhysicalTime(currentTSO));
-            result.put("current_tso_logical_counter", TSOTimestamp.extractLogicalCounter(currentTSO));
+            result.put("window_end_physical_time", statusSnapshot.getWindowEndPhysicalTime());
+            result.put("current_tso", currentTso);
+            result.put("current_tso_physical_time", TSOTimestamp.extractPhysicalTime(currentTso));
+            result.put("current_tso_logical_counter", TSOTimestamp.extractLogicalCounter(currentTso));
             return ResponseEntityBuilder.ok(result);
         } catch (Exception e) {
             LOG.warn("Failed to get TSO information", e);
