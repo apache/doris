@@ -628,8 +628,13 @@ public class MaterializedViewUtils {
 
         @Override
         public Boolean visitLogicalRelation(LogicalRelation relation, Void context) {
-            if (relation instanceof LogicalFileScan && ((LogicalFileScan) relation).getTableSample().isPresent()) {
-                return true;
+            if (relation instanceof LogicalFileScan) {
+                LogicalFileScan fileScan = (LogicalFileScan) relation;
+                // Relation scan parameters can select data different from the MV refresh input.
+                // Treat them as query operators until rewrite can prove equivalent semantics.
+                if (fileScan.getTableSample().isPresent() || fileScan.getScanParams().isPresent()) {
+                    return true;
+                }
             }
             if (relation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) relation;
