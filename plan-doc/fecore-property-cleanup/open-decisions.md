@@ -74,11 +74,10 @@ FPC-03 要删掉路 B。问题是：**路 A 的 `pluginSupplier` 为 null 时怎
 **选 A。** 理由：它是唯一「零行为变更 + 守 fail-loud」的写法，代码量和 B 一样是一行，
 而且把一个**今天靠人工审计才知道不可达**的窗口，变成**万一走进去会立刻自曝**。
 
-> **拍板结果**：⏳ **按推荐值 A 执行，待用户追认**。2026-07-28 用户指示「直接开始编码」但未就本条表态，
-> 遂按文档推荐值 A（`throw new IllegalStateException`）落地于 FPC-03（commit 见 `progress.md`）。
-> **要翻成 B 只需改一行** —— `CatalogProperty.resolveDerivedStorageDefaults()` 的 null 分支改成
-> `return Collections.emptyMap();`，并同步删掉 `CatalogPropertyPluginStorageDerivationTest`
-> 的 `unwiredSupplierFailsLoudInsteadOfDerivingNothing` 用例。
+> **拍板结果**：✅ **A —— 抛异常**（用户 2026-07-28 明确）。
+> 与先行落地的实现一致，**无需改码**。实现在
+> `CatalogProperty.resolveDerivedStorageDefaults()`，守卫测试
+> `CatalogPropertyPluginStorageDerivationTest.unwiredSupplierFailsLoudInsteadOfDerivingNothing`（已做变异验证）。
 > **日期**：2026-07-28
 
 ---
@@ -127,8 +126,12 @@ fe/fe-core/.../datasource/property/common/IcebergAwsClientCredentialsProperties.
 **为零功能收益长期承担 rebase 摩擦不划算**。
 若你认为 `StorageAdapter` 本来就要在后续阶段整体退役，那 A 更好，请直接说。
 
-> **拍板结果**：（待填 —— 已停在此处，未擅自执行）
-> **日期**：（待填）
+> **拍板结果**：✅ **A —— 直接删**（用户 2026-07-28 明确，**推翻我的推荐 B**）。
+> 已执行 FPC-02。**接受的代价**：今后上游若改动 `StorageAdapter` 的
+> `getAwsCredentialsProvider()` 区域，rebase 会出 modify/delete 冲突 ——
+> 届时**保留删除**（对齐本仓库既有的 rebase 处置范式：master 给已删子系统打的修复，
+> 解法是保留删除 + 必要时把修复移植到连接器）。
+> **日期**：2026-07-28
 
 ---
 

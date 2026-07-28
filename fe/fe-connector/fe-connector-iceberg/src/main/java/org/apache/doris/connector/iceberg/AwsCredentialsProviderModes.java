@@ -33,9 +33,10 @@ import java.util.Map;
  * F14: resolves the user's AWS credential provider mode into either the iceberg-SDK
  * {@code client.credentials-provider} class name (for the S3FileIO / REST-signing property maps) or a live AWS
  * SDK v2 provider instance (for the s3tables control-plane client). The connector cannot import the fe-core
- * {@code AwsCredentialsProviderFactory}, so this is a self-contained twin of its
- * {@code getV2ClassName(mode)} / {@code createV2(mode)} plus the {@code AwsCredentialsProviderMode.fromString}
- * normalization ({@code trim / toUpperCase / '-' -> '_'}).
+ * {@code AwsCredentialsProviderFactory}, so this is a self-contained twin of the legacy fe-core mode-to-provider
+ * mapping plus the {@code AwsCredentialsProviderMode.fromString} normalization
+ * ({@code trim / toUpperCase / '-' -> '_'}). fe-core has since dropped its provider-instance arm (only the
+ * class-name emission for the BE/hadoop maps remains there), so this is now the sole live implementation.
  *
  * <p>The mode string comes from the original catalog properties under {@code s3.credentials_provider_type} (and
  * its aliases) or {@code iceberg.rest.credentials_provider_type}. {@code DEFAULT} — the common case, and also

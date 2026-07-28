@@ -7,57 +7,64 @@
 
 ---
 
-# 🆕 下一个 session = **拿 OD-1 追认 + OD-2 拍板**（都不需要重新论证，直接问）
+# ✅ 本任务核心工作已全部完成。只剩可选的 FPC-04。
 
-## 状态：**主删除 FPC-03 已完成并验证通过。`metastore/` 目录已不存在。**
+**没有待拍板事项**（OD-1 / OD-2 均已由用户 2026-07-28 拍板并执行完毕）。
 
 | 阶段 | commit | 结果 |
 |---|---|---|
-| 文档空间 | `938d38c7425` | 6 份文档落盘 |
-| FPC-01 + FPC-03 | 见 `git log` | **删 5 文件 473 行** + `CatalogProperty` 净减 ~45 行；全反应堆绿 / checkstyle 0 violations / 95+110 单测全过 |
+| 文档空间 | `938d38c7425` | 6 份文档 |
+| FPC-01 + FPC-03 主删除 | `ac2d931ee3a` | 删 5 文件 473 行 + `CatalogProperty` 净减 ~45 行 |
+| OD-2 反向发现 | `6d245a524d3` | 纯文档，无代码 |
+| FPC-02 删死构造臂 | 见 `git log` | 实删 159 行 |
 
-`fe/fe-core/.../datasource/property/` 现在只剩 `common` / `constants` / `fileformat`。
-
----
-
-## ⏳ 一件待用户追认的事（**别忘了问**）
-
-**OD-1 用户始终没表态**，我按文档推荐值 **A（fail-loud）** 落地了：
-`CatalogProperty.resolveDerivedStorageDefaults()` 的 null-supplier 分支
-`throw new IllegalStateException(...)`，并配了守卫测试
-`CatalogPropertyPluginStorageDerivationTest.unwiredSupplierFailsLoudInsteadOfDerivingNothing`
-（已做变异验证）。
-
-**要翻成 B（`return Collections.emptyMap()`）只需改一行 + 删该用例。**
-开场时向用户确认一句即可，不必重新论证。
+**fe-core `datasource/property/` 现状**：`metastore/` 已不存在；只剩
+`common`（已瘦身到只有活代码）/ `constants` / `fileformat`。
 
 ---
 
-## ⛔ FPC-02 已停手（OD-2 前置条件不成立）
+## 📌 两条拍板结论（**已执行，勿再动摇**）
 
-我按指示先跑了 OD-2 的前置检查，**结果与预设相反**：
-`upstream-apache/master` @ `2faf819fa89` 上 `StorageAdapter.getAwsCredentialsProvider()`
-**有两个活调用者**（`connectivity/AbstractS3CompatibleConnectivityTester.java:71`、
-`property/common/IcebergAwsClientCredentialsProperties.java:84`）。
-本分支判它「零调用者」，是因为迁移已把这两个消费者连同整个 `datasource/connectivity/`
-包删光了 ⇒ **上游活、本分支死**。
-
-`StorageAdapter.java` 两边都在、走 rebase 三方合并 ⇒ 删掉方法会把上游对该区域的每次改动
-变成人工冲突，换来的只是 146 行本就不执行的代码。**推荐值已翻转为 B（不做）**，
-等用户拍板。若用户判断 `StorageAdapter` 后续要整体退役，则 A（删）更好。
-
-**未执行任何 FPC-02 代码改动。**
+- **OD-1 = 抛异常。** `CatalogProperty.resolveDerivedStorageDefaults()` 的 null-supplier 分支
+  `throw new IllegalStateException(...)`，守卫测试
+  `CatalogPropertyPluginStorageDerivationTest.unwiredSupplierFailsLoudInsteadOfDerivingNothing`
+  （已做变异验证）。
+- **OD-2 = 直接删**（用户推翻了我的推荐）。**已知并接受的代价**：
+  `upstream-apache/master` 上 `StorageAdapter.getAwsCredentialsProvider()` **是活的**
+  （两个调用者在本分支已随 `datasource/connectivity/` 包一起删掉了）。
+  ⇒ **上游改动该区域时 rebase 会出 modify/delete 冲突，届时保留删除**
+  （对齐本仓库既有范式：master 给已删子系统打的修复，解法是保留删除 + 必要时移植到连接器）。
 
 ---
 
-## ⚠️ 四条验证纪律（**第 4 条是这轮实测新增的**）
+## ⏭ 剩下的唯一任务：FPC-04（可选）
+
+清扫 fe-core 已死的 storage 门：`ExternalCatalog.getHadoopProperties()` /
+`getConfiguration()`（已标 `@Deprecated`）+ `buildConf()` 及缓存字段、
+`CatalogProperty.getBackendStorageProperties()` / `getOrderedStorageAdapters()`。
+
+- **动手前必须重新逐符号 grep 确认零调用者**（别信这份文档的旧结论）。
+- **✋ 不要碰** `ExternalCatalog.buildHadoopConfiguration(Map)` —— 它的调用者从未枚举过。
+- 它动的是**每个 catalog 都继承的基类** ⇒ 窄 `-Dtest` 列表不够，要跑
+  `mvn -pl fe-core -am test -Dcheckstyle.skip=true -DfailIfNoTests=false --fail-at-end`。
+- 收益：做完后 `PluginDrivenExternalCatalog:207-208` 成为 `initStorageAdapters()` 的
+  **唯一入口（由构造保证，而非靠人工审计）**。
+
+其余单列后续见 `tasklist.md` 末尾的 **SEP-1 ~ SEP-4**（都不属于本任务）。
+
+---
+
+## ⚠️ 五条验证纪律（第 4、5 条是这两轮实测新增的）
 
 1. 删除类改动**不能只信增量编译** → 每步先 `rm -rf fe-core/target/{classes,test-classes}`。
 2. 全反应堆**必须含测试源**（禁 `-Dmaven.test.skip=true`），且必须 `-Dcheckstyle.skip=true`。
 3. checkstyle `UnusedImports` 是**阻塞门禁** → **只对改动模块**单独跑 `checkstyle:check`。
-4. 🆕 **`-pl` 必须配 `-am`**（否则兄弟模块 `${revision}` 解析不了，报出**像真错的假错**），
+4. **`-pl` 必须配 `-am`**（否则兄弟模块 `${revision}` 解析不了，报出**像真错的假错**），
    且 surefire 2.22.2 认 **`-DfailIfNoTests=false`**（不是 `-DfailIfNoSpecifiedTests`）。
-   **这两条我这轮都实际踩了** —— `tasklist.md` 里的命令已修正，照抄即可。
+5. **但 `-am test` 对「依赖链经过 shade 模块」的连接器跑不通**（如 iceberg → hms：
+   报 `package org.apache.hadoop.hive.metastore.api does not exist`，因为 shaded jar 只在
+   `package` 阶段产出）。**这是既有怪癖，已 stash 到干净 HEAD 复现确认。**
+   这类模块用全反应堆 `test-compile` 覆盖；`fe-connector-api` 不在该链上，`-am test` 正常。
 
 ---
 
@@ -70,13 +77,14 @@
 ② 模式串接受面**放宽**（空串 / `ENVIRONMENT` / `WEB_IDENTITY_TOKEN_FILE` 从抛异常变成接受）。
 而**全仓没有任何测试钉住那个串** ⇒ 换掉会**绿着上线一个回归**。
 
-**下次看到「这两个类长得一样，合并掉吧」的念头，先来读 `design.md` §3.3。**
+**FPC-02 删的是「构造 provider 实例」那一臂，不是这个。** `common/` 里
+`AwsCredentialsProviderMode` 全保留、`AwsCredentialsProviderFactory.getV2ClassName(mode, boolean)`
+保留 —— 它们喂的正是上面那条**活的** hadoop/BE 串。**下次别顺手把它们也合并掉。**
 
 ---
 
 ## 🔎 尚未验证（如实声明）
 
-- **没跑 e2e**（需要集群）。FPC-03 是纯删除不可达代码 + Gson 回放测试已过，风险低；
+- **没跑 e2e**（需要集群）。两次删除都是删不可达代码，且 Gson 回放 + 存储适配对齐测试已过，
   但真正的存储绑定路径（iceberg hadoop `warehouse → fs.defaultFS`）只有单测覆盖。
-- ~~没查 apache/doris master 是否有 `getAwsCredentialsProvider()` 调用者~~ **已查，有两个**（见上方 ⛔ 段）。
 - `ExternalCatalog.buildHadoopConfiguration(Map)` 的调用者没枚举 ⇒ FPC-04 明确排除它。

@@ -174,3 +174,56 @@ datasource/property/common/IcebergAwsClientCredentialsProperties.java:84 s3Adapt
 **通用教训（补强坑 1）**：判「死代码」必须**声明口径是哪个 ref**。
 「本分支零调用者」和「上游零调用者」是两件事；对**长期 rebase 型分支**，
 删除上游仍在用的代码是在**给自己制造持续的合并债**，不是在清理。
+
+---
+
+## 2026-07-28（四）— OD-1/OD-2 拍板 + FPC-02 落地
+
+**用户拍板**：OD-1 = **抛异常**（与已落地实现一致，无需改码）；OD-2 = **直接删**（**推翻我的推荐 B**）。
+
+OD-2 被推翻是合理的：我的推荐建立在「为零功能收益承担 rebase 摩擦不划算」上，
+但**该文件后续是否整体退役**只有 owner 知道，这正是我停手问的原因。既然拍板要删，
+代价（上游改动该区域时的 modify/delete 冲突）已明确记入 OD-2，**处置方式=保留删除**。
+
+### FPC-02 —— 实删 159 行（大于文档估的 ~146）
+
+- `StorageAdapter`：`getAwsCredentialsProvider()` + `staticAwsCredentialsProvider()` +
+  `s3AwsCredentialsProvider()`，共 **85 行**（含 8 个孤儿 import）
+- `AwsCredentialsProviderFactory`：`createV2` + `createDefaultV2` + 单参 `getV2ClassName`，
+  共 **74 行**（含 2 个孤儿 import）
+- 另清 3 处点名已删方法的连接器注释
+
+**没有照抄文档的 import 清单**，而是逐符号统计「正文使用数」再判孤儿——结果与文档一致
+（`StorageAdapter` 8 个、工厂 2 个），且确认了两个**易误删项**：
+`InstanceProfileCredentialsProvider` 尚有 1 处正文使用、`Config` 尚有 12 处。
+
+### 验证（全部实跑）
+
+| 项 | 结果 |
+|---|---|
+| 残留 grep `getAwsCredentialsProvider()\|createV2\|createDefaultV2` | 仅剩 iceberg 测试里的 `createV2Unpartitioned`（表格式 v2 同名**误报**，无关） |
+| 全反应堆 `clean test-compile -Dcheckstyle.skip=true` | **BUILD SUCCESS** |
+| `-pl fe-core checkstyle:check` | **0 violations** |
+| fe-core 存储适配定向单测 | **52 run / 0 fail / 1 skipped** |
+
+`1 skipped` = `LocationPathTest:115` 的 `@Disabled("not support in master")`，**既有**，
+该文件本次未改动。
+
+### 🔴 踩坑记录
+
+**坑 5 —— `-am test` 对依赖链经过 shade 模块的连接器跑不通。**
+想跑 `-pl fe-connector/fe-connector-iceberg -am test` 验证 iceberg 侧的注释改动，
+结果在 `fe-connector-hms` 炸「package org.apache.hadoop.hive.metastore.api does not exist」。
+**没有靠推断归因**，而是 `git stash push -u -- fe/` 回到干净 HEAD 跑同一条命令
+—— **一模一样地失败** ⇒ 既有 reactor 怪癖（shaded jar 只在 `package` 阶段产出，
+`test` 阶段够不着），与本次改动无关。已记为第 5 条纪律。
+**通用教训**：`-am` 不是万能的；**归因失败要用 stash 复现，不要用「我没碰那个模块」的推理**
+——推理会漏掉传递性影响，stash 不会。
+（对比：`fe-connector-api` 不在 shade 链上，`-am test` 正常，早先跑出 110/0。）
+
+### 状态
+
+`property/` 下 `common` 只剩真正在用的部分：`AwsCredentialsProviderMode` 全保留，
+`AwsCredentialsProviderFactory` 只剩 `getV2ClassName(mode, boolean)` + 两个 env 探针
+（喂 `StorageAdapter:645/:654` 那条**活的** hadoop/BE 串）。
+**本任务空间的核心工作（FPC-01/02/03）已全部完成**，只剩可选的 FPC-04。

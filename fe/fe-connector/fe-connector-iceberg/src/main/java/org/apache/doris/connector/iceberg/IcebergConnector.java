@@ -1111,7 +1111,7 @@ public class IcebergConnector implements Connector {
      *
      * <p>F14: the no-credential (PROVIDER_CHAIN) case resolves the non-DEFAULT provider the user selected via
      * {@code s3.credentials_provider_type} through {@link AwsCredentialsProviderModes} — a self-contained twin of
-     * legacy {@code AwsCredentialsProviderFactory.createV2} (the connector cannot import fe-core). {@code DEFAULT}
+     * the legacy fe-core provider-instance mapping (the connector cannot import fe-core). {@code DEFAULT}
      * (and blank / unknown) still yields {@link DefaultCredentialsProvider}. The STS base credentials for the
      * ASSUME_ROLE path stay on the default chain (matching the already-twinned assume-role case).
      */

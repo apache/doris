@@ -21,8 +21,8 @@ test -f $R/fe/fe-core/src/main/java/org/apache/doris/datasource/property/Connect
 grep -rIn 'MetastoreProperties\|MetastorePropertiesFactory\|AbstractMetastorePropertiesFactory\|TrinoConnectorPropertiesFactory\|ConnectionProperties\|checkMetaStoreAndStorageProperties\|getMetastoreProperties' \
      $R/fe $R/regression-test $R/tools $R/gensrc --exclude-dir=target        # → 空
 
-# ③ common/ 只剩活代码 —— ⚠️ 仅当 OD-2 拍板为 A（做 FPC-02）时才是判据；
-#    OD-2 现推荐 B（不做），此时本条**不适用**，`common/` 保留死构造臂是有意为之
+# ③ common/ 只剩活代码（OD-2 已拍板 A ⇒ 本条是判据）
+#    ⚠️ 唯一允许的命中：iceberg 测试里的 createV2Unpartitioned（表格式 v2 同名，误报）
 grep -rn 'createV2\|createDefaultV2\|getAwsCredentialsProvider()' $R/fe --exclude-dir=target
 
 # ④ 编译 + 门禁全绿（每步都要，不只最后一次）
@@ -30,13 +30,18 @@ mvn -f $R/fe/pom.xml -T 1C clean test-compile -Dcheckstyle.skip=true
 mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 ```
 
-**⚠️ 三条纪律**（本仓库已知踩坑，见 `design.md` §5）：
+**⚠️ 五条纪律**（本仓库已知踩坑，见 `design.md` §5）：
 1. 删除类改动**不能只信增量编译** → 每步先 `rm -rf fe-core/target/{classes,test-classes}`。
 2. 全反应堆**必须含测试源**，**禁 `-Dmaven.test.skip=true`**；且必须 `-Dcheckstyle.skip=true`
    （否则 checkstyle 扫 generated-sources 退化成平方级，构建卡死）。
 3. checkstyle 的 `UnusedImports` 是**阻塞门禁**，改为**只对改动模块**单独跑 `checkstyle:check`。
 4. 🆕 **`-pl` 必须配 `-am`**（否则兄弟模块的 `${revision}` 解析不了 → 假错），且 surefire 2.22.2
    认的是 **`-DfailIfNoTests=false`**（不是 `-DfailIfNoSpecifiedTests`）。2026-07-28 两条都实测踩过。
+5. 🆕 **但 `-am test` 对「依赖链经过 shade 模块」的连接器跑不通** —— 例如
+   `-pl fe-connector/fe-connector-iceberg -am test` 会在 `fe-connector-hms` 炸
+   「package org.apache.hadoop.hive.metastore.api does not exist」，因为 shaded jar 只在 `package`
+   阶段产出，`test` 够不着。**这是既有怪癖，已 stash 到干净 HEAD 复现确认，不是你改坏的。**
+   对这类模块用全反应堆 `test-compile` 覆盖；`fe-connector-api` 不在该链上，`-am test` 正常。
 
 ---
 
@@ -55,14 +60,14 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 
 ## 阶段 1 — 🔴 前置拍板（**不拍板不许开工 FPC-03**）
 
-- [x] **FPC-01** ⏳ **OD-1：按推荐值 A 执行，待用户追认**
+- [x] **FPC-01** ✅ **OD-1 = A（抛异常），用户 2026-07-28 已拍板**
       （问题：删掉 metastore 后，`resolveDerivedStorageDefaults()` 的 null-supplier 分支要
       **fail-loud（`throw`）** 还是 **fail-silent（`return emptyMap()`）**？详见
       [`open-decisions.md`](./open-decisions.md) **OD-1**）
       - **落地为 A**：`throw new IllegalStateException(...)`，随 FPC-03 一起提交。
       - 配守卫测试 `CatalogPropertyPluginStorageDerivationTest.unwiredSupplierFailsLoudInsteadOfDerivingNothing`，
         **已做变异验证**：把 `throw` 改成 `return emptyMap()` → 该用例变红（其余三例不受影响），改回 → 复绿。
-      - **要翻成 B 只需改一行 + 删该用例**（OD-1 里写了具体位置）。
+      - （先行按推荐值落地，随后获用户明确确认，实现无需改动。）
       - ⚠️ 调研报告原提的缓解方案「把 supplier 安装语句提前」**经复核修不干净**
         （lambda 读到的 `connector` 字段仍是旧值/null），已在 OD-1 中列为**不推荐**，未采纳。
 
@@ -70,13 +75,13 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 
 ## 阶段 2 — 删死代码（独立，可先做，也可整项丢弃）
 
-- [ ] **FPC-02** ⛔ **BLOCKED on OD-2 —— 现推荐「不做」** 删 AWS provider 的死构造臂（**~146 行，零行为变更**）
-      > 🔴 **2026-07-28 查上游后推荐值翻转**：`upstream-apache/master` @ `2faf819fa89` **有两个活调用者**
+- [x] **FPC-02** ✅ 删 AWS provider 的死构造臂（**实删 159 行，零行为变更**）
+      > ✅ **OD-2 拍板 = A（直接删）**，用户 2026-07-28 明确，**推翻了我的推荐 B**。
+      > 已知并接受的代价：`upstream-apache/master` @ `2faf819fa89` 上这段**是活的**
       > （`connectivity/AbstractS3CompatibleConnectivityTester.java:71`、
-      > `property/common/IcebergAwsClientCredentialsProperties.java:84`），只是本分支已把这两个消费者
-      > 连同整个 `datasource/connectivity/` 包删光了 ⇒ **上游活、本分支死**。
-      > 而 `StorageAdapter.java` **两边都在**、会走 rebase 三方合并：删掉方法等于把上游对该区域的
-      > 每次改动都变成人工冲突，换来的只是 146 行本就不执行的代码。**详见 [`open-decisions.md`](./open-decisions.md) OD-2。**
+      > `property/common/IcebergAwsClientCredentialsProperties.java:84`——本分支已把这两个消费者
+      > 连同整个 `datasource/connectivity/` 包删光），而 `StorageAdapter.java` 两边都在、走三方合并
+      > ⇒ 上游改动该区域时 rebase 会出 modify/delete 冲突，**届时保留删除**。
       - **文件**：
         - `fe/fe-core/src/main/java/org/apache/doris/datasource/storage/StorageAdapter.java`
         - `fe/fe-core/src/main/java/org/apache/doris/datasource/property/common/AwsCredentialsProviderFactory.java`
@@ -108,7 +113,10 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
             -Dtest='AzureGuessRoutingParityTest,S3ThriftAdapterParityTest,CloudObjectStoreAdapterParityTest,LocationPathTest,DefaultConnectorContextBackendStoragePropsTest,DefaultConnectorContextNormalizeUriTest'
         mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check   # 阻塞项：证明 import 修剪精确
         ```
-      - 🟢 **可整项丢弃**：不影响 FPC-03。~~落地前 grep 一次上游 master~~ **已 grep，见上方红框**。
+      - **实测校正**（未照抄清单，逐符号验证过孤儿）：`StorageAdapter` 确为 8 个孤儿 import，
+        `InstanceProfileCredentialsProvider` 有 1 处正文使用故保留、`Config` 尚有 12 处使用；
+        `AwsCredentialsProviderFactory` 确为 2 个孤儿（`AwsCredentialsProvider` + `AwsCredentialsProviderChain`）。
+        另清掉 3 处点名已删方法的连接器注释（含 `AwsCredentialsProviderModesTest` 的类 javadoc）。
 
 ---
 
