@@ -282,6 +282,7 @@ public class Replica {
         }
         return result;
     }
+
     public void setBackendId(long backendId) {
         this.backendId = backendId;
     }
