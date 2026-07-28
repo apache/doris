@@ -107,6 +107,7 @@ import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -130,10 +131,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -648,10 +651,11 @@ public class IcebergScanNode extends FileQueryScanNode {
      * Return only schemas that can describe files visible from the selected target.
      *
      * <p>The query schema is included explicitly because a schema-only commit does not create a
-     * snapshot. Other schemas are taken from the selected snapshot's parent lineage, excluding
-     * later main-branch and unrelated branch schemas from the rolling-upgrade fence. An empty
-     * optional means snapshot expiration truncated that lineage, so callers must conservatively
-     * require current scan semantics.
+     * snapshot. Other schemas are taken from the selected snapshot's parent lineage and from
+     * cherry-picked source snapshots (including their ancestry), excluding later main-branch and
+     * unrelated branch schemas from the rolling-upgrade fence. An empty optional means snapshot
+     * expiration truncated any required lineage, so callers must conservatively require current
+     * scan semantics.
      */
     @VisibleForTesting
     Optional<List<Schema>> getRequiredFieldSchemaHistory(Schema scanSchema) throws UserException {
@@ -660,8 +664,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         schemas.add(scanSchema);
         schemaIds.add(scanSchema.schemaId());
 
-        Snapshot snapshot = createTableScan().snapshot();
-        while (snapshot != null) {
+        Snapshot selectedSnapshot = createTableScan().snapshot();
+        Deque<Snapshot> snapshots = new ArrayDeque<>();
+        if (selectedSnapshot != null) {
+            snapshots.add(selectedSnapshot);
+        }
+        Set<Long> visitedSnapshotIds = new HashSet<>();
+        while (!snapshots.isEmpty()) {
+            Snapshot snapshot = snapshots.removeFirst();
+            if (!visitedSnapshotIds.add(snapshot.snapshotId())) {
+                continue;
+            }
             Integer schemaId = snapshot.schemaId();
             if (schemaId != null && schemaIds.add(schemaId)) {
                 Schema lineageSchema = icebergTable.schemas().get(schemaId);
@@ -670,12 +683,22 @@ public class IcebergScanNode extends FileQueryScanNode {
                 schemas.add(lineageSchema);
             }
             Long parentId = snapshot.parentId();
-            if (parentId == null) {
-                break;
+            if (parentId != null) {
+                Snapshot parent = icebergTable.snapshot(parentId);
+                if (parent == null) {
+                    return Optional.empty();
+                }
+                snapshots.addLast(parent);
             }
-            snapshot = icebergTable.snapshot(parentId);
-            if (snapshot == null) {
-                return Optional.empty();
+            String sourceSnapshotId =
+                    snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
+            if (sourceSnapshotId != null) {
+                Snapshot sourceSnapshot =
+                        icebergTable.snapshot(Long.parseLong(sourceSnapshotId));
+                if (sourceSnapshot == null) {
+                    return Optional.empty();
+                }
+                snapshots.addLast(sourceSnapshot);
             }
         }
         return Optional.of(schemas);

@@ -70,6 +70,7 @@ import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
 
@@ -128,6 +129,10 @@ public final class IcebergWriteSchemaContext {
                 Schema schema = branchName.isPresent()
                         ? resolveBranchSchema(table, branchName.get(), dorisTable.getName())
                         : resolveStatementSchema(table, dorisTable);
+                if (branchName.isPresent()) {
+                    validateBranchWriterSchema(
+                            schema, table.schema(), branchName.get(), dorisTable.getName());
+                }
                 int formatVersion = IcebergUtils.getFormatVersion(table);
                 Map<String, String> properties = ImmutableMap.copyOf(table.properties());
                 return new IcebergWriteSchemaContext(
@@ -308,6 +313,56 @@ public final class IcebergWriteSchemaContext {
                 schemaId, dorisTable.getName());
     }
 
+    /**
+     * Reject branch writes whose files cannot satisfy the table-current schema.
+     *
+     * <p>Iceberg resolves columns from the branch-head schema, but stamps the new branch snapshot
+     * with the table-current schema. A current required field without an initial default must
+     * therefore also be present and required in the pinned branch writer schema.
+     */
+    private static void validateBranchWriterSchema(
+            Schema branchSchema, Schema currentSchema, String branchName, String tableName) {
+        Map<Integer, Types.NestedField> branchFields =
+                TypeUtil.indexById(branchSchema.asStruct());
+        Map<Integer, Types.NestedField> currentFields =
+                TypeUtil.indexById(currentSchema.asStruct());
+        Map<Integer, Integer> currentParents =
+                TypeUtil.indexParents(currentSchema.asStruct());
+        for (Types.NestedField currentField : currentFields.values()) {
+            Types.NestedField branchField = branchFields.get(currentField.fieldId());
+            if (branchField != null) {
+                if (currentField.isRequired() && currentField.initialDefault() == null
+                        && branchField.isOptional()) {
+                    throw incompatibleBranchSchema(
+                            branchSchema, currentSchema, branchName, tableName, currentField);
+                }
+                continue;
+            }
+            Types.NestedField highestMissingField = currentField;
+            Integer parentId = currentParents.get(currentField.fieldId());
+            while (parentId != null && !branchFields.containsKey(parentId)) {
+                highestMissingField = Preconditions.checkNotNull(currentFields.get(parentId),
+                        "Iceberg parent field %s is absent from current schema", parentId);
+                parentId = currentParents.get(parentId);
+            }
+            if (highestMissingField.isRequired()
+                    && highestMissingField.initialDefault() == null) {
+                throw incompatibleBranchSchema(
+                        branchSchema, currentSchema, branchName, tableName, highestMissingField);
+            }
+        }
+    }
+
+    private static AnalysisException incompatibleBranchSchema(
+            Schema branchSchema, Schema currentSchema, String branchName, String tableName,
+            Types.NestedField field) {
+        return new AnalysisException("Iceberg table current schema " + currentSchema.schemaId()
+                + " cannot label files written with pinned branch " + branchName + " schema "
+                + branchSchema.schemaId() + " for table " + tableName + ": required field "
+                + field.name() + " (id " + field.fieldId()
+                + ") has no initial default; retry after updating the branch schema");
+    }
+
     /** Resolve a write default by the pinned target field name. */
     public Expression resolveWriteDefault(String columnName) {
         Column column = columns.stream()
@@ -358,6 +413,10 @@ public final class IcebergWriteSchemaContext {
                     + ": pinned schema " + getSchemaId() + "/format " + formatVersion
                     + ", current schema " + currentSchema.schemaId() + "/format " + currentFormatVersion
                     + "; retry the statement");
+        }
+        if (branchName.isPresent()) {
+            validateBranchWriterSchema(
+                    schema, table.schema(), branchName.get(), tableName);
         }
         PartitionSpec currentSpec = table.specs().get(partitionSpec.specId());
         if (currentSpec == null || !partitionSpecJson.equals(PartitionSpecParser.toJson(currentSpec))) {
