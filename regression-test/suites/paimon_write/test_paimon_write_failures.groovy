@@ -103,8 +103,8 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
             SELECT COUNT(*) FROM t_atomic_append\$snapshots
         """
 
-        // An omitted field has no Doris-side synthetic default. It is materialized
-        // as NULL and validated against the Paimon schema by the Paimon writer.
+        // An omitted field without a Paimon default remains NULL and is validated
+        // against the real Paimon schema by the Paimon writer.
         test {
             sql """INSERT INTO t_atomic_append (id, dt) VALUES (4, 'p4')"""
             exception "Cannot write null to non-null column(payload)"

@@ -78,6 +78,25 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             'partition.default-name' = '__CUSTOM_DEFAULT_PARTITION__'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_static_boundary;
+        CREATE TABLE paimon.${dbName}.t_static_boundary (
+            id INT, name STRING, region STRING, dt DATE
+        ) USING paimon
+        PARTITIONED BY (region, dt)
+        TBLPROPERTIES (
+            'dynamic-partition-overwrite' = 'true',
+            'partition.default-name' = '__CUSTOM_DEFAULT_PARTITION__'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_dynamic_multi;
+        CREATE TABLE paimon.${dbName}.t_dynamic_multi (
+            id INT, name STRING, region STRING
+        ) USING paimon
+        PARTITIONED BY (region)
+        TBLPROPERTIES (
+            'dynamic-partition-overwrite' = 'true'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_multi;
         CREATE TABLE paimon.${dbName}.t_multi (
             id INT, name STRING, score DOUBLE
@@ -250,6 +269,83 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             IF(region = '', '<EMPTY>', region) AS region
             FROM t_static_default ORDER BY id"""
         assertTableEquals("t_static_default", "ORDER BY id")
+
+        // A partial static specification must use typed partition identity.
+        // NULL, blank, the literal "null", escaped path characters, and DATE
+        // subpartitions must remain distinct even when display paths overlap.
+        sql """INSERT INTO t_static_boundary VALUES
+            (1, 'null_d1', NULL, '2026-07-01'),
+            (2, 'null_d2', NULL, '2026-07-02'),
+            (3, 'blank', '', '2026-07-01'),
+            (4, 'literal_null', 'null', '2026-07-01'),
+            (5, 'special_d1', 'a/b=c%20', '2026-07-01'),
+            (6, 'special_d2', 'a/b=c%20', '2026-07-02'),
+            (7, 'keep', 'keep', '2026-07-01')
+        """
+        sql """INSERT OVERWRITE TABLE t_static_boundary
+            PARTITION (region = NULL)
+            VALUES (10, 'null_new', '2026-07-03')"""
+        def staticNullRows = sql """
+            SELECT id, name, IF(region = '', '<EMPTY>', region), CAST(dt AS STRING)
+            FROM t_static_boundary ORDER BY id
+        """
+        assertEquals([
+                [3, "blank", "<EMPTY>", "2026-07-01"],
+                [4, "literal_null", "null", "2026-07-01"],
+                [5, "special_d1", "a/b=c%20", "2026-07-01"],
+                [6, "special_d2", "a/b=c%20", "2026-07-02"],
+                [7, "keep", "keep", "2026-07-01"],
+                [10, "null_new", null, "2026-07-03"]
+        ], staticNullRows)
+
+        sql """INSERT OVERWRITE TABLE t_static_boundary
+            PARTITION (region = 'a/b=c%20')
+            VALUES (50, 'special_new', '2026-07-04')"""
+        order_qt_txn_static_typed_boundaries """
+            SELECT id, name, IF(region = '', '<EMPTY>', region) AS region, dt
+            FROM t_static_boundary ORDER BY id
+        """
+        assertTableEquals("t_static_boundary", "ORDER BY id")
+        def sparkBoundaryPartitions = spark_paimon """
+            SELECT `partition`, record_count
+            FROM paimon.${dbName}.`t_static_boundary\$partitions`
+            ORDER BY `partition`
+        """
+        def dorisBoundaryPartitions = sql """
+            SELECT `partition`, record_count
+            FROM t_static_boundary\$partitions
+            ORDER BY `partition`
+        """
+        assertSparkDorisResultEquals(sparkBoundaryPartitions, dorisBoundaryPartitions)
+
+        // Dynamic overwrite replaces all partitions present in one input batch,
+        // preserves untouched partitions, and publishes one overwrite snapshot.
+        sql """INSERT INTO t_dynamic_multi VALUES
+            (1, 'p1_old_a', 'p1'), (2, 'p1_old_b', 'p1'),
+            (3, 'p2_old', 'p2'), (4, 'p3_keep', 'p3'), (5, 'p4_keep', 'p4')
+        """
+        sql """INSERT OVERWRITE TABLE t_dynamic_multi VALUES
+            (10, 'p1_new', 'p1'),
+            (20, 'p2_new_a', 'p2'),
+            (21, 'p2_new_b', 'p2')
+        """
+        order_qt_txn_dynamic_multi """
+            SELECT id, name, region FROM t_dynamic_multi ORDER BY id
+        """
+        assertTableEquals("t_dynamic_multi", "ORDER BY id")
+        assertEquals(2L,
+                (sql """SELECT COUNT(*) FROM t_dynamic_multi\$snapshots""")[0][0] as long)
+        def sparkDynamicPartitions = spark_paimon """
+            SELECT `partition`, record_count
+            FROM paimon.${dbName}.`t_dynamic_multi\$partitions`
+            ORDER BY `partition`
+        """
+        def dorisDynamicPartitions = sql """
+            SELECT `partition`, record_count
+            FROM t_dynamic_multi\$partitions
+            ORDER BY `partition`
+        """
+        assertSparkDorisResultEquals(sparkDynamicPartitions, dorisDynamicPartitions)
 
         // FT-016: Dynamic partition overwrite replaces the partitions present in the
         // input while preserving existing partitions that are not touched.

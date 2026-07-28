@@ -41,6 +41,14 @@ p2	2	first_2
 p1	1	17
 p2	2	20
 
+-- !bucket_key_dynamic_scale_samples --
+p2	1023	txn2_1023
+p2	2047	txn2_2047
+p3	0	txn2_0
+p4	3071	txn3_3071
+p4	4095	txn3_4095
+p5	2048	txn3_2048
+
 -- !bucket_unaware --
 32	0	31	2
 

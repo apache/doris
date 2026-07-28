@@ -127,6 +127,18 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             'fields.total.aggregate-function' = 'sum'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_key_dynamic_scale;
+        CREATE TABLE paimon.${dbName}.t_key_dynamic_scale (
+            pt STRING, id BIGINT, payload STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '-1',
+            'dynamic-bucket.target-row-num' = '128',
+            'dynamic-bucket.max-buckets' = '16'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_bucket_unaware;
         CREATE TABLE paimon.${dbName}.t_bucket_unaware (
             pt STRING, id INT, name STRING
@@ -378,6 +390,60 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
                 ["p1", 1, 17L],
                 ["p2", 2, 20L]
         ], keyDynamicAggregationRows)
+
+        // Bootstrap a larger KEY_DYNAMIC global index across multiple partitions
+        // and transactions. REFRESH CATALOG forces the next statement to reopen
+        // table metadata and construct a new JNI writer before restoring the index.
+        sql """
+            INSERT INTO t_key_dynamic_scale
+            SELECT concat('p', CAST(number % 16 AS STRING)),
+                   number,
+                   concat('txn1_', CAST(number AS STRING))
+            FROM numbers("number" = "4096")
+        """
+        sql """
+            INSERT INTO t_key_dynamic_scale
+            SELECT concat('p', CAST((number + 3) % 16 AS STRING)),
+                   number,
+                   concat('txn2_', CAST(number AS STRING))
+            FROM numbers("number" = "2048")
+        """
+        sql """REFRESH CATALOG ${catalogName}"""
+        sql """SWITCH ${catalogName}"""
+        sql """USE ${dbName}"""
+        sql """
+            INSERT INTO t_key_dynamic_scale
+            SELECT concat('p', CAST((number + 5) % 16 AS STRING)),
+                   number + 2048,
+                   concat('txn3_', CAST(number + 2048 AS STRING))
+            FROM numbers("number" = "2048")
+        """
+        def keyDynamicScaleSummary = sql """
+            SELECT COUNT(*), COUNT(DISTINCT id), MIN(id), MAX(id), SUM(id),
+                   COUNT(DISTINCT pt),
+                   SUM(IF(payload LIKE 'txn2_%', 1, 0)),
+                   SUM(IF(payload LIKE 'txn3_%', 1, 0))
+            FROM t_key_dynamic_scale
+        """
+        assertEquals([[4096L, 4096L, 0L, 4095L, 8386560L, 16L, 2048L, 2048L]],
+                keyDynamicScaleSummary)
+        assertEquals(3L,
+                (sql """SELECT COUNT(*) FROM t_key_dynamic_scale\$snapshots""")[0][0] as long)
+        assertBucketsInRange("t_key_dynamic_scale", 0, 15)
+        def sparkScaleSummary = spark_paimon """
+            SELECT COUNT(*), COUNT(DISTINCT id), MIN(id), MAX(id), SUM(id),
+                   COUNT(DISTINCT pt),
+                   SUM(CASE WHEN payload LIKE 'txn2_%' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN payload LIKE 'txn3_%' THEN 1 ELSE 0 END)
+            FROM paimon.${dbName}.t_key_dynamic_scale
+        """
+        assertSparkDorisResultEquals(sparkScaleSummary, keyDynamicScaleSummary)
+        order_qt_bucket_key_dynamic_scale_samples """
+            SELECT pt, id, payload
+            FROM t_key_dynamic_scale
+            WHERE id IN (0, 1023, 2047, 2048, 3071, 4095)
+            ORDER BY id
+        """
 
         // BUCKET_UNAWARE: append-only writers remain parallel while all files use bucket 0.
         sql """SET parallel_pipeline_task_num = 4"""

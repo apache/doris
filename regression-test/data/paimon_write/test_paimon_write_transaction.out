@@ -68,6 +68,20 @@
 2	literal_null	null
 30	blank_new	<EMPTY>
 
+-- !txn_static_typed_boundaries --
+10	null_new	\N	2026-07-03
+3	blank	<EMPTY>	2026-07-01
+4	literal_null	null	2026-07-01
+50	special_new	a/b=c%20	2026-07-04
+7	keep	keep	2026-07-01
+
+-- !txn_dynamic_multi --
+10	p1_new	p1
+20	p2_new_a	p2
+21	p2_new_b	p2
+4	p3_keep	p3
+5	p4_keep	p4
+
 -- !txn_dynamic_partition --
 10	east_new	east
 2	west_old	west
