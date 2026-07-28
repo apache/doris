@@ -185,6 +185,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
     if constexpr (std::is_same_v<Response, CommitTxnResponse>) {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
+                  << " is_lazy_commit=" << res->is_lazy_commit()
+                  << " is_lazy_commit_incomplete=" << res->is_lazy_commit_incomplete()
                   << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)

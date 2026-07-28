@@ -230,6 +230,7 @@ public class CloudGlobalTransactionMgrTest {
             TxnInfoPB txnInfo = TxnInfoPB.newBuilder().setTxnId(12345L).build();
             CommitTxnResponse incompleteLazyCommitResponse = CommitTxnResponse.newBuilder()
                     .setTxnInfo(txnInfo)
+                    .setIsLazyCommit(true)
                     .setIsLazyCommitIncomplete(true)
                     .build();
             List<TabletCommitInfo> tabletCommitInfos =
@@ -239,7 +240,22 @@ public class CloudGlobalTransactionMgrTest {
             Assert.assertFalse(notified.get());
 
             notifyMethod.invoke(transactionMgr,
+                    incompleteLazyCommitResponse.toBuilder().setIsLazyCommit(false).build(),
+                    tabletCommitInfos);
+            Assert.assertTrue(notified.get());
+
+            notified.set(false);
+            notifyMethod.invoke(transactionMgr,
                     incompleteLazyCommitResponse.toBuilder().clearIsLazyCommitIncomplete().build(),
+                    tabletCommitInfos);
+            Assert.assertTrue(notified.get());
+
+            notified.set(false);
+            notifyMethod.invoke(transactionMgr,
+                    incompleteLazyCommitResponse.toBuilder()
+                            .clearIsLazyCommit()
+                            .clearIsLazyCommitIncomplete()
+                            .build(),
                     tabletCommitInfos);
             Assert.assertTrue(notified.get());
         } finally {

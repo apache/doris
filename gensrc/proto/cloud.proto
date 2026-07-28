@@ -1046,11 +1046,11 @@ message CommitTxnResponse {
     repeated int64 versions = 5;
     repeated TableStatsPB table_stats = 6;
     optional int64 version_update_time_ms = 7;
+    // Whether this commit request used the lazy commit path.
+    optional bool is_lazy_commit = 8;
     // The lazy commit has only completed its first phase. FE must not notify BE to make
     // temporary rowsets visible until BE observes the final metadata from meta-service.
-    optional bool is_lazy_commit_incomplete = 8;
-    // Whether this commit request used the lazy commit path.
-    optional bool is_lazy_commit = 9;
+    optional bool is_lazy_commit_incomplete = 9;
 }
 
 message AbortTxnRequest {

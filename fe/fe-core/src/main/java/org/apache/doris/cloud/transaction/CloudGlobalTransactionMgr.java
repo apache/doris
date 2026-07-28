@@ -831,7 +831,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 commitTxnResponse = MetaServiceProxy.getInstance().commitTxn(commitTxnRequest);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("retryTime:{}, commitTxnResponse:{}", retryTime, commitTxnResponse);
+                    LOG.debug("retryTime:{}, isLazyCommit:{}, isLazyCommitIncomplete:{}, commitTxnResponse:{}",
+                            retryTime, commitTxnResponse.getIsLazyCommit(),
+                            commitTxnResponse.getIsLazyCommitIncomplete(), commitTxnResponse);
                 }
                 if (commitTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
@@ -2787,7 +2789,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      */
     private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
                                            List<TabletCommitInfo> tabletCommitInfos) {
-        if (commitTxnResponse.getIsLazyCommitIncomplete()) {
+        if (commitTxnResponse.getIsLazyCommit()
+                && commitTxnResponse.getIsLazyCommitIncomplete()) {
             LOG.info("skip make cloud tmp rowsets visible for incomplete lazy commit, txn_id: {}",
                     commitTxnResponse.getTxnInfo().getTxnId());
             return;
