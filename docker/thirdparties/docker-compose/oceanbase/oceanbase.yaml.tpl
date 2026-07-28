@@ -30,12 +30,37 @@ services:
       - ${DOCKER_OCEANBASE_EXTERNAL_PORT}:2881
       - ${DOCKER_OCEANBASE_PROXY_EXTERNAL_PORT}:2883
     healthcheck:
-      test: ["CMD-SHELL", "obclient -h127.0.0.1 -P2881 -uroot@test -p123456 -e 'SELECT * FROM doris_test.all_types LIMIT 1' >/dev/null && obclient -h127.0.0.1 -P2883 -uroot@test -p123456 -Nse 'SHOW MASTER STATUS' | grep -q ."]
+      test: ["CMD-SHELL", "obclient -h127.0.0.1 -P2881 -uroot@test -p123456 -e 'SELECT 1' >/dev/null && obclient -h127.0.0.1 -P2883 -uroot@test -p123456 -Nse 'SHOW MASTER STATUS' | grep -q ."]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+    networks:
+      - doris--oceanbase
+
+  doris--oceanbase-init:
+    image: quay.io/oceanbase/obbinlog-ce:4.2.5-test
+    depends_on:
+      doris--oceanbase:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -euo pipefail
+        rm -f /tmp/oceanbase_initialized
+        for sql in /root/boot/init.d/*.sql; do
+          echo "Running $${sql}"
+          obclient -hdoris--oceanbase -P2881 -uroot@test -p123456 < "$${sql}"
+        done
+        touch /tmp/oceanbase_initialized
+        exec tail -f /dev/null
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/oceanbase_initialized && obclient -hdoris--oceanbase -P2881 -uroot@test -p123456 -Nse 'SELECT 1 FROM doris_test.all_types LIMIT 1' | grep -q '^1$$'"]
       interval: 5s
       timeout: 60s
       retries: 120
     volumes:
-      - ./init:/root/boot/init.d
+      - ./init:/root/boot/init.d:ro
     networks:
       - doris--oceanbase
 
