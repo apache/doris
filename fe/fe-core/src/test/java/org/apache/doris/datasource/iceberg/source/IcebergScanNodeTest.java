@@ -172,9 +172,9 @@ public class IcebergScanNodeTest {
             return params.getIcebergScanSemanticsVersion();
         }
 
-        TFileScanRangeParams initializeAndGetIcebergSchemaInfo() throws UserException {
+        TFileScanRangeParams initializeAndGetIcebergSchemaInfo(Schema scanSchema) throws UserException {
             params = new TFileScanRangeParams();
-            initializeIcebergSchemaInfo(Optional.empty());
+            initializeIcebergSchemaInfo(Optional.empty(), scanSchema, Collections.emptySet());
             return params;
         }
     }
@@ -189,23 +189,19 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testPartitionEvolutionKeepsNonFileSlotInReaderSchema() throws Exception {
-        Column evolvedIdentityColumn = new Column("int_col", Type.BIGINT, true);
-        evolvedIdentityColumn.setUniqueId(1);
+        Schema scanSchema = new Schema(
+                Types.NestedField.optional(1, "int_col", Types.LongType.get()),
+                Types.NestedField.optional(2, "payload", Types.StringType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
         Column projectedColumn = new Column("payload", Type.STRING, true);
         projectedColumn.setUniqueId(2);
-
-        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
-        Mockito.when(targetTable.getColumns()).thenReturn(
-                List.of(evolvedIdentityColumn, projectedColumn));
-        IcebergSource source = Mockito.mock(IcebergSource.class);
-        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
-
-        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
         node.addSlot(1, projectedColumn);
-        setIcebergSource(node, source);
-        Mockito.doReturn(Collections.emptyMap()).when(node).getBase64EncodedInitialDefaultsForScan();
 
-        TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo();
+        TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo(scanSchema);
 
         Assert.assertEquals(2, scanParams.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
         Assert.assertEquals("int_col", scanParams.getHistorySchemaInfo().get(0).getRootField()

@@ -539,7 +539,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         enableCurrentIcebergScanSemantics();
         super.createScanRangeLocations();
 
-        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
+        initializeIcebergSchemaInfo(extractNameMapping(), scanSchema, equalityDeleteFieldIds);
+    }
+
+    @VisibleForTesting
+    void initializeIcebergSchemaInfo(Optional<Map<Integer, List<String>>> nameMapping,
+            Schema scanSchema, Set<Integer> equalityDeleteFieldIds) throws UserException {
         List<NestedField> schemaFields = getSchemaFieldsForScan(
                 scanSchema, equalityDeleteFieldIds);
         List<Column> scanColumns = getScanColumns(schemaFields);
@@ -547,6 +552,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
         // projection. The carrier also includes dropped primitive fields from schema history so a
         // still-applicable equality delete can resolve its field ID after a schema-only drop.
+        // An identity partition column can also be a physical field in files written by an older
+        // partition spec, so preserving the complete query schema is required for partition
+        // evolution.
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, scanColumns,
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
                 IcebergUtils.getSerializedInitialDefaults(
