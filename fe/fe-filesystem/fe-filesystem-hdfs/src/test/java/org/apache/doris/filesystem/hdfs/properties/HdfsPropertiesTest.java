@@ -112,6 +112,20 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void xmlResourcesRejectParentDirectoryTraversal(@TempDir Path tmp) {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.defaultFS", "hdfs://ns");
+        raw.put("hadoop.config.resources", "../outside.xml");
+        raw.put("_HADOOP_CONFIG_DIR_", tmp.toString() + "/");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> resolve(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("parent-directory references"),
+                exception.getMessage());
+    }
+
+    @Test
     void translationIsIdempotentOnAlreadyResolvedMap() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
