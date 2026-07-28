@@ -122,6 +122,7 @@ TEST_F(AsyncCacheWriteServiceTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     auto* index = cache->inflight_write_buffer_index();
     ASSERT_NE(service, nullptr);
     ASSERT_NE(index, nullptr);
+    EXPECT_EQ(service->options().queue_full_policy, AsyncCacheWriteQueueFullPolicy::DROP_OLDEST);
     const uint64_t baseline_submitted = service->_submitted_metric->get_value();
     const uint64_t baseline_submitted_bytes = service->_submitted_bytes_metric->get_value();
     const uint64_t baseline_finished = service->_finished_metric->get_value();
