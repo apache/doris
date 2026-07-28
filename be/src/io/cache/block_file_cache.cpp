@@ -2635,7 +2635,7 @@ void BlockFileCache::finalize_disk_scan_ttl_checker(
     }
 
     auto& dirs = *ttl_dirs_for_hash;
-    auto ttl_group_size = dirs.size();
+    [[maybe_unused]] auto ttl_group_size = dirs.size();
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::finalize_disk_scan_ttl_group", &ttl_group_size);
     const auto hash = dirs.front().hash;
     std::sort(dirs.begin(), dirs.end(), [](const auto& lhs, const auto& rhs) {
