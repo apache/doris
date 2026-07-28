@@ -245,8 +245,8 @@ Status VIcebergMergeSink::_validate_matched_row_ids(const Block& block,
         }
         // Intern each file path once and keep exact positions in a compressed bitmap; retaining a
         // full path string per matched row makes MERGE memory grow with path_length * row_count.
-        auto [file_it, inserted] = _matched_row_positions.try_emplace(
-                file_paths->get_data_at(i).to_string());
+        auto [file_it, inserted] =
+                _matched_row_positions.try_emplace(file_paths->get_data_at(i).to_string());
         static_cast<void>(inserted);
         if (!file_it->second.addChecked(static_cast<uint64_t>(row_position))) {
             return Status::InvalidArgument(

@@ -121,9 +121,8 @@ protected:
         auto id_col = ColumnInt32::create();
         auto name_col = ColumnString::create();
         for (size_t i = 0; i < ops.size(); ++i) {
-            std::string file_path = distinct_files
-                                            ? "file" + std::to_string(i + 1) + ".parquet"
-                                            : "shared-file.parquet";
+            std::string file_path = distinct_files ? "file" + std::to_string(i + 1) + ".parquet"
+                                                   : "shared-file.parquet";
             file_path_col->insert_data(file_path.data(), file_path.size());
             row_pos_col->insert_value(static_cast<int64_t>((i + 1) * 10));
             id_col->insert_value(static_cast<int32_t>(i + 1));
