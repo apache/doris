@@ -273,7 +273,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             UpdateCommand.checkAssignmentColumn(ctx, nameParts, targetNameParts, targetAlias.orElse(null));
             String columnName = nameParts.get(nameParts.size() - 1);
             Expression value = IcebergDmlCommandUtils.resolveDefaultReferences(
-                    equalTo.right(), writeSchemaContext);
+                    equalTo.right(), writeSchemaContext,
+                    ctx, targetNameParts, targetAlias.orElse(null));
             if (colNameToExpression.put(columnName, value) != null) {
                 throw new AnalysisException("Duplicate column name in update: " + columnName);
             }
@@ -368,7 +369,9 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             if (value == null || value instanceof DefaultValueSlot) {
                 value = writeSchemaContext.resolveWriteDefault(column);
             } else {
-                value = IcebergDmlCommandUtils.resolveDefaultReferences(value, writeSchemaContext);
+                value = IcebergDmlCommandUtils.resolveDefaultReferences(
+                        value, writeSchemaContext,
+                        ctx, targetNameParts, targetAlias.orElse(null));
             }
             projection.add(new Cast(value, DataType.fromCatalogType(column.getType())));
         }

@@ -649,10 +649,12 @@ public class IcebergScanNode extends FileQueryScanNode {
      *
      * <p>The query schema is included explicitly because a schema-only commit does not create a
      * snapshot. Other schemas are taken from the selected snapshot's parent lineage, excluding
-     * later main-branch and unrelated branch schemas from the rolling-upgrade fence.
+     * later main-branch and unrelated branch schemas from the rolling-upgrade fence. An empty
+     * optional means snapshot expiration truncated that lineage, so callers must conservatively
+     * require current scan semantics.
      */
     @VisibleForTesting
-    List<Schema> getRequiredFieldSchemaHistory(Schema scanSchema) throws UserException {
+    Optional<List<Schema>> getRequiredFieldSchemaHistory(Schema scanSchema) throws UserException {
         List<Schema> schemas = new ArrayList<>();
         Set<Integer> schemaIds = new HashSet<>();
         schemas.add(scanSchema);
@@ -668,9 +670,15 @@ public class IcebergScanNode extends FileQueryScanNode {
                 schemas.add(lineageSchema);
             }
             Long parentId = snapshot.parentId();
-            snapshot = parentId == null ? null : icebergTable.snapshot(parentId);
+            if (parentId == null) {
+                break;
+            }
+            snapshot = icebergTable.snapshot(parentId);
+            if (snapshot == null) {
+                return Optional.empty();
+            }
         }
-        return schemas;
+        return Optional.of(schemas);
     }
 
     private static void addHistoricalEqualityFields(List<NestedField> fields,
@@ -690,6 +698,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         return requiresProjectedIcebergField(scanSchema, projectedSlots,
                 (field, isTopLevel) -> field.initialDefault() != null
                         && (!isTopLevel || field.type().isNestedType()));
+    }
+
+    @VisibleForTesting
+    static boolean requiresMissingRequiredFieldRejection(
+            Schema scanSchema, List<SlotDescriptor> projectedSlots,
+            Optional<List<Schema>> historicalSchemas) {
+        return !historicalSchemas.isPresent()
+                || requiresMissingRequiredFieldRejection(
+                        scanSchema, projectedSlots, historicalSchemas.get());
     }
 
     @VisibleForTesting

@@ -35,6 +35,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
@@ -368,6 +369,57 @@ public class IcebergTransactionTest {
             Assert.assertTrue(mergeException.getMessage().contains("retry the statement"));
             Mockito.verify(table, Mockito.never()).newTransaction();
             Mockito.verify(table, Mockito.never()).refresh();
+        }
+    }
+
+    @Test
+    public void testStaticOverwriteRejectsConcurrentCurrentSpecReplacement() {
+        Schema schema = new Schema(93, Arrays.asList(
+                Types.NestedField.required(1, "p", Types.IntegerType.get()),
+                Types.NestedField.required(2, "q", Types.IntegerType.get())));
+        PartitionSpec pinnedSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("p")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("q")
+                .build();
+        SortOrder sortOrder = SortOrder.unsorted();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 3, pinnedSpec, sortOrder, FileFormat.PARQUET,
+                MetricsConfig.getDefault(),
+                org.apache.iceberg.TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                "file:///tmp/static_overwrite/data", Collections.emptyMap(), true, true);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.properties()).thenReturn(
+                Collections.singletonMap(org.apache.iceberg.TableProperties.FORMAT_VERSION, "3"));
+        Mockito.when(table.specs()).thenReturn(Map.of(
+                pinnedSpec.specId(), pinnedSpec,
+                currentSpec.specId(), currentSpec));
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.sortOrders()).thenReturn(
+                Collections.singletonMap(sortOrder.orderId(), sortOrder));
+
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn("static_overwrite_table");
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setOverwrite(true);
+        insertContext.setStaticPartitionValues(Collections.singletonMap("p", "7"));
+        insertContext.setWriteSchemaContext(Optional.of(context));
+
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            mockedStatic.when(() -> IcebergUtils.getFormatVersion(table)).thenReturn(3);
+
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> getTxn().beginInsert(dorisTable, Optional.of(insertContext)));
+            Assert.assertTrue(exception.getMessage().contains("current partition spec changed"));
+            Assert.assertTrue(exception.getMessage().contains("retry the statement"));
+            Mockito.verify(table, Mockito.never()).newTransaction();
         }
     }
 

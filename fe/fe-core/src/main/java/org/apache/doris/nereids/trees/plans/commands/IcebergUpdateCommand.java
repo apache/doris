@@ -239,7 +239,8 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
                 .map(assignment -> (EqualTo) assignment.withChildren(ImmutableList.of(
                         assignment.left(),
                         IcebergDmlCommandUtils.resolveDefaultReferences(
-                                assignment.right(), writeSchemaContext))))
+                                assignment.right(), writeSchemaContext,
+                                ctx, nameParts, tableAlias))))
                 .collect(Collectors.toList());
         LogicalPlan queryPlan = buildMergeProjectPlan(ctx, logicalQuery, resolvedAssignments,
                 writeSchemaContext.getMergeColumns(), tableName);

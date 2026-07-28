@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.TableProperties;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -69,7 +70,8 @@ final class IcebergDmlCommandUtils {
     }
 
     static Expression resolveDefaultReferences(
-            Expression expression, IcebergWriteSchemaContext writeSchemaContext) {
+            Expression expression, IcebergWriteSchemaContext writeSchemaContext,
+            ConnectContext context, List<String> targetNameParts, String targetAlias) {
         return expression.rewriteDownShortCircuit(candidate -> {
             if (!(candidate instanceof Default)) {
                 return candidate;
@@ -77,17 +79,19 @@ final class IcebergDmlCommandUtils {
             Expression reference = candidate.child(0);
             Column column;
             if (reference instanceof UnboundSlot) {
-                String columnName = ((UnboundSlot) reference).getNameParts()
-                        .get(((UnboundSlot) reference).getNameParts().size() - 1);
-                column = writeSchemaContext.getColumns().stream()
-                        .filter(targetColumn -> targetColumn.getName().equalsIgnoreCase(columnName))
-                        .findFirst()
-                        .orElseThrow(() -> new AnalysisException(
-                                "Cannot find column information for DEFAULT(" + columnName + ")"));
+                List<String> nameParts = ((UnboundSlot) reference).getNameParts();
+                UpdateCommand.checkAssignmentColumn(
+                        context, nameParts, targetNameParts, targetAlias);
+                String columnName = nameParts.get(nameParts.size() - 1);
+                return writeSchemaContext.resolveWriteDefault(columnName);
             } else if (reference instanceof SlotReference
                     && ((SlotReference) reference).getOriginalColumn().isPresent()) {
-                column = ((SlotReference) reference).getOriginalColumn().get();
-                if (!writeSchemaContext.findField(column).isPresent()) {
+                SlotReference slotReference = (SlotReference) reference;
+                column = slotReference.getOriginalColumn().get();
+                if (!slotReference.getOriginalTable()
+                                .map(table -> writeSchemaContext.isTargetTable(table.getId()))
+                                .orElse(false)
+                        || !writeSchemaContext.findField(column).isPresent()) {
                     throw new AnalysisException(
                             "Cannot find column information for DEFAULT(" + column.getName() + ")");
                 }

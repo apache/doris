@@ -308,6 +308,16 @@ public final class IcebergWriteSchemaContext {
                 schemaId, dorisTable.getName());
     }
 
+    /** Resolve a write default by the pinned target field name. */
+    public Expression resolveWriteDefault(String columnName) {
+        Column column = columns.stream()
+                .filter(targetColumn -> targetColumn.getName().equalsIgnoreCase(columnName))
+                .findFirst()
+                .orElseThrow(() -> new AnalysisException(
+                        "Cannot find column information for DEFAULT(" + columnName + ")"));
+        return resolveWriteDefault(column);
+    }
+
     /** Resolve the value used for an omitted column or an explicit DEFAULT. */
     public Expression resolveWriteDefault(Column column) {
         Types.NestedField field = fieldsById.get(column.getUniqueId());
@@ -328,6 +338,17 @@ public final class IcebergWriteSchemaContext {
 
     /** Validate that the fresh table can commit files described by the pinned writer metadata. */
     public void validateCurrentSchema(Table table) {
+        validateCurrentSchema(table, false);
+    }
+
+    /**
+     * Validate that the fresh table can commit files described by the pinned writer metadata.
+     *
+     * <p>Static partition overwrite additionally requires the pinned spec to remain current because
+     * its replacement filter was planned from that spec. Appends can safely write an older retained
+     * spec, so they only require the pinned definition to remain available.
+     */
+    public void validateCurrentSchema(Table table, boolean requireCurrentPartitionSpec) {
         Schema currentSchema = branchName.isPresent()
                 ? resolveBranchSchema(table, branchName.get(), tableName)
                 : table.schema();
@@ -343,6 +364,15 @@ public final class IcebergWriteSchemaContext {
             throw new AnalysisException("Iceberg partition spec changed during write planning for "
                     + tableName + ": pinned spec " + partitionSpec.specId()
                     + " is not available with the same definition; retry the statement");
+        }
+        if (requireCurrentPartitionSpec) {
+            PartitionSpec activeSpec = table.spec();
+            if (activeSpec.specId() != partitionSpec.specId()
+                    || !partitionSpecJson.equals(PartitionSpecParser.toJson(activeSpec))) {
+                throw new AnalysisException("Iceberg current partition spec changed during static overwrite "
+                        + "planning for " + tableName + ": pinned spec " + partitionSpec.specId()
+                        + ", current spec " + activeSpec.specId() + "; retry the statement");
+            }
         }
         SortOrder currentSortOrder = table.sortOrders().get(sortOrder.orderId());
         if (currentSortOrder == null || !sortOrderJson.equals(SortOrderParser.toJson(currentSortOrder))) {

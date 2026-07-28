@@ -149,7 +149,8 @@ public class IcebergTransaction implements Transaction {
                     }
                 }
                 if (writeSchemaContext.isPresent()) {
-                    writeSchemaContext.get().validateCurrentSchema(table);
+                    writeSchemaContext.get().validateCurrentSchema(
+                            table, insertCtx.isStaticPartitionOverwrite());
                 }
                 this.transaction = table.newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
@@ -906,9 +907,11 @@ public class IcebergTransaction implements Transaction {
      * This method uses OverwriteFiles.overwriteByRowFilter() to overwrite only the specified partitions
      */
     private void commitStaticPartitionOverwrite(List<WriteResult> pendingResults) {
-        Table icebergTable = transaction.table();
-        PartitionSpec spec = icebergTable.spec();
-        Schema schema = icebergTable.schema();
+        Preconditions.checkState(writeSchemaContext.isPresent(),
+                "Static partition overwrite requires pinned Iceberg writer metadata");
+        IcebergWriteSchemaContext writerContext = writeSchemaContext.get();
+        PartitionSpec spec = writerContext.getPartitionSpec();
+        Schema schema = writerContext.getSchema();
 
         // Build partition filter expression from static partition values
         Expression partitionFilter = buildPartitionFilter(
@@ -947,9 +950,8 @@ public class IcebergTransaction implements Transaction {
             Map<String, String> staticPartitions,
             PartitionSpec spec,
             Schema schema) {
-        if (staticPartitions == null || staticPartitions.isEmpty()) {
-            return Expressions.alwaysTrue();
-        }
+        Preconditions.checkState(staticPartitions != null && !staticPartitions.isEmpty(),
+                "Static partition overwrite requires at least one partition value");
 
         List<Expression> predicates = new ArrayList<>();
 
@@ -982,9 +984,9 @@ public class IcebergTransaction implements Transaction {
             }
         }
 
-        if (predicates.isEmpty()) {
-            return Expressions.alwaysTrue();
-        }
+        Preconditions.checkState(predicates.size() == staticPartitions.size(),
+                "Static partition overwrite keys %s do not match pinned partition spec %s",
+                staticPartitions.keySet(), spec.specId());
 
         // Combine all predicates with AND
         Expression result = predicates.get(0);

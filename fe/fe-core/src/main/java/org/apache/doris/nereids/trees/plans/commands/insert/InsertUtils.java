@@ -59,6 +59,7 @@ import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -66,6 +67,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -522,7 +524,10 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
+                            NamedExpression value = resolveInlineIcebergDefaultReferences(
+                                    values.get(i), icebergWriteSchemaContext,
+                                    unboundLogicalSink.getNameParts());
+                            addColumnValue(analyzer, optimizedRowConstructor, value,
                                     targetType, rewriteContext, strictCast);
                         }
                     }
@@ -544,7 +549,10 @@ public class InsertUtils {
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
+                            NamedExpression value = resolveInlineIcebergDefaultReferences(
+                                    values.get(i), icebergWriteSchemaContext,
+                                    unboundLogicalSink.getNameParts());
+                            addColumnValue(analyzer, optimizedRowConstructor, value, targetType,
                                     rewriteContext, strictCast);
                         }
                     }
@@ -553,6 +561,37 @@ public class InsertUtils {
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+    }
+
+    private static NamedExpression resolveInlineIcebergDefaultReferences(
+            NamedExpression value,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext,
+            List<String> targetNameParts) {
+        if (!writeSchemaContext.isPresent()) {
+            return value;
+        }
+        Expression resolved = value.rewriteDownShortCircuit(candidate -> {
+            if (!(candidate instanceof Default)) {
+                return candidate;
+            }
+            Expression reference = candidate.child(0);
+            if (!(reference instanceof UnboundSlot)) {
+                throw new AnalysisException("DEFAULT requires a column reference");
+            }
+            List<String> nameParts = ((UnboundSlot) reference).getNameParts();
+            if (nameParts.size() > 1) {
+                ConnectContext context = Preconditions.checkNotNull(
+                        ConnectContext.get(),
+                        "Qualified DEFAULT requires a ConnectContext");
+                UpdateCommand.checkAssignmentColumn(
+                        context, nameParts, targetNameParts, null);
+            }
+            return writeSchemaContext.get().resolveWriteDefault(
+                    nameParts.get(nameParts.size() - 1));
+        });
+        Preconditions.checkState(resolved instanceof NamedExpression,
+                "Inline table value must remain a named expression after DEFAULT resolution");
+        return (NamedExpression) resolved;
     }
 
     /** buildAnalyzer */

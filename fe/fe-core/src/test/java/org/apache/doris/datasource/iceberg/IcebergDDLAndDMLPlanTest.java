@@ -378,6 +378,31 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                     PhysicalIcebergTableSink.class);
             Assertions.assertEquals(32,
                     defaultColumnSink.getWriteSchemaContext().get().getSchemaId());
+
+            String reorderedMultiRowSql = "insert into " + tableName
+                    + " (amount, id) values "
+                    + "(DEFAULT(score), 4), (DEFAULT(score), 5)";
+            InsertIntoTableCommand reorderedMultiRowCommand =
+                    (InsertIntoTableCommand) parseStmt(reorderedMultiRowSql);
+            Plan reorderedMultiRowPlan =
+                    reorderedMultiRowCommand.getExplainPlan(connectContext);
+            PhysicalIcebergTableSink<?> reorderedMultiRowSink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) reorderedMultiRowPlan,
+                            PhysicalProperties.GATHER, reorderedMultiRowSql),
+                    PhysicalIcebergTableSink.class);
+            Assertions.assertEquals(32,
+                    reorderedMultiRowSink.getWriteSchemaContext().get().getSchemaId());
+            Assertions.assertTrue(reorderedMultiRowSink.treeString().contains("9"));
+
+            String unknownValuesDefaultSql = "insert into " + tableName
+                    + " (id, name) values (6, DEFAULT(no_such_column))";
+            InsertIntoTableCommand unknownValuesDefaultCommand =
+                    (InsertIntoTableCommand) parseStmt(unknownValuesDefaultSql);
+            AnalysisException unknownValuesDefaultException = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> unknownValuesDefaultCommand.getExplainPlan(connectContext));
+            Assertions.assertTrue(unknownValuesDefaultException.getMessage()
+                    .contains("no_such_column"));
         } finally {
             useMockedIcebergSchema(baseIcebergSchema, 2);
         }
@@ -464,7 +489,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         useMockedIcebergSchema(icebergWriteDefaultSchema(36, true), 3);
         try {
             String updateSql = "update " + tableName
-                    + " set name = DEFAULT(name) where id = 1";
+                    + " set name = DEFAULT(" + tableName + ".name) where id = 1";
             UpdateCommand updateCommand = (UpdateCommand) parseStmt(updateSql);
             Plan updatePlan = updateCommand.getExplainPlan(connectContext);
             Assertions.assertTrue(connectContext.getStatementContext()
@@ -477,7 +502,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
 
             String matchedMergeSql = "merge into " + tableName + " t "
                     + "using (select 1 as id) s on t.id = s.id "
-                    + "when matched then update set name = DEFAULT(name)";
+                    + "when matched then update set name = DEFAULT(t.name)";
             MergeIntoCommand matchedMergeCommand =
                     (MergeIntoCommand) parseStmt(matchedMergeSql);
             Plan matchedMergePlan = matchedMergeCommand.getExplainPlan(connectContext);
@@ -488,6 +513,50 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                             PhysicalProperties.GATHER, matchedMergeSql),
                     PhysicalIcebergMergeSink.class);
             Assertions.assertTrue(matchedMergeSink.treeString().contains("write-name"));
+
+            String sourceQualifiedMergeSql = "merge into " + tableName + " t "
+                    + "using (select 1 as id, 8 as score) s on t.id = s.id "
+                    + "when matched then update set name = DEFAULT(s.score)";
+            MergeIntoCommand sourceQualifiedMergeCommand =
+                    (MergeIntoCommand) parseStmt(sourceQualifiedMergeSql);
+            AnalysisException sourceQualifiedMergeException = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> sourceQualifiedMergeCommand.getExplainPlan(connectContext));
+            Assertions.assertTrue(sourceQualifiedMergeException.getMessage()
+                    .contains("s.score"));
+
+            String sourceQualifiedMergeInsertSql = "merge into " + tableName + " t "
+                    + "using (select 1 as id, 8 as score) s on t.id = s.id "
+                    + "when not matched then insert (id, amount) "
+                    + "values (s.id, DEFAULT(s.score))";
+            MergeIntoCommand sourceQualifiedMergeInsertCommand =
+                    (MergeIntoCommand) parseStmt(sourceQualifiedMergeInsertSql);
+            AnalysisException sourceQualifiedMergeInsertException = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> sourceQualifiedMergeInsertCommand.getExplainPlan(connectContext));
+            Assertions.assertTrue(sourceQualifiedMergeInsertException.getMessage()
+                    .contains("s.score"));
+
+            String unknownQualifiedMergeSql = "merge into " + tableName + " t "
+                    + "using (select 1 as id) s on t.id = s.id "
+                    + "when matched then update set name = DEFAULT(no_such_alias.score)";
+            MergeIntoCommand unknownQualifiedMergeCommand =
+                    (MergeIntoCommand) parseStmt(unknownQualifiedMergeSql);
+            AnalysisException unknownQualifiedMergeException = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> unknownQualifiedMergeCommand.getExplainPlan(connectContext));
+            Assertions.assertTrue(unknownQualifiedMergeException.getMessage()
+                    .contains("no_such_alias.score"));
+
+            String unknownQualifiedUpdateSql = "update " + tableName
+                    + " set name = DEFAULT(no_such_alias.name) where id = 1";
+            UpdateCommand unknownQualifiedUpdateCommand =
+                    (UpdateCommand) parseStmt(unknownQualifiedUpdateSql);
+            AnalysisException unknownQualifiedUpdateException = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> unknownQualifiedUpdateCommand.getExplainPlan(connectContext));
+            Assertions.assertTrue(unknownQualifiedUpdateException.getMessage()
+                    .contains("no_such_alias.name"));
 
             String crossColumnMergeSql = "merge into " + tableName + " t "
                     + "using (select 99 as id) s on t.id = s.id "

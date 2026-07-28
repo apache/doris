@@ -105,11 +105,13 @@ public class IcebergDmlCommandUtilsTest {
                 context.getStatementContext().getIcebergWriteSchemaContext());
 
         Expression resolved = IcebergDmlCommandUtils.resolveDefaultReferences(
-                new Default(new UnboundSlot("score")), writeSchemaContext);
+                new Default(new UnboundSlot("score")), writeSchemaContext,
+                context, java.util.List.of("catalog", "database", "test_table"), null);
         Assertions.assertEquals(new IntegerLiteral(9), resolved);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> IcebergDmlCommandUtils.resolveDefaultReferences(
-                        new Default(new UnboundSlot("missing")), writeSchemaContext));
+                        new Default(new UnboundSlot("missing")), writeSchemaContext,
+                        context, java.util.List.of("catalog", "database", "test_table"), null));
         Assertions.assertTrue(exception.getMessage().contains("missing"));
 
         IcebergDmlCommandUtils.restoreWriteSchemaContext(context, previous);
