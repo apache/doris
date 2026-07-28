@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Pins the iceberg CREATE TABLE validation moved off fe-core {@code CreateTableInfo}: iceberg rejects a
@@ -44,6 +46,9 @@ import java.util.Collections;
  * <p>The validation methods are package-private (reached only via {@code createTable} in production, which needs a
  * live iceberg catalog); this test constructs the metadata offline with null catalog/context (the validators touch
  * only the request) and calls them directly — the same offline idiom as {@code MaxComputeValidateColumnsTest}.</p>
+ *
+ * <p>Also covers the other request field {@code createTable} resolves offline: folding a {@code COMMENT} clause
+ * into the {@code comment} table property (see {@code applyCreateTableComment}).</p>
  */
 public class IcebergCreateTableValidationTest {
 
@@ -125,5 +130,51 @@ public class IcebergCreateTableValidationTest {
                 .build();
         // WHY: guards against over-rejection -- a valid sort column must pass.
         Assertions.assertDoesNotThrow(() -> metadata().validateSortOrder(request));
+    }
+
+    // ---------- applyCreateTableComment ----------
+    //
+    // WHY this matters: the COMMENT clause and the PROPERTIES map are two DISTINCT nereids fields on the
+    // create request. Legacy performCreateTable forwarded only PROPERTIES to iceberg, so `CREATE TABLE ...
+    // COMMENT 'x'` persisted nothing and every comment reader (SHOW CREATE TABLE, TABLE_COMMENT, SHOW TABLE
+    // STATUS) came back blank -- through a dedicated iceberg catalog and through an HMS gateway alike.
+
+    @Test
+    public void commentClauseIsFoldedIntoTableProperties() {
+        Map<String, String> props = new HashMap<>();
+        IcebergConnectorMetadata.applyCreateTableComment(props, "set through the COMMENT clause");
+        Assertions.assertEquals("set through the COMMENT clause", props.get("comment"));
+    }
+
+    @Test
+    public void explicitCommentPropertyWinsOverTheClause() {
+        Map<String, String> props = new HashMap<>();
+        props.put("comment", "from PROPERTIES");
+        IcebergConnectorMetadata.applyCreateTableComment(props, "from the COMMENT clause");
+        // WHY: legacy honored PROPERTIES("comment"=...) and nothing else; that behavior must survive intact,
+        // so the clause is a fallback only.
+        Assertions.assertEquals("from PROPERTIES", props.get("comment"));
+    }
+
+    @Test
+    public void deliberatelyEmptyCommentPropertyIsNotOverwritten() {
+        Map<String, String> props = new HashMap<>();
+        props.put("comment", "");
+        IcebergConnectorMetadata.applyCreateTableComment(props, "from the COMMENT clause");
+        // WHY: an explicitly-empty property is a user statement of intent, not an absent value -- keyed on
+        // containsKey rather than on emptiness so it is preserved.
+        Assertions.assertEquals("", props.get("comment"));
+    }
+
+    @Test
+    public void omittedCommentClauseAddsNoProperty() {
+        Map<String, String> props = new HashMap<>();
+        // WHY: nereids defaults CreateTableInfo.comment to "" when the clause is omitted, so writing it
+        // unconditionally would stamp a noise `"comment" = ""` onto the PROPERTIES of every iceberg table.
+        IcebergConnectorMetadata.applyCreateTableComment(props, "");
+        Assertions.assertFalse(props.containsKey("comment"));
+
+        IcebergConnectorMetadata.applyCreateTableComment(props, null);
+        Assertions.assertFalse(props.containsKey("comment"));
     }
 }
