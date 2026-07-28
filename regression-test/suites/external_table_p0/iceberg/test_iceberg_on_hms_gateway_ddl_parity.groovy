@@ -120,7 +120,14 @@ suite("test_iceberg_on_hms_gateway_ddl_parity", "p0,external") {
                 if (message.contains("incompatible with the existing columns")) {
                     return "REFUSED_BY_METASTORE"
                 }
-                if (message.contains("not supported")) {
+                // Both shapes a DORIS-side refusal can take. "not supported" is the legacy wording
+                // (master's "Nested add column operation is not supported for this table type."); the
+                // "only supported for Iceberg tables" wording is what AlterTableCommand raises today
+                // when the target does not report SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE -- which is
+                // exactly what a gateway that stopped recognizing its iceberg tables would produce.
+                // Missing it would file that regression as OTHER: still red, but naming the wrong culprit.
+                if (message.contains("not supported")
+                        || message.contains("only supported for Iceberg tables")) {
                     return "REFUSED_BY_DORIS"
                 }
                 return "OTHER: ${message}".toString()
@@ -187,6 +194,11 @@ suite("test_iceberg_on_hms_gateway_ddl_parity", "p0,external") {
             }
 
             // The same statement must keep failing loud for a PLAIN hive table (nothing to delegate to).
+            // The message is AlterTableCommand's, raised because a plain hive table does not report
+            // SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE -- i.e. the gateway routes by TABLE capability, not by
+            // catalog type. Asserted verbatim rather than on the old "not supported" substring: that
+            // wording belongs to master's message and matches nothing this branch emits, so it made the
+            // assertion vacuous-by-accident here.
             sql """switch ${gatewayCatalog}"""
             sql """use ${dbName}"""
             String plainHiveTable = "gateway_plain_hive"
@@ -194,7 +206,7 @@ suite("test_iceberg_on_hms_gateway_ddl_parity", "p0,external") {
             sql """create table ${plainHiveTable} (id INT, s STRUCT<a:INT>) ENGINE=hive"""
             test {
                 sql """alter table ${plainHiveTable} add column s.b STRING NULL"""
-                exception "not supported"
+                exception "Nested column path is only supported for Iceberg tables"
             }
 
             // ---- 2. the table comment must be identical through both catalogs ----
