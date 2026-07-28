@@ -68,6 +68,23 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
         testRightOuterJoinHelper(JoinType.RIGHT_OUTER_JOIN);
     }
 
+    @Test
+    public void testSemiJoinCommuteInRewrite() {
+        for (JoinType joinType : ImmutableList.of(
+                JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.RIGHT_ANTI_JOIN)) {
+            ConnectContext connectContext = MemoTestUtils.createConnectContext();
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(new LogicalPlanBuilder(scan1)
+                            .join(scan2, joinType, Pair.of(0, 0))
+                            .build())
+                    .matches(logicalJoin().when(join -> join.getJoinType() == joinType));
+
+            checker.rewrite()
+                    .matches(logicalJoin().when(join -> join.getJoinType() == joinType.swap()));
+        }
+    }
+
     private void testRightOuterJoinHelper(JoinType joinType) {
         ImmutableList<LogicalPlan> plans = ImmutableList.of(
                 new LogicalPlanBuilder(scan1)

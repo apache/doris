@@ -158,6 +158,7 @@ import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
+import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
@@ -333,6 +334,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
+                                            new SemiJoinCommute(),
                                             new TransposeSemiJoinLogicalJoin(),
                                             new TransposeSemiJoinLogicalJoinProject(),
                                             new TransposeSemiJoinAgg(),
@@ -572,6 +574,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
+                                        new SemiJoinCommute(),
                                         new TransposeSemiJoinLogicalJoin(),
                                         new TransposeSemiJoinLogicalJoinProject(),
                                         new TransposeSemiJoinAgg(),
