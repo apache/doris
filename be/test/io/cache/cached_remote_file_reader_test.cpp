@@ -658,6 +658,156 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,
+       drop_oldest_keeps_new_block_for_adjacent_page_and_drops_old_victim) {
+    create_cache("cached_remote_reader_drop_oldest");
+    auto* service = cache()->async_write_service();
+    auto* index = cache()->inflight_write_buffer_index();
+    ASSERT_NE(service, nullptr);
+    ASSERT_NE(index, nullptr);
+    auto options = service->options();
+    options.worker_count = 1;
+    options.max_pending_tasks = 3;
+    options.batch_size = 1;
+    options.queue_full_policy = AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
+    ASSERT_TRUE(service->update_options(options).ok());
+
+    auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(counting_reader);
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool worker_entered = false;
+    bool release_worker = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteService::_write_one:before_get_or_set",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                worker_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&]() { return release_worker; });
+            },
+            &guard);
+    sync_point->enable_processing();
+    Defer clear_sync_point {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        cv.notify_all();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+
+    const auto make_task = [&](const UInt128Wrapper& hash, size_t offset, char fill,
+                               std::function<void(const AsyncCacheWriteTask&)> on_finalized =
+                                       nullptr) {
+        AsyncCacheWriteBufferPtr buffer;
+        EXPECT_TRUE(service->allocate_tracked_buffer(1_mb, &buffer).ok());
+        DORIS_CHECK(buffer != nullptr);
+        memset(buffer->data(), fill, buffer->size());
+        return AsyncCacheWriteTask {
+                .cache_hash = hash,
+                .file_offset = offset,
+                .file_size = buffer->size(),
+                .buffer = std::move(buffer),
+                .admission_ctx = {},
+                .submit_ts_us = MonotonicMicros(),
+                .write_epoch = service->current_write_epoch(),
+                .on_finalized = std::move(on_finalized),
+        };
+    };
+
+    ASSERT_TRUE(service->try_submit(
+            make_task(BlockFileCache::hash("drop_oldest_reader_active"), 0, 'a')));
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entered; }));
+    }
+
+    AsyncCacheWriteBufferPtr victim_buffer;
+    ASSERT_TRUE(service->allocate_tracked_buffer(1_mb, &victim_buffer).ok());
+    memset(victim_buffer->data(), '0', victim_buffer->size());
+    const int64_t victim_submit_ts_us = MonotonicMicros();
+    auto victim_entry = std::make_shared<InflightWriteBufferEntry>(
+            victim_buffer, 0, victim_buffer->size(), victim_submit_ts_us,
+            service->current_write_epoch());
+    ASSERT_EQ(index->insert_if_absent(reader->_cache_hash, 0, victim_entry), nullptr);
+    AsyncCacheWriteTask victim_task {
+            .cache_hash = reader->_cache_hash,
+            .file_offset = 0,
+            .file_size = victim_buffer->size(),
+            .buffer = victim_buffer,
+            .admission_ctx = {},
+            .submit_ts_us = victim_submit_ts_us,
+            .write_epoch = service->current_write_epoch(),
+            .on_finalized =
+                    [index, hash = reader->_cache_hash, victim_entry](const AsyncCacheWriteTask&) {
+                        index->remove_if(hash, 0, victim_entry);
+                    },
+    };
+    ASSERT_TRUE(service->try_submit(std::move(victim_task)));
+    ASSERT_TRUE(service->try_submit(
+            make_task(BlockFileCache::hash("drop_oldest_reader_queued"), 0, 'q')));
+    ASSERT_EQ(service->pending_count(), 3);
+    ASSERT_EQ(service->queued_count(), 2);
+
+    const uint64_t baseline_evicted = service->evicted_oldest_count();
+    std::string first_page(4096, '\0');
+    FileCacheStatistics first_stats;
+    IOContext first_context;
+    first_context.file_cache_stats = &first_stats;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(1_mb, Slice(first_page.data(), first_page.size()), &bytes_read,
+                                &first_context)
+                        .ok());
+    EXPECT_EQ(bytes_read, first_page.size());
+    EXPECT_EQ(first_page, std::string(first_page.size(), '1'));
+    EXPECT_EQ(counting_reader->read_count(), 1);
+    EXPECT_EQ(first_stats.bytes_read_from_remote, first_page.size());
+    EXPECT_EQ(first_stats.async_cache_write_submitted, 1);
+    EXPECT_EQ(service->evicted_oldest_count() - baseline_evicted, 1);
+    EXPECT_EQ(index->lookup(reader->_cache_hash, 0, service->current_write_epoch()), nullptr);
+    EXPECT_NE(index->lookup(reader->_cache_hash, 1_mb, service->current_write_epoch()), nullptr);
+
+    std::string adjacent_page(4096, '\0');
+    FileCacheStatistics adjacent_stats;
+    IOContext adjacent_context;
+    adjacent_context.file_cache_stats = &adjacent_stats;
+    bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(1_mb + 4096, Slice(adjacent_page.data(), adjacent_page.size()),
+                                &bytes_read, &adjacent_context)
+                        .ok());
+    EXPECT_EQ(bytes_read, adjacent_page.size());
+    EXPECT_EQ(adjacent_page, std::string(adjacent_page.size(), '1'));
+    EXPECT_EQ(counting_reader->read_count(), 1);
+    EXPECT_EQ(adjacent_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(adjacent_stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(adjacent_stats.async_cache_write_submitted, 0);
+
+    std::string old_victim_page(4096, '\0');
+    FileCacheStatistics old_victim_stats;
+    IOContext old_victim_context;
+    old_victim_context.file_cache_stats = &old_victim_stats;
+    bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(0, Slice(old_victim_page.data(), old_victim_page.size()),
+                                &bytes_read, &old_victim_context)
+                        .ok());
+    EXPECT_EQ(bytes_read, old_victim_page.size());
+    EXPECT_EQ(old_victim_page, std::string(old_victim_page.size(), '0'));
+    EXPECT_EQ(counting_reader->read_count(), 2);
+    EXPECT_EQ(old_victim_stats.bytes_read_from_remote, old_victim_page.size());
+    EXPECT_EQ(old_victim_stats.async_cache_write_submitted, 1);
+
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    cv.notify_all();
+    wait_for_async_writes();
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest,
        external_table_reader_uses_async_write_and_reuses_downloaded_cache) {
     create_cache("cached_remote_reader_async_external_table");
     // Disabling the optional inflight index must only remove memory reuse/deduplication; accepted

@@ -18,16 +18,17 @@
 #pragma once
 
 #include <bvar/bvar.h>
-#include <concurrentqueue.h>
 
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/atomic_shared_ptr.h"
@@ -71,6 +72,20 @@ private:
 
 using AsyncCacheWriteBufferPtr = std::shared_ptr<AsyncCacheWriteBuffer>;
 
+/// Admission behavior when every pending slot is already owned by an active or queued task.
+enum class AsyncCacheWriteQueueFullPolicy : uint8_t {
+    REJECT_NEW,
+    DROP_OLDEST,
+};
+
+/// Convert the validated configuration spelling to the service policy.
+AsyncCacheWriteQueueFullPolicy async_cache_write_queue_full_policy_from_string(
+        std::string_view policy);
+
+/// Return the stable configuration spelling for a service policy.
+std::string_view async_cache_write_queue_full_policy_to_string(
+        AsyncCacheWriteQueueFullPolicy policy);
+
 /// One block-aligned cache write. `buffer` contains exactly `file_size` bytes starting at
 /// `file_offset`; `write_epoch` prevents a worker from resurrecting data after cache invalidation.
 struct AsyncCacheWriteTask {
@@ -92,6 +107,7 @@ struct AsyncCacheWriteServiceOptions {
     size_t batch_size {1};
     int64_t watchdog_warn_secs {30};
     int64_t watchdog_drop_secs {120};
+    AsyncCacheWriteQueueFullPolicy queue_full_policy {AsyncCacheWriteQueueFullPolicy::REJECT_NEW};
 };
 
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
@@ -108,7 +124,8 @@ public:
     /// Create the worker pool and schedule the configured long-running workers. Idempotent.
     Status start();
 
-    /// Reserve one pending slot and enqueue `task` without blocking the query thread.
+    /// Admit `task` into the bounded FIFO without waiting for a queue slot or disk I/O. This call
+    /// can briefly wait for the queue mutex and DROP_OLDEST finalizes its victim before returning.
     /// @return true if ownership was transferred to the queue; false when workers have not been
     /// started, during shutdown, on backpressure, or on queue rejection. A rejected task's
     /// finalization callback is not invoked.
@@ -149,7 +166,7 @@ public:
     /// Return accepted tasks that have not yet completed finalization.
     size_t pending_count() const { return _pending_count.load(std::memory_order_relaxed); }
 
-    /// Return accepted tasks still waiting in the MPMC queue, excluding active workers.
+    /// Return accepted tasks still waiting in the FIFO queue, excluding active workers.
     size_t queued_count() const { return _queued_count.load(std::memory_order_relaxed); }
 
     /// Return tasks currently owned by workers, including watchdog and write processing.
@@ -163,22 +180,47 @@ public:
     /// Return bytes currently held by tracked task buffers.
     int64_t buffer_memory_bytes() const { return _mem_tracker->consumption(); }
 
+    /// Return tasks displaced by DROP_OLDEST admission.
+    uint64_t evicted_oldest_count() const { return _evicted_oldest_metric->get_value(); }
+
+    /// Return the current rolling P99 wait to acquire the FIFO mutex.
+    int64_t queue_lock_wait_p99_us() const;
+
+    /// Return the current rolling P99 FIFO mutex critical-section duration.
+    int64_t queue_lock_hold_p99_us() const;
+
 private:
+    enum class TaskFinalizationReason : uint8_t {
+        WORKER_FINISHED,
+        EVICTED_OLDEST,
+    };
+
     /// Mark `worker_id` active and submit its persistent loop to the thread pool.
     Status _schedule_worker(size_t worker_id);
 
     /// Drain batches until shutdown or until this worker id is retired by a resize.
     void _worker_loop(size_t worker_id);
 
+    /// Move the oldest queued task to active ownership.
+    bool _try_take_task(AsyncCacheWriteTask* task);
+
     /// Revalidate epoch/cache state and persist the task's still-empty complete blocks.
     Status _write_one(const AsyncCacheWriteTask& task);
 
-    /// Release one pending slot and invoke the inflight-index cleanup callback.
-    void _finish_task(const AsyncCacheWriteTask& task);
+    /// Release one active pending slot, then finalize and destroy `task` outside the queue lock.
+    void _finish_active_task(AsyncCacheWriteTask task);
+
+    /// Record the terminal reason and invoke the task cleanup callback without the queue lock.
+    void _finalize_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
+
+    /// Assert the queue/count conservation laws while `_queue_mutex` is held.
+    void _check_queue_invariants_locked() const;
 
     BlockFileCache* _cache;
     atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
-    moodycamel::ConcurrentQueue<AsyncCacheWriteTask> _queue;
+    std::deque<AsyncCacheWriteTask> _queue;
+    std::mutex _queue_mutex;
+    std::condition_variable _queue_cv;
     std::atomic<size_t> _pending_count {0};
     std::atomic<size_t> _queued_count {0};
     std::atomic<size_t> _active_task_count {0};
@@ -186,8 +228,6 @@ private:
     std::atomic<size_t> _active_get_or_set_count {0};
     std::atomic<size_t> _active_append_count {0};
     std::atomic<size_t> _active_finalize_count {0};
-    std::condition_variable _cv;
-    std::mutex _cv_mutex;
     std::atomic<bool> _accepting {true};
     std::atomic<size_t> _active_submitters {0};
     std::atomic<bool> _shutdown_requested {false};
@@ -215,14 +255,22 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_bytes_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _finished_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _worker_finished_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _evicted_oldest_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _evicted_oldest_bytes_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _evicted_oldest_age_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _rejected_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_not_running_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_backpressure_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_enqueue_failure_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _reject_no_queued_victim_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _reject_above_current_limit_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _buffer_alloc_fail_metric;
     std::shared_ptr<bvar::LatencyRecorder> _submit_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _buffer_alloc_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _queue_wait_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _queue_lock_wait_latency_metric;
+    std::shared_ptr<bvar::LatencyRecorder> _queue_lock_hold_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _worker_task_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _get_or_set_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _append_latency_metric;

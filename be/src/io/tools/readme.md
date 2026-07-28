@@ -140,7 +140,7 @@ you can see it in get_help return msg
 
 `async_file_cache_write_microbench` measures the asynchronous cache-write components added below
 `CachedRemoteFileReader`. It uses a real filesystem-backed `BlockFileCache` and production
-`InflightWriteBufferIndex`, admission control, bounded MPMC queue, worker pool, `get_or_set`,
+`InflightWriteBufferIndex`, admission control, bounded locked FIFO queue, worker pool, `get_or_set`,
 `append`, and `finalize` implementations. Its deterministic in-memory remote reader removes S3 and
 network latency from the comparison.
 
@@ -162,7 +162,7 @@ SyntheticRemoteFileReader
   -> BlockFileCache probe
   -> foreground remote fill
   -> InflightWriteBufferIndex publication
-  -> AsyncCacheWriteService admission and MPMC queue
+  -> AsyncCacheWriteService admission and locked FIFO queue
   -> worker get_or_set, append, and finalize
   -> inflight entry cleanup
 ```
@@ -182,11 +182,13 @@ The benchmark groups are:
     writes.
 - `service`
   - Submits unique real buffers directly to `AsyncCacheWriteService` from concurrent producers.
-  - Measures 1, 4, and 16 workers by default, including allocation, inflight publication, queue
-    admission, worker consumption, `get_or_set`, `append`, `finalize`, and completion cleanup.
-  - Verifies every accepted task in the final `BlockFileCache`.
-  - Includes a deliberately bounded backpressure case. `accepted` and `rejected` show admission
-    behavior, while peak gauges show where work accumulated.
+  - Measures both `reject_new` and `drop_oldest` with 1, 4, and 16 workers by default, including
+    allocation, inflight publication, queue admission, worker consumption, `get_or_set`, `append`,
+    `finalize`, and completion cleanup.
+  - Verifies every persisted task in the final `BlockFileCache`. Under `reject_new`, every accepted
+    task must persist. Under `drop_oldest`, accepted-but-not-persisted tasks must equal `evicted`.
+  - Includes a deliberately bounded saturated case for each policy. `accepted`, `rejected`, and
+    `evicted` distinguish new-task rejection from replacement of the oldest queued task.
 - `index`
   - Measures `InflightWriteBufferIndex::lookup` independently from disk writes.
   - `sharded_miss` spreads absent keys across shards.
@@ -235,7 +237,8 @@ The defaults represent small reads that cause full 1 MiB cache-block writes:
 | `producer_threads` | 16 | Concurrent readers or submitters |
 | `reader_workers` | 16 | Workers in the asynchronous reader comparison |
 | `worker_counts` | 1, 4, 16 | Worker scaling points in the service group |
-| `backpressure_pending_tasks` | 64 | Pending-task limit in the rejection case |
+| `queue_full_policies` | reject_new,drop_oldest | FIFO full policies in the service group |
+| `backpressure_pending_tasks` | 64 | Pending-task limit in each saturated policy case |
 | `index_operations_per_thread` | 100,000 | Lookups performed by each index producer |
 | `index_key_count` | 4,096 | Keys in each sharded index case |
 | `repetitions` | 5 | Repeated executions of every selected case |
@@ -267,6 +270,7 @@ Run all groups, the fio baseline, and five repetitions with:
     --cache_path=./output/async_file_cache_write_microbench \
     --producer_threads=16 \
     --worker_counts=1,4,16 \
+    --queue_full_policies=reject_new,drop_oldest \
     --repetitions=5 2>&1 | tee ./output/async_file_cache_write_microbench.log
 ```
 
@@ -285,11 +289,16 @@ Each measured case emits one machine-readable `RESULT` line:
 
 - Identity and shape: `benchmark`, `variant`, `repetition`, `producers`, `workers`, and
   `operations`.
-- Admission and correctness: `accepted`, `rejected`, and `persisted`. A case fails instead of
-  printing a successful result if returned data or final cache coverage is incorrect.
+- Admission and correctness: `accepted`, `rejected`, `evicted`, and `persisted`. A case fails
+  instead of printing a successful result if returned data is wrong, if `reject_new` loses an
+  accepted task, or if `drop_oldest` does not satisfy `accepted - persisted = evicted`.
 - Timing: `foreground_seconds` ends when producer or reader calls return; `drain_seconds` is the
   remaining background completion time; `total_seconds` includes both.
 - Rates: `foreground_ops_per_sec` measures caller or submitter completion.
+- Queue contention: `queue_lock_wait_p99_us` and `queue_lock_hold_p99_us` expose the service's
+  rolling P99 FIFO mutex acquisition and critical-section time.
+- Memory: `peak_buffer_bytes` samples tracked async-write payload memory alongside peak pending,
+  queued, and inflight counts.
   `persisted_mib_per_sec` divides verified bytes by total time and does not claim durable-media
   completion.
 - Foreground latency: `avg_us`, `p50_us`, `p95_us`, `p99_us`, and `max_us`.
@@ -301,9 +310,9 @@ Each measured case emits one machine-readable `RESULT` line:
 
 Use reader `foreground_ops_per_sec` and latency to quantify caller benefit from asynchronous
 writes. Use service `persisted_mib_per_sec`, `drain_seconds`, and peak gauges together to determine
-whether workers or admission are limiting progress. Use the backpressure acceptance ratio to
-validate bounded overload behavior, and compare sharded versus hot-key index results to quantify
-lock-contention sensitivity.
+whether workers or admission are limiting progress. Compare the saturated `reject_new` rejection
+ratio with the `drop_oldest` eviction ratio to validate bounded overload behavior, and compare
+sharded versus hot-key index results to quantify lock-contention sensitivity.
 
 ### Out of scope
 
