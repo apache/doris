@@ -463,6 +463,14 @@ std::string UserFunctionCache::_get_file_name_from_url(const std::string& url) c
     } else {
         file_name = url;
     }
+    // Strip the query string (e.g. the "?q-sign-algorithm=..." of a COS/S3
+    // presigned URL). Otherwise it would be treated as part of the file name,
+    // which may exceed the filesystem NAME_MAX (255 bytes) limit and cause
+    // fopen to fail with ENAMETOOLONG.
+    size_t query_pos = file_name.find('?');
+    if (query_pos != std::string::npos) {
+        file_name = file_name.substr(0, query_pos);
+    }
     return file_name;
 }
 
