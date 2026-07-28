@@ -137,7 +137,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     // Doris-level table property carrying a user comment. Local literal copy of the fe-core constant
     // IcebergExternalTable.TABLE_COMMENT_PROP ("comment") — the connector cannot import fe-core. Read by
-    // getTableComment (F9/F12) so the flipped iceberg table's COMMENT clause is non-empty.
+    // getTableComment (F9/F12) so the flipped iceberg table's COMMENT clause is non-empty, and written by
+    // createTable (see applyCreateTableComment) so a CREATE TABLE ... COMMENT clause has something to read.
     private static final String TABLE_COMMENT_PROP = "comment";
 
     private final IcebergCatalogOps catalogOps;
@@ -953,6 +954,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // CREATE properties (ConnectorFactory.createConnector(catalogProperty.getProperties())).
         Map<String, String> tableProperties =
                 IcebergSchemaBuilder.buildTableProperties(request.getProperties(), properties);
+        applyCreateTableComment(tableProperties, request.getComment());
         try {
             context.executeAuthenticated(() -> {
                 catalogOps.createTable(request.getDbName(), request.getTableName(),
@@ -963,6 +965,37 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException("Failed to create Iceberg table "
                     + request.getDbName() + "." + request.getTableName() + ": " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Folds a {@code CREATE TABLE ... COMMENT '...'} clause into the iceberg table property the rest of the
+     * stack reads the comment from ({@link #TABLE_COMMENT_PROP}).
+     *
+     * <p>The SPI converter ({@code CreateTableInfoToConnectorRequestConverter.convert}) fills two DISTINCT
+     * nereids fields: {@code request.getComment()} from the {@code COMMENT} clause and
+     * {@code request.getProperties()} from the {@code PROPERTIES(...)} map. Legacy
+     * {@code IcebergMetadataOps.performCreateTable} passed only the latter to iceberg, so a user's
+     * {@code COMMENT} clause was silently dropped at create time and every reader downstream —
+     * {@link #getTableComment}, the {@code COMMENT} clause of SHOW CREATE TABLE,
+     * {@code information_schema.tables.TABLE_COMMENT}, SHOW TABLE STATUS — reported a table with no comment,
+     * through a dedicated iceberg catalog and through an HMS gateway alike.</p>
+     *
+     * <p>Resolution mirrors the same fix already shipped for paimon ({@code PaimonSchemaBuilder.build}):
+     * an explicit {@code properties["comment"]} WINS (preserving the legacy persisted-comment behavior,
+     * including a deliberate empty one), else the {@code COMMENT} clause is used. A blank clause is not
+     * written at all: nereids defaults {@code CreateTableInfo.comment} to {@code ""} when the clause is
+     * omitted, so stamping it unconditionally would add a noise {@code "comment" = ""} to the PROPERTIES of
+     * every iceberg table Doris creates.</p>
+     */
+    // package-private for unit test; reached only via createTable() in production.
+    static void applyCreateTableComment(Map<String, String> tableProperties, String createComment) {
+        if (tableProperties.containsKey(TABLE_COMMENT_PROP)) {
+            return;
+        }
+        if (createComment == null || createComment.isEmpty()) {
+            return;
+        }
+        tableProperties.put(TABLE_COMMENT_PROP, createComment);
     }
 
     /**

@@ -38,6 +38,12 @@
 //   2. The table comment. The comment accessor addresses a table by NAME, not by handle, so the gateway cannot
 //      route it by handle type the way it routes the ALTER ops; it answered the empty default, and an
 //      iceberg-on-HMS table rendered a blank COMMENT clause / TABLE_COMMENT / SHOW TABLE STATUS Comment.
+//
+//      This half needs the comment to actually EXIST on the table, which takes a second fix on the write side:
+//      the COMMENT clause and the PROPERTIES map are two distinct fields on the create request, and iceberg's
+//      createTable used to forward only the latter -- so a table created with a COMMENT clause persisted no
+//      comment at all and both catalogs agreed on an empty one, hiding the read-side gap. The suite seeds the
+//      comment with a plain COMMENT clause deliberately, so it covers the write path too.
 suite("test_iceberg_on_hms_gateway_ddl_parity", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -218,21 +224,36 @@ suite("test_iceberg_on_hms_gateway_ddl_parity", "p0,external") {
             assertEquals(tableComment, statusViaGateway[0][17],
                     "SHOW TABLE STATUS through the HMS gateway lost the table comment")
 
+            // information_schema is PER-CATALOG: `information_schema.tables` resolves inside whichever catalog
+            // is current, and only ever lists that catalog's tables. The TABLE_CATALOG predicate therefore
+            // only narrows rows that are already scoped to the current catalog -- it cannot reach across to
+            // another one. Reading both catalogs from a single session position would silently return zero
+            // rows for the non-current one, so each read is taken from inside its own catalog.
             def infoViaGateway = sql """select TABLE_COMMENT from information_schema.tables
                 where TABLE_SCHEMA = '${dbName}' and TABLE_NAME = '${tableName}'
                 and TABLE_CATALOG = '${gatewayCatalog}'"""
+            sql """switch ${icebergCatalog}"""
             def infoViaIceberg = sql """select TABLE_COMMENT from information_schema.tables
                 where TABLE_SCHEMA = '${dbName}' and TABLE_NAME = '${tableName}'
                 and TABLE_CATALOG = '${icebergCatalog}'"""
+            assertEquals(1, infoViaGateway.size(),
+                    "information_schema.tables returned no row for the table through the HMS gateway")
+            assertEquals(1, infoViaIceberg.size(),
+                    "information_schema.tables returned no row for the table through the dedicated iceberg catalog")
             assertEquals(infoViaIceberg[0][0], infoViaGateway[0][0],
                     "information_schema.tables.TABLE_COMMENT differs between the dedicated iceberg catalog and the "
                             + "HMS gateway for the same table")
             assertEquals(tableComment, infoViaGateway[0][0])
 
             // A plain-hive table keeps its historical empty comment (the gateway only answers for iceberg tables).
+            // Back to the gateway: the plain hive table exists only there, and (see above) it is only visible to
+            // information_schema from inside that catalog.
+            sql """switch ${gatewayCatalog}"""
             def plainInfo = sql """select TABLE_COMMENT from information_schema.tables
                 where TABLE_SCHEMA = '${dbName}' and TABLE_NAME = '${plainHiveTable}'
                 and TABLE_CATALOG = '${gatewayCatalog}'"""
+            assertEquals(1, plainInfo.size(),
+                    "information_schema.tables returned no row for the plain hive table through the HMS gateway")
             assertTrue(plainInfo[0][0] == null || plainInfo[0][0].toString().isEmpty(),
                     "a plain hive table should keep its empty comment, got: ${plainInfo[0][0]}")
         } finally {
