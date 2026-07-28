@@ -99,6 +99,10 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                     ctx.queryId(), createTableInfo.getTableName());
         }
+        // Reject unsupported destinations before publishing metadata; rollback by table name
+        // cannot distinguish this CTAS table from a concurrent replacement with the same name.
+        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             if (Env.getCurrentEnv().createTable(this.createTableInfo)) {
                 return;
@@ -108,10 +112,6 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
 
         try {
-            // Once CTAS metadata is visible, every setup or execution failure must pass through
-            // the same rollback boundary so an unusable destination table is never left behind.
-            query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
-                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
             InsertIntoTableCommand insertCommand = null;
             if (!FeConstants.runningUnitTest) {
                 insertCommand = new InsertIntoTableCommand(query, Optional.empty(),

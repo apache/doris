@@ -23,14 +23,6 @@ suite("test_paimon_ctas_atomicity_negative",
         return
     }
 
-    // CTAS currently creates Paimon metadata before discovering that no Paimon data sink exists.
-    // Keep this opt-in until the product rejects or rolls back the statement atomically.
-    String knownBugEnabled = context.config.otherConfigs.get("enablePaimonKnownBugTest")
-    if (knownBugEnabled == null || !knownBugEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Paimon known-bug regression")
-        return
-    }
-
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalogName = "test_paimon_ctas_atomicity_negative"

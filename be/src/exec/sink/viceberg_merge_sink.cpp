@@ -69,6 +69,8 @@ Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
     _written_rows_counter = ADD_COUNTER(profile, "RowsWritten", TUnit::UNIT);
     _insert_rows_counter = ADD_COUNTER(profile, "InsertRows", TUnit::UNIT);
     _delete_rows_counter = ADD_COUNTER(profile, "DeleteRows", TUnit::UNIT);
+    _matched_row_id_state_bytes_counter =
+            ADD_COUNTER(profile, "MatchedRowIdStateBytes", TUnit::BYTES);
     _send_data_timer = ADD_TIMER(profile, "SendDataTime");
     _open_timer = ADD_TIMER(profile, "OpenTime");
     _close_timer = ADD_TIMER(profile, "CloseTime");
@@ -132,8 +134,12 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     }
 
     // The physical sink hashes matched rows by row_id, so identical targets reach the same sink.
-    // An exact set retained across blocks therefore enforces MERGE cardinality for the whole query.
+    // Exact state retained across blocks therefore enforces MERGE cardinality for the whole query.
     RETURN_IF_ERROR(_validate_matched_row_ids(output_block, delete_filter.data()));
+    if (_matched_row_id_state_bytes_counter != nullptr) {
+        COUNTER_SET(_matched_row_id_state_bytes_counter,
+                    static_cast<int64_t>(_matched_row_id_state_bytes()));
+    }
     _row_count += output_block.rows();
     _delete_row_count += delete_rows;
     _insert_row_count += insert_rows;
@@ -237,15 +243,28 @@ Status VIcebergMergeSink::_validate_matched_row_ids(const Block& block,
             return Status::InternalError("Invalid row_position {} in Iceberg merge row_id",
                                          row_position);
         }
-        std::string exact_row_id = file_paths->get_data_at(i).to_string();
-        exact_row_id.append(reinterpret_cast<const char*>(&row_position), sizeof(row_position));
-        if (!_matched_row_ids.emplace(std::move(exact_row_id)).second) {
+        // Intern each file path once and keep exact positions in a compressed bitmap; retaining a
+        // full path string per matched row makes MERGE memory grow with path_length * row_count.
+        auto [file_it, inserted] = _matched_row_positions.try_emplace(
+                file_paths->get_data_at(i).to_string());
+        static_cast<void>(inserted);
+        if (!file_it->second.addChecked(static_cast<uint64_t>(row_position))) {
             return Status::InvalidArgument(
                     "Iceberg MERGE failed because multiple source rows matched the same target "
                     "row");
         }
     }
     return Status::OK();
+}
+
+size_t VIcebergMergeSink::_matched_row_id_state_bytes() const {
+    size_t bytes = sizeof(_matched_row_positions);
+    for (const auto& [file_path, positions] : _matched_row_positions) {
+        bytes += sizeof(std::pair<const std::string, roaring::Roaring64Map>);
+        bytes += file_path.capacity();
+        bytes += positions.getSizeInBytes();
+    }
+    return bytes;
 }
 
 Status VIcebergMergeSink::close(Status close_status) {

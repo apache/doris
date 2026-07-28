@@ -106,7 +106,7 @@ protected:
         return output_exprs;
     }
 
-    Block build_block_with_ops(const std::vector<int8_t>& ops) {
+    Block build_block_with_ops(const std::vector<int8_t>& ops, bool distinct_files = true) {
         Block block;
 
         auto op_col = ColumnInt8::create();
@@ -121,7 +121,9 @@ protected:
         auto id_col = ColumnInt32::create();
         auto name_col = ColumnString::create();
         for (size_t i = 0; i < ops.size(); ++i) {
-            std::string file_path = "file" + std::to_string(i + 1) + ".parquet";
+            std::string file_path = distinct_files
+                                            ? "file" + std::to_string(i + 1) + ".parquet"
+                                            : "shared-file.parquet";
             file_path_col->insert_data(file_path.data(), file_path.size());
             row_pos_col->insert_value(static_cast<int64_t>((i + 1) * 10));
             id_col->insert_value(static_cast<int32_t>(i + 1));
@@ -342,6 +344,35 @@ TEST_F(VIcebergMergeSinkTest, TestRejectsDuplicateMatchedTargetAcrossBlocks) {
     ASSERT_FALSE(status.ok());
     ASSERT_NE(std::string::npos,
               status.to_string().find("multiple source rows matched the same target row"));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdsUseCompactRetainedState) {
+    ObjectPool pool;
+    MockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    constexpr size_t row_count = 100000;
+    std::vector<int8_t> operations(row_count, 3);
+    Block block = build_block_with_ops(operations, false);
+    ASSERT_TRUE(sink->write(&state, block).ok());
+
+    auto* retained_bytes = profile.get_counter("MatchedRowIdStateBytes");
+    ASSERT_NE(nullptr, retained_bytes);
+    EXPECT_LT(retained_bytes->value(), static_cast<int64_t>(row_count * sizeof(int64_t)));
 }
 
 } // namespace doris

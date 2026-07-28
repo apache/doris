@@ -19,14 +19,15 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <map>
 #include <memory>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/sink/writer/async_result_writer.h"
 #include "exprs/vexpr_fwd.h"
+#include "roaring/roaring64map.hh"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 
@@ -62,6 +63,7 @@ private:
     Status _build_inner_sinks();
     Status _prepare_output_layout();
     Status _validate_matched_row_ids(const Block& block, const uint8_t* delete_filter);
+    size_t _matched_row_id_state_bytes() const;
 
     TDataSink _t_sink;
     TDataSink _table_sink;
@@ -75,7 +77,7 @@ private:
     int _operation_idx = -1;
     int _row_id_idx = -1;
     std::vector<int> _data_column_indices;
-    std::unordered_set<std::string> _matched_row_ids;
+    std::map<std::string, roaring::Roaring64Map> _matched_row_positions;
 
     VExprContextSPtrs _table_output_expr_ctxs;
     VExprContextSPtrs _delete_output_expr_ctxs;
@@ -87,6 +89,7 @@ private:
     RuntimeProfile::Counter* _written_rows_counter = nullptr;
     RuntimeProfile::Counter* _insert_rows_counter = nullptr;
     RuntimeProfile::Counter* _delete_rows_counter = nullptr;
+    RuntimeProfile::Counter* _matched_row_id_state_bytes_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;

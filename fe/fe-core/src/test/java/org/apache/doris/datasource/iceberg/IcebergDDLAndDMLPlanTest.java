@@ -463,6 +463,37 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testIcebergMergeIntoExchangeIgnoresStrictConsistencySwitch() throws Exception {
+        useIceberg();
+        boolean previousMergePartitioning = connectContext.getSessionVariable().enableIcebergMergePartitioning;
+        boolean previousStrictConsistency = connectContext.getSessionVariable().enableStrictConsistencyDml;
+        connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
+        connectContext.getSessionVariable().enableStrictConsistencyDml = false;
+        try {
+            String sql = "merge into " + tableName + " t "
+                    + "using (select 1 as id, 'name1' as name, 10 as age, 1 as score, 1.23 as amount) s "
+                    + "on t.id = s.id "
+                    + "when matched then update set name = s.name";
+            LogicalPlan mergePlan = parseStmt(sql);
+            Plan explainPlan = ((MergeIntoCommand) mergePlan).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan =
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
+
+            PhysicalIcebergMergeSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            Assertions.assertTrue(sink.child() instanceof PhysicalDistribute,
+                    "MERGE cardinality requires row-id routing even when strict consistency is disabled\n"
+                            + physicalPlan.treeString());
+            Assertions.assertTrue(
+                    ((PhysicalDistribute<?>) sink.child()).getDistributionSpec() instanceof DistributionSpecMerge,
+                    "Missing merge distribution spec\n" + physicalPlan.treeString());
+        } finally {
+            connectContext.getSessionVariable().enableIcebergMergePartitioning = previousMergePartitioning;
+            connectContext.getSessionVariable().enableStrictConsistencyDml = previousStrictConsistency;
+        }
+    }
+
+    @Test
     public void testIcebergUpdateCastsConstantForSmallintAndDecimal() throws Exception {
         useIceberg();
         String sql = "update " + tableName + " set score = 1, amount = 1.23 where id = 1";

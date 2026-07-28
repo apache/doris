@@ -75,7 +75,7 @@ Paimon ecosystem matrix are boundary tests rather than positive Doris P0 contrac
 | Paimon | Deletion vectors, upsert/delete visibility and data/system tables | Covered | `test_paimon_deletion_vector`, `paimon_data_system_table`, `paimon_system_table` |
 | Paimon | Catalog/database/table create and drop | Covered | `test_create_paimon_table` |
 | Paimon | Doris data write-back | Negative boundary covered | `test_paimon_write_boundary` |
-| Paimon | Failed CTAS metadata atomicity | Isolated known-bug regression | `test_paimon_ctas_atomicity_negative` |
+| Paimon | Failed CTAS metadata atomicity | Active negative regression | `test_paimon_ctas_atomicity_negative` |
 | Iceberg | V1/V2/V3, Parquet/ORC, position/equality deletes and deletion vectors | Covered | `test_iceberg_position_delete`, `test_iceberg_equality_delete`, `test_iceberg_deletion_vector` |
 | Iceberg | Schema, partition and sort-order evolution | Covered | `test_iceberg_schema_time_travel_matrix`, `test_iceberg_partition_evolution_format_scanner`, `iceberg_schema_change_ddl` |
 | Iceberg | Snapshot/timestamp/tag/branch reads and reference actions | Covered | `test_iceberg_time_travel`, `iceberg_query_tag_branch`, `test_iceberg_schema_ref_actions_matrix` |

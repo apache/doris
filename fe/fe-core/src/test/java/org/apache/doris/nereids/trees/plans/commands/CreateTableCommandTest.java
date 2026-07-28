@@ -36,7 +36,7 @@ import java.util.Optional;
 class CreateTableCommandTest {
 
     @Test
-    void ctasDropsCreatedTableWhenSinkCreationFails() throws Exception {
+    void ctasValidatesSinkBeforePublishingMetadata() throws Exception {
         LogicalPlan query = Mockito.mock(LogicalPlan.class);
         CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
         ConnectContext context = Mockito.mock(ConnectContext.class);
@@ -45,11 +45,6 @@ class CreateTableCommandTest {
         List<String> tableNameParts = ImmutableList.of("catalog", "database", "target");
 
         Mockito.when(createTableInfo.getTableNameParts()).thenReturn(tableNameParts);
-        Mockito.when(createTableInfo.getCtlName()).thenReturn("catalog");
-        Mockito.when(createTableInfo.getDbName()).thenReturn("database");
-        Mockito.when(createTableInfo.getTableName()).thenReturn("target");
-        Mockito.when(env.createTable(createTableInfo)).thenReturn(false);
-
         CreateTableCommand command = Mockito.spy(
                 new CreateTableCommand(Optional.of(query), createTableInfo));
         Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
@@ -65,8 +60,11 @@ class CreateTableCommandTest {
             org.junit.jupiter.api.Assertions.assertThrows(
                     Exception.class, () -> command.run(context, executor));
 
-            Mockito.verify(env).dropTable(
-                    "catalog", "database", "target", false, false, false, false, false, true);
+            Mockito.verify(env, Mockito.never()).createTable(createTableInfo);
+            Mockito.verify(env, Mockito.never()).dropTable(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean());
         }
     }
 }

@@ -18,10 +18,8 @@
 suite("test_iceberg_write_merge_truncate_negative",
         "p0,external,iceberg,external_docker,external_docker_iceberg") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
-    String crashTestEnabled = context.config.otherConfigs.get("enableIcebergCrashTest")
-    if (enabled == null || !enabled.equalsIgnoreCase("true")
-            || crashTestEnabled == null || !crashTestEnabled.equalsIgnoreCase("true")) {
-        logger.info("disable iceberg crash test")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test")
         return
     }
 

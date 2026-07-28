@@ -22,12 +22,6 @@ suite("test_iceberg_write_merge_duplicate_source_negative",
         logger.info("disable iceberg test")
         return
     }
-    String knownBugEnabled = context.config.otherConfigs.get("enableIcebergKnownBugTest")
-    if (knownBugEnabled == null || !knownBugEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Iceberg known-bug test")
-        return
-    }
-
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -88,7 +82,7 @@ suite("test_iceberg_write_merge_duplicate_source_negative",
                 region = s.region,
                 payload = s.payload
         """
-        exception "more than one"
+        exception "multiple source rows matched the same target row"
     }
     assertEquals(snapshotsBefore,
             (sql """select count(*) from duplicate_source_target\$snapshots""")[0][0] as long)

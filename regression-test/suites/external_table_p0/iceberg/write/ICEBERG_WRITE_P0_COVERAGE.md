@@ -70,10 +70,10 @@ under the License.
 | Doris 源 bucket | HASH 固定 bucket、RANDOM bucket、HASH AUTO bucket | 已覆盖（验证通过） | `test_iceberg_write_source_models` |
 | 分区源类型 | STRING/INT/BIGINT/DATE/DATETIME/DECIMAL 的 bucket 与适用 transform；BOOLEAN identity 与非法 bucket | 已覆盖（验证通过） | `test_iceberg_write_partition_types_null` |
 | NULL 分区 | identity NULL、数值/decimal bucket 与 truncate NULL、time transform NULL、多列组合 NULL | 已覆盖（验证通过） | `test_iceberg_write_partition_types_null` |
-| nullable STRING truncate | nullable STRING 经过 truncate transform 的 INSERT，以及 UPDATE 产生的 Nullable projection 写入 | 已覆盖（隔离负向） | `test_iceberg_write_nullable_truncate_negative` |
+| nullable STRING truncate | nullable STRING 经过 truncate transform 的 INSERT，以及 UPDATE 产生的 Nullable projection 写入 | 已覆盖（常规回归） | `test_iceberg_write_nullable_truncate_negative` |
 | MERGE 完整语义 | 条件 MATCHED、DELETE/UPDATE、多个条件 NOT MATCHED、NULL-safe 与普通 NULL key | 已覆盖（验证通过） | `test_iceberg_write_merge_semantics` |
-| MERGE 基数约束 | 多个源行匹配同一目标行必须整句失败且不发布快照 | 已覆盖（隔离负向） | `test_iceberg_write_merge_duplicate_source_negative` |
-| MERGE + STRING truncate | required truncate 源列经 MERGE nullable projection 写入 | 已覆盖（隔离负向） | `test_iceberg_write_merge_truncate_negative` |
+| MERGE 基数约束 | 多个源行匹配同一目标行必须整句失败且不发布快照 | 已覆盖（常规回归） | `test_iceberg_write_merge_duplicate_source_negative` |
+| MERGE + STRING truncate | required truncate 源列经 MERGE nullable projection 写入 | 已覆盖（常规回归） | `test_iceberg_write_merge_truncate_negative` |
 | branch/tag 写入边界 | branch INSERT/OVERWRITE 隔离；tag 写入和 branch DELETE/UPDATE/MERGE 明确拒绝 | 已覆盖（验证通过） | `test_iceberg_write_branch_dml_boundary` |
 | nullable 数据 | 顶层 NULL、ARRAY NULL 元素、MAP NULL value、STRUCT NULL child | 已覆盖并增强 | `test_iceberg_write_insert`、`test_iceberg_write_complex_evolution` |
 | required 列正向与 schema change | required 列合法写入、nullable 列写 NULL、增加 required 列与 nullable→required 拒绝 | 已覆盖（验证通过） | `test_iceberg_write_nullability_atomicity` |
