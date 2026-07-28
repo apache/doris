@@ -1242,6 +1242,7 @@ public class Env {
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
         loadImage(this.imageDir); // load image file
+        seedSelfLocalResourceGroup();
         migrateConstraintsFromTables(); // migrate old table-based constraints
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
@@ -1270,6 +1271,23 @@ public class Env {
         queryCancelWorker.start();
 
         StmtExecutor.initBlockSqlAstNames();
+    }
+
+    private static void seedSelfLocalResourceGroup() {
+        Env env = getCurrentEnv();
+        String selfNodeName = env.getNodeName();
+        if (Strings.isNullOrEmpty(selfNodeName)) {
+            LOG.debug("skip seeding local resource group because self node name is not initialized");
+            return;
+        }
+
+        Frontend selfFrontend = env.frontends.get(selfNodeName);
+        if (selfFrontend == null) {
+            LOG.debug("skip seeding local resource group because self frontend {} is not found", selfNodeName);
+            return;
+        }
+
+        selfFrontend.setLocalResourceGroup(Config.local_resource_group);
     }
 
     // wait until FE is ready.
@@ -1392,6 +1410,7 @@ public class Env {
                 isFirstTimeStartUp = true;
                 Frontend self = new Frontend(role, nodeName, selfNode.getHost(),
                         selfNode.getPort());
+                self.setLocalResourceGroup(Config.local_resource_group);
                 // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
                 // helper node, before the heartbeat thread is started.
                 self.setIsAlive(true);
@@ -1874,6 +1893,7 @@ public class Env {
 
             MetricRepo.init();
 
+            seedSelfLocalResourceGroup();
             toMasterProgress = "finished";
             canRead.set(true);
             isReady.set(true);

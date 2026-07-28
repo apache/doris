@@ -864,6 +864,7 @@ struct TFrontendPingFrontendResult {
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
     10: optional i32 arrowFlightSqlPort
+    11: optional string localResourceGroup
 }
 
 struct TPropertyVal {
@@ -915,6 +916,7 @@ enum TSchemaTableName {
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
   ROLE_MAPPINGS = 17,
+  EXTENSIONS = 18,
 }
 
 struct TMetadataTableRequestParams {

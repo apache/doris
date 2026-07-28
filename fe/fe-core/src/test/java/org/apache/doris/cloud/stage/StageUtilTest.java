@@ -24,7 +24,7 @@ import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -92,7 +92,7 @@ public class StageUtilTest {
 
         try (MockedStatic<FileSystemFactory> mockedFactory = Mockito.mockStatic(FileSystemFactory.class);
                 MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class)))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class)))
                     .thenReturn(mockFs);
             mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(mockCatalog);
 

@@ -17,7 +17,8 @@
 
 package org.apache.doris.datasource.property.common;
 
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
@@ -35,18 +36,20 @@ public final class IcebergAwsAssumeRoleProperties {
 
     /**
      * Puts assume-role related Iceberg client properties into the target map when roleArn is present.
-     * No-op if roleArn is blank.
+     * No-op if roleArn is blank. The adapter must wrap an S3-compatible binding
+     * (legacy getS3IAMRole == SPI getRoleArn, legacy getS3ExternalId == SPI getExternalId).
      */
-    public static void putAssumeRoleProperties(Map<String, String> target, S3Properties s3Properties) {
-        if (StringUtils.isBlank(s3Properties.getS3IAMRole())) {
+    public static void putAssumeRoleProperties(Map<String, String> target, StorageAdapter s3Adapter) {
+        S3CompatibleFileSystemProperties s3 = (S3CompatibleFileSystemProperties) s3Adapter.getSpiProperties();
+        if (StringUtils.isBlank(s3.getRoleArn())) {
             return;
         }
         target.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
-        target.put("aws.region", s3Properties.getRegion());
-        target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3Properties.getRegion());
-        target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, s3Properties.getS3IAMRole());
-        if (StringUtils.isNotBlank(s3Properties.getS3ExternalId())) {
-            target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, s3Properties.getS3ExternalId());
+        target.put("aws.region", s3.getRegion());
+        target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3.getRegion());
+        target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, s3.getRoleArn());
+        if (StringUtils.isNotBlank(s3.getExternalId())) {
+            target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, s3.getExternalId());
         }
     }
 }

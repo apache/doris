@@ -180,7 +180,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
                 }
                 outputBuilder.add(outputSlot);
                 lazyColumnForRel.add(originalColumn);
-                lazyBaseColumnIdxForRel.add(relationTable.getBaseColumnIdxByName(lazySlot.getName()));
+                lazyBaseColumnIdxForRel.add(relationTable.getBaseColumnIdxByName(originalColumn.getName()));
                 lazySlotLocationForRel.add(loc);
                 loc++;
             }

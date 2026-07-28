@@ -33,9 +33,9 @@ class HdfsConfigBuilderTest {
     }
 
     @Test
-    void build_disablesCacheForAllSupportedSchemes() {
+    void build_disablesCacheForAllServedSchemes() {
         Configuration conf = HdfsConfigBuilder.build(Map.of());
-        for (String scheme : HdfsFileSystemProvider.SUPPORTED_SCHEMES) {
+        for (String scheme : HdfsConfigBuilder.CACHE_DISABLE_SCHEMES) {
             Assertions.assertTrue(
                     conf.getBoolean("fs." + scheme + ".impl.disable.cache", false),
                     "fs." + scheme + ".impl.disable.cache should be true");
@@ -43,6 +43,15 @@ class HdfsConfigBuilderTest {
                     conf.getBoolean("fs.AbstractFileSystem." + scheme + ".impl.disable.cache", false),
                     "fs.AbstractFileSystem." + scheme + ".impl.disable.cache should be true");
         }
+    }
+
+    @Test
+    void build_disablesCacheForOssHdfsScheme() {
+        // oss is served by OSS-HDFS (JindoFS) via DFSFileSystem, so its FS cache must be disabled
+        // even though oss:// routing lives in OssHdfsFileSystemProvider, not SUPPORTED_SCHEMES.
+        Configuration conf = HdfsConfigBuilder.build(Map.of());
+        Assertions.assertTrue(conf.getBoolean("fs.oss.impl.disable.cache", false));
+        Assertions.assertTrue(conf.getBoolean("fs.AbstractFileSystem.oss.impl.disable.cache", false));
     }
 
     @Test

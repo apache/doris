@@ -42,26 +42,41 @@ std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc
                        deletion_file.length);
 }
 
+Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
+                                                  size_t& bytes_read) {
+    if (!deletion_file.__isset.path || !deletion_file.__isset.offset ||
+        !deletion_file.__isset.length) {
+        return Status::DataQualityError(
+                "Paimon deletion file descriptor misses path/offset/length");
+    }
+    return validate_paimon_deletion_vector_read_range(deletion_file.offset, deletion_file.length,
+                                                      bytes_read);
+}
+
 Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                             DeletionVector* deletion_vector) {
     if (deletion_vector == nullptr) {
-        return Status::InvalidArgument("deletion_vector must not be null");
+        return Status::InvalidArgument("deletion vector output must not be null");
+    }
+    if (buf == nullptr) {
+        return Status::DataQualityError("Paimon deletion vector blob is null");
     }
     if (buffer_size < 8) [[unlikely]] {
         return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
     }
 
     const uint32_t actual_length = BigEndian::Load32(buf);
-    if (actual_length + 4 != buffer_size) [[unlikely]] {
-        return Status::RuntimeError(
-                "DeletionVector deserialize error: length not match, "
-                "actual length: {}, expect length: {}",
-                actual_length, buffer_size - 4);
+    if (static_cast<uint64_t>(actual_length) + 4 != buffer_size) [[unlikely]] {
+        return Status::DataQualityError(
+                "Paimon deletion vector length mismatch, expected: {}, actual: {}",
+                static_cast<uint64_t>(actual_length) + 4, buffer_size);
     }
 
     if (memcmp(buf + sizeof(actual_length), PAIMON_BITMAP_MAGIC, 4) != 0) [[unlikely]] {
-        return Status::RuntimeError("DeletionVector deserialize error: invalid magic number {}",
-                                    BigEndian::Load32(buf + sizeof(actual_length)));
+        return Status::DataQualityError(
+                "Paimon deletion vector magic number mismatch, expected: {}, actual: {}",
+                BigEndian::Load32(PAIMON_BITMAP_MAGIC),
+                BigEndian::Load32(buf + sizeof(actual_length)));
     }
 
     roaring::Roaring roaring_bitmap;
@@ -158,6 +173,8 @@ Status PaimonOrcReader::_init_deletion_vector() {
         set_push_down_agg_type(TPushAggOp::NONE);
     }
     const auto& deletion_file = table_desc.deletion_file;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
 
     Status create_status = Status::OK();
 
@@ -172,7 +189,7 @@ Status PaimonOrcReader::_init_deletion_vector() {
                 delete_range.__set_fs_name(get_scan_range().fs_name);
                 delete_range.path = deletion_file.path;
                 delete_range.start_offset = deletion_file.offset;
-                delete_range.size = deletion_file.length + 4;
+                delete_range.size = static_cast<int64_t>(bytes_read);
                 delete_range.file_size = -1;
 
                 DeletionVectorReader dv_reader(get_state(), get_profile(), get_scan_params(),
@@ -182,7 +199,6 @@ Status PaimonOrcReader::_init_deletion_vector() {
                     return nullptr;
                 }
 
-                size_t bytes_read = deletion_file.length + 4;
                 std::vector<char> buffer(bytes_read);
                 create_status =
                         dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});
@@ -264,6 +280,8 @@ Status PaimonParquetReader::_init_deletion_vector() {
         set_push_down_agg_type(TPushAggOp::NONE);
     }
     const auto& deletion_file = table_desc.deletion_file;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_descriptor(deletion_file, bytes_read));
 
     Status create_status = Status::OK();
 
@@ -278,7 +296,7 @@ Status PaimonParquetReader::_init_deletion_vector() {
                 delete_range.__set_fs_name(get_scan_range().fs_name);
                 delete_range.path = deletion_file.path;
                 delete_range.start_offset = deletion_file.offset;
-                delete_range.size = deletion_file.length + 4;
+                delete_range.size = static_cast<int64_t>(bytes_read);
                 delete_range.file_size = -1;
 
                 DeletionVectorReader dv_reader(get_state(), get_profile(), get_scan_params(),
@@ -288,7 +306,6 @@ Status PaimonParquetReader::_init_deletion_vector() {
                     return nullptr;
                 }
 
-                size_t bytes_read = deletion_file.length + 4;
                 std::vector<char> buffer(bytes_read);
                 create_status =
                         dv_reader.read_at(deletion_file.offset, {buffer.data(), bytes_read});

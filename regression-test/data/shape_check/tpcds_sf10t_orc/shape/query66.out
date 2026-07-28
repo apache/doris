@@ -32,7 +32,7 @@ PhysicalResultSink
 ------------------------------------filter((time_dim.t_time <= 38253) and (time_dim.t_time >= 9453))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(sm_carrier IN ('GERMA', 'MSC'))
+--------------------------------filter(ship_mode.sm_carrier IN ('GERMA', 'MSC'))
 ----------------------------------PhysicalOlapScan[ship_mode]
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
@@ -56,6 +56,6 @@ PhysicalResultSink
 ------------------------------------filter((time_dim.t_time <= 38253) and (time_dim.t_time >= 9453))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(sm_carrier IN ('GERMA', 'MSC'))
+--------------------------------filter(ship_mode.sm_carrier IN ('GERMA', 'MSC'))
 ----------------------------------PhysicalOlapScan[ship_mode]
 

@@ -93,9 +93,12 @@ public class ImportAction extends RestBaseController {
 
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
         try {
+            // Concrete filesystems only accept their native schemes; normalize legacy compatibility
+            // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
+            String fileUrl = brokerDesc.getFileLocation(fileInfo.getFileUrl());
             // get file status
             try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
-                for (FileEntry e : fs.listFiles(Location.of(fileInfo.getFileUrl()))) {
+                for (FileEntry e : fs.listFiles(Location.of(fileUrl))) {
                     fileStatuses.add(new TBrokerFileStatus(
                             e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
                 }

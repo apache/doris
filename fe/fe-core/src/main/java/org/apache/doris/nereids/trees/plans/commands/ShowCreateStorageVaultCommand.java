@@ -28,7 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -133,8 +133,8 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
         properties.put("s3.bucket", objectInfo.getBucket());
         if (objectInfo.hasCredProviderType()
                 && objectInfo.getCredProviderType() == Cloud.CredProviderTypePB.GCP_WORKLOAD_IDENTITY) {
-            properties.put(S3Properties.CREDENTIALS_PROVIDER_TYPE,
-                    S3Properties.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER);
+            properties.put(S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE,
+                    S3ResourceCompat.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER);
         } else {
             properties.put("s3.access_key", objectInfo.getAk());
             properties.put("s3.secret_key", objectInfo.getSk());

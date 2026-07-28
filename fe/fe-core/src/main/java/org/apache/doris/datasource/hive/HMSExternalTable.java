@@ -50,7 +50,8 @@ import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.SysTable;
@@ -464,6 +465,28 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return hivePartitionValues.getSortedPartitionRanges();
     }
 
+    @Override
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        // For Hive, read the cached HivePartitionValues once and freeze both the partition
+        // map and the cached sortedPartitionRanges from the same snapshot. This reuses the
+        // cached sorted ranges (no just-in-time rebuild) and keeps the two views consistent,
+        // avoiding the TOCTOU divergence where sortedPartitionRanges was re-read from cache
+        // at pruning time while the partition map was frozen earlier.
+        if (getDlaType() != DLAType.HIVE) {
+            return super.initSelectedPartitions(snapshot);
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        HiveExternalMetaCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        Map<String, PartitionItem> nameToPartitionItems = hivePartitionValues.getNameToPartitionItem();
+        Optional<SortedPartitionRanges<String>> sortedPartitionRanges
+                = hivePartitionValues.getSortedPartitionRanges();
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false, false,
+                sortedPartitionRanges);
+    }
+
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
         if (getDlaType() != DLAType.HUDI) {
             return SelectedPartitions.NOT_PRUNED;
@@ -482,6 +505,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             nameToPartitionItems.put(idToNameMap.get(entry.getKey()), entry.getValue());
         }
 
+        // Hudi has no cached sorted ranges; leave it empty here and let PruneFileScanPartition
+        // build it lazily from this frozen map only when binary search filtering is enabled.
         return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
@@ -665,8 +690,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return catalog.getProperties();
     }
 
-    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
-        return catalog.getCatalogProperty().getStoragePropertiesMap();
+    /** SPI-facade map of this table's catalog storage bindings, keyed by storage type id. */
+    public Map<StorageTypeId, StorageAdapter> getStorageAdaptersMap() {
+        return catalog.getCatalogProperty().getStorageAdaptersMap();
     }
 
     public Map<String, String> getBackendStorageProperties() {

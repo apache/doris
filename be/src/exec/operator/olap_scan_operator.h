@@ -33,6 +33,8 @@
 
 namespace doris {
 class OlapScanner;
+class QueryCacheRuntime;
+struct QueryCacheInstanceDecision;
 } // namespace doris
 
 namespace doris {
@@ -343,6 +345,12 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 
+    // The per-instance query cache decision shared with the cache source
+    // operator of the same fragment. Null when the query cache is disabled.
+    // HIT: leave _scan_ranges empty so nothing is scanned; INCREMENTAL: scan
+    // only the pre-captured delta read sources in (cached, current] version.
+    std::shared_ptr<QueryCacheInstanceDecision> _query_cache_decision;
+
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
 
     // ---- Runtime-filter partition pruning ----
@@ -358,7 +366,8 @@ class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
-                      const TQueryCacheParam& cache_param);
+                      const TQueryCacheParam& cache_param,
+                      std::shared_ptr<QueryCacheRuntime> query_cache_runtime = nullptr);
 
     Status prepare(RuntimeState* state) override;
 
@@ -374,6 +383,10 @@ private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    // Shared with the cache source operator of the same fragment so both
+    // consume the same per-instance cache decision (see QueryCacheRuntime).
+    // Null when the query cache is disabled.
+    std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
     TabletSchemaSPtr _tablet_schema;
 };
 

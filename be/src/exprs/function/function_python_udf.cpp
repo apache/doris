@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "udf/python/python_server.h"
 #include "udf/python/python_udf_client.h"
@@ -144,7 +145,8 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     if (arguments.empty()) {
         RETURN_IF_ERROR(make_zero_column_arrow_batch(schema, input_rows, &input_batch));
     } else {
-        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
+        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema,
+                                               ExecEnv::GetInstance()->arrow_memory_pool(),
                                                &input_batch, _timezone_obj));
     }
     RETURN_IF_ERROR(client->evaluate(*input_batch, &output_batch));

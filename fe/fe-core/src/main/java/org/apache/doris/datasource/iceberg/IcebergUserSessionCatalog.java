@@ -20,7 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 
-import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 
 /**
  * Capability interface for an Iceberg catalog that supports per-user dynamic session
@@ -47,7 +47,7 @@ public interface IcebergUserSessionCatalog {
     boolean useSessionCatalog(SessionContext ctx);
 
     /** The session-aware Iceberg REST catalog backing this catalog (may be null before initialization). */
-    RESTSessionCatalog getRestSessionCatalog();
+    BaseViewSessionCatalog getRestSessionCatalog();
 
     /** The delegated-token mode used when attaching the user's credential to session requests. */
     IcebergRestProperties.DelegatedTokenMode getDelegatedTokenMode();

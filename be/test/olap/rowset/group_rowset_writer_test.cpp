@@ -92,8 +92,9 @@ protected:
         testutil::enable_row_binlog(&_request);
         _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 5);
         _request.row_binlog_schema.columns.erase(_request.row_binlog_schema.columns.begin() + 2);
-        _request.row_binlog_schema.columns[5].__set_is_allow_null(true);
-        _request.row_binlog_schema.columns[6].__set_is_allow_null(true);
+        _request.row_binlog_schema.__set_binlog_tso_idx(4);
+        _request.row_binlog_schema.__set_binlog_lsn_idx(5);
+        _request.row_binlog_schema.__set_binlog_op_idx(6);
         auto profile = std::make_unique<RuntimeProfile>("GroupRowsetWriterTest");
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
@@ -298,8 +299,8 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
 
     auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
     lsn_buffer->append_range_for_test(1000, 1);
-    std::shared_ptr<std::vector<int64_t>> lsn_ids;
-    ASSERT_TRUE(allocate_binlog_lsn(lsn_buffer, 1, &lsn_ids).ok());
+    auto lsn_ids = std::make_shared<std::vector<int64_t>>();
+    ASSERT_TRUE(allocate_binlog_lsn(lsn_buffer, 1, *lsn_ids).ok());
     binlog_options.insert_seg_lsn(0, lsn_ids);
 
     auto row_binlog_writer_res = _tablet->create_rowset_writer(row_binlog_context, false);
@@ -335,11 +336,9 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     EXPECT_EQ(1001, (*output_block.get_by_position(1).column)[0].get<TYPE_BIGINT>());
     EXPECT_EQ(20, (*output_block.get_by_position(2).column)[0].get<TYPE_INT>());
     EXPECT_TRUE(output_block.get_by_position(3).column->is_null_at(0));
-    EXPECT_EQ(static_cast<int128_t>(1000),
-              (*output_block.get_by_position(4).column)[0].get<TYPE_LARGEINT>());
-    EXPECT_FALSE(output_block.get_by_position(5).column->is_null_at(0));
-    EXPECT_EQ(ROW_BINLOG_APPEND, (*output_block.get_by_position(5).column)[0].get<TYPE_BIGINT>());
-    EXPECT_TRUE(output_block.get_by_position(6).column->is_null_at(0));
+    EXPECT_TRUE(output_block.get_by_position(4).column->is_null_at(0));
+    EXPECT_EQ(1000, (*output_block.get_by_position(5).column)[0].get<TYPE_BIGINT>());
+    EXPECT_EQ(ROW_BINLOG_APPEND, (*output_block.get_by_position(6).column)[0].get<TYPE_BIGINT>());
 
     Block eof_block = row_binlog_schema->create_block();
     status = rowset_reader->next_batch(&eof_block);

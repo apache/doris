@@ -20,6 +20,8 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -40,6 +42,8 @@ class RuntimeState;
 class Dependency;
 
 class VIcebergDeleteFileWriter;
+
+Status calculate_iceberg_deletion_vector_content_size(size_t bitmap_size, int64_t* content_size);
 
 struct IcebergFileDeletion {
     IcebergFileDeletion() = default;

@@ -21,8 +21,10 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class NormalizeRepeatTest implements MemoPatternMatchSupported {
@@ -91,5 +94,32 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
                 .matchesFromRoot(
                         logicalAggregate(logicalRepeat(logicalOlapScan()))
                 );
+    }
+
+    @Test
+    public void testDeduplicateGroupingScalarFunctions() {
+        Slot id = scan1.getOutput().get(0);
+        Slot name = scan1.getOutput().get(1);
+        Alias firstGroupingId = new Alias(new GroupingId(name), "first_grouping_id");
+        Alias secondGroupingId = new Alias(new GroupingId(name), "second_grouping_id");
+        LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(id, firstGroupingId, secondGroupingId),
+                RepeatType.GROUPING_SETS,
+                scan1
+        );
+
+        LogicalAggregate<Plan> normalizedAggregate = NormalizeRepeat.doNormalize(repeat);
+        LogicalRepeat<Plan> normalizedRepeat = (LogicalRepeat<Plan>) normalizedAggregate.child();
+        long groupingFunctionCount = normalizedRepeat.getOutputExpressions().stream()
+                .filter(expression -> expression instanceof Alias
+                        && ((Alias) expression).child() instanceof GroupingScalarFunction)
+                .count();
+
+        Assertions.assertEquals(1, groupingFunctionCount);
+        Assertions.assertEquals(3, normalizedAggregate.getOutputExpressions().size());
+        Assertions.assertEquals(
+                ((Alias) normalizedAggregate.getOutputExpressions().get(1)).child(),
+                ((Alias) normalizedAggregate.getOutputExpressions().get(2)).child());
     }
 }

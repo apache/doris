@@ -378,7 +378,7 @@ PhysicalResultSink
 -- !check_filter_slots_preserved_pushdown --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----filter(OR[( not (id = 1)),id IS NULL])
+----filter(OR[( not (b.id = 1)),b.id IS NULL])
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((a.id = b.id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[eager_agg_filter_t1(a)]

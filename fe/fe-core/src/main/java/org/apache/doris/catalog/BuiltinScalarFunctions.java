@@ -103,10 +103,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitTest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCountAlias;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
@@ -286,7 +283,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -679,10 +675,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitLength.class, "bit_length"),
             scalar(BitmapAnd.class, "bitmap_and"),
             scalar(BitmapAndCount.class, "bitmap_and_count"),
-            scalar(BitmapAndNot.class, "bitmap_and_not"),
-            scalar(BitmapAndNotAlias.class, "bitmap_andnot"),
-            scalar(BitmapAndNotCount.class, "bitmap_and_not_count"),
-            scalar(BitmapAndNotCountAlias.class, "bitmap_andnot_count"),
+            scalar(BitmapAndNotCount.class, "bitmap_and_not_count", "bitmap_andnot_count"),
             scalar(BitmapContains.class, "bitmap_contains"),
             scalar(BitmapCount.class, "bitmap_count"),
             scalar(BitmapEmpty.class, "bitmap_empty"),
@@ -695,7 +688,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapHash64.class, "bitmap_hash64"),
             scalar(BitmapMax.class, "bitmap_max"),
             scalar(BitmapMin.class, "bitmap_min"),
-            scalar(BitmapNot.class, "bitmap_not"),
+            scalar(BitmapNot.class, "bitmap_not", "bitmap_and_not", "bitmap_andnot"),
             scalar(BitmapOr.class, "bitmap_or"),
             scalar(BitmapOrCount.class, "bitmap_or_count"),
             scalar(BitmapRemove.class, "bitmap_remove"),
@@ -864,7 +857,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonObjectFlatten.class, "json_object_flatten"),
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
-            scalar(JsonExtractNoQuotes.class, "json_extract_no_quotes"),
             scalar(JsonHash.class, "json_hash"),
             scalar(JsonHash.class, "jsonb_hash"),
             scalar(JsonInsert.class, "json_insert", "jsonb_insert"),
@@ -881,7 +873,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbExtractInt.class, "jsonb_extract_int", "json_extract_int", "get_json_int"),
             scalar(JsonbExtractIsnull.class, "json_extract_isnull"),
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
-            scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string", "get_json_string"),
+            scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string",
+                    "json_extract_no_quotes", "get_json_string"),
             scalar(JsonbParse.class, "jsonb_parse", "json_parse"),
             scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null", "json_parse_error_to_null"),
             scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value", "json_parse_error_to_value"),

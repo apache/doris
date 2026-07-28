@@ -60,7 +60,7 @@ public class PaimonVendedCredentialsProvider extends AbstractVendedCredentialsPr
         RESTToken restToken = restTokenFileIO.validToken();
         Map<String, String> tokens = restToken.token();
 
-        // Convert the original token to OSS format properties, let StorageProperties.createAll() further convert
+        // Convert the original token to OSS format properties, let StorageAdapter.ofAll() further convert
         Map<String, String> rawProperties = Maps.newHashMap();
         rawProperties.putAll(tokens);
 

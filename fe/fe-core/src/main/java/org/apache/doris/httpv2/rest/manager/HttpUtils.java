@@ -135,7 +135,9 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        try (CloseableHttpClient client = Config.enable_https
+        // Pick client by this request's own scheme, since this method also serves plain http BE calls.
+        boolean useHttpsClient = "https".equalsIgnoreCase(request.getURI().getScheme());
+        try (CloseableHttpClient client = useHttpsClient
                 ? InternalHttpsUtils.createValidatedHttpClient()
                 : HttpClientBuilder.create().build()) {
             return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));

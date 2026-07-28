@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.aws.glue.GlueCatalog;
@@ -42,7 +42,7 @@ public class IcebergGlueMetaStorePropertiesTest {
                 "warehouse", "s3://my-bucket/warehouse");
         IcebergGlueMetaStoreProperties properties = (IcebergGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
         Assertions.assertEquals("glue", properties.getIcebergCatalogType());
-        Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageProperties.createAll(baseProps));
+        Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageAdapter.ofAll(baseProps));
         Assertions.assertEquals(GlueCatalog.class, catalog.getClass());
     }
 
@@ -60,7 +60,7 @@ public class IcebergGlueMetaStorePropertiesTest {
                 "s3.endpoint", "https://s3.us-west-2.amazonaws.com"
         );
         IcebergGlueMetaStoreProperties properties = (IcebergGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
-        Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageProperties.createAll(baseProps));
+        Catalog catalog = properties.initializeCatalog("iceberg_catalog", StorageAdapter.ofAll(baseProps));
         Assertions.assertEquals(GlueCatalog.class, catalog.getClass());
     }
 }

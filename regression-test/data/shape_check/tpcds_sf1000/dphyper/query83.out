@@ -27,7 +27,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8
 ----------------------------------------PhysicalProject
-------------------------------------------filter(d_date IN ('2001-07-13', '2001-09-10', '2001-11-16'))
+------------------------------------------filter(date_dim.d_date IN ('2001-07-13', '2001-09-10', '2001-11-16'))
 --------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[item] apply RFs: RF12 RF13
@@ -49,7 +49,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
 ----------------------------------------PhysicalProject
-------------------------------------------filter(d_date IN ('2001-07-13', '2001-09-10', '2001-11-16'))
+------------------------------------------filter(date_dim.d_date IN ('2001-07-13', '2001-09-10', '2001-11-16'))
 --------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[item] apply RFs: RF14
@@ -71,7 +71,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
 ------------------------------------PhysicalProject
---------------------------------------filter(d_date IN ('2001-07-13', '2001-09-10', '2001-11-16'))
+--------------------------------------filter(date_dim.d_date IN ('2001-07-13', '2001-09-10', '2001-11-16'))
 ----------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[item]

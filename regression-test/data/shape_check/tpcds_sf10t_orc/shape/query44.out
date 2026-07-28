@@ -38,7 +38,7 @@ PhysicalResultSink
 ----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------hashAgg[LOCAL]
 --------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 366) and ss_cdemo_sk IS NULL)
+----------------------------------------------------------filter((store_sales.ss_store_sk = 366) and store_sales.ss_cdemo_sk IS NULL)
 ------------------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------PhysicalProject
 --------------------------filter((V21.rnk < 11))
@@ -64,7 +64,7 @@ PhysicalResultSink
 ----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------------hashAgg[LOCAL]
 --------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 366) and ss_cdemo_sk IS NULL)
+----------------------------------------------------------filter((store_sales.ss_store_sk = 366) and store_sales.ss_cdemo_sk IS NULL)
 ------------------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalProject
 ------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i2.i_product_name)]

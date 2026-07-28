@@ -25,6 +25,6 @@ import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 public class OssFileSystem extends S3CompatibleFileSystem {
 
     public OssFileSystem(OssObjStorage objStorage) {
-        super(objStorage, objStorage.isUsePathStyle());
+        super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
     }
 }

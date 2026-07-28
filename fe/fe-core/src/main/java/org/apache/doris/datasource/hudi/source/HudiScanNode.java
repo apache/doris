@@ -422,7 +422,7 @@ public class HudiScanNode extends HiveScanNode {
 
                 long fileSize = baseFile.getFileSize();
                 // Need add hdfs host to location
-                LocationPath locationPath = LocationPath.of(filePath, hmsTable.getStoragePropertiesMap());
+                LocationPath locationPath = LocationPath.ofAdapters(filePath, hmsTable.getStorageAdaptersMap());
                 HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
                         new String[0], partition.getPartitionValues());
                 hudiSplit.setTableFormatType(TableFormatType.HUDI);
@@ -587,7 +587,7 @@ public class HudiScanNode extends HiveScanNode {
 
         // no base file, use log file to parse file type
         String agencyPath = filePath.isEmpty() ? logs.get(0) : filePath;
-        LocationPath locationPath = LocationPath.of(agencyPath, hmsTable.getStoragePropertiesMap());
+        LocationPath locationPath = LocationPath.ofAdapters(agencyPath, hmsTable.getStorageAdaptersMap());
         HudiSplit split = new HudiSplit(locationPath,
                 0, fileSize, fileSize, new String[0], partitionValues);
         split.setTableFormatType(TableFormatType.HUDI);

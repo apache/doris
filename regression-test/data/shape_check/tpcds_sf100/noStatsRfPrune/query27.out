@@ -28,6 +28,6 @@ PhysicalResultSink
 ----------------------------filter((date_dim.d_year = 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalProject
-------------------------filter(s_state IN ('AL', 'LA', 'MI', 'MO', 'SC', 'TN'))
+------------------------filter(store.s_state IN ('AL', 'LA', 'MI', 'MO', 'SC', 'TN'))
 --------------------------PhysicalOlapScan[store]
 

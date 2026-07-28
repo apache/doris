@@ -25,7 +25,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -41,13 +40,17 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
 import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.EqualityDelete;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
@@ -63,7 +66,6 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -94,8 +96,8 @@ import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
@@ -103,11 +105,8 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
-import org.apache.iceberg.mapping.MappedField;
-import org.apache.iceberg.mapping.MappedFields;
-import org.apache.iceberg.mapping.NameMapping;
-import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
@@ -121,17 +120,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
+    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
     private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
 
     private IcebergSource source;
@@ -155,7 +157,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private TableScan icebergTableScan;
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
     private long manifestCacheHits;
     private long manifestCacheMisses;
@@ -164,7 +166,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // Cached values for LocationPath creation optimization
     // These are lazily initialized on first use to avoid parsing overhead for each file
     private boolean locationPathCacheInitialized = false;
-    private StorageProperties cachedStorageProperties;
+    private StorageAdapter cachedStorageProperties;
     private String cachedSchema;
     private String cachedFsIdPrefix;
     // Cache for path prefix transformation to avoid repeated S3URI parsing
@@ -253,7 +255,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
             storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                     source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
+                    source.getCatalog().getCatalogProperty().getStorageAdaptersMap(),
                     icebergTable
             );
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
@@ -265,38 +267,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.doInitialize();
     }
 
-    /**
-     * Extract name mapping from Iceberg table properties.
-     * Returns a map from field ID to list of mapped names.
-     */
-    private Map<Integer, List<String>> extractNameMapping() {
-        Map<Integer, List<String>> result = new HashMap<>();
-        try {
-            String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
-            if (nameMappingJson != null && !nameMappingJson.isEmpty()) {
-                NameMapping mapping = NameMappingParser.fromJson(nameMappingJson);
-                if (mapping != null) {
-                    // Extract mappings from NameMapping
-                    // NameMapping contains field mappings, we need to convert them to our format
-                    extractMappingsFromNameMapping(mapping.asMappedFields(), result);
-                }
-            }
-        } catch (Exception e) {
-            // If name mapping parsing fails, continue without it
-            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
+    private Optional<Map<Integer, List<String>>> extractNameMapping() {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            // The mapping must come from the same metadata generation as the pinned schema; a
+            // property-only refresh can otherwise change alias semantics within one statement.
+            return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getNameMapping();
         }
-        return result;
-    }
-
-    private void extractMappingsFromNameMapping(MappedFields mappingFields, Map<Integer, List<String>> result) {
-        if (mappingFields == null) {
-            return;
-        }
-        for (MappedField mappedField : mappingFields.fields()) {
-            result.put(mappedField.id(), new ArrayList<>(mappedField.names()));
-            extractMappingsFromNameMapping(mappedField.nestedMapping(), result);
-        }
-
+        return IcebergUtils.getNameMapping(icebergTable);
     }
 
     @Override
@@ -325,6 +303,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             rangeDesc.unsetColumnsFromPathIsNull();
             return;
         }
+        // update for every split file format
+        rangeDesc.setFormatType(toTFileFormatType(icebergSplit.getSplitFileFormat()));
         if (tableLevelPushDownCount) {
             tableFormatFileDesc.setTableLevelRowCount(icebergSplit.getTableLevelRowCount());
         } else {
@@ -350,7 +330,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                LocationPath locationPath = LocationPath.of(deleteFilePath, icebergSplit.getConfig());
+                LocationPath locationPath = LocationPath.ofAdapters(deleteFilePath, icebergSplit.getConfig());
                 deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
                 setDeleteFileFormat(deleteFileDesc, filter.getFileformat());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
@@ -494,6 +474,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
+    private TFileFormatType toTFileFormatType(FileFormat fileFormat) {
+        if (fileFormat == FileFormat.PARQUET) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (fileFormat == FileFormat.ORC) {
+            return TFileFormatType.FORMAT_ORC;
+        }
+        throw new UnsupportedOperationException("Unsupported Iceberg data file format: " + fileFormat);
+    }
+
     private String getDeleteFileContentType(int content) {
         // Iceberg file type: 0: data, 1: position delete, 2: equality delete, 3: deletion vector
         switch (content) {
@@ -517,14 +506,28 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
+        enableCurrentIcebergScanSemantics();
         // Extract name mapping from Iceberg table properties
-        Map<Integer, List<String>> nameMapping = extractNameMapping();
+        initializeIcebergSchemaInfo(extractNameMapping());
+    }
 
+    @VisibleForTesting
+    void initializeIcebergSchemaInfo(Optional<Map<Integer, List<String>>> nameMapping) throws UserException {
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
         // projection. Both scanners need the complete current schema to resolve field ids,
         // historical names, types, and initial defaults when an old data file lacks such a key.
+        // An identity partition column can also be a physical field in files written by an older
+        // partition spec, so preserving the complete schema is required for partition evolution.
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
-                nameMapping, getBase64EncodedInitialDefaultsForScan());
+                nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
+                getBase64EncodedInitialDefaultsForScan());
+    }
+
+    @VisibleForTesting
+    void enableCurrentIcebergScanSemantics() {
+        // This explicit capability is the rollout boundary: old FE plans must keep legacy values
+        // when fragments run on a mixture of old and new BEs.
+        params.setIcebergScanSemanticsVersion(ICEBERG_SCAN_SEMANTICS_VERSION);
     }
 
     @VisibleForTesting
@@ -535,17 +538,22 @@ public class IcebergScanNode extends FileQueryScanNode {
             // schema that produced source.getTargetTable().getColumns() to keep defaults aligned.
             return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
         }
-        TableScan tableScan = createTableScan();
-        Snapshot snapshot = tableScan.snapshot();
-        // TableScan.schema() starts from the table's current schema even for useSnapshot/useRef.
-        // Resolve the selected snapshot's schema id explicitly so this metadata describes the same
-        // snapshot as source.getTargetTable().getColumns(). Otherwise a later type change can make
-        // BE decode a historical non-binary default as Base64, or fail to decode a binary default.
-        Schema scanSchema = snapshot == null
-                ? tableScan.schema()
-                : tableScan.table().schemas().get(snapshot.schemaId());
+        IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
+        Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        Schema scanSchema = null;
+        if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
+            long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
+                    .getSnapshotCacheValue().getSnapshot().getSchemaId();
+            scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
+        } else {
+            scanSchema = selectedSnapshot == null
+                    ? icebergTable.schema()
+                    : icebergTable.schemas().get(selectedSnapshot.getSchemaId());
+        }
+        // A branch can expose a schema newer than its data snapshot. The statement-pinned schema
+        // produced the target columns, so default markers must not be recomputed from that snapshot.
         return IcebergUtils.getBase64EncodedInitialDefaults(
-                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan snapshot is null"));
+                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
     }
 
     @Override
@@ -674,9 +682,68 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
+        // Doris reads normal Iceberg table files in BE and applies column pruning through scan range params.
+        // System tables are different: Iceberg SDK DataTask materializes rows using the projected scan
+        // schema. Keep Doris file slots in the same order as the JNI reader's required fields.
+        if (isSystemTable) {
+            Schema projectedSchema = getSystemTableProjectedSchema(expressions, scan.isCaseSensitive());
+            Preconditions.checkState(!projectedSchema.columns().isEmpty(),
+                    "Iceberg system table scan must materialize at least one file slot");
+            scan = scan.project(projectedSchema);
+        }
+
         icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
         return icebergTableScan;
+    }
+
+    @VisibleForTesting
+    Schema getSystemTableProjectedSchema(List<Expression> expressions, boolean caseSensitive)
+            throws UserException {
+        List<NestedField> projectedFields = new ArrayList<>();
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        List<String> partitionKeys = getPathPartitionKeys();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            Column column = slot.getColumn();
+            String columnName = column.getName();
+            if (!isFileSlot(classifyColumn(slot, partitionKeys))) {
+                continue;
+            }
+
+            NestedField field = caseSensitive
+                    ? icebergTable.schema().findField(columnName)
+                    : icebergTable.schema().caseInsensitiveFindField(columnName);
+            if (field == null) {
+                throw new UserException("Column " + columnName + " not found in Iceberg system table schema");
+            }
+            if (projectedFieldIds.add(field.fieldId())) {
+                projectedFields.add(field);
+            }
+        }
+
+        Set<Integer> filterFieldIds = Binder.boundReferences(
+                icebergTable.schema().asStruct(), expressions, caseSensitive);
+        for (Integer fieldId : filterFieldIds) {
+            NestedField field = getTopLevelSystemTableField(fieldId);
+            if (field == null) {
+                throw new UserException(
+                        "Column with field id " + fieldId + " not found in Iceberg system table schema");
+            }
+            if (!projectedFieldIds.contains(field.fieldId())) {
+                throw new UserException("Iceberg system table filter column " + field.name()
+                        + " is not materialized by the planner");
+            }
+        }
+        return new Schema(projectedFields);
+    }
+
+    private NestedField getTopLevelSystemTableField(int fieldId) {
+        for (NestedField field : icebergTable.schema().columns()) {
+            if (field.fieldId() == fieldId || TypeUtil.getProjectedIds(field.type()).contains(fieldId)) {
+                return field;
+            }
+        }
+        return null;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
@@ -873,8 +940,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private void initLocationPathCache(String samplePath) {
         try {
             // Create a LocationPath using the full method to get all cached values
-            LocationPath sampleLocationPath = LocationPath.of(samplePath, storagePropertiesMap);
-            cachedStorageProperties = sampleLocationPath.getStorageProperties();
+            LocationPath sampleLocationPath = LocationPath.ofAdapters(samplePath, storagePropertiesMap);
+            cachedStorageProperties = sampleLocationPath.getStorageAdapter();
             cachedSchema = sampleLocationPath.getSchema();
             cachedFsIdentifier = sampleLocationPath.getFsIdentifier();
 
@@ -922,13 +989,13 @@ public class IcebergScanNode extends FileQueryScanNode {
             return LocationPath.ofDirect(normalizedPath, cachedSchema, cachedFsIdentifier, cachedStorageProperties);
         }
 
-        // Medium path: use cached StorageProperties but still need validateAndNormalizeUri
+        // Medium path: use cached StorageAdapter but still need validateAndNormalizeUri
         if (cachedStorageProperties != null) {
             return LocationPath.ofWithCache(path, cachedStorageProperties, cachedSchema, cachedFsIdPrefix);
         }
 
         // Fallback to full parsing
-        return LocationPath.of(path, storagePropertiesMap);
+        return LocationPath.ofAdapters(path, storagePropertiesMap);
     }
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
@@ -945,6 +1012,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 storagePropertiesMap,
                 new ArrayList<>(),
                 originalPath);
+        split.setSplitFileFormat(dataFile.format());
         if (formatVersion >= 3) {
             // -1 means that this table was just upgraded from v2 to v3.
             // _row_id and _last_updated_sequence_number column is NULL.
@@ -1003,10 +1071,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setPositionDeleteFileFormat(getNativePositionDeleteFileFormat(deleteFile.format()));
         split.setPositionDeleteOriginalPath(originalPath);
         if (deleteFile.format() == FileFormat.PUFFIN) {
+            Long contentOffset = deleteFile.contentOffset();
+            Long contentLength = deleteFile.contentSizeInBytes();
+            IcebergDeleteFileFilter.validateDeletionVectorMetadata(
+                    originalPath, deleteFile.fileSizeInBytes(), contentOffset, contentLength);
             split.setPositionDeleteContent(IcebergDeleteFileFilter.DeletionVector.type());
             split.setPositionDeleteReferencedDataFilePath(deleteFile.referencedDataFile());
-            split.setPositionDeleteContentOffset(deleteFile.contentOffset());
-            split.setPositionDeleteContentSizeInBytes(deleteFile.contentSizeInBytes());
+            split.setPositionDeleteContentOffset(contentOffset);
+            split.setPositionDeleteContentSizeInBytes(contentLength);
         } else {
             split.setPositionDeleteContent(IcebergDeleteFileFilter.PositionDelete.type());
         }
@@ -1199,7 +1271,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean isPositionDeletesSystemTable() {
         TableIf targetTable = source.getTargetTable();
         return targetTable instanceof IcebergSysExternalTable
-                && "position_deletes".equalsIgnoreCase(((IcebergSysExternalTable) targetTable).getSysTableType());
+                && ((IcebergSysExternalTable) targetTable).isPositionDeletesTable();
     }
 
     private List<Split> doGetPositionDeletesSystemTableSplits() throws UserException {
@@ -1275,8 +1347,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (cached != null) {
             return cached;
         }
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT)) {
+        if (isTableLevelCountStarPushdown()) {
             try {
                 countFromSnapshot = getCountFromSnapshot();
             } catch (UserException e) {
@@ -1367,16 +1438,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (isSystemTable) {
             return TFileFormatType.FORMAT_JNI;
         }
-        TFileFormatType type;
-        String icebergFormat = source.getFileFormat();
-        if (icebergFormat.equalsIgnoreCase("parquet")) {
-            type = TFileFormatType.FORMAT_PARQUET;
-        } else if (icebergFormat.equalsIgnoreCase("orc")) {
-            type = TFileFormatType.FORMAT_ORC;
-        } else {
-            throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
-        }
-        return type;
+        // for table level file format
+        return toTFileFormatType(IcebergUtils.getFileFormat(icebergTable));
     }
 
     @Override

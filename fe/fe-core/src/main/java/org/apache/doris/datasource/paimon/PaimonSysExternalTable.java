@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalTable;
@@ -131,6 +132,29 @@ public class PaimonSysExternalTable extends ExternalTable {
             }
         }
         return paimonSysTable;
+    }
+
+    public Table getSysPaimonTable(TableScanParams scanParams) {
+        Table table = getSysPaimonTable();
+        if (scanParams == null || !scanParams.isOptions()) {
+            return table;
+        }
+        Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
+                options -> PaimonScanParams.resolveOptions(sourceTable.getBasePaimonTable(), options));
+        if (PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
+            // Generic system-table wrappers cannot carry Paimon's manifest-entry predicate.
+            // Reject the fallback instead of silently widening it to the whole pinned snapshot.
+            throw new IllegalArgumentException(
+                    "Paimon system tables cannot apply a creation-time file filter.");
+        }
+        return PaimonScanParams.applyOptions(table, resolvedOptions);
+    }
+
+    public List<Column> getFullSchema(TableScanParams scanParams) {
+        Table table = getSysPaimonTable(scanParams);
+        return PaimonUtil.parseSchema(table,
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz());
     }
 
     /**

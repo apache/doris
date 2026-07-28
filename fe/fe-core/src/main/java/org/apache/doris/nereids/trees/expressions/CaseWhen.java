@@ -168,6 +168,18 @@ public class CaseWhen extends Expression implements NeedSessionVarGuard, NullToN
     }
 
     @Override
+    public String shapeInfo() {
+        StringBuilder output = new StringBuilder("CASE");
+        value.ifPresent(v -> output.append(" ").append(v.shapeInfo()));
+        for (WhenClause whenClause : whenClauses) {
+            output.append(whenClause.shapeInfo());
+        }
+        defaultValue.ifPresent(dv -> output.append(" ELSE ").append(dv.shapeInfo()));
+        output.append(" END");
+        return output.toString();
+    }
+
+    @Override
     public CaseWhen withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty(), "case when should has at least 1 child");
         int i = 0;

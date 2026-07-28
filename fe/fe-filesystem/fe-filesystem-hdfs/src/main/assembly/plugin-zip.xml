@@ -55,11 +55,6 @@ under the License.
             <outputDirectory>/lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
             <scope>runtime</scope>
-            <excludes>
-                <exclude>org.apache.doris:fe-filesystem-api</exclude>
-                <exclude>org.apache.doris:fe-filesystem-spi</exclude>
-                <exclude>org.apache.doris:fe-extension-spi</exclude>
-            </excludes>
         </dependencySet>
     </dependencySets>
 </assembly>

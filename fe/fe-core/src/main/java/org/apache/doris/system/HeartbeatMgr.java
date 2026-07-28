@@ -419,7 +419,7 @@ public class HeartbeatMgr extends MasterDaemon {
                             System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
                             ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos(),
-                            ExecuteEnv.getInstance().getProcessUUID());
+                            ExecuteEnv.getInstance().getProcessUUID(), Config.local_resource_group);
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -442,7 +442,8 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getArrowFlightSqlPort(), result.getReplayedJournalId(),
                             System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
-                            FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID());
+                            FeDiskInfo.fromThrifts(result.getDiskInfos()), result.getProcessUUID(),
+                            result.getLocalResourceGroup());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }

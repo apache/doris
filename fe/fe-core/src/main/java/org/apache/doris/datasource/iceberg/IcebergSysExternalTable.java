@@ -80,6 +80,10 @@ public class IcebergSysExternalTable extends ExternalTable {
         return sysTableType;
     }
 
+    public boolean isPositionDeletesTable() {
+        return MetadataTableType.POSITION_DELETES.name().equalsIgnoreCase(sysTableType);
+    }
+
     public Table getSysIcebergTable() {
         if (sysIcebergTable == null) {
             synchronized (this) {

@@ -12,7 +12,7 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((catalog_sales.cs_promo_sk = promotion.p_promo_sk)) otherCondition=()
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d_date, 5))) build RFs:RF9 d_date_sk->cs_ship_date_sk
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk)) otherCondition=((d3.d_date > days_add(d1.d_date, 5))) build RFs:RF9 d_date_sk->cs_ship_date_sk
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d1.d_week_seq = d2.d_week_seq) and (inventory.inv_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF7 d_week_seq->d_week_seq;RF8 d_date_sk->inv_date_sk
 ------------------------------PhysicalProject

@@ -73,6 +73,11 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
     }
 
     @Override
+    public String shapeInfo() {
+        return "tryCast(" + child().shapeInfo() + " as " + targetType.toSql() + ")";
+    }
+
+    @Override
     public String toString() {
         return "tryCast(" + child() + " as " + targetType + ")";
     }

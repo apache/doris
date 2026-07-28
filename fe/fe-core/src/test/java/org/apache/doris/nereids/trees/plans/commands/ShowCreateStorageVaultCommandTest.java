@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ public class ShowCreateStorageVaultCommandTest {
     @Test
     void testGcpWorkloadIdentityProperties() {
         ObjectStoreInfoPB objectInfo = ObjectStoreInfoPB.newBuilder()
-                .setEndpoint(S3Properties.GCS_XML_ENDPOINT)
+                .setEndpoint(S3ResourceCompat.GCS_XML_ENDPOINT)
                 .setRegion("us-central1")
                 .setPrefix("test-prefix")
                 .setBucket("test-bucket")
@@ -41,9 +41,9 @@ public class ShowCreateStorageVaultCommandTest {
         String createStmt =
                 new ShowCreateStorageVaultCommand("test-vault").getObjectCreateStmt(objectInfo);
 
-        Assertions.assertTrue(createStmt.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
+        Assertions.assertTrue(createStmt.contains(S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE));
         Assertions.assertTrue(
-                createStmt.contains(S3Properties.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER));
+                createStmt.contains(S3ResourceCompat.GCP_WORKLOAD_IDENTITY_CREDENTIALS_PROVIDER));
         Assertions.assertFalse(createStmt.contains("s3.access_key"));
         Assertions.assertFalse(createStmt.contains("s3.secret_key"));
     }

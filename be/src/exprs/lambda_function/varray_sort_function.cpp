@@ -17,6 +17,12 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <string>
+#include <type_traits>
+#include <variant>
+#include <vector>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -28,13 +34,15 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/util.hpp"
+#include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
 #include "exprs/lambda_function/lambda_function_factory.h"
+#include "exprs/vcolumn_ref.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vlambda_function_expr.h"
 
 namespace doris {
-
-class VExprContext;
 
 using ConstColumnVariant =
         std::variant<const ColumnUInt8*, const ColumnInt8*, const ColumnInt16*, const ColumnInt32*,
@@ -65,6 +73,17 @@ public:
     static LambdaFunctionPtr create() { return std::make_shared<ArraySortFunction>(); }
 
     std::string get_name() const override { return name; }
+
+    Status prepare(RuntimeState* state, const VExprSPtrs& children) override {
+        RETURN_IF_ERROR(LambdaFunction::prepare(state, children));
+        DCHECK_EQ(children.size(), 2);
+        DORIS_CHECK_EQ(children[0]->node_type(), TExprNodeType::LAMBDA_FUNCTION_EXPR);
+        const auto* lambda_expr = assert_cast<const VLambdaFunctionExpr*>(children[0].get());
+        const std::vector<std::string>* argument_names =
+                lambda_expr->has_argument_names() ? &lambda_expr->argument_names() : nullptr;
+        RETURN_IF_ERROR(_set_comparator_argument_gap(children[0]->get_child(0), argument_names));
+        return Status::OK();
+    }
 
     Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
                    size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
@@ -129,9 +148,9 @@ public:
          *   1    20      1    nullable(int)
          *   2   1/-1/0  ...     tinyint
          *  The size of a column is always 1; we only need to use it to store the specific values ​​in the array for comparison.
-         */
+        */
         Block lambda_block;
-        for (int i = 0; i <= 2; i++) {
+        for (int i = 0; i < 2; i++) {
             lambda_block.insert(ColumnWithTypeAndName(nested_nullable_column.clone_empty(),
                                                       col_type.get_nested_type(), "temp"));
         }
@@ -148,7 +167,14 @@ public:
             temp_nullmap_data[i]->resize(1);
         };
 
-        int lambda_res_id = 2;
+        // array_sort's comparator arguments are represented by ColumnRef column ids 0 and 1.
+        // They are position-based instead of name-based because FE may reuse the first
+        // argument name for the second comparator ColumnRef and distinguish them only by id.
+        LambdaExecutionContext::Frame lambda_frame;
+        lambda_frame.bind_by_name = false;
+        lambda_frame.parent_bindings_visible = false;
+        LambdaExecutionContext::FrameGuard lambda_frame_guard(context->lambda_execution_context(),
+                                                              std::move(lambda_frame));
 
         // 3. sort array by executing lambda function
         // During the sorting process, the parameter columns of lambda_block are first populated using prepare_lambda_input,
@@ -175,12 +201,14 @@ public:
                         }
                     };
 
+                    const int lambda_result_base = static_cast<int>(lambda_block.columns());
                     for (int row = 0; row < input_rows; ++row) {
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
                         std::sort(&permutation[start], &permutation[end], [&](size_t i, size_t j) {
                             prepare_lambda_input(i, 0);
                             prepare_lambda_input(j, 1);
+                            int lambda_res_id = lambda_result_base;
                             auto status =
                                     children[0]->execute(context, &lambda_block, &lambda_res_id);
                             if (!status.ok()) [[unlikely]] {
@@ -197,6 +225,7 @@ public:
                             // only -1, 0, 1
                             long cmp = assert_cast<const ColumnInt8*>(full_res_col.get())
                                                ->get_data()[0];
+                            lambda_block.erase_tail(lambda_result_base);
 
                             return cmp < 0;
                         });
@@ -219,6 +248,146 @@ public:
         }
 
         return Status::OK();
+    }
+
+private:
+    Status _set_comparator_argument_gap(const VExprSPtr& expr,
+                                        const std::vector<std::string>* argument_names) const {
+        if (expr->is_column_ref()) {
+            auto* ref = static_cast<VColumnRef*>(expr.get());
+            RETURN_IF_ERROR(_validate_comparator_argument_ref(*ref, argument_names));
+            ref->set_gap(0);
+            return Status::OK();
+        }
+
+        if (expr->is_slot_ref() || expr->is_virtual_slot_ref()) {
+            return Status::NotSupported(
+                    "array_sort comparator only supports its own lambda arguments, but found "
+                    "captured slot ref '{}'",
+                    expr->expr_name());
+        }
+
+        if (_is_lambda_call_with_lambda_expr(expr)) {
+            // array_sort comparator arguments live in a position-based, comparator-local frame
+            // that is invisible to nested lambda frames. Reject unsupported nested captures during
+            // prepare, otherwise execution would later fail with an internal missing-column error.
+            // For example, array_sort((x, y) -> array_map(z -> z + x, nested_arr), arr) is
+            // rejected because the inner array_map lambda captures the comparator-local x; while
+            // array_sort((x, y) -> array_map(x -> x + 1, nested_arr), arr) is still valid because
+            // the inner x is array_map's own argument and shadows the comparator argument.
+            RETURN_IF_ERROR(_reject_nested_lambda_capture_of_comparator_argument(
+                    assert_cast<const VLambdaFunctionExpr*>(expr->children()[0].get()),
+                    argument_names));
+            for (int i = 1; i < expr->children().size(); ++i) {
+                RETURN_IF_ERROR(_set_comparator_argument_gap(expr->children()[i], argument_names));
+            }
+            return Status::OK();
+        }
+
+        for (const auto& child : expr->children()) {
+            RETURN_IF_ERROR(_set_comparator_argument_gap(child, argument_names));
+        }
+        return Status::OK();
+    }
+
+    Status _reject_nested_lambda_capture_of_comparator_argument(
+            const VLambdaFunctionExpr* lambda_expr,
+            const std::vector<std::string>* comparator_argument_names) const {
+        if (!lambda_expr->has_argument_names()) {
+            return Status::InternalError(
+                    "Cannot validate nested lambda capture in array_sort comparator without lambda "
+                    "metadata");
+        }
+        return _reject_nested_lambda_capture_of_comparator_argument(lambda_expr->get_child(0),
+                                                                    comparator_argument_names,
+                                                                    lambda_expr->argument_names());
+    }
+
+    Status _reject_nested_lambda_capture_of_comparator_argument(
+            const VExprSPtr& expr, const std::vector<std::string>* comparator_argument_names,
+            const std::vector<std::string>& in_scope_lambda_argument_names) const {
+        // Names in in_scope_lambda_argument_names are declared by the nested lambda scopes that
+        // enclose expr. They can legally shadow array_sort comparator argument names, so a
+        // ColumnRef matching one of these names should be treated as a local nested-lambda
+        // argument instead of an unsupported capture from the array_sort comparator.
+        if (expr->is_column_ref()) {
+            if (std::ranges::find(in_scope_lambda_argument_names, expr->expr_name()) !=
+                in_scope_lambda_argument_names.end()) {
+                return Status::OK();
+            }
+            if (comparator_argument_names != nullptr &&
+                std::ranges::find(*comparator_argument_names, expr->expr_name()) !=
+                        comparator_argument_names->end()) {
+                return Status::NotSupported(
+                        "array_sort comparator does not support nested lambda capturing comparator "
+                        "argument '{}'",
+                        expr->expr_name());
+            }
+            return Status::NotSupported(
+                    "array_sort comparator only supports nested lambda arguments inside nested "
+                    "lambda bodies, but found captured column ref '{}'",
+                    expr->expr_name());
+        }
+
+        if (expr->is_slot_ref() || expr->is_virtual_slot_ref()) {
+            return Status::NotSupported(
+                    "array_sort comparator only supports nested lambda arguments inside nested "
+                    "lambda bodies, but found captured slot ref '{}'",
+                    expr->expr_name());
+        }
+
+        if (_is_lambda_call_with_lambda_expr(expr)) {
+            const auto* lambda_expr =
+                    assert_cast<const VLambdaFunctionExpr*>(expr->children()[0].get());
+            if (!lambda_expr->has_argument_names()) {
+                return Status::InternalError(
+                        "Cannot validate nested lambda capture in array_sort comparator without "
+                        "lambda metadata");
+            }
+            auto nested_in_scope_lambda_argument_names = in_scope_lambda_argument_names;
+            nested_in_scope_lambda_argument_names.insert(
+                    nested_in_scope_lambda_argument_names.end(),
+                    lambda_expr->argument_names().begin(), lambda_expr->argument_names().end());
+            RETURN_IF_ERROR(_reject_nested_lambda_capture_of_comparator_argument(
+                    lambda_expr->get_child(0), comparator_argument_names,
+                    nested_in_scope_lambda_argument_names));
+            for (int i = 1; i < expr->children().size(); ++i) {
+                RETURN_IF_ERROR(_reject_nested_lambda_capture_of_comparator_argument(
+                        expr->children()[i], comparator_argument_names,
+                        in_scope_lambda_argument_names));
+            }
+            return Status::OK();
+        }
+
+        for (const auto& child : expr->children()) {
+            RETURN_IF_ERROR(_reject_nested_lambda_capture_of_comparator_argument(
+                    child, comparator_argument_names, in_scope_lambda_argument_names));
+        }
+        return Status::OK();
+    }
+
+    Status _validate_comparator_argument_ref(const VColumnRef& ref,
+                                             const std::vector<std::string>* argument_names) const {
+        if (ref.column_id() < 0 || ref.column_id() >= 2) {
+            return Status::NotSupported(
+                    "array_sort comparator only supports its own lambda arguments, but found "
+                    "column ref '{}' with invalid column id {}",
+                    ref.expr_name(), ref.column_id());
+        }
+        if (argument_names != nullptr &&
+            std::ranges::find(*argument_names, ref.expr_name()) == argument_names->end()) {
+            return Status::NotSupported(
+                    "array_sort comparator only supports its own lambda arguments, but found "
+                    "captured column ref '{}'",
+                    ref.expr_name());
+        }
+        return Status::OK();
+    }
+
+    bool _is_lambda_call_with_lambda_expr(const VExprSPtr& expr) const {
+        return expr->node_type() == TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR &&
+               !expr->children().empty() &&
+               expr->children()[0]->node_type() == TExprNodeType::LAMBDA_FUNCTION_EXPR;
     }
 
 #define DISPATCH_PRIMITIVE_TYPE(TYPE, COLUMN_CLASS)                 \

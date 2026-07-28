@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
@@ -37,7 +37,8 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     @Getter
     public AWSGlueMetaStoreBaseProperties glueProperties;
 
-    public S3Properties s3Properties;
+    /** Facade twin of the former typed S3 field: a forced generic-S3 binding over the raw props. */
+    public StorageAdapter s3Adapter;
 
     // As a default placeholder. The path just use for 'create table', query stmt will not use it.
     private static final String CHECKED_WAREHOUSE = "s3://doris";
@@ -56,12 +57,12 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         super.initNormalizeAndCheckProps();
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
         glueProperties.requireExplicitGlueCredentials();
-        s3Properties = S3Properties.of(origProps);
+        s3Adapter = StorageAdapter.ofProvider("S3", origProps);
     }
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                               List<StorageProperties> storagePropertiesList) {
+                               List<StorageAdapter> storagePropertiesList) {
         appendS3Props(catalogProps);
         appendGlueProps(catalogProps);
         catalogProps.put("client.region", glueProperties.glueRegion);
@@ -73,6 +74,8 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     private void appendS3Props(Map<String, String> props) {
+        S3CompatibleFileSystemProperties s3Properties =
+                (S3CompatibleFileSystemProperties) s3Adapter.getSpiProperties();
         props.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
         props.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
         props.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());

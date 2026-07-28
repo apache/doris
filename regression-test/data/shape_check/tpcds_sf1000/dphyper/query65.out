@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->ss_store_sk;RF4 s_store_sk->ss_store_sk
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DECIMALV3(38, 5)) <= (0.1 * sb.ave))) build RFs:RF2 ss_store_sk->ss_store_sk
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(sc.revenue as DECIMALV3(38, 5)) <= (0.1 * sb.ave))) build RFs:RF2 ss_store_sk->ss_store_sk
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]

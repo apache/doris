@@ -70,6 +70,15 @@ public class Like extends StringRegexPredicate {
     }
 
     @Override
+    public String shapeInfo() {
+        if (arity() == 2) {
+            return super.shapeInfo();
+        }
+        return '(' + left().shapeInfo() + ' ' + getName() + ' ' + right().shapeInfo()
+                + " escape " + child(2).shapeInfo() + ')';
+    }
+
+    @Override
     public String toString() {
         if (arity() == 2) {
             return super.computeToSql();

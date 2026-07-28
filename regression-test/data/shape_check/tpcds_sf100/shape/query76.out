@@ -18,7 +18,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item] apply RFs: RF0
 --------------------------PhysicalProject
-----------------------------filter(ss_hdemo_sk IS NULL)
+----------------------------filter(store_sales.ss_hdemo_sk IS NULL)
 ------------------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalProject
@@ -26,7 +26,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item] apply RFs: RF1
 --------------------------PhysicalProject
-----------------------------filter(ws_bill_addr_sk IS NULL)
+----------------------------filter(web_sales.ws_bill_addr_sk IS NULL)
 ------------------------------PhysicalOlapScan[web_sales]
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalProject
@@ -34,6 +34,6 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item] apply RFs: RF2
 --------------------------PhysicalProject
-----------------------------filter(cs_warehouse_sk IS NULL)
+----------------------------filter(catalog_sales.cs_warehouse_sk IS NULL)
 ------------------------------PhysicalOlapScan[catalog_sales]
 

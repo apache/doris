@@ -29,7 +29,7 @@ import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import com.google.common.collect.Lists;
-import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -226,7 +226,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog implement
     }
 
     @Override
-    public RESTSessionCatalog getRestSessionCatalog() {
+    public BaseViewSessionCatalog getRestSessionCatalog() {
         IcebergRestProperties props = restProperties();
         return props == null ? null : props.getRestSessionCatalog();
     }

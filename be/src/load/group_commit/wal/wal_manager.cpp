@@ -194,7 +194,7 @@ void WalManager::erase_wal_queue(int64_t table_id, int64_t wal_id) {
 }
 
 size_t WalManager::get_wal_queue_size(int64_t table_id) {
-    std::lock_guard<std::shared_mutex> wrlock(_wal_queue_lock);
+    std::shared_lock rdlock(_wal_queue_lock);
     size_t count = 0;
     if (table_id > 0) {
         auto it = _wal_queues.find(table_id);
@@ -206,7 +206,7 @@ size_t WalManager::get_wal_queue_size(int64_t table_id) {
     } else {
         // table_id is -1 meaning get all table wal size
         size_t max_count_per_table = 0;
-        for (auto& [_, table_wals] : _wal_queues) {
+        for (const auto& [_, table_wals] : _wal_queues) {
             size_t table_wal_count = table_wals.size();
             count += table_wal_count;
             if (table_wal_count > max_count_per_table) {
@@ -216,6 +216,15 @@ size_t WalManager::get_wal_queue_size(int64_t table_id) {
         g_wal_max_count_per_table.set_value(max_count_per_table);
     }
     return count;
+}
+
+std::string WalManager::get_last_replay_wal_failed_reason(int64_t table_id) {
+    std::shared_lock rdlock(_table_lock);
+    auto it = _table_map.find(table_id);
+    if (it != _table_map.end()) {
+        return it->second->get_last_replay_wal_failed_reason();
+    }
+    return "";
 }
 
 Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,

@@ -9,7 +9,7 @@ PhysicalResultSink
 
 -- !filter_through_partition_topn_unique_2 --
 PhysicalResultSink
---filter(((cast(id as BIGINT) + random(1, 100)) > 5) and (v.rn <= 3))
+--filter(((cast(v.id as BIGINT) + random(1, 100)) > 5) and (v.rn <= 3))
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalPartitionTopN
