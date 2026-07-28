@@ -30,6 +30,15 @@ class CodexAuthStateTest(unittest.TestCase):
         self.assertEqual(AUTH_2, second.auth_object)
         self.assertEqual(AUTH_3, third.auth_object)
 
+    def test_selection_keeps_cursor_when_the_input_order_changes(self) -> None:
+        state = auth_state.default_state()
+
+        first = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW)
+        second = auth_state.select_auth_object(state, [AUTH_3, AUTH_1, AUTH_2], NOW)
+
+        self.assertEqual(AUTH_1, first.auth_object)
+        self.assertEqual(AUTH_2, second.auth_object)
+
     def test_rate_limit_skips_account_for_one_hour_then_recovers(self) -> None:
         state = auth_state.default_state()
         auth_state.record_result(state, AUTH_1, auth_state.RATE_LIMITED, NOW)
@@ -95,6 +104,49 @@ class CodexAuthStateTest(unittest.TestCase):
         self.assertEqual(auth_state.TRANSIENT_FAILURE, auth_state.classify_failure("request failed: HTTP 503"))
         self.assertEqual(auth_state.TRANSIENT_FAILURE, auth_state.classify_failure("connection reset by peer"))
         self.assertEqual("fatal", auth_state.classify_failure("request failed: HTTP 422"))
+        self.assertEqual("fatal", auth_state.classify_failure("reviewed output mentioned 403"))
+
+    def test_classification_uses_only_the_terminal_event(self) -> None:
+        events = "\n".join(
+            (
+                '{"type":"item.completed","item":{"aggregated_output":"HTTP 403"}}',
+                '{"type":"turn.failed","error":{"message":"request failed: HTTP 422"}}',
+            )
+        )
+
+        classification = auth_state.classify_terminal_failure(events, "")
+
+        self.assertEqual("fatal", classification.kind)
+        self.assertEqual(422, classification.http_status)
+
+    def test_classification_uses_the_last_stderr_line_only_as_a_fallback(self) -> None:
+        events = '{"type":"item.completed","item":{"aggregated_output":"HTTP 403"}}'
+        stderr = "HTTP 403 in an earlier diagnostic\nrequest failed: HTTP 503"
+
+        classification = auth_state.classify_terminal_failure(events, stderr)
+
+        self.assertEqual(auth_state.TRANSIENT_FAILURE, classification.kind)
+        self.assertEqual(503, classification.http_status)
+
+    def test_usage_limit_message_preserves_its_reset_time(self) -> None:
+        message = "You've hit your usage limit for this period; try again at Aug 2nd, 2026 1:27 AM."
+        classification = auth_state.classify_terminal_failure(
+            '{"type":"turn.failed","error":{"message":"' + message + '"}}', ""
+        )
+        state = auth_state.default_state()
+
+        auth_state.record_result(
+            state,
+            AUTH_1,
+            classification.kind,
+            NOW,
+            classification.http_status,
+            auth_state.parse_timestamp(classification.retry_after),
+        )
+
+        self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
+        self.assertEqual("2026-08-02T01:27:00Z", classification.retry_after)
+        self.assertEqual("2026-08-02T01:27:00Z", auth_state.account_state(state, AUTH_1)["retry_after"])
 
 
 if __name__ == "__main__":

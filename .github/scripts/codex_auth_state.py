@@ -23,6 +23,11 @@ STATUS_VALUES = {AVAILABLE, QUOTA_EXHAUSTED, RATE_LIMITED, AUTHENTICATION_FAILED
 QUOTA_RETRY_DELAY = timedelta(days=1)
 RATE_LIMIT_RETRY_DELAY = timedelta(hours=1)
 AUTHENTICATION_RETRY_DELAY = timedelta(days=1)
+USAGE_LIMIT_RETRY_PATTERN = re.compile(
+    r"(?:you(?:'|\u2019)ve hit your usage limit|usage limit).*?try again at\s+"
+    r"([A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?,\s+\d{4}\s+\d{1,2}:\d{2}\s+(?:AM|PM))",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,13 @@ class Selection:
     auth_object: str | None
     all_quota_exhausted: bool
     next_retry_at: str | None
+
+
+@dataclass(frozen=True)
+class FailureClassification:
+    kind: str
+    http_status: int | None
+    retry_after: str | None
 
 
 def utc_now() -> datetime:
@@ -135,6 +147,7 @@ def select_auth_object(state: dict[str, Any], auth_objects: list[str], now: date
     if not auth_objects:
         raise ValueError("At least one auth object is required")
 
+    auth_objects = sorted(set(auth_objects))
     recover_expired_accounts(state, auth_objects, now)
     starting_index = state["next_account"] % len(auth_objects)
     for offset in range(len(auth_objects)):
@@ -148,7 +161,12 @@ def select_auth_object(state: dict[str, Any], auth_objects: list[str], now: date
 
 
 def record_result(
-    state: dict[str, Any], auth_object: str, result: str, now: datetime, http_status: int | None = None
+    state: dict[str, Any],
+    auth_object: str,
+    result: str,
+    now: datetime,
+    http_status: int | None = None,
+    retry_after: datetime | None = None,
 ) -> None:
     entry = account_state(state, auth_object)
     timestamp = format_timestamp(now)
@@ -159,14 +177,13 @@ def record_result(
         return
 
     if result == QUOTA_EXHAUSTED:
-        retry_delay = QUOTA_RETRY_DELAY
         http_status = http_status or 403
+        retry_at = retry_after or now + QUOTA_RETRY_DELAY
     elif result == RATE_LIMITED:
-        retry_delay = RATE_LIMIT_RETRY_DELAY
         http_status = http_status or 429
     elif result == AUTHENTICATION_FAILED:
-        retry_delay = AUTHENTICATION_RETRY_DELAY
         http_status = http_status or 401
+        retry_at = now + AUTHENTICATION_RETRY_DELAY
     elif result == TRANSIENT_FAILURE:
         entry["status"] = AVAILABLE
         entry["last_failure_at"] = timestamp
@@ -176,10 +193,13 @@ def record_result(
     else:
         raise ValueError(f"Unsupported result: {result!r}")
 
+    if result == RATE_LIMITED:
+        retry_at = now + RATE_LIMIT_RETRY_DELAY
+
     entry["status"] = result
     entry["last_failure_at"] = timestamp
     entry["last_http_status"] = http_status
-    entry["retry_after"] = format_timestamp(now + retry_delay)
+    entry["retry_after"] = format_timestamp(retry_at)
 
 
 def extract_http_status(text: str) -> int | None:
@@ -190,11 +210,24 @@ def extract_http_status(text: str) -> int | None:
     )
     if labelled_statuses:
         return int(labelled_statuses[-1])
-    matches = re.findall(r"(?<!\d)([1-5]\d{2})(?!\d)", text)
-    return int(matches[0]) if matches else None
+    return None
+
+
+def usage_limit_retry_after(text: str) -> datetime | None:
+    match = USAGE_LIMIT_RETRY_PATTERN.search(text)
+    if match is None:
+        return None
+
+    timestamp = re.sub(r"(\d)(?:st|nd|rd|th)\b", r"\1", match.group(1), flags=re.IGNORECASE)
+    try:
+        return datetime.strptime(timestamp, "%b %d, %Y %I:%M %p").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def classify_failure(text: str) -> str:
+    if usage_limit_retry_after(text) is not None:
+        return QUOTA_EXHAUSTED
     http_status = extract_http_status(text)
     if http_status == 429:
         return RATE_LIMITED
@@ -211,6 +244,50 @@ def classify_failure(text: str) -> str:
     ):
         return TRANSIENT_FAILURE
     return "fatal"
+
+
+def event_error_message(event: object) -> str | None:
+    if not isinstance(event, dict):
+        return None
+
+    event_type = event.get("type")
+    if event_type == "turn.failed":
+        error = event.get("error")
+        message = error.get("message") if isinstance(error, dict) else None
+    elif event_type == "error":
+        error = event.get("error")
+        message = event.get("message") or (error.get("message") if isinstance(error, dict) else None)
+    else:
+        return None
+
+    return message if isinstance(message, str) and message.strip() else None
+
+
+def terminal_event_error(events: str) -> str | None:
+    message = None
+    for line in events.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        event_message = event_error_message(event)
+        if event_message is not None:
+            message = event_message
+    return message
+
+
+def terminal_stderr_error(stderr: str) -> str | None:
+    return next((line for line in reversed(stderr.splitlines()) if line.strip()), None)
+
+
+def classify_terminal_failure(events: str, stderr: str) -> FailureClassification:
+    message = terminal_event_error(events) or terminal_stderr_error(stderr) or ""
+    retry_after = usage_limit_retry_after(message)
+    return FailureClassification(
+        kind=classify_failure(message),
+        http_status=extract_http_status(message),
+        retry_after=format_timestamp(retry_after) if retry_after is not None else None,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -240,18 +317,30 @@ def parse_args() -> argparse.Namespace:
         required=True,
     )
     record.add_argument("--http-status", type=int)
+    record.add_argument("--retry-after", type=parse_timestamp)
     record.add_argument("--known-auth-object", action="append", required=True)
 
     classify = subcommands.add_parser("classify")
-    classify.add_argument("--input", action="append", type=Path, required=True)
+    classify.add_argument("--events", type=Path, required=True)
+    classify.add_argument("--stderr", type=Path, required=True)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     if args.command == "classify":
-        text = "\n".join(path.read_text(errors="replace") for path in args.input)
-        print(json.dumps({"kind": classify_failure(text), "http_status": extract_http_status(text)}))
+        classification = classify_terminal_failure(
+            args.events.read_text(errors="replace"), args.stderr.read_text(errors="replace")
+        )
+        print(
+            json.dumps(
+                {
+                    "kind": classification.kind,
+                    "http_status": classification.http_status,
+                    "retry_after": classification.retry_after,
+                }
+            )
+        )
         return
 
     now = args.now or utc_now()
@@ -276,7 +365,7 @@ def main() -> None:
         )
         return
 
-    record_result(state, args.auth_object, args.result, now, args.http_status)
+    record_result(state, args.auth_object, args.result, now, args.http_status, args.retry_after)
     recover_expired_accounts(state, args.known_auth_object, now)
     save_state(args.state, state)
     print(

@@ -37,6 +37,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: code-review-codex-auth-rotation
+  cancel-in-progress: false
+
 jobs:
   code-review:
     runs-on: ubuntu-latest
@@ -117,8 +121,16 @@ jobs:
       - name: Configure Codex auth
         id: configure_auth
         run: |
-          install -m 700 -d "$RUNNER_TEMP/codex-home"
-          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+          codex_review_user=codex-review
+          sudo useradd --create-home --shell /usr/sbin/nologin "$codex_review_user"
+          codex_home="$(mktemp -d /tmp/codex-home.XXXXXX)"
+          sudo chown "$codex_review_user:$codex_review_user" "$codex_home"
+          sudo chgrp "$(id -gn)" "$codex_home"
+          sudo chmod 770 "$codex_home"
+          control_dir="$RUNNER_TEMP/codex-auth-control"
+          install -m 700 -d "$control_dir"
+          printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
+          printf 'CODEX_REVIEW_USER=%s\n' "$codex_review_user" >> "$GITHUB_ENV"
 
           auth_prefix='oss://doris-community-ci/codex/auth.json.'
           auth_listing="$RUNNER_TEMP/codex-auth-objects.list"
@@ -127,7 +139,7 @@ jobs:
             exit 1
           fi
 
-          auth_objects_file="$RUNNER_TEMP/codex-home/auth-objects.txt"
+          auth_objects_file="$control_dir/auth-objects.txt"
           candidate_auth_file="$(mktemp "$RUNNER_TEMP/codex-auth.XXXXXX")"
           trap 'rm -f "$candidate_auth_file"' EXIT
           while IFS= read -r candidate; do
@@ -143,7 +155,7 @@ jobs:
               echo "Skipping invalid Codex auth object: ${candidate##*/}"
             fi
           done < <(
-            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | shuf
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | sort
           )
 
           if [ ! -s "$auth_objects_file" ]; then
@@ -157,7 +169,7 @@ jobs:
             auth_object_args+=(--auth-object "$auth_object")
           done < "$auth_objects_file"
 
-          state_file="$RUNNER_TEMP/codex-home/auth-status.json"
+          state_file="$control_dir/auth-status.json"
           set +e
           state_stat_output="$(ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" stat "$OSS_CODEX_AUTH_STATUS_OBJECT" 2>&1)"
           state_stat_status=$?
@@ -195,16 +207,18 @@ jobs:
 
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
-          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
-          test -s "$RUNNER_TEMP/codex-home/auth.json"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$candidate_auth_file"
+          test -s "$candidate_auth_file"
           jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
             and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
+          ' "$candidate_auth_file" >/dev/null
+          sudo install -o "$codex_review_user" -g "$codex_review_user" -m 600 \
+            "$candidate_auth_file" "$codex_home/auth.json"
 
-          cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
+          config_file="$control_dir/config.toml"
+          cat > "$config_file" <<EOF
           cli_auth_credentials_store = "file"
           approval_policy = "never"
 
@@ -224,7 +238,9 @@ jobs:
           metrics_exporter = "none"
           trace_exporter = "none"
           EOF
-          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
+          sudo install -o "$codex_review_user" -g "$codex_review_user" -m 600 \
+            "$config_file" "$codex_home/config.toml"
+          sudo -u "$codex_review_user" git config --global --add safe.directory "$GITHUB_WORKSPACE"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
@@ -258,6 +274,7 @@ jobs:
           install -m 700 -d "$CODEX_HOME/memories"
           touch "$CODEX_HOME/memories/memory_summary.md"
           chmod -R go-rwx "$CODEX_HOME/memories" || true
+          sudo chown -R "$CODEX_REVIEW_USER:$CODEX_REVIEW_USER" "$CODEX_HOME/memories"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
@@ -572,6 +589,10 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha }}
           BASE_SHA: ${{ inputs.base_sha }}
 
+      - name: Grant isolated Codex user access to review context
+        run: |
+          sudo chown -R "$CODEX_REVIEW_USER:$CODEX_REVIEW_USER" "$REVIEW_CONTEXT_DIR"
+
       - name: Run automated code review
         id: review
         timeout-minutes: 115
@@ -615,22 +636,10 @@ jobs:
               "$CODEX_AUTH_STATE_FILE" "$OSS_CODEX_AUTH_STATUS_OBJECT"
           }
 
-          sync_current_auth() {
-            if [ -s "$CODEX_HOME/auth.json" ] && jq -e '
-              .auth_mode == "chatgpt"
-              and (.tokens.access_token | type == "string" and length > 0)
-              and (.tokens.refresh_token | type == "string" and length > 0)
-            ' "$CODEX_HOME/auth.json" >/dev/null; then
-              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
-                "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
-            else
-              echo "The current Codex auth file is invalid; it will not be synced to OSS."
-            fi
-          }
-
           record_auth_result() {
             local result="$1"
             local http_status="$2"
+            local retry_after="$3"
             local record_args=(
               record
               --state "$CODEX_AUTH_STATE_FILE"
@@ -641,7 +650,50 @@ jobs:
             if [ -n "$http_status" ]; then
               record_args+=(--http-status "$http_status")
             fi
+            if [ -n "$retry_after" ]; then
+              record_args+=(--retry-after "$retry_after")
+            fi
             "$CODEX_AUTH_STATE_HELPER" "${record_args[@]}"
+          }
+
+          install_selected_auth() {
+            local candidate_auth_file
+            candidate_auth_file="$(mktemp "$RUNNER_TEMP/codex-auth.XXXXXX")"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$CODEX_AUTH_OSS_OBJECT" "$candidate_auth_file"
+            jq -e '
+              .auth_mode == "chatgpt"
+              and (.tokens.access_token | type == "string" and length > 0)
+              and (.tokens.refresh_token | type == "string" and length > 0)
+            ' "$candidate_auth_file" >/dev/null
+            sudo install -o "$CODEX_REVIEW_USER" -g "$CODEX_REVIEW_USER" -m 600 \
+              "$candidate_auth_file" "$CODEX_HOME/auth.json"
+            rm -f "$candidate_auth_file"
+          }
+
+          review_side_effects_present() {
+            local review_sync_dir="$RUNNER_TEMP/codex-review-sync"
+            local reviews_file="$review_sync_dir/reviews.json"
+            local inline_comments_file="$review_sync_dir/inline-comments.json"
+            local issue_comments_file="$review_sync_dir/issue-comments.json"
+            install -m 700 -d "$review_sync_dir"
+
+            for attempt in 1 2 3 4 5 6; do
+              if ! gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file" \
+                || ! gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/comments" > "$inline_comments_file" \
+                || ! gh api --paginate --slurp "repos/${REPO}/issues/${PR_NUMBER}/comments" > "$issue_comments_file"; then
+                return 2
+              fi
+              if jq -s -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                map(add // []) | add // []
+                | any(.[]?; ((.submitted_at // .created_at // "") >= $started_at)
+                  and ((.commit_id // $head_sha) == $head_sha))
+              ' "$reviews_file" "$inline_comments_file" "$issue_comments_file" >/dev/null; then
+                return 0
+              fi
+              sleep 5
+            done
+            return 1
           }
 
           select_next_auth() {
@@ -665,29 +717,38 @@ jobs:
           failure_reason=""
           all_quota_exhausted="${CONFIGURED_ALL_QUOTA_EXHAUSTED:-false}"
           transient_attempt=0
+          result_dir="$RUNNER_TEMP/codex-review-result"
+          install -m 700 -d "$result_dir"
+          printf 'CODEX_REVIEW_EVENTS_FILE=%s\n' "$result_dir/codex-events.jsonl" >> "$GITHUB_ENV"
           while :; do
             review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            events_file="$REVIEW_CONTEXT_DIR/codex-events.jsonl"
-            stderr_file="$REVIEW_CONTEXT_DIR/codex-stderr.log"
+            events_file="$result_dir/codex-events.jsonl"
+            stderr_file="$result_dir/codex-stderr.log"
 
             set +e
-            # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
-            # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-            codex exec --goal "$GOAL_PROMPT" \
-              --cd "$GITHUB_WORKSPACE" \
-              --model "gpt-5.6-sol" \
-              --config "model_reasoning_effort=xhigh" \
-              --sandbox danger-full-access \
-              --color never \
-              --json \
-              --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
-              > "$events_file" \
-              2> >(tee "$stderr_file" >&2)
+            sudo -u "$CODEX_REVIEW_USER" env -i \
+              HOME="$(getent passwd "$CODEX_REVIEW_USER" | cut -d: -f6)" \
+              PATH="$PATH" \
+              GH_TOKEN="$GH_TOKEN" \
+              CODEX_HOME="$CODEX_HOME" \
+              GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0=safe.directory \
+              GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+              codex exec --goal "$GOAL_PROMPT" \
+                --cd "$GITHUB_WORKSPACE" \
+                --model "gpt-5.6-sol" \
+                --config "model_reasoning_effort=xhigh" \
+                --sandbox danger-full-access \
+                --color never \
+                --json \
+                --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+                > "$events_file" \
+                2> >(tee "$stderr_file" >&2)
             status=$?
             set -e
 
             if [ "$status" -eq 0 ]; then
-              state_result="$(record_auth_result available "")"
+              state_result="$(record_auth_result available "" "")"
               sync_auth_state
               all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$state_result")"
               break
@@ -706,14 +767,27 @@ jobs:
               failure_reason="Codex exited with status $status"
             fi
 
-            classification="$("$CODEX_AUTH_STATE_HELPER" classify --input "$events_file" --input "$stderr_file")"
+            classification="$("$CODEX_AUTH_STATE_HELPER" classify --events "$events_file" --stderr "$stderr_file")"
             failure_kind="$(jq -r '.kind' <<<"$classification")"
             http_status="$(jq -r '.http_status // empty' <<<"$classification")"
+            retry_after="$(jq -r '.retry_after // empty' <<<"$classification")"
             if [ "$failure_kind" = "transient_failure" ]; then
-              state_result="$(record_auth_result "$failure_kind" "$http_status")"
+              state_result="$(record_auth_result "$failure_kind" "$http_status" "$retry_after")"
               sync_auth_state
               transient_attempt=$((transient_attempt + 1))
               if [ "$transient_attempt" -ge 4 ]; then
+                break
+              fi
+              set +e
+              review_side_effects_present
+              side_effect_status=$?
+              set -e
+              if [ "$side_effect_status" -eq 0 ]; then
+                failure_reason="Codex may have submitted a review or comment; refusing to replay the review goal."
+                break
+              fi
+              if [ "$side_effect_status" -ne 1 ]; then
+                failure_reason="Could not reconcile live pull request reviews and comments before retrying Codex."
                 break
               fi
               retry_delay=$((5 * (2 ** (transient_attempt - 1))))
@@ -727,10 +801,9 @@ jobs:
               break
             fi
 
-            state_result="$(record_auth_result "$failure_kind" "$http_status")"
+            state_result="$(record_auth_result "$failure_kind" "$http_status" "$retry_after")"
             sync_auth_state
             all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$state_result")"
-            sync_current_auth
 
             select_next_auth
             if [ -z "$selected_auth_object" ]; then
@@ -745,14 +818,19 @@ jobs:
             printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$selected_auth_object" >> "$GITHUB_ENV"
             CODEX_AUTH_OSS_OBJECT="$selected_auth_object"
             echo "Retrying code review with ${CODEX_AUTH_OSS_OBJECT##*/} after ${failure_kind}."
-            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
-              "$CODEX_AUTH_OSS_OBJECT" "$CODEX_HOME/auth.json"
-            chmod 600 "$CODEX_HOME/auth.json"
-            jq -e '
-              .auth_mode == "chatgpt"
-              and (.tokens.access_token | type == "string" and length > 0)
-              and (.tokens.refresh_token | type == "string" and length > 0)
-            ' "$CODEX_HOME/auth.json" >/dev/null
+            set +e
+            review_side_effects_present
+            side_effect_status=$?
+            set -e
+            if [ "$side_effect_status" -eq 0 ]; then
+              failure_reason="Codex may have submitted a review or comment; refusing to replay the review goal."
+              break
+            fi
+            if [ "$side_effect_status" -ne 1 ]; then
+              failure_reason="Could not reconcile live pull request reviews and comments before retrying Codex."
+              break
+            fi
+            install_selected_auth
             transient_attempt=0
             failure_reason=""
           done
@@ -760,7 +838,7 @@ jobs:
           write_review_output "all_quota_exhausted" "$all_quota_exhausted"
 
           if [ -z "$failure_reason" ]; then
-            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            reviews_file="$result_dir/pr_reviews_after_codex.json"
             reviews_api_ok=false
             review_verified=false
             for attempt in 1 2 3 4 5 6; do
@@ -837,7 +915,7 @@ jobs:
           BASE_SHA: ${{ inputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
-          if [ ! -s "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+          if [ ! -s "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" ] || [ ! -s "$CODEX_REVIEW_EVENTS_FILE" ]; then
             echo "Goal prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
             exit 0
           fi
@@ -851,7 +929,7 @@ jobs:
 
           python3 "$helper" \
             --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
-            --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            --events-file "$CODEX_REVIEW_EVENTS_FILE" \
             --output-file "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
             --trace-name "doris-ai-review" \
             --subagent-trace-name "doris-ai-review-subagent" \
@@ -872,59 +950,6 @@ jobs:
             --verify-attempts 24 \
             --verify-sleep-seconds 5 \
             --verify
-
-      - name: Sync Codex sessions back to OSS
-        if: ${{ always() }}
-        continue-on-error: true
-        run: |
-          if [ ! -d "$CODEX_HOME/sessions" ]; then
-            echo "No Codex sessions directory found; skipping session sync."
-            exit 0
-          fi
-
-          uploaded=0
-          skipped=0
-          while IFS= read -r -d '' session_file; do
-            rel="${session_file#"$CODEX_HOME/sessions/"}"
-            remote="${OSS_CODEX_SESSION_PREFIX%/}/$rel"
-            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" stat "$remote" >/dev/null 2>&1; then
-              skipped=$((skipped + 1))
-              continue
-            fi
-            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$session_file" "$remote"
-            uploaded=$((uploaded + 1))
-          done < <(find "$CODEX_HOME/sessions" -type f -name '*.jsonl' -print0)
-
-          echo "Uploaded $uploaded new Codex session file(s); skipped $skipped existing file(s)."
-        env:
-          OSS_AK: ${{ secrets.OSS_AK }}
-          OSS_SK: ${{ secrets.OSS_SK }}
-          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_SESSION_PREFIX: oss://doris-community-ci/session
-
-      - name: Sync Codex auth back to OSS
-        if: ${{ always() }}
-        run: |
-          if [ -z "$CODEX_AUTH_OSS_OBJECT" ]; then
-            echo "No selected Codex auth object found; skipping OSS auth sync."
-            exit 0
-          fi
-
-          if [ ! -s "$CODEX_HOME/auth.json" ]; then
-            echo "No Codex auth file found; skipping OSS auth sync."
-            exit 0
-          fi
-
-          jq -e '
-            .auth_mode == "chatgpt"
-            and (.tokens.access_token | type == "string" and length > 0)
-            and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$CODEX_HOME/auth.json" >/dev/null
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"
-        env:
-          OSS_AK: ${{ secrets.OSS_AK }}
-          OSS_SK: ${{ secrets.OSS_SK }}
-          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
 
       - name: Comment PR on review failure
         if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
