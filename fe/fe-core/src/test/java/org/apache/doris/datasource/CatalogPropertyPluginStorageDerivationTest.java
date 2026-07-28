@@ -26,12 +26,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Design S8: for a plugin catalog the connector owns storage-property derivation, so {@link CatalogProperty}
- * folds the connector-supplied defaults (via {@link CatalogProperty#setPluginDerivedStorageDefaultsSupplier})
+ * Design S8: the connector owns storage-property derivation, so {@link CatalogProperty} folds the
+ * connector-supplied defaults (via {@link CatalogProperty#setPluginDerivedStorageDefaultsSupplier})
  * into BOTH the raw fe-filesystem bind map ({@link CatalogProperty#getEffectiveRawStorageProperties}) and the
- * typed BE storage map ({@link CatalogProperty#getStorageAdaptersMap}) WITHOUT parsing fe-core
- * {@code MetastoreProperties}. This is what lets the fe-core Iceberg/Paimon MetastoreProperties cluster be
- * retired (their factory is un-registered, so any getMetastoreProperties() on the plugin path would throw).
+ * typed BE storage map ({@link CatalogProperty#getStorageAdaptersMap}). This is the sole guard on that path
+ * now that the fe-core metastore-property cluster is retired: fe-core has no second way to derive storage
+ * defaults, so an unwired supplier must fail loud rather than silently derive nothing.
  */
 public class CatalogPropertyPluginStorageDerivationTest {
 
@@ -48,10 +48,10 @@ public class CatalogPropertyPluginStorageDerivationTest {
     @Test
     public void pluginSupplierFoldsDerivedDefaultsIntoBothMaps() {
         CatalogProperty cp = hadoopIcebergCatalog();
-        // A value the fe-core metastore path would NOT produce (that path derives hdfs://realns from warehouse):
-        // asserting hdfs://from-connector proves the plugin path uses the connector supplier and does not
-        // re-derive from MetastoreProperties. MUTATION: route resolveDerivedStorageDefaults back through
-        // getMetastoreProperties() -> value becomes hdfs://realns -> red.
+        // hdfs://from-connector is deliberately NOT derivable from any property below (a warehouse bridge
+        // would yield hdfs://realns), so asserting it proves the value travelled through the connector
+        // supplier. MUTATION: drop the derived-defaults fold in mergeDerivedStorageDefaults (or have
+        // resolveDerivedStorageDefaults ignore the supplier) -> both assertions go null -> red.
         cp.setPluginDerivedStorageDefaultsSupplier(
                 () -> Collections.singletonMap("fs.defaultFS", "hdfs://from-connector"));
         // Raw supplier (fe-filesystem bind path).
@@ -85,5 +85,20 @@ public class CatalogPropertyPluginStorageDerivationTest {
         cp.getEffectiveRawStorageProperties();
         Assertions.assertFalse(cp.getProperties().containsKey("fs.defaultFS"),
                 "persisted props must not gain the derived fs.defaultFS");
+    }
+
+    @Test
+    public void unwiredSupplierFailsLoudInsteadOfDerivingNothing() {
+        // Retiring the fe-core metastore parse left the connector supplier as the ONLY derivation source, so
+        // reading storage before it is wired can no longer fall back to anything. It must throw: silently
+        // deriving nothing would drop the warehouse -> fs.defaultFS bridge AND cache the under-derived
+        // StorageBindings for good, because setPluginDerivedStorageDefaultsSupplier deliberately does not
+        // reset caches -- a later correct wiring would never repair it. No production path reaches this today
+        // (every catalog on the storage path is plugin-driven and no connector touches storage while being
+        // constructed); this pins that a future one fails visibly.
+        // MUTATION: return Collections.emptyMap() instead of throwing -> red.
+        CatalogProperty cp = hadoopIcebergCatalog();
+        Assertions.assertThrows(IllegalStateException.class, cp::getEffectiveRawStorageProperties);
+        Assertions.assertThrows(IllegalStateException.class, cp::getStorageAdaptersMap);
     }
 }

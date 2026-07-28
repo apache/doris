@@ -852,10 +852,9 @@ public final class StorageAdapter {
     }
 
     /**
-     * Value equality over (provider, raw properties, broker-name override), mirroring the legacy
-     * {@code ConnectionProperties.equals}: logically identical configurations must share one
-     * {@code FileSystemCache} key so equal-config rebinds (e.g. catalog property rollback)
-     * re-hit cached filesystems instead of duplicating them.
+     * Value equality over (provider, raw properties, broker-name override): logically identical
+     * configurations must share one {@code FileSystemCache} key so equal-config rebinds (e.g. catalog
+     * property rollback) re-hit cached filesystems instead of duplicating them.
      */
     @Override
     public boolean equals(Object other) {

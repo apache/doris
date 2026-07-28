@@ -74,8 +74,12 @@ FPC-03 要删掉路 B。问题是：**路 A 的 `pluginSupplier` 为 null 时怎
 **选 A。** 理由：它是唯一「零行为变更 + 守 fail-loud」的写法，代码量和 B 一样是一行，
 而且把一个**今天靠人工审计才知道不可达**的窗口，变成**万一走进去会立刻自曝**。
 
-> **拍板结果**：（待填）
-> **日期**：（待填）
+> **拍板结果**：⏳ **按推荐值 A 执行，待用户追认**。2026-07-28 用户指示「直接开始编码」但未就本条表态，
+> 遂按文档推荐值 A（`throw new IllegalStateException`）落地于 FPC-03（commit 见 `progress.md`）。
+> **要翻成 B 只需改一行** —— `CatalogProperty.resolveDerivedStorageDefaults()` 的 null 分支改成
+> `return Collections.emptyMap();`，并同步删掉 `CatalogPropertyPluginStorageDerivationTest`
+> 的 `unwiredSupplierFailsLoudInsteadOfDerivingNothing` 用例。
+> **日期**：2026-07-28
 
 ---
 

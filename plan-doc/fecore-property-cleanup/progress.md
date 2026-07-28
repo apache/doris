@@ -88,3 +88,60 @@ null-supplier 窗口。复核发现**修不干净**：提前之后 lambda 捕获
 ### 卡点
 
 **OD-1 待用户拍板**（null-supplier 分支 fail-loud vs fail-silent），阻塞 FPC-03。
+
+---
+
+## 2026-07-28（二）— FPC-01 + FPC-03 落地
+
+**用户指示**：文档空间单独 commit（`938d38c7425`），然后直接开始编码。
+
+### FPC-01 —— OD-1 未获表态，按推荐值 A 执行
+
+用户说「直接开始编码」但未就 OD-1 表态。按文档推荐值 **A（fail-loud，`throw`）** 落地，
+理由是它**精确保留今天的行为**（今天走到这里就是抛），且**翻成 B 只需改一行 + 删一个用例**
+——即使追认时被推翻，代价也极小。已在 `open-decisions.md` 标为「⏳ 待用户追认」。
+
+### FPC-03 —— 主删除完成
+
+**删 5 文件**（`metastore/` 四个 + `ConnectionProperties.java`）**共 473 行**，
+`CatalogProperty` 净减 ~45 行。**零 pom / 零连接器业务代码 / 零 fe-filesystem 改动。**
+
+`resolveDerivedStorageDefaults()` 的 null 分支落地为
+`throw new IllegalStateException("Storage properties were accessed before the connector-derived
+storage defaults were wired ...")`。
+
+**顺带清掉 3 处悬空注释引用**：`StorageAdapter`（javadoc 散文，非编译依赖）、
+paimon `TcclPinningConnectorContext:49`、`DatasourcePrintableMap:69`
+（最后这处是全仓 grep 才揪出来的，初次清单里漏了）。
+
+**测试改动**（守 Rule 9）：`CatalogPropertyPluginStorageDerivationTest`
+- 类 javadoc + 两处 MUTATION 注释**改钉到仍然存在的变异上**（原来钉的
+  「改回走 `getMetastoreProperties()`」已无法表达）
+- **新增**第 4 个用例 `unwiredSupplierFailsLoudInsteadOfDerivingNothing`，钉住 fail-loud 不变量
+
+### 验证（全部实跑，非预期）
+
+| 项 | 结果 |
+|---|---|
+| 全仓残留 grep（`fe`/`regression-test`/`tools`/`gensrc`） | **0** |
+| 全反应堆 `clean test-compile -Dcheckstyle.skip=true`（含测试源） | **BUILD SUCCESS**（2:16） |
+| `-pl fe-core checkstyle:check` | **0 violations** ⇒ import 修剪精确 |
+| fe-core 定向单测（含 3 个 Gson 回放兼容测试） | **95 run / 0 fail** |
+| `-pl fe-connector/fe-connector-api -am test`（录制基线） | **110 run / 0 fail**；`connector-metadata-methods.txt` **未被改动**（与预判一致） |
+| 变异验证（`throw` → `return emptyMap()`） | 新用例**变红**，其余三例不受影响；改回**复绿** |
+
+### 🔴 踩坑记录
+
+**坑 4 —— 我自己写进 tasklist 的验证命令有两处是错的，实跑才发现。**
+① `mvn -pl fe-core test` **漏了 `-am`** → 兄弟模块的 `${revision}` 解析不了，报的是
+「Could not resolve dependencies / fe-authentication:pom:${revision}」这种**看起来像真错的假错**
+（本仓库 `hive-catalog-shade-removal` 的 T-72 早就记过「漏 `-am` = 假错」，我还是踩了）。
+② surefire 2.22.2 认的是 **`-DfailIfNoTests=false`**，我写的 `-DfailIfNoSpecifiedTests=false` 无效，
+导致 `-am` 带起来的 `fe-foundation` 因「No tests were executed」直接 FAILURE。
+两条都已修进 `tasklist.md` 的「四条纪律」。
+**通用教训**：**文档里的验证命令在实跑过之前都只是草稿**，别当成已验证的资产传给下一个 session。
+
+### 状态
+
+- `metastore/` 目录已不存在；`property/` 下只剩 `common` / `constants` / `fileformat`。
+- 下一步：**FPC-02**（删 AWS 死构造臂）——先按 OD-2 grep 一次上游 master。

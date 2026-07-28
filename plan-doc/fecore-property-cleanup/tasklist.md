@@ -34,6 +34,8 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 2. 全反应堆**必须含测试源**，**禁 `-Dmaven.test.skip=true`**；且必须 `-Dcheckstyle.skip=true`
    （否则 checkstyle 扫 generated-sources 退化成平方级，构建卡死）。
 3. checkstyle 的 `UnusedImports` 是**阻塞门禁**，改为**只对改动模块**单独跑 `checkstyle:check`。
+4. 🆕 **`-pl` 必须配 `-am`**（否则兄弟模块的 `${revision}` 解析不了 → 假错），且 surefire 2.22.2
+   认的是 **`-DfailIfNoTests=false`**（不是 `-DfailIfNoSpecifiedTests`）。2026-07-28 两条都实测踩过。
 
 ---
 
@@ -52,12 +54,16 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 
 ## 阶段 1 — 🔴 前置拍板（**不拍板不许开工 FPC-03**）
 
-- [ ] **FPC-01** ⬜ **OD-1 拍板**：删掉 metastore 后，`resolveDerivedStorageDefaults()` 的 null-supplier
-      分支要 **fail-loud（`throw`）** 还是 **fail-silent（`return emptyMap()`）**？
-      详见 [`open-decisions.md`](./open-decisions.md) **OD-1**（含推荐值与三个选项的代价）。
-      - ⚠️ 这条**改变 FPC-03 的代码**，必须先定。
+- [x] **FPC-01** ⏳ **OD-1：按推荐值 A 执行，待用户追认**
+      （问题：删掉 metastore 后，`resolveDerivedStorageDefaults()` 的 null-supplier 分支要
+      **fail-loud（`throw`）** 还是 **fail-silent（`return emptyMap()`）**？详见
+      [`open-decisions.md`](./open-decisions.md) **OD-1**）
+      - **落地为 A**：`throw new IllegalStateException(...)`，随 FPC-03 一起提交。
+      - 配守卫测试 `CatalogPropertyPluginStorageDerivationTest.unwiredSupplierFailsLoudInsteadOfDerivingNothing`，
+        **已做变异验证**：把 `throw` 改成 `return emptyMap()` → 该用例变红（其余三例不受影响），改回 → 复绿。
+      - **要翻成 B 只需改一行 + 删该用例**（OD-1 里写了具体位置）。
       - ⚠️ 调研报告原提的缓解方案「把 supplier 安装语句提前」**经复核修不干净**
-        （lambda 读到的 `connector` 字段仍是旧值/null），已在 OD-1 中列为**不推荐**。
+        （lambda 读到的 `connector` 字段仍是旧值/null），已在 OD-1 中列为**不推荐**，未采纳。
 
 ---
 
@@ -91,7 +97,7 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
         grep -rIn 'getAwsCredentialsProvider()\|createV2\|createDefaultV2' $R/fe $R/regression-test --exclude-dir=target
         rm -rf $R/fe/fe-core/target/classes $R/fe/fe-core/target/test-classes
         mvn -f $R/fe/pom.xml -T 1C clean test-compile -Dcheckstyle.skip=true
-        mvn -f $R/fe/pom.xml -pl fe-core test -Dcheckstyle.skip=true -DfailIfNoSpecifiedTests=false \
+        mvn -f $R/fe/pom.xml -pl fe-core -am test -Dcheckstyle.skip=true -DfailIfNoTests=false \
             -Dtest='AzureGuessRoutingParityTest,S3ThriftAdapterParityTest,CloudObjectStoreAdapterParityTest,LocationPathTest,DefaultConnectorContextBackendStoragePropsTest,DefaultConnectorContextNormalizeUriTest'
         mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check   # 阻塞项：证明 import 修剪精确
         ```
@@ -102,7 +108,7 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 
 ## 阶段 3 — 主删除（**依赖 FPC-01 拍板**）
 
-- [ ] **FPC-03** ⬜ 退役整个 `metastore/` 集群 + 孤儿 `ConnectionProperties`
+- [x] **FPC-03** ✅ 退役整个 `metastore/` 集群 + 孤儿 `ConnectionProperties`
       （**删 5 文件 473 行 + 从 `CatalogProperty` 挖掉 ~45 行；零 pom / 零连接器 / 零 fe-filesystem 改动**）
       - **`CatalogProperty.java` 改动**：
         1. `resolveDerivedStorageDefaults()`（`:264-272`）→ 只走 supplier；
@@ -136,10 +142,10 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
              $R/fe $R/regression-test $R/tools $R/gensrc --exclude-dir=target
         rm -rf $R/fe/fe-core/target/classes $R/fe/fe-core/target/test-classes
         mvn -f $R/fe/pom.xml -T 1C clean test-compile -Dcheckstyle.skip=true
-        mvn -f $R/fe/pom.xml -pl fe-core test -Dcheckstyle.skip=true -DfailIfNoSpecifiedTests=false \
+        mvn -f $R/fe/pom.xml -pl fe-core -am test -Dcheckstyle.skip=true -DfailIfNoTests=false \
             -Dtest='CatalogPropertyPluginStorageDerivationTest,CatalogPropertyEffectiveRawStoragePropsTest,HmsGsonCompatReplayTest,IcebergGsonCompatReplayTest,PaimonGsonCompatReplayTest,PluginDrivenExternalCatalog*Test'
         # 🔴 录制基线必须显式跑（全反应堆 test-compile 不跑 surefire —— 本分支已知盲区）
-        mvn -f $R/fe/pom.xml -pl fe-connector/fe-connector-api test -Dcheckstyle.skip=true
+        mvn -f $R/fe/pom.xml -pl fe-connector/fe-connector-api -am test -Dcheckstyle.skip=true -DfailIfNoTests=false
         mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
         ```
         **预期不需要刷 `connector-metadata-methods.txt`**（fe-connector-api 不依赖 fe-core，
