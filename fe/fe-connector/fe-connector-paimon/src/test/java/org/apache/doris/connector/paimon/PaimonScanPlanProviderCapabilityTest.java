@@ -48,6 +48,40 @@ public class PaimonScanPlanProviderCapabilityTest {
     }
 
     @Test
+    public void systemTableScanParamCapabilitiesArePublishedPerTable() {
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), null);
+
+        // WHY: the fe-core sys-table guard (PluginDrivenScanNode.checkSysTableScanConstraints) and its
+        // pin resolver both ask THIS provider whether a given metadata view honors @incr / @options. A
+        // connector-wide boolean cannot express it: $files declines both (its reader enumerates LATEST
+        // partitions internally), while $audit_log honors both. MUTATION: answering connector-wide (a
+        // constant true/false) -> one half of each pair reds.
+        Assertions.assertTrue(provider.supportsSystemTableIncrementalRead("audit_log"));
+        Assertions.assertTrue(provider.supportsSystemTableIncrementalRead("partitions"));
+        Assertions.assertFalse(provider.supportsSystemTableIncrementalRead("files"));
+        Assertions.assertFalse(provider.supportsSystemTableIncrementalRead("snapshots"));
+
+        Assertions.assertTrue(provider.supportsSystemTableOptions("audit_log"));
+        Assertions.assertTrue(provider.supportsSystemTableOptions("table_indexes"));
+        Assertions.assertFalse(provider.supportsSystemTableOptions("files"));
+        Assertions.assertFalse(provider.supportsSystemTableOptions("buckets"));
+        Assertions.assertFalse(provider.supportsSystemTableOptions("snapshots"));
+
+        // Snapshot-shaped selectors (@branch/@tag, FOR VERSION/TIME AS OF) stay refused connector-wide:
+        // a paimon metadata view has no point-in-time identity of its own.
+        Assertions.assertFalse(provider.supportsSystemTableTimeTravel());
+    }
+
+    @Test
+    public void spiDefaultRefusesEverySystemTableScanParam() {
+        // A connector that does not override them must refuse: a synthetic metadata view has no range or
+        // selected-snapshot semantics unless its connector says so.
+        ConnectorScanPlanProvider defaultProvider = (session, request) -> Collections.emptyList();
+        Assertions.assertFalse(defaultProvider.supportsSystemTableIncrementalRead("anything"));
+        Assertions.assertFalse(defaultProvider.supportsSystemTableOptions("anything"));
+    }
+
+    @Test
     public void spiDefaultKeepsShortCircuit() {
         // A connector that does not override the capability keeps the short-circuit (MaxCompute parity).
         ConnectorScanPlanProvider defaultProvider = (session, request) -> Collections.emptyList();

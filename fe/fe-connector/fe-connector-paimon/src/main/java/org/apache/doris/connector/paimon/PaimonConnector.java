@@ -345,7 +345,15 @@ public class PaimonConnector implements Connector {
                 // legacy paimon-only engine-name gate in Env.getDdlStmt (the credential-leak guard now keyed
                 // on a capability instead of an engine string). Paimon emits no partition/sort show.* keys, so
                 // it renders no PARTITION BY / ORDER BY — byte-faithful with its prior SHOW CREATE output.
-                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
+                // Paimon owns a relation-scoped scan-option vocabulary (CoreOptions scan.* keys), so it
+                // accepts @options(...). fe-core's BindRelation consults this to reject the clause up front
+                // for every other table type; the vocabulary itself is validated by PaimonScanParams while
+                // resolveTimeTravel(Kind.OPTIONS) turns the options into an immutable pin. Declared
+                // connector-wide: it holds for every paimon DATA table. The narrower question of which
+                // SYSTEM table can honor the clause is answered per table by
+                // PaimonScanPlanProvider.supportsSystemTableOptions.
+                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS);
     }
 
     /** Test-only: the derived listPartitions view cache (PERF-06). Never null (paimon has no session=user gate). */

@@ -37,9 +37,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonScanParams;
-import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -518,11 +515,13 @@ public class StatementContext implements Closeable {
         }
         ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
                 id -> new ExternalTablePreloadInfo((ExternalTable) table));
-        boolean selectorFreePaimonOptions = scanParams.isPresent()
-                && scanParams.get().isOptions()
-                && (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
-                && PaimonScanParams.usesStatementSnapshot(scanParams.get().getMapParams());
-        if (tableSnapshot.isPresent() || (scanParams.isPresent() && !selectorFreePaimonOptions)) {
+        // Any relation-scoped selector (FOR VERSION/TIME AS OF, @branch/@tag/@incr/@options) makes this
+        // reference non-latest, so the latest-schema warmup is skipped for it. An @options clause whose
+        // options happen NOT to select a version could keep the warmup, but deciding that needs the
+        // connector's option vocabulary, and this runs BEFORE binding resolves any pin. Skipping a warmup
+        // only costs latency (the metadata is then loaded lazily under the lock), so the selector-blind
+        // rule stays -- the same rule @branch/@tag/@incr already follow here.
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();

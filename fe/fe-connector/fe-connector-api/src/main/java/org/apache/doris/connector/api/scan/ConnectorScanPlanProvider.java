@@ -67,13 +67,48 @@ public interface ConnectorScanPlanProvider {
      * {@code PluginDrivenScanNode} sys-table guard: a connector returning {@code true} (e.g. iceberg,
      * whose metadata tables legally time-travel) lets those pinned sys reads through to {@link #planScan};
      * a connector returning {@code false} (the default — e.g. paimon, whose binlog/audit_log sys tables
-     * have no point-in-time semantics) keeps the fail-loud rejection. {@code @incr} (incremental read) is
-     * rejected for EVERY connector regardless of this flag — it is undefined on a synthetic metadata table.
+     * have no point-in-time semantics) keeps the fail-loud rejection.
+     *
+     * <p>This flag governs the SNAPSHOT-shaped selectors only. {@code @incr} and {@code @options} are
+     * answered PER SYSTEM TABLE by {@link #supportsSystemTableIncrementalRead} /
+     * {@link #supportsSystemTableOptions}, because whether a metadata view can honor them depends on
+     * that view's own reader, not on the connector as a whole.</p>
      *
      * @return {@code true} if this connector's system tables honor a time-travel / branch-tag pin
      *         (default: {@code false})
      */
     default boolean supportsSystemTableTimeTravel() {
+        return false;
+    }
+
+    /**
+     * Whether the named SYSTEM table honors {@code @incr(...)} (an incremental range read). Answered per
+     * system table because the capability belongs to the view's reader: a view that enumerates the LATEST
+     * partitions before applying a per-partition range read cannot serve a range whose partitions have since
+     * been dropped, while a commit-log view (paimon {@code $audit_log} / {@code $binlog}) can.
+     *
+     * <p>Default {@code false} — a synthetic metadata view has no incremental semantics unless its connector
+     * says otherwise. Consulted by the {@code PluginDrivenScanNode} sys-table guard, which otherwise rejects
+     * {@code @incr} fail-loud.</p>
+     *
+     * @param sysTableName the bare system-table name (no {@code "$"} prefix), lower-cased by the caller
+     * @return {@code true} if that system table honors {@code @incr} (default: {@code false})
+     */
+    default boolean supportsSystemTableIncrementalRead(String sysTableName) {
+        return false;
+    }
+
+    /**
+     * Whether the named SYSTEM table honors {@code @options(...)} (relation-scoped, source-native scan
+     * options). Answered per system table for the same reason as {@link #supportsSystemTableIncrementalRead}:
+     * a view may advertise this only when EVERY row-producing stage of its reader observes the selected
+     * snapshot. A view that internally consults latest metadata (paimon {@code $files} / {@code $buckets})
+     * must decline, or it would silently answer a historical question with current metadata.
+     *
+     * @param sysTableName the bare system-table name (no {@code "$"} prefix), lower-cased by the caller
+     * @return {@code true} if that system table honors {@code @options} (default: {@code false})
+     */
+    default boolean supportsSystemTableOptions(String sysTableName) {
         return false;
     }
 

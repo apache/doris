@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -58,6 +59,7 @@ import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -65,8 +67,10 @@ import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
@@ -308,6 +312,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveTable(paimonHandle);
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
         if (scanOptions != null && !scanOptions.isEmpty()) {
+            if (PaimonScanParams.isOptionsPin(scanOptions)) {
+                // An @options pin owns the whole scan-startup state: applyOptions strips the internal
+                // markers and nulls out the absent members of paimon's inherited read-state family, so a
+                // scan.mode / tag persisted on the base table cannot leak into this relation's read.
+                return PaimonScanParams.applyOptions(table, scanOptions);
+            }
             // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
             // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
             // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
@@ -333,6 +343,26 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean ignorePartitionPruneShortCircuit() {
         return true;
+    }
+
+    /**
+     * Which paimon SYSTEM tables honor {@code @incr}. Only views whose reader can serve a commit range
+     * qualify: {@code FilesScan} enumerates the LATEST partitions before its range-aware per-partition
+     * scan, so it cannot read a range whose partition has since been dropped.
+     */
+    @Override
+    public boolean supportsSystemTableIncrementalRead(String sysTableName) {
+        return PaimonScanParams.supportsIncrementalRead(sysTableName);
+    }
+
+    /**
+     * Which paimon SYSTEM tables honor {@code @options}. A view qualifies only when EVERY row-producing
+     * stage observes the selected snapshot; {@code $files} / {@code $buckets} still consult latest
+     * metadata internally, so they decline rather than answer a historical question with current data.
+     */
+    @Override
+    public boolean supportsSystemTableOptions(String sysTableName) {
+        return PaimonScanParams.supportsOptions(sysTableName);
     }
 
     /**
@@ -441,6 +471,83 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
     }
 
+    /**
+     * Plans the splits of a {@code scan.file-creation-time-millis} / fallback
+     * {@code scan.creation-time-millis} read. Paimon's own file-creation scanner consults LATEST lazily,
+     * which would re-race the snapshot the relation was bound at; so the resolution replaced the live
+     * lookup with a fixed {@code scan.snapshot-id} and carried the creation-time threshold as an internal
+     * marker, and this method reads that pinned snapshot directly with the threshold as a manifest-entry
+     * filter.
+     *
+     * <p>Reading through {@code SnapshotReader} bypasses {@code DataTableBatchScan}, so
+     * {@link #preserveBatchScanFilters} re-applies the correctness filters that scan would have added.
+     */
+    private List<Split> planFileCreationTimeSplits(
+            Table table,
+            Map<String, String> pinnedOptions,
+            List<org.apache.paimon.predicate.Predicate> predicates,
+            long fileCreationTime) {
+        if (!(table instanceof FileStoreTable)) {
+            throw new DorisConnectorException("Paimon file-creation OPTIONS require a data table.");
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) table;
+        String pinnedSnapshotId = table.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+        if (pinnedSnapshotId == null) {
+            throw new DorisConnectorException(
+                    "Paimon file-creation OPTIONS resolved without a pinned snapshot.");
+        }
+        SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
+                .withMode(ScanMode.ALL)
+                .withSnapshot(Long.parseLong(pinnedSnapshotId))
+                .withManifestEntryFilter(entry -> entry.file().creationTimeEpochMillis() >= fileCreationTime);
+        preserveBatchScanFilters(fileStoreTable, snapshotReader);
+        predicates.forEach(snapshotReader::withFilter);
+        if (context == null) {
+            return snapshotReader.read().splits();
+        }
+        try {
+            return context.executeAuthenticated(() -> snapshotReader.read().splits());
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to plan paimon file-creation splits, error message is:" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Re-applies the correctness filters {@code DataTableBatchScan} would have added, for the direct
+     * {@link SnapshotReader} path above: level-0 skipping plus value filtering on deletion-vector /
+     * first-row tables, and real-bucket-only reads on a postponed-bucket table. Without them the direct
+     * read returns rows the ordinary batch scan would have merged away.
+     */
+    private void preserveBatchScanFilters(FileStoreTable table, SnapshotReader snapshotReader) {
+        CoreOptions options = table.coreOptions();
+        if (!table.primaryKeys().isEmpty()
+                && options.batchScanSkipLevel0()
+                && options.toConfiguration().get(CoreOptions.BATCH_SCAN_MODE) == CoreOptions.BatchScanMode.NONE) {
+            snapshotReader.withLevelFilter(level -> level > 0).enableValueFilter();
+        }
+        if (options.bucket() == BucketMode.POSTPONE_BUCKET) {
+            snapshotReader.onlyReadRealBuckets();
+        }
+    }
+
+    /**
+     * Whether this scan is an {@code @incr} read of the {@code $binlog} system table. Detected from the
+     * handle (the system-table name) plus the resolved pin (the {@code incremental-between*} keys the
+     * {@code @incr} resolution produced), because the connector never sees the raw scan-param clause.
+     */
+    private boolean isIncrementalBinlogScan(PaimonTableHandle handle, Map<String, String> scanOptions) {
+        if (!handle.isSystemTable()
+                || !PAIMON_BINLOG_SYSTEM_TABLE.equalsIgnoreCase(handle.getSysTableName())) {
+            return false;
+        }
+        return scanOptions != null
+                && (scanOptions.containsKey("incremental-between")
+                        || scanOptions.containsKey("incremental-between-timestamp"));
+    }
+
     private List<ConnectorScanRange> planScanInternal(
             ConnectorSession session,
             ConnectorTableHandle handle,
@@ -449,6 +556,20 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             boolean countPushdown) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Map<String, String> pinnedOptions = paimonHandle.getScanOptions();
+        boolean optionsPin = PaimonScanParams.isOptionsPin(pinnedOptions);
+        if (countPushdown && isIncrementalBinlogScan(paimonHandle, pinnedOptions)) {
+            // A binlog reader packs an UPDATE_BEFORE/UPDATE_AFTER pair into ONE logical row, so a
+            // DataSplit's physical merged row count is not a valid COUNT(*) for this relation. Veto the
+            // engine's table-level count pushdown rather than answer with the physical count.
+            countPushdown = false;
+        }
+        if (optionsPin && PaimonScanParams.isPinnedEmptyScan(pinnedOptions)) {
+            // The @options selector resolved to "no snapshot" at bind time. Re-deriving that here would
+            // reopen the race the resolution closed: a commit landing between bind and split planning
+            // would turn an empty relation into a non-empty one mid-statement.
+            return Collections.emptyList();
+        }
         Table table = resolveScanTable(paimonHandle);
 
         // Build predicates from filter expression
@@ -467,8 +588,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .filter(c -> c instanceof PaimonColumnHandle)
                 .mapToInt(c -> fieldNames.indexOf(
                         ((PaimonColumnHandle) c).getName().toLowerCase()))
-                .filter(i -> i >= 0)
+                .filter(i -> optionsPin || i >= 0)
                 .toArray();
+        if (optionsPin && Arrays.stream(projected).anyMatch(index -> index < 0)) {
+            // Only an @options read can bind against a schema the scan table does not have: its snapshot
+            // is chosen per relation, so a column bound from one version may be absent from the version
+            // this scan resolves. Dropping it (what the filter above does for every other path, where the
+            // two schemas agree by construction) would silently shift every later projection index by one
+            // and hand BE the wrong column. Fail loud instead.
+            throw new DorisConnectorException("Paimon scan schema does not contain all bound Doris columns.");
+        }
 
         // Call Paimon SDK
         ReadBuilder readBuilder = table.newReadBuilder();
@@ -487,7 +616,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (scan instanceof InnerTableScan) {
             scan = ((InnerTableScan) scan).withMetricRegistry(metricRegistry);
         }
-        List<Split> paimonSplits = planSplits(scan);
+        Optional<Long> fileCreationTime = optionsPin
+                ? PaimonScanParams.getPinnedFileCreationTime(pinnedOptions)
+                : Optional.empty();
+        List<Split> paimonSplits = fileCreationTime.isPresent()
+                ? planFileCreationTimeSplits(table, pinnedOptions, predicates, fileCreationTime.get())
+                : planSplits(scan);
         stashScanProfile(session, table, paimonHandle, metricRegistry);
 
         String defaultFileFormat = table.options().getOrDefault(
@@ -1217,6 +1351,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // with the JNI scanner's table.copy(buildTableOptions(..)) that consumed it -- the equivalent knob
     // is now the catalog-level "paimon.table-option.file-reader-async-threshold" (PaimonTableOptions).
     private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final String PAIMON_BINLOG_SYSTEM_TABLE = "binlog";
+
     private static final List<String> BACKEND_PAIMON_JNI_OPTIONS = Arrays.asList(
             "jni.enable_jni_io_manager",
             "jni.io_manager.tmp_dir",

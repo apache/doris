@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -87,6 +88,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -96,6 +98,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -1158,10 +1161,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (getQueryTableSnapshot() == null && getScanParams() == null) {
             return Optional.empty();
         }
-        if (!sysTableSupportsTimeTravel()) {
-            // Connector rejects sys-table time travel (paimon, the default). Do NOT resolve a pin: leave the
-            // rejection to checkSysTableScanConstraints, which owns the user-facing message. See the class
-            // note above on why deferring the capability check to that guard does not work.
+        if (!sysTableSelectorSupported()) {
+            // Connector rejects this selector on this sys table. Do NOT resolve a pin: leave the rejection
+            // to checkSysTableScanConstraints, which owns the user-facing message. See the class note above
+            // on why deferring the capability check to that guard does not work.
             return Optional.empty();
         }
         PluginDrivenExternalTable source = ((PluginDrivenSysExternalTable) getTargetTable()).getSourceTable();
@@ -1191,17 +1194,74 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return;
         }
         boolean timeTravelSupported = sysTableSupportsTimeTravel();
-        if (getScanParams() != null) {
-            // A connector whose sys tables honor a pin (iceberg) still rejects @incr — incremental read
-            // of a synthetic metadata table is undefined; a connector that does not (paimon, the default)
-            // rejects EVERY scan-param. Branch/tag are allowed only for the former.
-            if (!timeTravelSupported || getScanParams().incrementalRead()) {
+        TableScanParams scanParams = getScanParams();
+        if (scanParams != null) {
+            // @incr and @options are answered PER system table (a metadata view's reader decides whether it
+            // can observe a range / a selected snapshot); @branch/@tag ride the connector-wide time-travel
+            // flag. Each arm names the rejected clause so the user learns WHICH capability is missing,
+            // rather than a blanket "no scan params".
+            String sysTableName = sysTableName();
+            if (scanParams.incrementalRead()) {
+                if (!sysTableSupportsScanParam(p -> p.supportsSystemTableIncrementalRead(sysTableName))) {
+                    throw new UserException("Plugin system table '" + sysTableName
+                            + "' does not support INCR scan params.");
+                }
+            } else if (scanParams.isOptions()) {
+                if (!sysTableSupportsScanParam(p -> p.supportsSystemTableOptions(sysTableName))) {
+                    throw new UserException("Plugin system table '" + sysTableName
+                            + "' does not support OPTIONS scan params.");
+                }
+            } else if (!timeTravelSupported) {
                 throw new UserException("Plugin system tables do not support scan params.");
             }
         }
         if (getQueryTableSnapshot() != null && !timeTravelSupported) {
             throw new UserException("Plugin system tables do not support time travel.");
         }
+    }
+
+    /**
+     * Whether the connector honors THIS scan's selector on THIS system table — the exact mirror of
+     * {@link #checkSysTableScanConstraints}' accept set, so a pin is resolved for precisely the queries
+     * that guard lets through. Keeping the two in one shape is what prevents the failure mode documented
+     * on {@link #resolveSysTableSnapshotPin}: resolving a pin the guard would reject surfaces a bogus
+     * error before the intended message.
+     */
+    private boolean sysTableSelectorSupported() throws UserException {
+        TableScanParams scanParams = getScanParams();
+        if (scanParams == null) {
+            return sysTableSupportsTimeTravel();
+        }
+        String sysTableName = sysTableName();
+        if (scanParams.incrementalRead()) {
+            return sysTableSupportsScanParam(p -> p.supportsSystemTableIncrementalRead(sysTableName));
+        }
+        if (scanParams.isOptions()) {
+            return sysTableSupportsScanParam(p -> p.supportsSystemTableOptions(sysTableName));
+        }
+        return sysTableSupportsTimeTravel();
+    }
+
+    /**
+     * The bare (no {@code "$"}), lower-cased system-table name of the scan target. Tolerates a null name
+     * (impossible in production -- a sys handle always carries one) so the guard stays drivable on a bare
+     * mock, the same reason the surrounding methods are package-private.
+     */
+    private String sysTableName() throws UserException {
+        String name = ((PluginDrivenSysExternalTable) getTargetTable()).getSysTableName();
+        return name == null ? "" : name.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Asks the connector a per-system-table scan-param capability question. Package-private + overridable
+     * for the same reason as {@link #sysTableSupportsTimeTravel}: the guard stays unit-testable on a mock.
+     */
+    boolean sysTableSupportsScanParam(Predicate<ConnectorScanPlanProvider> question) {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null) {
+            return false;
+        }
+        return onPluginClassLoader(scanProvider, () -> question.test(scanProvider));
     }
 
     /**

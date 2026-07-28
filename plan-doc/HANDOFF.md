@@ -5,7 +5,134 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-27c）：rebase onto `e7b7f1d1359` —— 迎面撞上上游 **#66004 存储门面大重构**
+# 🆕🆕🆕 最新一轮（2026-07-28）：rebase onto `749290cb041` —— 移植 #65984 paimon `@options` 查询级动态选项
+
+> `git pull --rebase upstream-apache master`，72 commit onto **`749290cb041`**（上游新增 4 个 commit）。
+> 备份点 tag `backup-before-rebase-0728` = rebase 前 HEAD `bae5aae719c`。**未 push**。
+
+## 上游 4 个 commit：只有 1 个碰外表
+
+`#65880`(nereids repeat 去重)、`#66056`(BE parquet 稀疏 RF)、`#66118`(CI) 与本分支无交集。
+唯一对手：**`d74ebad82e2` (#65984) “Support query-level dynamic options”** —— paimon 新增
+`@options('scan.snapshot-id'='1', ...)` 关系级动态选项，39 文件（含 390 行新类 `PaimonScanParams`、
+nereids 解析链、5 个 e2e suite）。
+
+## 冲突 6 处 / 72 commit（range-diff 核：66 个逐字节未变，7 个改写 = 6 处冲突 + 1 处纯上下文位移）
+
+| # | 文件 | 类型 | 解法 |
+|---|---|---|---|
+| 3 | `LogicalFileScan.computeOutput` | content | 上游把重复 slot 构造抽成 `computeOutput(List<Column>)`，我们同锚点加了 `computePluginDrivenOutput()`（函数体逐字节相同）→ 并集，后者委托前者 |
+| 8 | `paimon_system_table.groovy` | content | 上游**删掉**了那个断言块（被它新增的 `does not support INCR/OPTIONS` 取代），我们只改了它的文案 → 取上游的删除 |
+| 9 | fe-core paimon 子系统 10 文件 | modify/delete | `git rm` 保留删除，能力另行移植 |
+| 11 | `BindRelation`/`LogicalFileScan`/`LogicalFileScanTest` | content | 上游给 fe-core 加 paimon 臂 vs 我们 P6 删 fe-core iceberg/paimon → 取我们的结构 |
+| 29 | `StatementContextTest` | content | 上游改了 3 个 HMS 测试的上下文，我们的 hive cutover 整体删除它们 → 取删除 |
+| 56 | `FileQueryScanNode.setColumnPositionMapping` | content | 两侧各加一个「列位置映射数据源」钩子：上游 `getFileColumnNames():List<String>` vs 我们 `getPinnedFullSchema():List<Column>` → 取我们的（语义更强：按本引用 pinned 快照解析），删上游那个已成死代码的钩子 |
+
+## 移植结论：**中性层白拿，paimon 层整体搬进 fe-connector-paimon**
+
+### A. fe-core 中性层（auto-merge 已进来，0 改动，含 3 个上游 bug 修复）
+`TableScanParams`(OPTIONS 类型)、`LogicalPlanBuilder`(`@options` 解析 + 命令表引用拒绝)、
+`BindRelation.rejectScanParamsOnCte`、`MaterializedViewUtils`(有 scanParams 的 relation 不做 MV 改写)、
+`ExecuteCommand`(PREPARE 复用 relation 时重置已解析选项)、
+**`UnboundRelation.withGroupExpression/withIndexInSql` 不再把 scanParams 置 null**（真 bug 修）、
+**`ExternalTablePreloadInfo.shouldPreloadLatestSnapshot` 去掉 `&& !hasNonLatestRelation`**（真 bug 修）。
+
+### B. `@options` 端到端（`ConnectorTimeTravelSpec` 天然承载）
+
+架构上 `@options` 就是第 6 种时间旅行选择器，映射到既有 SPI 管道，**无需新管道**：
+
+```
+@options(...) → TableScanParams(OPTIONS)
+  → PluginDrivenMvccExternalTable.toTimeTravelSpec → ConnectorTimeTravelSpec.Kind.OPTIONS(raw map)
+  → PaimonConnectorMetadata.resolveTimeTravel: validateOptions + resolveOptions(把可变选择器冻结成
+    不可变 pin) → ConnectorMvccSnapshot{snapshotId, schemaId, properties=已解析选项+family marker}
+  → applySnapshot → handle.withScanOptions
+  → PaimonScanPlanProvider.resolveScanTable → PaimonScanParams.applyOptions(table, opts)
+```
+
+新增：SPI `Kind.OPTIONS` + `options()/getOptions()`；`ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS`
+（paimon 声明）；`PluginDrivenExternalTable.supportsScanParamOptions()`；`BindRelation.validateOptionsTarget`
+改成**能力驱动**（不再 `instanceof PaimonExternalTable`）。
+
+**⚡ 上游两条改动本分支「结构上已覆盖」，无需移植**（这是本轮最大的省力点）：
+1. `LogicalFileScan.initialSelectedPartitions` → `SelectedPartitions.NOT_PRUNED`：我们的 ctor 早已按
+   **本引用自己的版本** `MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams)` 取分区，
+   而显式 pin 分支返回**空分区图**（= scan-all），效果等价。
+2. `LogicalFileScan.computeOutput` 的 `getFullSchema(scanParams)` 臂：`computePluginDrivenOutput()`
+   已走同一条版本感知 schema 解析。
+3. 上游 `TableScanParams.getOrResolveMapParams`（每 relation 只解析一次）：我们由
+   `StatementContext.versionKeyOf` 提供 —— key 含 `sp.getMapParams()`，所以
+   `t@options(id=1) JOIN t@options(id=2)` 两侧各自解析，同 map 的两次引用共用一次解析。
+
+### C. paimon 系统表 scan-param **大幅放宽**（本轮真正的新增能力）
+
+#65984 把「paimon 系统表拒绝一切 scan param」改成**按系统表类型的能力矩阵**：
+`@incr` 支持 `audit_log/binlog/partitions/ro/row_tracking`；`@options` 支持
+`audit_log/binlog/manifests/partitions/ro/row_tracking/table_indexes`（`files`/`buckets` 内部仍查 latest 元数据，必须拒）。
+
+我们这边的落法（管道**本来就有**，只是 paimon 没开）：
+- `ConnectorScanPlanProvider` 新增 `supportsSystemTableIncrementalRead(sysTableName)` /
+  `supportsSystemTableOptions(sysTableName)`（原来只有一个连接器级 `supportsSystemTableTimeTravel()`，
+  表达不了「同一连接器不同视图不同答案」）；
+- `PluginDrivenScanNode.checkSysTableScanConstraints` 按 param 类型分别问，**报错文案点名缺哪个能力**；
+  `resolveSysTableSnapshotPin` 的放行条件与守门**同形**（否则会先炸出 L17 假错误，掩盖真文案）；
+- `PaimonConnectorMetadata.applySnapshot` 对 **sys handle** 不再原样返回，改为透传 scan options
+  （@incr / @options 都经这条），并调 `validateSystemTableOptions` 拒掉系统表包装器扛不动的
+  `scan.file-creation-time-millis`。
+
+### D. 顺带的独立修复（3 项）
+1. `PaimonIncrementalScanParams.applyResetsIfIncremental` 的 null 重置从 2 个键
+   （`scan.snapshot-id`/`scan.mode`）扩到**整个 inherited read-state family**（含各 fallback 键）——
+   base 表可以合法持久化 `scan.tag-name`/`scan.timestamp-millis`，与 `incremental-between` 合并会抛或读错版本。
+2. `$binlog@incr` 的 `COUNT(*)` 下推否决：binlog reader 把 UPDATE_BEFORE/AFTER 打包成 1 行，
+   DataSplit 的物理 merged 行数不是合法 `COUNT(*)`。
+3. `getSysTableHandle` 的 forceJni 集合从 `binlog/audit_log` 扩到含 `row_tracking`，
+   并统一到 `PaimonScanParams.requiresPaimonReader`（单一事实来源）。
+
+### E. 3 项**有意不移植 / 反向裁决**（Rule 7/12，务必别在下一轮又"补回来"）
+
+| 项 | 判断 | 依据 |
+|---|---|---|
+| `jni.enable_file_reader_async` 加进 BACKEND_PAIMON_OPTIONS | **不移植** | 全仓（**含 upstream master 自己**）无任何 BE/JNI 消费方 —— #65955 删掉了 `buildTableOptions`。上游这行是空转的。上一轮 07-27b 已就此立了守门测试 `backendOptionsDropRetiredFileReaderAsyncOptOut`，我先加后回退（它红了，守门有效） |
+| `StatementContext` 的 `selectorFreePaimonOptions` preload 豁免 | **不移植** | 需要连接器在**绑定之前**回答「这些 option 是否选版本」；本分支对 `@branch/@tag/@incr` 一律按 non-latest 处理。仅影响 preload 预热**时延**，不影响正确性。已把该偏差固化成测试 `testScanParamOptionsRelationIsTreatedAsNonLatest` |
+| `PaimonUtil.updatePaimonColumnMetadata`（递归补 TZ 元信息）/ `PaimonLatestSnapshotProjectionLoader.copyWithLatestSchema` | **已覆盖** | 前者：我们的 `PaimonTypeMapping.toConnectorType` 对 ARRAY/MAP/ROW 天生递归，不需要事后补。后者：`beginQuerySnapshot` 不设 schemaId ⇒ `getTableSchema(3-arg)` 落回 latest schema，正是上游修完的行为 |
+
+另有一处**已知偏差**：paimon **系统表** 的 `@options` 在我们这边绑定的是 latest sys schema
+（`PluginDrivenScanNode:1019` 对 sys 表忽略 pinnedSchema，iceberg 早已如此），上游会绑定 option 选中的 schema。
+只有 `$audit_log/$binlog/$ro` 家族在跨 schema 演进时才可见差异，5 个 e2e suite 均未覆盖。
+
+## 测试
+
+- **单测（我跑）**：全量 FE `install` + checkstyle **BUILD SUCCESS**（两轮）；
+  `fe-connector-paimon` **421/421**（1 个既有 live-connectivity skip，含新增 `PaimonScanParamsTest` 18 例、
+  `PaimonScanPlanProviderCapabilityTest` +3 例）、`fe-connector-api` 110/110、`fe-connector-iceberg` 1151/1151；
+  fe-core 全量 **8335 / 0 failures / 2 errors / 44 skipped** —— 2 个 error 与上一轮**同源且非本轮引入**
+  （`ForwardToMasterTest` = 上游 #66004 自带 NodeInfo JSON 双层嵌套回归；`HFUtilsTest` = 要连 huggingface.co）。
+- **3 个变异全部 RED**：①`isOptionsPin` 恒 false（读状态隔离+marker 剥离失效）；
+  ②系统表能力答连接器级 true；③去掉 fe-core 的 `@options` 能力门。复原后全绿。
+- **测试迁移**：上游 `PaimonScanParamsTest`(355 行) → 连接器版。两处适配：
+  `IllegalArgumentException`→`DorisConnectorException`；**本模块无 mockito**（也没有任何 fe-connector-\* 用），
+  故 resolve 类用例改成对**真实本地 FileStoreTable**（`@TempDir` + 真提交多个 snapshot/tag）断言 —— 比
+  mock `TimeTravelUtil` 更强。`BindRelationTest.rejectOptionsOnUnsupportedTableType` 的文案从
+  "only supported for Paimon tables" 改为能力驱动文案（我们的门不绑连接器名）。
+- **e2e（你跑）**：5 个 suite 的断言逐条核过，**无需再改**：
+  `does not support OPTIONS/INCR` 命中 `PluginDrivenScanNode` 新文案；
+  `Unsupported Paimon query option` / `Only one Paimon startup position` / `scan.fallback-branch` /
+  `is incompatible with startup position` / `OPTIONS requires a non-empty key/value map` 全部逐字保留。
+  上一轮的 3 处本地文案适配（`system tables do not support time travel`、`snapshot earlier than or equal to`、
+  `DROP COLUMN not supported`）auto-merge 完好保留。
+  `test_paimon_schema_time_travel_matrix` 里那条 "Schema-selecting OPTIONS must bypass paimon-cpp" 断言对
+  本分支**平凡成立**（07-26 已按 #66008 摘除 paimon-cpp 臂，flag 恒 no-op）。
+
+## ⏭ 下一个 session
+
+1. `git push` 回 `upstream-apache/branch-catalog-spi`（本轮未 push），跑 External Regression。
+2. 上一轮遗留：`fe-filesystem-{oss-hdfs,s3,gcs}` 里 5 处注释仍提已删的 `StoragePropertiesConverter`，可顺手清。
+3. 上游 #66004 的 Manager REST `NodeInfo` 双层嵌套回归仍在，建议向上游报，**不要改测试迎合**。
+
+---
+
+# 🆕🆕 上一轮（2026-07-27c）：rebase onto `e7b7f1d1359` —— 迎面撞上上游 **#66004 存储门面大重构**
 
 > `git pull --rebase upstream-apache master`，66 commit onto **`e7b7f1d1359`**（上游新增 5 个 commit）。
 > 备份点 tag `backup-before-rebase-0727c` = rebase 前 HEAD `f9c96e1e37a`。**未 push**。
@@ -92,7 +219,7 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-27b）：rebase onto `042e613b134` —— 移植 #65955 paimon table-option + 修一处**静默失效**
+# 🆕 上上轮（2026-07-27b）：rebase onto `042e613b134` —— 移植 #65955 paimon table-option + 修一处**静默失效**
 
 > `git pull --rebase upstream-apache master`，63 commit onto **`042e613b134`**（上游新增 6 个 commit）。
 > 备份点 tag `backup-before-rebase-0727b` = rebase 前 HEAD `ceb33843d4b`。**未 push**。
@@ -173,7 +300,7 @@ paimon 主键合并读回到 OOM 老路。**这类跨 FE/BE 同名常量的改�
 
 ---
 
-# 🆕🆕 上一轮（2026-07-27）：rebase onto `5b3ac63f8b4` —— 0 能力迁移，白捡上游一个 BE 崩溃修复
+# 上上上轮（2026-07-27）：rebase onto `5b3ac63f8b4` —— 0 能力迁移，白捡上游一个 BE 崩溃修复
 
 > `git pull --rebase upstream-apache master`，62 commit onto **`5b3ac63f8b4`**（上游新增 5 个 commit）。
 
@@ -224,7 +351,7 @@ paimon 主键合并读回到 OOM 老路。**这类跨 FE/BE 同名常量的改�
 
 ---
 
-# 🆕 上上轮（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
+# 更早（2026-07-26）：rebase onto `962bd5b28c7` + 移植 #66008 的 paimon-cpp 摘除
 
 > `git pull --rebase upstream-apache master`，61 commit onto **`962bd5b28c7`**（上游只新增 2 个 commit）。
 
