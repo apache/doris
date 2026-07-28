@@ -516,6 +516,8 @@ io::AsyncCacheWriteServiceOptions load_async_write_options_from_config() {
             .batch_size = static_cast<size_t>(async_file_cache_write_batch_size),
             .watchdog_warn_secs = async_file_cache_write_watchdog_warn_secs,
             .watchdog_drop_secs = async_file_cache_write_watchdog_drop_secs,
+            .queue_full_policy = io::async_cache_write_queue_full_policy_from_string(
+                    async_file_cache_write_queue_full_policy),
     };
 }
 
@@ -573,6 +575,10 @@ DEFINE_ON_UPDATE(async_file_cache_write_watchdog_warn_secs, [](int64_t old_value
 DEFINE_ON_UPDATE(async_file_cache_write_watchdog_drop_secs, [](int64_t old_value,
                                                                int64_t new_value) {
     update_async_write_options("async_file_cache_write_watchdog_drop_secs", old_value, new_value);
+});
+DEFINE_ON_UPDATE(async_file_cache_write_queue_full_policy, [](const std::string& old_value,
+                                                              const std::string& new_value) {
+    update_async_write_options("async_file_cache_write_queue_full_policy", old_value, new_value);
 });
 
 } // namespace doris::config

@@ -559,6 +559,8 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
             .batch_size = static_cast<size_t>(config::async_file_cache_write_batch_size),
             .watchdog_warn_secs = config::async_file_cache_write_watchdog_warn_secs,
             .watchdog_drop_secs = config::async_file_cache_write_watchdog_drop_secs,
+            .queue_full_policy = async_cache_write_queue_full_policy_from_string(
+                    config::async_file_cache_write_queue_full_policy),
     };
     _async_write_service =
             std::make_unique<AsyncCacheWriteService>(this, std::move(async_write_options));

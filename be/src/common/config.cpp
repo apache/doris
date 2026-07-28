@@ -1291,6 +1291,7 @@ DEFINE_mInt64(async_file_cache_write_max_pending_tasks_per_disk, "256");
 DEFINE_mInt32(async_file_cache_write_batch_size, "16");
 DEFINE_mInt64(async_file_cache_write_watchdog_warn_secs, "30");
 DEFINE_mInt64(async_file_cache_write_watchdog_drop_secs, "120");
+DEFINE_mString(async_file_cache_write_queue_full_policy, "reject_new");
 DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
 DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
 DEFINE_Validator(async_file_cache_write_workers_per_disk,
@@ -1303,6 +1304,9 @@ DEFINE_Validator(async_file_cache_write_watchdog_warn_secs, [](int64_t value) {
 });
 DEFINE_Validator(async_file_cache_write_watchdog_drop_secs,
                  [](int64_t value) { return value > async_file_cache_write_watchdog_warn_secs; });
+DEFINE_Validator(async_file_cache_write_queue_full_policy, [](const std::string& value) {
+    return value == "reject_new" || value == "drop_oldest";
+});
 DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
                  [](int32_t value) { return value > 0; });
 
@@ -2346,6 +2350,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
+        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2355,7 +2360,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
-        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
