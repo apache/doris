@@ -1,4 +1,5 @@
-CREATE external TABLE `table_with_pars`(
+drop table if exists `table_with_pars`;
+create external table `table_with_pars`(
   `id` int COMMENT 'id',
   `data` string COMMENT 'data')
 PARTITIONED BY (

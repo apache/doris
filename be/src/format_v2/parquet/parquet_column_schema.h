@@ -23,18 +23,15 @@
 #include "core/data_type/data_type.h"
 #include "format_v2/parquet/parquet_type.h"
 
-namespace parquet {
-class ColumnDescriptor;
-class SchemaDescriptor;
-} // namespace parquet
-
 namespace doris::format::parquet {
 
+class NativeFieldDescriptor;
+
 enum class ParquetColumnSchemaKind {
-    PRIMITIVE, // primitive leaf -> ScalarColumnReader
-    STRUCT,    // struct -> StructColumnReader
-    LIST,      // array -> ListColumnReader
-    MAP,       // map -> MapColumnReader
+    PRIMITIVE, // physical primitive leaf
+    STRUCT,    // Parquet group with STRUCT semantics
+    LIST,      // Parquet group with LIST semantics
+    MAP,       // Parquet group with MAP semantics
 };
 
 // ============================================================================
@@ -55,8 +52,6 @@ struct ParquetColumnSchema {
 
     ParquetColumnSchemaKind kind = ParquetColumnSchemaKind::PRIMITIVE;
 
-    const ::parquet::ColumnDescriptor* descriptor = nullptr;
-
     // ======== Dremel Levels ========
 
     int16_t max_definition_level = 0;
@@ -74,7 +69,7 @@ struct ParquetColumnSchema {
     std::vector<std::unique_ptr<ParquetColumnSchema>> children {};
 };
 
-Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
+Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 
 } // namespace doris::format::parquet

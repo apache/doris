@@ -47,7 +47,11 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _file_name_index(file_name_index),
           _file_format_type(file_format_type),
           _compress_type(compress_type),
-          _hadoop_conf(hadoop_conf) {}
+          _hadoop_conf(hadoop_conf) {
+    if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
+        _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
+    }
+}
 
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                      const RowDescriptor* row_desc) {
@@ -155,6 +159,10 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     commit_data->__set_file_size(_file_format_transformer->written_len());
     commit_data->__set_file_content(TFileContent::DATA);
     commit_data->__set_partition_values(_partition_values);
+    // ORC collection reopens the file, so honor the FE policy before any footer work.
+    if (!_collect_column_stats) {
+        return Status::OK();
+    }
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         TIcebergColumnStats column_stats;
         RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())

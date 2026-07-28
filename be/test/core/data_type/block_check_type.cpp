@@ -39,4 +39,22 @@ TEST(BlockCheckType, test1) {
     EXPECT_FALSE(st.ok());
     std::cout << st.msg() << std::endl;
 }
+
+TEST(BlockCheckType, CheckColumnAndTypeNotNull) {
+    auto block = Block {
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4}),
+            ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
+    };
+
+    EXPECT_TRUE(block.check_column_and_type_not_null());
+
+    block.get_by_position(0).column = nullptr;
+    auto st = block.check_column_and_type_not_null();
+    EXPECT_FALSE(st.ok());
+
+    block.get_by_position(0).column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
+    block.get_by_position(1).type = nullptr;
+    st = block.check_column_and_type_not_null();
+    EXPECT_FALSE(st.ok());
+}
 } // namespace doris

@@ -1,4 +1,5 @@
-CREATE external TABLE `table_with_vertical_line`(
+drop table if exists `table_with_vertical_line`;
+create external table `table_with_vertical_line`(
   `k1` string COMMENT 'k1',
   `k2` string COMMENT 'k2',
   `k3` string COMMENT 'k3',

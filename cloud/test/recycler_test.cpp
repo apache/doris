@@ -6997,6 +6997,44 @@ TEST(RecyclerTest, recycle_tablet_with_empty_resource_id_and_no_segments) {
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), 0);
 }
 
+TEST(RecyclerTest, recycle_tablet_with_resource_id_and_no_segments) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    InstanceInfoPB instance;
+    instance.set_instance_id("test_instance");
+
+    auto accessor = std::make_shared<MockAccessor>();
+    constexpr int64_t tablet_id = 1234;
+    EXPECT_EQ(accessor->put_file("data/1234/orphan.dat", ""), 0);
+
+    sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
+        auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
+        auto* rs = resp->add_rowset_meta();
+        rs->set_num_segments(0);
+        rs->set_resource_id("resource_id");
+        rs = resp->add_rowset_meta();
+        rs->set_num_segments(0);
+    });
+    sp->enable_processing();
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), 0);
+    recycler.TEST_add_accessor("resource_id", accessor);
+
+    EXPECT_EQ(accessor->exists("data/1234/orphan.dat"), 0);
+    RecyclerMetricsContext ctx;
+    EXPECT_EQ(recycler.recycle_tablet(tablet_id, ctx), 0);
+    EXPECT_EQ(accessor->exists("data/1234/orphan.dat"), 1);
+}
+
 TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {

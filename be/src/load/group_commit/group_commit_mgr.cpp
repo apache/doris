@@ -31,6 +31,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
@@ -268,16 +269,19 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, int64_t index_size, const UniqueId& load_id,
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
-        std::shared_ptr<Dependency> create_plan_dep, std::shared_ptr<Dependency> put_block_dep) {
+        TGroupCommitMode::type group_commit_mode, std::shared_ptr<Dependency> create_plan_dep,
+        std::shared_ptr<Dependency> put_block_dep) {
     DCHECK(table_id == _table_id);
     std::unique_lock l(_lock);
-    auto try_to_get_matched_queue = [&]() -> Status {
+    auto try_to_get_matched_queue = [&](bool& need_create_plan) -> Status {
+        need_create_plan = false;
         for (const auto& [_, inner_block_queue] : _load_block_queues) {
             if (inner_block_queue->contain_load_id(load_id)) {
                 load_block_queue = inner_block_queue;
                 return Status::OK();
             }
         }
+        RETURN_IF_ERROR(_check_wal_backlog(group_commit_mode));
         for (const auto& [_, inner_block_queue] : _load_block_queues) {
             if (!inner_block_queue->need_commit()) {
                 if (base_schema_version == inner_block_queue->schema_version &&
@@ -293,11 +297,13 @@ Status GroupCommitTable::get_first_block_load_queue(
                 }
             }
         }
-        return Status::InternalError<false>("can not get a block queue for table_id: " +
-                                            std::to_string(_table_id) + _create_plan_failed_reason);
+        need_create_plan = true;
+        return Status::OK();
     };
 
-    if (try_to_get_matched_queue().ok()) {
+    bool need_create_plan = false;
+    RETURN_IF_ERROR(try_to_get_matched_queue(need_create_plan));
+    if (!need_create_plan) {
         return Status::OK();
     }
     create_plan_dep->block();
@@ -308,7 +314,31 @@ Status GroupCommitTable::get_first_block_load_queue(
     _create_plan_deps.emplace(load_id, std::make_tuple(create_plan_dep, put_block_dep,
                                                        base_schema_version, index_size));
     [[maybe_unused]] auto submit_st = _submit_create_group_commit_load();
-    return try_to_get_matched_queue();
+    RETURN_IF_ERROR(try_to_get_matched_queue(need_create_plan));
+    if (need_create_plan) {
+        return Status::InternalError<false>("can not get a block queue for table_id: " +
+                                            std::to_string(_table_id) + _create_plan_failed_reason);
+    }
+    return Status::OK();
+}
+
+Status GroupCommitTable::_check_wal_backlog(TGroupCommitMode::type group_commit_mode) {
+    int32_t max_wal_num = config::group_commit_max_wal_num_per_table;
+    if (group_commit_mode != TGroupCommitMode::ASYNC_MODE || max_wal_num <= 0) {
+        return Status::OK();
+    }
+    size_t wal_num = _exec_env->wal_mgr()->get_wal_queue_size(_table_id);
+    if (wal_num < static_cast<size_t>(max_wal_num)) {
+        return Status::OK();
+    }
+    std::string failed_reason = _exec_env->wal_mgr()->get_last_replay_wal_failed_reason(_table_id);
+    if (failed_reason.empty()) {
+        return Status::OK();
+    }
+    return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+            "Too many group commit async WALs for table {} on be host {}. wal num={}, limit={}, "
+            "last replay wal failed reason: {}",
+            _table_id, BackendOptions::get_localhost(), wal_num, max_wal_num, failed_reason);
 }
 
 Status GroupCommitTable::submit_create_group_commit_load() {
@@ -841,13 +871,11 @@ void GroupCommitMgr::_create_plan_worker() {
     }
 }
 
-Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_id,
-                                                  int64_t base_schema_version, int64_t index_size,
-                                                  const UniqueId& load_id,
-                                                  std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                                  int be_exe_version,
-                                                  std::shared_ptr<Dependency> create_plan_dep,
-                                                  std::shared_ptr<Dependency> put_block_dep) {
+Status GroupCommitMgr::get_first_block_load_queue(
+        int64_t db_id, int64_t table_id, int64_t base_schema_version, int64_t index_size,
+        const UniqueId& load_id, std::shared_ptr<LoadBlockQueue>& load_block_queue,
+        int be_exe_version, TGroupCommitMode::type group_commit_mode,
+        std::shared_ptr<Dependency> create_plan_dep, std::shared_ptr<Dependency> put_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -860,7 +888,7 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
             table_id, base_schema_version, index_size, load_id, load_block_queue, be_exe_version,
-            create_plan_dep, put_block_dep));
+            group_commit_mode, create_plan_dep, put_block_dep));
     return Status::OK();
 }
 

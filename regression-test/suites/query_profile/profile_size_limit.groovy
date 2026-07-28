@@ -27,30 +27,28 @@ import groovy.json.StringEscapeUtils
 final String PROFILE_SIZE_NOT_GREATER_THAN_ZERO_MSG = "Profile size is not greater than 0"
 final String PROFILE_SIZE_GREATER_THAN_LIMIT_MSG = "Profile size is greater than limit"
 
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+def getProfileList = { String feBaseUrl ->
+    def conn = new URL(feBaseUrl + "/rest/v1/query_profile").openConnection()
     conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+    def encoding = Base64.getEncoder().encodeToString(("root" + ":" +
+            "").getBytes("UTF-8"))
     conn.setRequestProperty("Authorization", "Basic ${encoding}")
     return conn.getInputStream().getText()
 }
 
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
+def getProfile = { String feBaseUrl, String id ->
+    def conn = new URL(feBaseUrl + "/api/profile/text/?query_id=$id").openConnection()
+    conn.setRequestMethod("GET")
+    def encoding = Base64.getEncoder().encodeToString(("root" + ":" +
+            "").getBytes("UTF-8"))
+    conn.setRequestProperty("Authorization", "Basic ${encoding}")
+    return conn.getInputStream().getText()
 }
 
-def getProfileWithToken = { token ->
-    def wholeString = getProfileList()
+def getProfileWithToken = { String feBaseUrl, String token ->
+    def wholeString = getProfileList(feBaseUrl)
     List profileData = new JsonSlurper().parseText(wholeString).data.rows
-    String profileId = "";    
+    String profileId = "";
     logger.info("{}", token)
 
     for (def profileItem in profileData) {
@@ -64,11 +62,11 @@ def getProfileWithToken = { token ->
     // Sleep 2 seconds to make sure profile collection is done
     Thread.sleep(2000)
 
-    def String profile = getProfile(profileId).toString()
+    def String profile = getProfile(feBaseUrl, profileId).toString()
     return profile;
 }
 
-suite('profile_size_limit', 'docker, nonConcurrent') {
+suite('profile_size_limit', 'docker') {
     def options = new ClusterOptions()
     options.beNum = 1
     options.enableDebugPoints()
@@ -132,14 +130,15 @@ suite('profile_size_limit', 'docker, nonConcurrent') {
             (9010, "CTO_Technical_Strategy_Lead", 42);
         """
 
-        def feHttpAddress = context.config.feHttpAddress.split(":")
-        def feHost = feHttpAddress[0]
-        def fePort = feHttpAddress[1] as int
+        def fe = cluster.getMasterFe()
+        def feHost = fe.host
+        def fePort = fe.httpPort
+        def feBaseUrl = 'http://' + feHost + ':' + fePort
 
         sql """
             select "${token}", * from profile_size_limit;
         """
-        def String profile = getProfileWithToken(token)
+        def String profile = getProfileWithToken(feBaseUrl, token)
         logger.info("Profile of ${token} size: ${profile.size()}")
         assertTrue(profile.size() > 0, PROFILE_SIZE_NOT_GREATER_THAN_ZERO_MSG)
 
@@ -154,7 +153,7 @@ suite('profile_size_limit', 'docker, nonConcurrent') {
             sql """
                 select "${token}", * from profile_size_limit;
             """
-            profile = getProfileWithToken(token)
+            profile = getProfileWithToken(feBaseUrl, token)
             logger.info("Profile of ${token} size: ${profile.size()}, limit: ${maxProfileSize}")
             assertTrue(profile.size() <= maxProfileSize, PROFILE_SIZE_GREATER_THAN_LIMIT_MSG)
         }

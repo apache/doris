@@ -1,4 +1,5 @@
-CREATE TABLE `delta_length_byte_array`(
+drop table if exists `delta_length_byte_array`;
+create table `delta_length_byte_array`(
   `FRUIT` string
   )
 ROW FORMAT SERDE
@@ -11,6 +12,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/delta_length_byte_array'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table delta_length_byte_array;
-

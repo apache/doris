@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_char`(
+drop table if exists `multi_catalog.parquet_alter_column_to_char`;
+
+create table `multi_catalog.parquet_alter_column_to_char`(
   `col_int` char(10), 
   `col_smallint` char(10), 
   `col_tinyint` char(10), 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697275142', 
   'transient_lastDdlTime'='1697275142');
-
-msck repair table parquet_alter_column_to_char;

@@ -38,6 +38,8 @@ struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
     std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
     std::atomic<int64_t> num_io_bytes_read_from_peer = 0;
+    std::atomic<int64_t> inverted_index_bytes_read_from_remote = 0;
+    std::atomic<int64_t> segment_footer_index_bytes_read_from_remote = 0;
 };
 class FileCacheMetrics {
 public:
@@ -68,6 +70,8 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
                                                const FileCacheStatistics& previous);
 
 struct FileCacheProfileReporter {
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* total_time = nullptr;
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
     RuntimeProfile::Counter* num_peer_io_total = nullptr;
@@ -108,7 +112,9 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
 
-    FileCacheProfileReporter(RuntimeProfile* profile);
+    explicit FileCacheProfileReporter(
+            RuntimeProfile* profile,
+            const std::string& parent_counter = RuntimeProfile::ROOT_COUNTER);
     void update(const FileCacheStatistics* statistics) const;
 };
 

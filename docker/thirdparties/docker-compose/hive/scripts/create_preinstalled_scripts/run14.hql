@@ -1,4 +1,5 @@
-CREATE TABLE `lineorder` (
+drop table if exists `lineorder`;
+create table `lineorder` (
   `lo_orderkey` int,
   `lo_linenumber` int,
   `lo_custkey` int,

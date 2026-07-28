@@ -836,9 +836,10 @@ public:
             : _file_name(file_name),
               _inner_reader(inner_reader),
               _file_reader(inner_reader),
-              _tracing_file_reader(io_ctx ? std::make_shared<io::TracingFileReader>(
-                                                    _file_reader, io_ctx->file_reader_stats)
-                                          : _file_reader),
+              _tracing_file_reader(io_ctx && io_ctx->file_reader_stats
+                                           ? std::make_shared<io::TracingFileReader>(
+                                                     _file_reader, io_ctx->file_reader_stats)
+                                           : _file_reader),
               _orc_once_max_read_bytes(orc_once_max_read_bytes),
               _orc_max_merge_distance_bytes(orc_max_merge_distance_bytes),
               _io_ctx(io_ctx),

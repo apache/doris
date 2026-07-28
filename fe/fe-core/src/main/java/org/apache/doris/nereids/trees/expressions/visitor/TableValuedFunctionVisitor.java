@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -107,10 +106,6 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHudiMeta(HudiMeta hudiMeta, C context) {
         return visitTableValuedFunction(hudiMeta, context);
-    }
-
-    default R visitIcebergMeta(IcebergMeta icebergMeta, C context) {
-        return visitTableValuedFunction(icebergMeta, context);
     }
 
     default R visitLocal(Local local, C context) {

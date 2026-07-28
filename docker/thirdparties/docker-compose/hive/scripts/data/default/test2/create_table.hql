@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS default;
 USE default;
 
-CREATE TABLE `default.test2`(
+drop table if exists `default.test2`;
+
+create table `default.test2`(
   `id` int, 
   `name` string, 
   `age` string, 
@@ -19,5 +21,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/test2'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712244');
-
-msck repair table test2;

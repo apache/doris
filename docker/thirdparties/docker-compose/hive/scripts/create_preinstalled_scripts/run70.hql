@@ -1,7 +1,10 @@
 use `default`;
 
 
-CREATE TABLE json_all_complex_types (
+drop table if exists json_all_complex_types;
+
+
+create table json_all_complex_types (
   `id` int,
   `boolean_col` boolean, 
   `tinyint_col` tinyint, 

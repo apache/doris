@@ -1,4 +1,5 @@
-CREATE EXTERNAL TABLE IF NOT EXISTS `orc_all_types_partition`(
+drop table if exists `orc_all_types_partition`;
+create external table `orc_all_types_partition`(
   `tinyint_col` tinyint,
   `smallint_col` smallint,
   `int_col` int,

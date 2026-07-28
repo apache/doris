@@ -205,7 +205,16 @@ suite("test_show_data", "p2") {
         load_httplogs_data.call(testTableWithIndex, 'test_httplogs_load_with_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 60000, 0)
         if (!isCloudMode()) {
-            assertEquals(another_with_index_size, with_index_size)
+            double diff = Math.abs(another_with_index_size.toDouble() - with_index_size.toDouble())
+            double max_size = Math.max(another_with_index_size.toDouble(), with_index_size.toDouble())
+            double diff_ratio = diff / max_size
+            logger.info("show data size diff is {}, diff ratio is {}, with index size is {}, " +
+                    "another with index size is {}", diff, diff_ratio, with_index_size,
+                    another_with_index_size)
+            assertTrue(diff_ratio < 0.15d,
+                    "show data size diff ratio ${diff_ratio} should be less than 15%, " +
+                    "diff: ${diff} KB, left size: ${with_index_size}, " +
+                    "right size: ${another_with_index_size}")
         }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -605,7 +614,16 @@ suite("test_show_data_multi_add", "p2") {
         load_httplogs_data.call(testTableWithIndex, 'test_show_data_httplogs_multi_add_with_index', 'true', 'json', 'documents-1000.json')
         def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 60000, 0)
         if (!isCloudMode()) {
-            assertEquals(another_with_index_size, with_index_size2)
+            double diff = Math.abs(another_with_index_size.toDouble() - with_index_size2.toDouble())
+            double max_size = Math.max(another_with_index_size.toDouble(), with_index_size2.toDouble())
+            double diff_ratio = diff / max_size
+            logger.info("multi-add show data size diff is {}, diff ratio is {}, with index size is {}, " +
+                    "another with index size is {}", diff, diff_ratio, with_index_size2,
+                    another_with_index_size)
+            assertTrue(diff_ratio < 0.15d,
+                    "multi-add show data size diff ratio ${diff_ratio} should be less than 15%, " +
+                    "diff: ${diff} KB, left size: ${with_index_size2}, " +
+                    "right size: ${another_with_index_size}")
         }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")

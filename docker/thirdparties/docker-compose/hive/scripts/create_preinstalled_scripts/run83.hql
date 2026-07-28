@@ -5,7 +5,10 @@ DROP TABLE IF EXISTS test_hive_binary_orc;
 DROP TABLE IF EXISTS test_hive_binary_parquet;
 
 
-CREATE TABLE test_hive_binary_orc (
+drop table if exists test_hive_binary_orc;
+
+
+create table test_hive_binary_orc (
   id INT COMMENT 'Primary key',
   col1 BINARY COMMENT 'UUID stored as 16-byte binary',
   col2 BINARY COMMENT 'Variable length binary data'
@@ -31,7 +34,10 @@ INSERT INTO test_hive_binary_orc
 SELECT 5, unhex('ABCDEF1234567890'), unhex('FFFF');
 
 
-CREATE TABLE test_hive_binary_parquet (
+drop table if exists test_hive_binary_parquet;
+
+
+create table test_hive_binary_parquet (
   id INT COMMENT 'Primary key',
   col1 BINARY COMMENT 'UUID stored as 16-byte binary',
   col2 BINARY COMMENT 'Variable length binary data'
@@ -58,7 +64,8 @@ SELECT 5, unhex('ABCDEF1234567890'), unhex('FFFF');
 
 
 DROP TABLE IF EXISTS test_hive_binary_orc_write_no_mapping;
-CREATE TABLE test_hive_binary_orc_write_no_mapping (
+drop table if exists test_hive_binary_orc_write_no_mapping;
+create table test_hive_binary_orc_write_no_mapping (
   id INT,
   col1 BINARY,
   col2 BINARY
@@ -67,7 +74,8 @@ STORED AS ORC;
 
 
 DROP TABLE IF EXISTS test_hive_binary_parquet_write_no_mapping;
-CREATE TABLE test_hive_binary_parquet_write_no_mapping (
+drop table if exists test_hive_binary_parquet_write_no_mapping;
+create table test_hive_binary_parquet_write_no_mapping (
   id INT,
   col1 BINARY,
   col2 BINARY
@@ -76,7 +84,8 @@ STORED AS PARQUET;
 
 
 DROP TABLE IF EXISTS test_hive_binary_orc_write_with_mapping;
-CREATE TABLE test_hive_binary_orc_write_with_mapping (
+drop table if exists test_hive_binary_orc_write_with_mapping;
+create table test_hive_binary_orc_write_with_mapping (
   id INT,
   col1 BINARY,
   col2 BINARY
@@ -85,7 +94,8 @@ STORED AS ORC;
 
 
 DROP TABLE IF EXISTS test_hive_binary_parquet_write_with_mapping;
-CREATE TABLE test_hive_binary_parquet_write_with_mapping (
+drop table if exists test_hive_binary_parquet_write_with_mapping;
+create table test_hive_binary_parquet_write_with_mapping (
   id INT,
   col1 BINARY,
   col2 BINARY
@@ -94,7 +104,8 @@ STORED AS PARQUET;
 
 
 DROP TABLE IF EXISTS test_hive_uuid_fixed_orc;
-CREATE TABLE test_hive_uuid_fixed_orc (
+drop table if exists test_hive_uuid_fixed_orc;
+create table test_hive_uuid_fixed_orc (
   id INT,
   uuid_col BINARY COMMENT '16-byte UUID',
   created_at STRING
@@ -109,7 +120,8 @@ INSERT INTO test_hive_uuid_fixed_orc
 SELECT 3, unhex('deadbeefcafebabeabcdef0123456789'), '2024-01-03';
 
 DROP TABLE IF EXISTS test_hive_uuid_fixed_parquet;
-CREATE TABLE test_hive_uuid_fixed_parquet (
+drop table if exists test_hive_uuid_fixed_parquet;
+create table test_hive_uuid_fixed_parquet (
   id INT,
   uuid_col BINARY COMMENT '16-byte UUID',
   created_at STRING
@@ -125,7 +137,8 @@ SELECT 3, unhex('deadbeefcafebabeabcdef0123456789'), '2024-01-03';
 
 
 DROP TABLE IF EXISTS test_hive_binary_edge_cases;
-CREATE TABLE test_hive_binary_edge_cases (
+drop table if exists test_hive_binary_edge_cases;
+create table test_hive_binary_edge_cases (
   id INT,
   empty_binary BINARY,
   single_byte BINARY,

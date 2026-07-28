@@ -31,11 +31,16 @@ class Type;
 
 namespace doris::format::orc {
 
+struct OrcSargBuildOptions {
+    int max_pushdown_conditions_per_column = 1024;
+};
+
 // Lower already-localized Doris file filters to ORC SearchArgument predicates.
 // TableColumnMapper owns table-schema -> file-local localization; this module
 // owns the ORC-specific type-id/literal lowering needed by the ORC C++ library.
 bool build_orc_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
-                               const cctz::time_zone& timezone, const VExprSPtr& expr,
+                               const cctz::time_zone& timezone, const OrcSargBuildOptions& options,
+                               const VExprSPtr& expr,
                                std::unique_ptr<::orc::SearchArgumentBuilder>& builder);
 
 } // namespace doris::format::orc

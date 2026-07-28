@@ -993,8 +993,8 @@ TEST_F(ColumnStringTest, filter_by_selector) {
         }
         std::cout << std::endl;
 
-        auto status =
-                source_column->filter_by_selector(indices.data(), sel_size, target_column.get());
+        const auto& source = *source_column;
+        auto status = source.filter_by_selector(indices.data(), sel_size, target_column.get());
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(target_column->size(), sel_size);
         for (size_t i = 0; i != sel_size; ++i) {

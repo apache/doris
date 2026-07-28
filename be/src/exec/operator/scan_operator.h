@@ -18,8 +18,11 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "common/thread_safety_annotations.h"
@@ -73,6 +76,7 @@ public:
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
+    virtual const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const = 0;
 
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
@@ -87,11 +91,13 @@ public:
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
-    Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
+    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
+    Status update_late_arrival_runtime_filter(RuntimeState* state, int applied_rf_num,
+                                              int& arrived_rf_num,
+                                              VExprContextSPtrs& arrived_conjuncts);
 
     Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
-
-    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
 protected:
     friend class ScannerContext;
@@ -128,6 +134,9 @@ protected:
 
     AnnotatedMutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
+    // Preserve append identity independently of the cost-sorted operator snapshot. Every scanner
+    // needs the exact RF contexts added since its own applied count.
+    std::vector<std::pair<int, VExprContextSPtrs>> _late_arrival_conjunct_batches;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
 
@@ -231,6 +240,7 @@ class ScanLocalState : public ScanLocalStateBase {
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
+    const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const override;
 
     std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
@@ -408,6 +418,16 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
+
+    // Semantic arguments of a pushed-down COUNT. This is deliberately optional because absence
+    // and an empty list have different meanings during a BE-first rolling upgrade:
+    //
+    //  - nullopt: an old FE did not send the field, so the new BE must use the normal scan;
+    //  - empty: the new FE explicitly planned COUNT(*)/COUNT(1);
+    //  - non-empty: the new FE explicitly planned COUNT(col).
+    //
+    // Treating nullopt as empty would silently reinterpret an old plan as COUNT(*).
+    std::optional<std::vector<int32_t>> _push_down_count_slot_ids;
 
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;

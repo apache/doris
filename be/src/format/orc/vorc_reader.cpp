@@ -2481,7 +2481,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                        _reader_metrics.SelectedRowGroupCount);
         COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
                        _reader_metrics.EvaluatedRowGroupCount);
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             _io_ctx->file_reader_stats->read_rows += _reader_metrics.ReadRowCount;
         }
     }
@@ -3492,7 +3492,7 @@ void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
                 std::make_shared<OrcMergeRangeFileReader>(_profile, _file_reader, merged_range);
 
         std::shared_ptr<io::FileReader> tracing_file_reader;
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             tracing_file_reader = std::make_shared<io::TracingFileReader>(
                     std::move(merge_range_file_reader), _io_ctx->file_reader_stats);
         } else {
@@ -3525,7 +3525,8 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
     for (const auto& range : ranges) {
         auto stripe_stream_input_stream = std::make_shared<StripeStreamInputStream>(
                 getName(),
-                _io_ctx ? std::make_shared<io::TracingFileReader>(_file_reader,
+                _io_ctx && _io_ctx->file_reader_stats
+                        ? std::make_shared<io::TracingFileReader>(_file_reader,
                                                                   _io_ctx->file_reader_stats)
                         : _file_reader,
                 _io_ctx, _profile);

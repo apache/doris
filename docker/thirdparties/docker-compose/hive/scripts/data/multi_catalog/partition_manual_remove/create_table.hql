@@ -2,7 +2,9 @@ create database if not exists multi_catalog;
 
 use multi_catalog;
 
-CREATE EXTERNAL TABLE `partition_manual_remove`(
+drop table if exists `partition_manual_remove`;
+
+create external table `partition_manual_remove`(
     `id` int)
 PARTITIONED BY (
     `part1` int)

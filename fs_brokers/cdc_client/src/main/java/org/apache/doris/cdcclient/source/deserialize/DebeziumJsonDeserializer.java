@@ -110,6 +110,11 @@ public class DebeziumJsonDeserializer
         return targetTableMappingsCache.getOrDefault(srcTable, srcTable);
     }
 
+    protected boolean isSchemaChangeEnabled(Map<String, String> context) {
+        return Boolean.parseBoolean(
+                context.getOrDefault(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "true"));
+    }
+
     @Override
     public DeserializeResult deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {

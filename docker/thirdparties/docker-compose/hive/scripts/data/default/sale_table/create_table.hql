@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS default;
 USE default;
 
-CREATE TABLE `default.sale_table`(
+drop table if exists `default.sale_table`;
+
+create table `default.sale_table`(
   `bill_code` varchar(500), 
   `dates` varchar(500), 
   `ord_year` varchar(500), 
@@ -20,5 +22,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/sale_table'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712244');
-
-msck repair table sale_table;

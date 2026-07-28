@@ -18,11 +18,13 @@
 #include "core/data_type_serde/data_type_map_serde.h"
 
 #include "arrow/array/builder_nested.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/string_ref.h"
 #include "util/jsonb_document.h"
@@ -389,6 +391,9 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
     const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    if (config::enable_arrow_input_validation) {
+        check_arrow_map_offsets(*concrete_map, start, end);
+    }
     auto prev_size = offsets_data.back();
 
     const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());

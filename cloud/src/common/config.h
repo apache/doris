@@ -264,6 +264,9 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+CONF_mInt64(s3_rate_limiter_log_interval, "1000");
+CONF_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 

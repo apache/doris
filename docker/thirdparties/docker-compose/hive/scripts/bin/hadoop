@@ -1,0 +1,75 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Drop-in replacement for `hadoop` that keeps all existing behavior but makes
+# `hadoop fs -put` overwrite destinations by default. The Hive bootstrap data
+# scripts are routinely re-run against persistent HDFS state, so plain `-put`
+# would fail on already-populated paths and abort the whole refresh stage.
+
+set -eo pipefail
+
+resolve_real_hadoop() {
+    local candidate
+
+    if [[ -n "${REAL_HADOOP:-}" && -x "${REAL_HADOOP}" ]]; then
+        echo "${REAL_HADOOP}"
+        return 0
+    fi
+
+    for candidate in /opt/hadoop-2.7.4/bin/hadoop /opt/hadoop/bin/hadoop /opt/hadoop-3.2.1/bin/hadoop; do
+        if [[ -x "${candidate}" ]]; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+
+    echo "ERROR: cannot locate real hadoop binary" >&2
+    return 1
+}
+
+REAL_HADOOP="$(resolve_real_hadoop)"
+
+exec_quiet_hadoop_fs() {
+    HADOOP_ROOT_LOGGER="${HADOOP_ROOT_LOGGER:-WARN,console}" exec "${REAL_HADOOP}" "$@"
+}
+
+if [[ "$#" -ge 2 && "$1" == "fs" && "$2" == "-put" ]]; then
+    shift 2
+    case "${1:-}" in
+    -f|-p|-l)
+        exec_quiet_hadoop_fs fs -put "$@"
+        ;;
+    *)
+        exec_quiet_hadoop_fs fs -put -f "$@"
+        ;;
+    esac
+fi
+
+if [[ "$#" -ge 2 && "$1" == "fs" && "$2" == "-copyFromLocal" ]]; then
+    shift 2
+    case "${1:-}" in
+    -f|-p|-l)
+        exec_quiet_hadoop_fs fs -copyFromLocal "$@"
+        ;;
+    *)
+        exec_quiet_hadoop_fs fs -copyFromLocal -f "$@"
+        ;;
+    esac
+fi
+
+exec "${REAL_HADOOP}" "$@"

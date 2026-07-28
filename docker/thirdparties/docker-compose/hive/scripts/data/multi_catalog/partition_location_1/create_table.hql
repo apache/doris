@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.partition_location_1`(
+drop table if exists `multi_catalog.partition_location_1`;
+
+create table `multi_catalog.partition_location_1`(
   `id` int, 
   `name` string)
 PARTITIONED BY ( 
@@ -16,7 +18,9 @@ LOCATION '/user/doris/suites/multi_catalog/partition_location_1'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1682405696');
 
+ALTER TABLE partition_location_1 DROP IF EXISTS PARTITION (part='part1');
 ALTER TABLE partition_location_1 ADD PARTITION (part='part1') LOCATION '/user/doris/suites/multi_catalog/partition_location_1/part=part1';
+ALTER TABLE partition_location_1 DROP IF EXISTS PARTITION (part='part2');
 ALTER TABLE partition_location_1 ADD PARTITION (part='part2') LOCATION '/user/doris/suites/multi_catalog/partition_location_1/20230425';
 
 set hive.msck.path.validation=ignore;

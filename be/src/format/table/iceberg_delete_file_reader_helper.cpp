@@ -17,7 +17,7 @@
 
 #include "format/table/iceberg_delete_file_reader_helper.h"
 
-#include <gen_cpp/parquet_types.h>
+#include <fmt/format.h>
 #include <parallel_hashmap/phmap.h>
 
 #include <cstring>
@@ -29,12 +29,13 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
-#include "exprs/vexpr_context.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -42,9 +43,10 @@
 #include "format/table/iceberg_reader.h"
 #include "format/table/table_format_reader.h"
 #include "io/hdfs_builder.h"
-#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/column_predicate.h"
+#include "util/debug_points.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -52,6 +54,7 @@ namespace {
 
 constexpr const char* ICEBERG_FILE_PATH = "file_path";
 constexpr const char* ICEBERG_ROW_POS = "pos";
+constexpr size_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
 
 const std::vector<std::string> DELETE_COL_NAMES {ICEBERG_FILE_PATH, ICEBERG_ROW_POS};
 std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX = {{ICEBERG_FILE_PATH, 0},
@@ -90,9 +93,26 @@ Status visit_position_delete_block(const Block& block, size_t read_rows,
         return Status::InternalError("Position delete block is missing required columns");
     }
 
-    const auto* pos_column =
-            assert_cast<const ColumnInt64*>(block.get_by_position(pos_it->second).column.get());
-    const auto* path_column = block.get_by_position(path_it->second).column.get();
+    ColumnPtr path_column_ptr = block.get_by_position(path_it->second).column;
+    ColumnPtr pos_column_ptr = block.get_by_position(pos_it->second).column;
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*path_column_ptr);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption(
+                    "Iceberg position delete column file_path contains null values");
+        }
+        path_column_ptr = remove_nullable(path_column_ptr);
+    }
+    if (const auto* nullable_col = check_and_get_column<ColumnNullable>(*pos_column_ptr);
+        nullable_col != nullptr) {
+        if (nullable_col->has_null(0, read_rows)) {
+            return Status::Corruption("Iceberg position delete column pos contains null values");
+        }
+        pos_column_ptr = remove_nullable(pos_column_ptr);
+    }
+
+    const auto* pos_column = assert_cast<const ColumnInt64*>(pos_column_ptr.get());
+    const auto* path_column = path_column_ptr.get();
 
     if (const auto* string_column = check_and_get_column<ColumnString>(path_column);
         string_column != nullptr) {
@@ -121,16 +141,15 @@ Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded)
         return Status::InvalidArgument("invalid parquet delete reader arguments");
     }
 
+    VExprContextSPtrs conjuncts;
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> slot_id_to_predicates;
-    RETURN_IF_ERROR(reader->init_reader(DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, {},
+    RETURN_IF_ERROR(reader->init_reader(DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, conjuncts,
                                         slot_id_to_predicates, nullptr, nullptr, nullptr, nullptr,
                                         nullptr, TableSchemaChangeHelper::ConstNode::get_instance(),
                                         false));
-
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    RETURN_IF_ERROR(reader->set_fill_columns(partition_columns, missing_columns));
+    // branch-4.1 initializes its projected-column state separately from init_reader(). Skipping
+    // this step makes every row group look like a path-only scan and yields empty batches forever.
+    RETURN_IF_ERROR(reader->set_fill_columns({}, {}));
 
     const tparquet::FileMetaData* meta_data = reader->get_meta_data();
     *dictionary_coded = true;
@@ -142,6 +161,7 @@ Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded)
             break;
         }
     }
+
     return Status::OK();
 }
 
@@ -150,14 +170,10 @@ Status init_orc_delete_reader(OrcReader* reader) {
         return Status::InvalidArgument("orc delete reader is null");
     }
 
-    RETURN_IF_ERROR(reader->init_reader(&DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, {}, false,
-                                        nullptr, nullptr, nullptr, nullptr,
+    VExprContextSPtrs conjuncts;
+    RETURN_IF_ERROR(reader->init_reader(&DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, conjuncts,
+                                        false, nullptr, nullptr, nullptr, nullptr,
                                         TableSchemaChangeHelper::ConstNode::get_instance()));
-
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    RETURN_IF_ERROR(reader->set_fill_columns(partition_columns, missing_columns));
     return Status::OK();
 }
 
@@ -166,14 +182,14 @@ Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
     if (buf == nullptr || rows_to_delete == nullptr) {
         return Status::InvalidArgument("invalid deletion vector decode arguments");
     }
-    if (buffer_size < 12) {
+    if (buffer_size < ICEBERG_DELETION_VECTOR_MIN_BYTES) {
         return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
     }
 
-    auto total_length = BigEndian::Load32(buf);
-    if (total_length + 8 != buffer_size) {
+    const uint32_t total_length = BigEndian::Load32(buf);
+    if (static_cast<uint64_t>(total_length) + 8 != buffer_size) {
         return Status::DataQualityError("Deletion vector length mismatch, expected: {}, actual: {}",
-                                        total_length + 8, buffer_size);
+                                        static_cast<uint64_t>(total_length) + 8, buffer_size);
     }
 
     constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
@@ -181,8 +197,17 @@ Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
         return Status::DataQualityError("Deletion vector magic number mismatch");
     }
 
+    const uint32_t expected_crc = BigEndian::Load32(buf + sizeof(total_length) + total_length);
+    const uint32_t actual_crc =
+            HashUtil::zlib_crc_hash(buf + sizeof(total_length), total_length, 0);
+    if (actual_crc != expected_crc) {
+        return Status::DataQualityError("Deletion vector CRC32 mismatch, expected: {}, actual: {}",
+                                        expected_crc, actual_crc);
+    }
+
     try {
-        *rows_to_delete |= roaring::Roaring64Map::readSafe(buf + 8, buffer_size - 12);
+        *rows_to_delete |= roaring::Roaring64Map::readSafe(
+                buf + 8, buffer_size - ICEBERG_DELETION_VECTOR_MIN_BYTES);
     } catch (const std::runtime_error& e) {
         return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
     }
@@ -195,7 +220,12 @@ IcebergDeleteFileIOContext::IcebergDeleteFileIOContext(RuntimeState* state) {
     io_ctx.file_cache_stats = &file_cache_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
     if (state != nullptr) {
+        // branch-4.1 has no shared FileScanIOContext helper; keep delete-file reads attributed to
+        // the parent query and classified identically to ordinary external scans.
         io_ctx.query_id = &state->query_id();
+        if (state->query_options().query_type == TQueryType::SELECT) {
+            io_ctx.reader_type = ReaderType::READER_QUERY;
+        }
     }
 }
 
@@ -227,6 +257,25 @@ bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file) {
     return delete_file.__isset.content && delete_file.content == 3;
 }
 
+std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
+                                                    const TIcebergDeleteFileDesc& delete_file) {
+    return fmt::format("delete_dv_{}:{}{}:{}#{}#{}", data_file_path.size(), data_file_path,
+                       delete_file.path.size(), delete_file.path, delete_file.content_offset,
+                       delete_file.content_size_in_bytes);
+}
+
+Status validate_iceberg_deletion_vector_descriptor(const TIcebergDeleteFileDesc& delete_file,
+                                                   size_t& bytes_read) {
+    if (!delete_file.__isset.path || !delete_file.__isset.content_offset ||
+        !delete_file.__isset.content_size_in_bytes) {
+        return Status::DataQualityError(
+                "Iceberg deletion vector descriptor misses "
+                "path/content_offset/content_size_in_bytes");
+    }
+    return validate_iceberg_deletion_vector_read_range(
+            delete_file.content_offset, delete_file.content_size_in_bytes, bytes_read);
+}
+
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                          const IcebergDeleteFileReaderOptions& options,
                                          IcebergPositionDeleteVisitor* visitor) {
@@ -255,18 +304,23 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
         while (!eof) {
             Block block;
             if (dictionary_coded) {
-                block.insert(ColumnWithTypeAndName(ColumnDictI32::create(),
-                                                   std::make_shared<DataTypeString>(),
-                                                   ICEBERG_FILE_PATH));
+                block.insert(ColumnWithTypeAndName(
+                        ColumnNullable::create(ColumnDictI32::create(), ColumnUInt8::create()),
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
             } else {
-                block.insert(ColumnWithTypeAndName(ColumnString::create(),
-                                                   std::make_shared<DataTypeString>(),
-                                                   ICEBERG_FILE_PATH));
+                block.insert(ColumnWithTypeAndName(
+                        make_nullable(std::make_shared<DataTypeString>()), ICEBERG_FILE_PATH));
             }
-            block.insert(ColumnWithTypeAndName(ColumnInt64::create(),
-                                               std::make_shared<DataTypeInt64>(), ICEBERG_ROW_POS));
+            block.insert(ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeInt64>()),
+                                               ICEBERG_ROW_POS));
             size_t read_rows = 0;
             RETURN_IF_ERROR(reader.get_next_block(&block, &read_rows, &eof));
+            if (read_rows == 0 && !eof) {
+                // Position-delete scans have no predicates, so an empty non-EOF batch cannot
+                // make progress and must not spin forever on a malformed reader state.
+                return Status::InternalError(
+                        "Parquet position delete reader returned an empty non-EOF batch");
+            }
             RETURN_IF_ERROR(visit_position_delete_block(block, read_rows, visitor));
         }
         return Status::OK();
@@ -297,14 +351,17 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
 
 Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
                                     const IcebergDeleteFileReaderOptions& options,
-                                    roaring::Roaring64Map* rows_to_delete) {
+                                    DeletionVector* rows_to_delete) {
     if (options.state == nullptr || options.profile == nullptr || options.scan_params == nullptr ||
         options.io_ctx == nullptr || rows_to_delete == nullptr) {
         return Status::InvalidArgument("invalid deletion vector reader options");
     }
-    if (!delete_file.__isset.content_offset || !delete_file.__isset.content_size_in_bytes) {
-        return Status::InternalError("Deletion vector is missing content offset or length");
-    }
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(validate_iceberg_deletion_vector_descriptor(delete_file, bytes_read));
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.io_error",
+                    { return Status::IOError("injected Iceberg deletion vector read failure"); });
+    DBUG_EXECUTE_IF("IcebergDeleteFileReader.read_deletion_vector.should_stop",
+                    { return Status::EndOfFile("stop read."); });
 
     TFileRangeDesc delete_range = build_iceberg_delete_file_range(delete_file.path);
     if (options.fs_name != nullptr && !options.fs_name->empty()) {
@@ -313,14 +370,24 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
     delete_range.start_offset = delete_file.content_offset;
     delete_range.size = delete_file.content_size_in_bytes;
 
+    // Iceberg v3 deletion-vector-v1 blobs are uncompressed and metadata provides the exact range.
+    // Parse the Puffin footer first if future blob types or compression codecs are supported.
     DeletionVectorReader dv_reader(options.state, options.profile, *options.scan_params,
                                    delete_range, options.io_ctx);
     RETURN_IF_ERROR(dv_reader.open());
 
-    std::vector<char> buf(delete_range.size);
-    RETURN_IF_ERROR(dv_reader.read_at(delete_range.start_offset,
-                                      {buf.data(), cast_set<size_t>(delete_range.size)}));
-    return decode_deletion_vector_buffer(buf.data(), delete_range.size, rows_to_delete);
+    std::vector<char> buf(bytes_read);
+    const auto read_status = dv_reader.read_at(delete_range.start_offset, {buf.data(), bytes_read});
+    if (options.deletion_vector_file_cache_stats != nullptr) {
+        options.deletion_vector_file_cache_stats->merge_from(dv_reader.file_cache_statistics());
+    }
+    RETURN_IF_ERROR(read_status);
+    return decode_deletion_vector_buffer(buf.data(), bytes_read, rows_to_delete);
+}
+
+Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
+                                             DeletionVector* rows_to_delete) {
+    return decode_deletion_vector_buffer(buf, buffer_size, rows_to_delete);
 }
 
 } // namespace doris

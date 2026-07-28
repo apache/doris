@@ -254,6 +254,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.broker_addresses) {
         table_sink.__set_broker_addresses(merge_sink.broker_addresses);
     }
+    if (merge_sink.__isset.collect_column_stats) {
+        table_sink.__set_collect_column_stats(merge_sink.collect_column_stats);
+    }
     _table_sink.__set_type(TDataSinkType::ICEBERG_TABLE_SINK);
     _table_sink.__set_iceberg_table_sink(table_sink);
 

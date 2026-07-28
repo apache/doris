@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.type_change_parquet`(
+drop table if exists `multi_catalog.type_change_parquet`;
+
+create table `multi_catalog.type_change_parquet`(
   `numeric_boolean` int, 
   `numeric_tinyint` double, 
   `numeric_smallint` bigint, 
@@ -41,5 +43,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/type_change_parquet'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712485017');
-
-msck repair table type_change_parquet;

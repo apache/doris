@@ -1,4 +1,5 @@
-CREATE TABLE `table_with_x01`(
+drop table if exists `table_with_x01`;
+create table `table_with_x01`(
   `k1` string COMMENT 'k1',
   `k2` string COMMENT 'k2',
   `k3` string COMMENT 'k3',

@@ -73,17 +73,34 @@ bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
 
-Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
-                                                              int& arrived_rf_num) {
+Status ScanLocalStateBase::update_late_arrival_runtime_filter(
+        RuntimeState* state, int applied_rf_num, int& arrived_rf_num,
+        VExprContextSPtrs& arrived_conjuncts) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     LockGuard lock(_conjuncts_lock);
+    arrived_conjuncts.clear();
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
+    if (_conjuncts.size() > conjuncts_before) {
+        VExprContextSPtrs appended(_conjuncts.begin() + conjuncts_before, _conjuncts.end());
+        _late_arrival_conjunct_batches.emplace_back(arrived_rf_num, std::move(appended));
+    }
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };
+    for (const auto& [batch_arrived_rf_num, batch] : _late_arrival_conjunct_batches) {
+        if (batch_arrived_rf_num <= applied_rf_num) {
+            continue;
+        }
+        for (const auto& conjunct : batch) {
+            VExprContextSPtr cloned;
+            RETURN_IF_ERROR(conjunct->clone(state, cloned));
+            arrived_conjuncts.push_back(std::move(cloned));
+        }
+    }
     return Status::OK();
 }
 
@@ -1012,6 +1029,12 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
+    return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
+}
+
+template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
 }
@@ -1163,6 +1186,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
+    }
+    if (tnode.__isset.push_down_count_slot_ids) {
+        _push_down_count_slot_ids = tnode.push_down_count_slot_ids;
     }
 
     if (tnode.__isset.topn_filter_source_node_ids) {

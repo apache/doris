@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS default;
 USE default;
 
-CREATE TABLE `default.account_fund`(
+drop table if exists `default.account_fund`;
+
+create table `default.account_fund`(
   `batchno` string, 
   `appsheet_no` string, 
   `filedate` string, 
@@ -24,5 +26,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/account_fund'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712244');
-
-msck repair table account_fund;

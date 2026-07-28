@@ -34,6 +34,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
@@ -46,6 +47,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -105,6 +107,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected TableScanParams scanParams;
 
     protected FileSplitter fileSplitter;
+    protected SummaryProfile summaryProfile;
 
     // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
@@ -136,11 +139,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
     public void init() throws UserException {
         super.init();
         if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
+            summaryProfile = ConnectContext.get().getExecutor().getSummaryProfile();
+            summaryProfile.setInitScanNodeStartTime();
         }
         doInitialize();
         if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
+            summaryProfile.setInitScanNodeFinishTime();
         }
     }
 
@@ -161,6 +165,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 sessionVariable.maxInitialSplitNum);
     }
 
+    protected SummaryProfile getSummaryProfile() {
+        if (summaryProfile == null) {
+            summaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        }
+        return summaryProfile;
+    }
+
     // Init schema (Tuple/Slot) related params.
     protected void initSchemaParams() throws UserException {
         destSlotDescByName = Maps.newHashMap();
@@ -175,11 +186,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            boolean isFileSlot = !partitionKeys.contains(slot.getColumn().getName());
-            if (isIcebergRowIdColumn(slot)) {
-                isFileSlot = false;
-            }
-            slotInfo.setIsFileSlot(isFileSlot);
+            TColumnCategory category = classifyColumn(slot, partitionKeys);
+            slotInfo.setCategory(category);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -192,23 +201,42 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private void updateRequiredSlots() throws UserException {
-        params.unsetRequiredSlots();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slot.getId().asInt());
-            boolean isFileSlot = !getPathPartitionKeys().contains(slot.getColumn().getName());
-            if (isIcebergRowIdColumn(slot)) {
-                isFileSlot = false;
+        Map<Integer, TFileScanSlotInfo> existingSlotInfoById = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (TFileScanSlotInfo slotInfo : params.getRequiredSlots()) {
+                existingSlotInfoById.put(slotInfo.getSlotId(), slotInfo);
             }
-            slotInfo.setIsFileSlot(isFileSlot);
+        }
+        params.unsetRequiredSlots();
+        List<String> partitionKeys = getPathPartitionKeys();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            TFileScanSlotInfo slotInfo = existingSlotInfoById.get(slot.getId().asInt());
+            if (slotInfo == null) {
+                slotInfo = new TFileScanSlotInfo();
+            }
+            slotInfo.setSlotId(slot.getId().asInt());
+            TColumnCategory category = classifyColumn(slot, partitionKeys);
+            slotInfo.setCategory(category);
+            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
     }
 
-    private boolean isIcebergRowIdColumn(SlotDescriptor slot) {
-        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName());
+    /**
+     * Classify a column's category for the BE reader.
+     * Subclasses override this for format-specific classification.
+     */
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (partitionKeys.contains(slot.getColumn().getName())) {
+            return TColumnCategory.PARTITION_KEY;
+        }
+        return TColumnCategory.REGULAR;
+    }
+
+    protected boolean isFileSlot(TColumnCategory category) {
+        return category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -459,8 +487,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 pathPartitionKeys, partitionValues.getIsNull());
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        // set file format type, and the type might fall back to native format in setScanParams
-        rangeDesc.setFormatType(getFileFormatType());
+        // Seed connector-specific setup with the scan-level default. A connector may then
+        // override it with the actual format carried by an individual split.
+        rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
         rangeDesc.setFileCacheAdmission(admissionResult);
 

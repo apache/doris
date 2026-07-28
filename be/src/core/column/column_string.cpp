@@ -372,7 +372,8 @@ size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
 }
 
 template <typename T>
-Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                        IColumn* col_ptr) const {
     if constexpr (std::is_same_v<UInt32, T>) {
         auto* col = static_cast<ColumnStr<T>*>(col_ptr);
         Chars& res_chars = col->chars;

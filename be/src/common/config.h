@@ -119,6 +119,9 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DECLARE_Bool(enable_arrow_input_validation);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 
@@ -1506,6 +1509,8 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max WAL count for one table before rejecting async group commit loads. 0 means no limit.
+DECLARE_mInt32(group_commit_max_wal_num_per_table);
 // Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
 DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
@@ -1598,6 +1603,7 @@ DECLARE_mInt64(s3_get_token_limit);
 DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
+DECLARE_mInt64(s3_rate_limiter_log_interval);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will

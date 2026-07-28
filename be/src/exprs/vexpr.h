@@ -28,6 +28,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -164,6 +165,15 @@ public:
         return execute_column_impl(context, block, selector, count, result_column);
     }
 
+    template <typename SelectorType, std::enable_if_t<std::is_const_v<SelectorType>, int> = 0>
+    Status execute_column(VExprContext* context, const Block* block, SelectorType* selector,
+                          size_t count, ColumnPtr& result_column) const {
+        // format_v2 treats selectors as read-only; the branch-4.1 expression API still exposes
+        // a mutable pointer even though implementations must not modify it.
+        return execute_column(context, block, const_cast<Selector*>(selector), count,
+                              result_column);
+    }
+
     virtual Status execute_column_impl(VExprContext* context, const Block* block,
                                        const Selector* selector, size_t count,
                                        ColumnPtr& result_column) const {
@@ -178,6 +188,19 @@ public:
     virtual Status execute_filter(VExprContext* context, const Block* block,
                                   uint8_t* __restrict result_filter_data, size_t rows,
                                   bool accept_null, bool* can_filter_all) const;
+
+    // Raw fixed-width evaluation is an optional expression capability used before a storage reader
+    // materializes a column. `matches` is ANDed in place; callers handle NULL rows separately
+    // because raw value streams contain only non-NULL payloads.
+    virtual bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                 int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                               size_t value_width, const DataTypePtr& data_type,
+                                               int column_id, uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
+    }
 
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {

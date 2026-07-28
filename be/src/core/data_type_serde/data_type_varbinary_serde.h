@@ -82,6 +82,12 @@ public:
                              "read_column_from_arrow with type " + column.get_name());
     }
 
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override;
+    Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                   const ParquetDecodeContext& context) const override;
+
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
                                         const FormatOptions& options) const override;

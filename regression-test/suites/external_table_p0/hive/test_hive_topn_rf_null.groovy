@@ -47,7 +47,7 @@ suite("test_hive_topn_rf_null", "p0,external,hive,external_docker,external_docke
 
 
 
-    for (String hivePrefix : ["hive3"]) {
+    for (String hivePrefix : ["hive2"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String catalog = "test_hive_topn_rf_null_${hivePrefix}"

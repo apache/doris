@@ -70,6 +70,28 @@ import java.util.UUID;
 
 public class IcebergUtilsTest {
     @Test
+    public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(table.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        Assert.assertEquals(org.apache.iceberg.FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
+        // Do not call newScan planFiles()
+        Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testGetFileFormatUsesConfiguredTableFormat() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
+
+        Assert.assertEquals(org.apache.iceberg.FileFormat.ORC, IcebergUtils.getFileFormat(table));
+        // Do not call newScan planFiles()
+        Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
     public void testParseTableName() {
         try {
             IcebergHMSExternalCatalog c1 =
@@ -260,6 +282,20 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesNestedNonBinaryInitialDefault() {
+        Schema schema = new Schema(Types.NestedField.optional(10, "s", Types.StructType.of(
+                Types.NestedField.optional("added_int")
+                        .withId(11)
+                        .ofType(Types.IntegerType.get())
+                        .withInitialDefault(7)
+                        .build())));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
+
+        Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
+    }
+
+    @Test
     public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -349,6 +385,26 @@ public class IcebergUtilsTest {
                 Float.floatToIntBits(Float.parseFloat(serializedFloat)));
         Assert.assertEquals(Double.doubleToLongBits(doubleValue),
                 Double.doubleToLongBits(Double.parseDouble(serializedDouble)));
+    }
+
+    @Test
+    public void testParseFloatingPointPartitionValueSupportsSpecialValues() {
+        Assert.assertTrue(Float.isNaN(
+                (Float) IcebergUtils.parsePartitionValueFromString("NaN", Types.FloatType.get())));
+        Assert.assertTrue(Float.isNaN(
+                (Float) IcebergUtils.parsePartitionValueFromString("nan", Types.FloatType.get())));
+        Assert.assertEquals(Float.POSITIVE_INFINITY,
+                (Float) IcebergUtils.parsePartitionValueFromString("Infinity", Types.FloatType.get()), 0.0F);
+        Assert.assertEquals(Float.NEGATIVE_INFINITY,
+                (Float) IcebergUtils.parsePartitionValueFromString("-inf", Types.FloatType.get()), 0.0F);
+        Assert.assertTrue(Double.isNaN(
+                (Double) IcebergUtils.parsePartitionValueFromString("NaN", Types.DoubleType.get())));
+        Assert.assertTrue(Double.isNaN(
+                (Double) IcebergUtils.parsePartitionValueFromString("nan", Types.DoubleType.get())));
+        Assert.assertEquals(Double.POSITIVE_INFINITY,
+                (Double) IcebergUtils.parsePartitionValueFromString("Infinity", Types.DoubleType.get()), 0.0D);
+        Assert.assertEquals(Double.NEGATIVE_INFINITY,
+                (Double) IcebergUtils.parsePartitionValueFromString("-inf", Types.DoubleType.get()), 0.0D);
     }
 
     @Test

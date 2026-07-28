@@ -158,11 +158,6 @@ constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
 } // namespace
 
-bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
-bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
-bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
-bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
-
 static std::atomic<int64_t> last_s3_get_token_bucket_tokens {0};
 static std::atomic<int64_t> last_s3_get_token_limit {0};
 static std::atomic<int64_t> last_s3_get_token_per_second {0};
@@ -230,6 +225,11 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
     return S3ClientFactory::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
 
+int64_t apply_s3_rate_limit(S3RateLimitType type) {
+    return doris::apply_s3_rate_limit(type, S3ClientFactory::instance().rate_limiter(type),
+                                      config::s3_rate_limiter_log_interval);
+}
+
 S3ClientFactory::S3ClientFactory() {
     _aws_options = Aws::SDKOptions {};
     auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
@@ -242,12 +242,10 @@ S3ClientFactory::S3ClientFactory() {
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
                     config::s3_get_token_per_second, config::s3_get_bucket_tokens,
-                    config::s3_get_token_limit,
-                    metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
+                    config::s3_get_token_limit, s3_rate_limiter_metric_func(S3RateLimitType::GET)),
             std::make_unique<S3RateLimiterHolder>(
                     config::s3_put_token_per_second, config::s3_put_bucket_tokens,
-                    config::s3_put_token_limit,
-                    metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
+                    config::s3_put_token_limit, s3_rate_limiter_metric_func(S3RateLimitType::PUT))};
 
 #ifdef USE_AZURE
     auto azureLogLevel =

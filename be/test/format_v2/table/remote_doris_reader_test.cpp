@@ -18,11 +18,17 @@
 #include "format_v2/table/remote_doris_reader.h"
 
 #include <arrow/api.h>
+#include <arrow/flight/server.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -48,6 +54,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris::format::remote_doris {
 namespace {
@@ -92,6 +99,122 @@ TFileRangeDesc remote_doris_range() {
     range.__set_format_type(TFileFormatType::FORMAT_ARROW);
     range.__set_path("/dummyPath");
     range.__set_table_format_params(std::move(table_desc));
+    return range;
+}
+
+class BlockingRecordBatchReader final : public arrow::RecordBatchReader {
+public:
+    std::shared_ptr<arrow::Schema> schema() const override {
+        return arrow::schema({arrow::field("id", arrow::int32())});
+    }
+
+    arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* batch) override {
+        {
+            std::lock_guard lock(_mutex);
+            _entered = true;
+        }
+        _cv.notify_all();
+        std::unique_lock lock(_mutex);
+        _cv.wait(lock, [this] { return _released; });
+        *batch = nullptr;
+        return arrow::Status::OK();
+    }
+
+    bool wait_until_entered(std::chrono::milliseconds timeout) {
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, timeout, [this] { return _entered; });
+    }
+
+    void release() {
+        {
+            std::lock_guard lock(_mutex);
+            _released = true;
+        }
+        _cv.notify_all();
+    }
+
+private:
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    bool _entered = false;
+    bool _released = false;
+};
+
+class BlockingFlightServer final : public arrow::flight::FlightServerBase {
+public:
+    enum class Mode { DO_GET, NEXT };
+
+    explicit BlockingFlightServer(Mode mode)
+            : _mode(mode), _batch_reader(std::make_shared<BlockingRecordBatchReader>()) {}
+
+    arrow::Status start() {
+        auto location = arrow::flight::Location::ForGrpcTcp("localhost", 0);
+        if (!location.ok()) {
+            return location.status();
+        }
+        // FlightServerBase::Init starts serving immediately; the blocking Serve lifecycle wrapper
+        // is unnecessary for an in-process unit test.
+        return Init(arrow::flight::FlightServerOptions(*location));
+    }
+
+    ~BlockingFlightServer() override {
+        release();
+        static_cast<void>(Shutdown());
+    }
+
+    arrow::Status DoGet(const arrow::flight::ServerCallContext& context,
+                        const arrow::flight::Ticket&,
+                        std::unique_ptr<arrow::flight::FlightDataStream>* stream) override {
+        if (_mode == Mode::DO_GET) {
+            {
+                std::lock_guard lock(_mutex);
+                _entered = true;
+            }
+            _cv.notify_all();
+            std::unique_lock lock(_mutex);
+            while (!_released && !context.is_cancelled()) {
+                _cv.wait_for(lock, std::chrono::milliseconds(5));
+            }
+            if (context.is_cancelled()) {
+                return arrow::Status::Cancelled("client cancelled blocked DoGet");
+            }
+        }
+        *stream = std::make_unique<arrow::flight::RecordBatchStream>(_batch_reader);
+        return arrow::Status::OK();
+    }
+
+    bool wait_until_entered(std::chrono::milliseconds timeout) {
+        if (_mode == Mode::NEXT) {
+            return _batch_reader->wait_until_entered(timeout);
+        }
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, timeout, [this] { return _entered; });
+    }
+
+    void release() {
+        {
+            std::lock_guard lock(_mutex);
+            _released = true;
+        }
+        _cv.notify_all();
+        _batch_reader->release();
+    }
+
+private:
+    Mode _mode;
+    std::shared_ptr<BlockingRecordBatchReader> _batch_reader;
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    bool _entered = false;
+    bool _released = false;
+};
+
+TFileRangeDesc remote_doris_range(const BlockingFlightServer& server) {
+    auto range = remote_doris_range();
+    auto& params = range.table_format_params.remote_doris_params;
+    params.__set_location_uri("grpc://localhost:" + std::to_string(server.port()));
+    arrow::flight::Ticket ticket {.ticket = "ticket"};
+    params.__set_ticket(ticket.SerializeToString().ValueOrDie());
     return range;
 }
 
@@ -194,6 +317,16 @@ std::unique_ptr<RemoteDorisFileReader> create_reader(
     return std::make_unique<RemoteDorisFileReader>(system_properties, file_description,
                                                    std::move(io_ctx), profile, range, slots,
                                                    std::move(factory));
+}
+
+std::unique_ptr<RemoteDorisFileReader> create_flight_reader(
+        RuntimeProfile* profile, const TFileRangeDesc& range,
+        const std::vector<SlotDescriptor*>& slots, std::shared_ptr<io::IOContext> io_ctx) {
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    auto file_description = std::make_unique<io::FileDescription>();
+    file_description->path = "/dummyPath";
+    return std::make_unique<RemoteDorisFileReader>(system_properties, file_description,
+                                                   std::move(io_ctx), profile, range, slots);
 }
 
 Block make_request_block(const std::vector<ColumnDefinition>& schema,
@@ -465,6 +598,142 @@ TEST(RemoteDorisV2ReaderTest, RejectsInvalidRemoteDorisRange) {
     auto close_count = std::make_shared<int>(0);
     auto reader = create_reader(&profile, range, slots, {}, close_count);
     EXPECT_FALSE(reader->init(&state).ok());
+}
+
+TEST(RemoteDorisV2ReaderTest, RuntimeCancellationInterruptsBlockedFlightDoGet) {
+    BlockingFlightServer server(BlockingFlightServer::Mode::DO_GET);
+    const auto server_status = server.start();
+    ASSERT_TRUE(server_status.ok()) << server_status;
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("remote_doris_v2_blocked_doget_test");
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_flight_reader(&profile, remote_doris_range(server), slots, io_ctx);
+    ASSERT_TRUE(reader->init(&state).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+
+    auto open_result =
+            std::async(std::launch::async, [&] { return reader->open(std::move(request)); });
+    const bool entered = server.wait_until_entered(std::chrono::seconds(2));
+    if (!entered &&
+        open_result.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+        FAIL() << "Flight DoGet failed before reaching the server: " << open_result.get();
+    }
+    ASSERT_TRUE(entered);
+    state.cancel(Status::Cancelled("cancel blocked Flight DoGet"));
+    const bool interrupted =
+            open_result.wait_for(std::chrono::milliseconds(750)) == std::future_status::ready;
+    if (!interrupted) {
+        server.release();
+    }
+    EXPECT_TRUE(interrupted);
+    EXPECT_FALSE(open_result.get().ok());
+}
+
+TEST(RemoteDorisV2ReaderTest, BlockedDoGetRetainsQueryResourcesUntilWorkerExits) {
+    BlockingFlightServer server(BlockingFlightServer::Mode::DO_GET);
+    const auto server_status = server.start();
+    ASSERT_TRUE(server_status.ok()) << server_status;
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_slots(&pool, &desc_tbl);
+    auto state = std::make_unique<MockRuntimeState>();
+    std::weak_ptr<ResourceContext> resource_ctx = state->get_query_ctx()->resource_ctx();
+    RuntimeProfile profile("remote_doris_v2_doget_resource_context_test");
+    auto reader = create_flight_reader(&profile, remote_doris_range(server), slots,
+                                       std::make_shared<io::IOContext>());
+    ASSERT_TRUE(reader->init(state.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+
+    auto open_result =
+            std::async(std::launch::async, [&] { return reader->open(std::move(request)); });
+    ASSERT_TRUE(server.wait_until_entered(std::chrono::seconds(2)));
+    state->cancel(Status::Cancelled("cancel blocked Flight DoGet"));
+    ASSERT_EQ(open_result.wait_for(std::chrono::milliseconds(750)), std::future_status::ready);
+    EXPECT_FALSE(open_result.get().ok());
+
+    reader.reset();
+    state.reset();
+    // A detached DoGet still owns query-scoped Arrow objects, so it must retain the matching
+    // resource context until those objects are released on the worker.
+    EXPECT_FALSE(resource_ctx.expired());
+    server.release();
+    for (int retries = 0; retries < 100 && !resource_ctx.expired(); ++retries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_TRUE(resource_ctx.expired());
+}
+
+TEST(RemoteDorisV2ReaderTest, ScannerStopInterruptsBlockedFlightNext) {
+    BlockingFlightServer server(BlockingFlightServer::Mode::NEXT);
+    const auto server_status = server.start();
+    ASSERT_TRUE(server_status.ok()) << server_status;
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("remote_doris_v2_blocked_next_test");
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_flight_reader(&profile, remote_doris_range(server), slots, io_ctx);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    const auto open_status = reader->open(std::move(request));
+    ASSERT_TRUE(open_status.ok()) << open_status;
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    auto next_result =
+            std::async(std::launch::async, [&] { return reader->get_block(&block, &rows, &eof); });
+    ASSERT_TRUE(server.wait_until_entered(std::chrono::seconds(2)));
+    io_ctx->should_stop = true;
+    const bool interrupted =
+            next_result.wait_for(std::chrono::milliseconds(750)) == std::future_status::ready;
+    if (!interrupted) {
+        server.release();
+    }
+    EXPECT_TRUE(interrupted);
+    const auto next_status = next_result.get();
+    EXPECT_TRUE(!next_status.ok() || (rows == 0 && eof));
+    server.release();
+}
+
+TEST(RemoteDorisV2ReaderTest, CancellationStopsBeforeFlightNext) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("remote_doris_v2_reader_cancel_test");
+    auto close_count = std::make_shared<int>(0);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader(&profile, remote_doris_range(), slots, {make_batch({"id"})},
+                                close_count, io_ctx);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    io_ctx->should_stop = true;
+    auto block = make_request_block(schema, {0});
+    size_t rows = 99;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(*close_count, 1);
 }
 
 } // namespace doris::format::remote_doris

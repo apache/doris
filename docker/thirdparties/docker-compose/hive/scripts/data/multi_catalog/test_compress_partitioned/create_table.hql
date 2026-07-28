@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE `test_compress_partitioned`(
+drop table if exists `test_compress_partitioned`;
+
+create table `test_compress_partitioned`(
   `watchid` string,
   `javaenable` smallint,
   `title` string,

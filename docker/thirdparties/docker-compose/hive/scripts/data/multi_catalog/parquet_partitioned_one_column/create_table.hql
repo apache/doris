@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `parquet_partitioned_one_column`(
+drop table if exists `parquet_partitioned_one_column`;
+
+create table `parquet_partitioned_one_column`(
   `t_float` float,
   `t_string` string,
   `t_timestamp` timestamp)

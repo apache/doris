@@ -30,22 +30,57 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/table_reader.h"
+#include "util/jdbc_utils.h"
 
 namespace doris::format::jdbc {
+
+Status validate_non_nullable_special_type_result(const IColumn& result, size_t rows) {
+    const auto* nullable = check_and_get_column<ColumnNullable>(&result);
+    if (UNLIKELY(nullable == nullptr)) {
+        return Status::InternalError("JDBC special-type CAST did not return a nullable column");
+    }
+    if (UNLIKELY(nullable->has_null(0, rows))) {
+        // CAST NULL represents invalid source data; stripping the null map would turn it into a
+        // valid-looking default for a NOT NULL destination.
+        return Status::DataQualityError(
+                "JDBC special-type CAST produced NULL for a non-nullable column");
+    }
+    return Status::OK();
+}
 
 std::string JdbcJniReader::connector_class() const {
     return "org/apache/doris/jdbc/JdbcJniScanner";
 }
 
 Status JdbcJniReader::prepare_split(const format::SplitReadOptions& options) {
-    return Status::NotSupported("native JDBC file splits are unavailable on branch-4.1");
+    {
+        // End these scopes before JniTableReader enters the same counters; nested use would count
+        // this JDBC parameter preparation twice instead of extending the common lifecycle total.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        SCOPED_TIMER(connector_total_timer());
+        _jdbc_params.clear();
+        if (options.current_range.__isset.table_format_params &&
+            options.current_range.table_format_params.table_format_type == "jdbc") {
+            _jdbc_params = std::map<std::string, std::string>(
+                    options.current_range.table_format_params.jdbc_params.begin(),
+                    options.current_range.table_format_params.jdbc_params.end());
+        }
+    }
+    return format::JniTableReader::prepare_split(options);
 }
 
 // need pass to the java side, so the java scanner can parse the params and construct the JDBC connection
 Status JdbcJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {
     DORIS_CHECK(params != nullptr);
-    params->clear();
-    return Status::NotSupported("native JDBC file splits are unavailable on branch-4.1");
+    *params = _jdbc_params;
+    if (params->contains("jdbc_driver_url")) {
+        std::string resolved;
+        if (JdbcUtils::resolve_driver_url((*params)["jdbc_driver_url"], &resolved).ok()) {
+            (*params)["jdbc_driver_url"] = resolved;
+        }
+    }
+    return Status::OK();
 }
 
 Status JdbcJniReader::build_jni_columns(
@@ -163,6 +198,7 @@ Status JdbcJniReader::_cast_string_to_special_type(const format::JniTableReader:
     if (target_type->is_nullable()) {
         output_block->replace_by_position(column.output_index, result_column);
     } else {
+        RETURN_IF_ERROR(validate_non_nullable_special_type_result(*result_column, rows));
         const auto* nullable_column = assert_cast<const ColumnNullable*>(result_column.get());
         output_block->replace_by_position(column.output_index,
                                           nullable_column->get_nested_column_ptr());

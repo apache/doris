@@ -46,10 +46,10 @@ import org.slf4j.LoggerFactory;
  * PostgreSQL-specific deserializer with event-driven schema change handling.
  *
  * <p>Schema changes are detected from pgoutput Relation messages, which flink-cdc surfaces as
- * {@link PostgresSchemaRecord} (the source is created with {@code includeSchemaChanges(true)}). The
- * carried Debezium {@link Table} is the full post-change schema and is diffed against the stored
- * baseline — the Doris table's current full schema, loaded from FE — to derive ADD/DROP column DDL.
- * Regular DML records are emitted directly without per-record schema comparison.
+ * {@link PostgresSchemaRecord} when the source emits schema changes. The carried Debezium {@link
+ * Table} is the full post-change schema and is diffed against the stored baseline — the Doris
+ * table's current full schema, loaded from FE — to derive ADD/DROP column DDL. Regular DML records
+ * are emitted directly without per-record schema comparison.
  *
  * <p>The baseline is also established by Relation events: when a table first appears (e.g. a stream
  * started directly from an offset without a snapshot), pgoutput sends its Relation before the first
@@ -75,6 +75,10 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             throws IOException {
         // 1. Schema change event (pgoutput Relation -> PostgresSchemaRecord).
         if (SourceRecordUtils.isSchemaChangeEvent(record)) {
+            if (!isSchemaChangeEnabled(context)) {
+                LOG.info("[SCHEMA-CHANGE-SKIPPED] Postgres schema change is disabled.");
+                return DeserializeResult.empty();
+            }
             return handleSchemaChangeEvent(context, record);
         }
         // 2. Non-DML (heartbeat / watermark / etc.).
@@ -96,6 +100,11 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         // Debezium PG TableId is (catalog=null, schema, table) — matches the tableSchemas key.
         TableId tableId = freshTable.id();
         TableChanges.TableChange stored = tableSchemas != null ? tableSchemas.get(tableId) : null;
+        LOG.info(
+                "[SCHEMA-CHANGE] Postgres deserializer received schema change, table={}, baselineSchemas={}, hasStoredSchema={}",
+                tableId.identifier(),
+                tableSchemas == null ? 0 : tableSchemas.size(),
+                stored != null && stored.getTable() != null);
 
         // changeType is not consumed inside cdc_client — downstream only reads getTable() and
         // serializeTableSchemas does not persist it — so ALTER is used uniformly, including for the
@@ -200,7 +209,7 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                             targetTable,
                             col.name(),
                             SchemaChangeHelper.buildAddColumnSql(
-                                    db, targetTable, col.name(), colType, null, null)));
+                                    db, targetTable, col.name(), colType)));
         }
 
         LOG.info(

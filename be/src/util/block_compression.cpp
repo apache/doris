@@ -770,11 +770,19 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
+        size_t uncompressed_size = 0;
+        if (!snappy::GetUncompressedLength(input.data, input.size, &uncompressed_size)) {
+            return Status::InvalidArgument("Fail to get Snappy uncompressed length");
+        }
+        // RawUncompress has no capacity argument, so reject an undersized destination first.
+        if (uncompressed_size > output->size) {
+            return Status::InvalidArgument("Snappy output size {} exceeds buffer capacity {}",
+                                           uncompressed_size, output->size);
+        }
         if (!snappy::RawUncompress(input.data, input.size, output->data)) {
             return Status::InvalidArgument("Fail to do Snappy decompress");
         }
-        // NOTE: GetUncompressedLength only takes O(1) time
-        snappy::GetUncompressedLength(input.data, input.size, &output->size);
+        output->size = uncompressed_size;
         return Status::OK();
     }
 

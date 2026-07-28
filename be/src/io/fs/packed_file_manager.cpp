@@ -145,6 +145,7 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
     CacheContext ctx;
     ctx.cache_type = expiration_time > 0 ? FileCacheType::TTL : FileCacheType::NORMAL;
     ctx.expiration_time = expiration_time;
+    ctx.tablet_id = tablet_id;
     ReadStatistics stats;
     ctx.stats = &stats;
 

@@ -53,6 +53,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
@@ -589,7 +590,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
         if (config.getOp() == TJdbcOperation.READ) {
-            conn.setAutoCommit(false);
+            disableAutoCommitIfSupported(conn);
             Preconditions.checkArgument(sql != null, "SQL statement cannot be null for READ operation.");
             stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
             stmt.setFetchSize(config.getBatchSize()); // set fetch size to batch size
@@ -598,6 +599,20 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             Preconditions.checkArgument(sql != null, "SQL statement cannot be null for WRITE operation.");
             LOG.info("Insert SQL: " + sql);
             preparedStatement = conn.prepareStatement(sql);
+        }
+    }
+
+    static void disableAutoCommitIfSupported(Connection conn) throws SQLException {
+        // Hikari invalidates its proxy when setAutoCommit throws, so check the transaction
+        // capability first to keep non-transactional driver connections usable for reads.
+        if (!conn.getMetaData().supportsTransactions()) {
+            LOG.info("JDBC driver does not support transactions; continuing in auto-commit read mode");
+            return;
+        }
+        try {
+            conn.setAutoCommit(false);
+        } catch (SQLFeatureNotSupportedException e) {
+            LOG.info("JDBC driver does not support disabling auto-commit; continuing in read mode");
         }
     }
 
@@ -838,4 +853,3 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
-

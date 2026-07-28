@@ -100,19 +100,15 @@ public:
                  const TQueryGlobals& query_globals, ExecEnv* exec_env,
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
+    // Keep this production-visible because master format_v2 constructs a lightweight state for
+    // page-cache reads; a BE_TEST-only overload would hide release-build incompatibilities.
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals);
+
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
     // for job task only
     RuntimeState();
-
-#ifdef BE_TEST
-    // Compatibility constructor for format_v2 tests backported to branch-4.1.
-    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals)
-            : RuntimeState(query_globals) {
-        set_query_options(query_options);
-    }
-#endif
 
     // Empty d'tor to avoid issues with unique_ptr.
     MOCK_DEFINE(virtual) ~RuntimeState();

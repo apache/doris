@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_common.pb.h>
 
 #include <queue>
+#include <unordered_set>
 
 #include "io/fs/file_writer.h"
 #include "util/uid_util.h"
@@ -57,6 +58,7 @@ public:
 
 private:
     Status _finalize();
+    std::unordered_set<int64_t> _get_fault_injection_failed_dst_ids() const;
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;

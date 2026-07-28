@@ -111,8 +111,7 @@ Status Cast::_do_execute(VExprContext* context, const Block* block, const Select
     ColumnNumbers args(1);
 
     ColumnPtr tmp_arg_column;
-    RETURN_IF_ERROR(_children[0]->execute_column(context, block, const_cast<Selector*>(selector),
-                                                 count, tmp_arg_column));
+    RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, tmp_arg_column));
     auto arg_type = _children[0]->execute_type(block);
     temp_block.insert({tmp_arg_column, arg_type, _children[0]->expr_name()});
     args[0] = 0;
@@ -125,6 +124,7 @@ Status Cast::_do_execute(VExprContext* context, const Block* block, const Select
                                        num_columns_without_result, count));
     result_column = temp_block.get_by_position(num_columns_without_result).column;
     DCHECK_EQ(result_column->size(), count);
+    RETURN_IF_ERROR(result_column->column_self_check());
     return Status::OK();
 }
 

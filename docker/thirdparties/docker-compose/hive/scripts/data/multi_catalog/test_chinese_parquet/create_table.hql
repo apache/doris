@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.test_chinese_parquet`(
+drop table if exists `multi_catalog.test_chinese_parquet`;
+
+create table `multi_catalog.test_chinese_parquet`(
   `id` int, 
   `col1` varchar(1148))
 ROW FORMAT SERDE 
@@ -15,5 +17,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1688972107', 
   'transient_lastDdlTime'='1688972107');
-
-msck repair table test_chinese_parquet;

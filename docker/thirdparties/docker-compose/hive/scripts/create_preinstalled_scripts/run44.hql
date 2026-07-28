@@ -1,4 +1,5 @@
-CREATE TABLE `parquet_gzip_all_types`(
+drop table if exists `parquet_gzip_all_types`;
+create table `parquet_gzip_all_types`(
 `t_null_string` string,
 `t_null_varchar` varchar(65535),
 `t_null_char` char(10),
@@ -77,6 +78,3 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018',
   "parquet.compression"="GZIP");
-
-msck repair table parquet_gzip_all_types;
-

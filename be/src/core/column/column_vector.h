@@ -271,7 +271,8 @@ public:
 
     void insert_value(const value_type value) { data.push_back(value); }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override {
         Self* output = assert_cast<Self*>(col_ptr);
         auto& res_data = output->get_data();
         DCHECK(res_data.empty())

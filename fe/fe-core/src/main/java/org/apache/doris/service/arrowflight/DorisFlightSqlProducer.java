@@ -356,14 +356,22 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 final ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
                 connectContext.addPreparedQuery(preparedStatementId, query);
 
-                VectorSchemaRoot emptyVectorSchemaRoot = new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>());
-                final Schema parameterSchema = emptyVectorSchemaRoot.getSchema();
+                // Close the temporary VectorSchemaRoot after extracting its Schema, otherwise the
+                // off-heap buffers backing its vectors are leaked on every prepare (FE direct memory leak).
+                final Schema parameterSchema;
+                try (VectorSchemaRoot emptyVectorSchemaRoot =
+                        new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>())) {
+                    parameterSchema = emptyVectorSchemaRoot.getSchema();
+                }
                 // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
                 // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
                 // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
                 // see: https://github.com/apache/arrow/issues/38911
-                Schema metaData = connectContext.getFlightSqlChannel()
-                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED").getSchema();
+                final Schema metaData;
+                try (VectorSchemaRoot metaSchemaRoot = connectContext.getFlightSqlChannel()
+                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED")) {
+                    metaData = metaSchemaRoot.getSchema();
+                }
                 listener.onNext(new Result(
                         Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
             } catch (Exception e) {

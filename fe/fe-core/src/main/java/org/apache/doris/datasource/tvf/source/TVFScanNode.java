@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -141,9 +140,9 @@ public class TVFScanNode extends FileQueryScanNode {
 
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
 
-        // Push down count optimization.
+        // Avoid splitting only for table-level COUNT(*). COUNT(column) still reads column data.
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
+        if (isTableLevelCountStarPushdown()) {
             int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             int totalFileNum = fileStatuses.size();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);

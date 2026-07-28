@@ -33,8 +33,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-client --password=123456 --query 'SELECT 1 FROM doris_test.deadline'"]
       interval: 30s
-      timeout: 10s
-      retries: 5
+      timeout: 30s
+      retries: 20
+      start_period: 180s
     volumes:
       - ./init:/docker-entrypoint-initdb.d
     networks:

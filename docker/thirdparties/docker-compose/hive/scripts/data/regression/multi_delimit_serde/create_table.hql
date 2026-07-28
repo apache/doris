@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS regression;
 USE regression;
 
-CREATE TABLE `multi_delimit_test`(
+drop table if exists `multi_delimit_test`;
+
+create table `multi_delimit_test`(
   `k1` int,
   `k2` int,
   `name` string)
@@ -21,7 +23,9 @@ LOCATION '/user/doris/suites/regression/multi_delimit_test'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692719456');
 
-CREATE TABLE `multi_delimit_test2`(
+drop table if exists `multi_delimit_test2`;
+
+create table `multi_delimit_test2`(
   `id` int,
   `value` double,
   `description` string)
@@ -39,7 +43,8 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1692719456');
 
 -- Test table with array and map types to test collection.delim and mapkey.delim
-CREATE TABLE `multi_delimit_complex_test`(
+drop table if exists `multi_delimit_complex_test`;
+create table `multi_delimit_complex_test`(
   `id` int,
   `name` string,
   `tags` array<string>,

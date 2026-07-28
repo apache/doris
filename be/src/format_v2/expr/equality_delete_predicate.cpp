@@ -26,28 +26,63 @@
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "util/hash_util.hpp"
 
 namespace doris::format {
 namespace {
 
 bool column_value_equal(const ColumnPtr& lhs, size_t lhs_row, const ColumnPtr& rhs,
                         size_t rhs_row) {
-    if (lhs->is_nullable() && rhs->is_nullable()) {
-        return lhs->compare_at(lhs_row, rhs_row, *rhs, -1) == 0;
-    }
+    const IColumn* lhs_data = lhs.get();
+    const IColumn* rhs_data = rhs.get();
     if (lhs->is_nullable()) {
         const auto& nullable_lhs = assert_cast<const ColumnNullable&>(*lhs);
-        return !nullable_lhs.is_null_at(lhs_row) &&
-               nullable_lhs.get_nested_column().compare_at(lhs_row, rhs_row, *rhs, -1) == 0;
+        if (nullable_lhs.is_null_at(lhs_row)) {
+            return rhs->is_nullable() &&
+                   assert_cast<const ColumnNullable&>(*rhs).is_null_at(rhs_row);
+        }
+        lhs_data = &nullable_lhs.get_nested_column();
     }
     if (rhs->is_nullable()) {
         const auto& nullable_rhs = assert_cast<const ColumnNullable&>(*rhs);
-        return !nullable_rhs.is_null_at(rhs_row) &&
-               lhs->compare_at(lhs_row, rhs_row, nullable_rhs.get_nested_column(), -1) == 0;
+        if (nullable_rhs.is_null_at(rhs_row)) {
+            return false;
+        }
+        rhs_data = &nullable_rhs.get_nested_column();
     }
-    return lhs->compare_at(lhs_row, rhs_row, *rhs, -1) == 0;
+    const bool lhs_binary = check_and_get_column<ColumnString>(*lhs_data) != nullptr ||
+                            check_and_get_column<ColumnVarbinary>(*lhs_data) != nullptr;
+    const bool rhs_binary = check_and_get_column<ColumnString>(*rhs_data) != nullptr ||
+                            check_and_get_column<ColumnVarbinary>(*rhs_data) != nullptr;
+    if (lhs_binary && rhs_binary) {
+        // Iceberg schema evolution may represent the same byte key as STRING in one file and
+        // VARBINARY in another. Equality-delete semantics compare bytes, not column storage classes.
+        return lhs_data->get_data_at(lhs_row) == rhs_data->get_data_at(rhs_row);
+    }
+    return lhs_data->compare_at(lhs_row, rhs_row, *rhs_data, -1) == 0;
+}
+
+void update_varbinary_hashes(const ColumnWithTypeAndName& entry, uint64_t* hashes) {
+    const IColumn* data = entry.column.get();
+    const uint8_t* null_map = nullptr;
+    if (entry.column->is_nullable()) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*entry.column);
+        data = &nullable.get_nested_column();
+        null_map = nullable.get_null_map_data().data();
+    }
+    for (size_t row = 0; row < entry.column->size(); ++row) {
+        if (null_map != nullptr && null_map[row] != 0) {
+            hashes[row] = HashUtil::xxHash64NullWithSeed(hashes[row]);
+            continue;
+        }
+        const auto bytes = data->get_data_at(row);
+        hashes[row] = HashUtil::xxHash64WithSeed(bytes.data, bytes.size, hashes[row]);
+    }
 }
 
 } // namespace
@@ -123,7 +158,7 @@ Status EqualityDeletePredicate::execute_column_impl(VExprContext* context, const
     Block data_key_block;
     for (const auto& child : _children) {
         ColumnPtr key_column;
-        RETURN_IF_ERROR(child->execute_column_impl(context, block, selector, count, key_column));
+        RETURN_IF_ERROR(child->execute_column(context, block, selector, count, key_column));
         // Equality comparison operates on row-addressable columns. Materialize literal constants
         // so nullable NULL keys and regular slot columns share the same compare_at contract.
         data_key_block.insert({key_column->convert_to_full_column_if_const(),
@@ -155,8 +190,14 @@ ColumnPtr EqualityDeletePredicate::_evaluate_key_block(const Block& data_key_blo
 
 std::vector<uint64_t> EqualityDeletePredicate::_build_hashes(const Block& block) {
     std::vector<uint64_t> hashes(block.rows(), 0);
-    for (const auto& column : block.get_columns()) {
-        column->update_hashes_with_value(hashes.data(), nullptr);
+    for (const auto& entry : block) {
+        if (remove_nullable(entry.type)->get_primitive_type() == TYPE_VARBINARY) {
+            // ColumnVarbinary intentionally lacks the generic column hash hook. Keep the V2 delete
+            // hash byte-identical to ColumnString so schema-mapped binary keys share hash buckets.
+            update_varbinary_hashes(entry, hashes.data());
+        } else {
+            entry.column->update_hashes_with_value(hashes.data(), nullptr);
+        }
     }
     return hashes;
 }

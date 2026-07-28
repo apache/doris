@@ -1,4 +1,5 @@
-CREATE TABLE `parquet_alltypes_tiny_pages`(
+drop table if exists `parquet_alltypes_tiny_pages`;
+create table `parquet_alltypes_tiny_pages`(
   bool_col boolean,
   tinyint_col int,
   smallint_col  int,
@@ -23,7 +24,3 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_alltypes_tiny_pages'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table parquet_alltypes_tiny_pages;
-
-

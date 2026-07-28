@@ -1,4 +1,5 @@
-CREATE TABLE `delta_encoding_required_column`(
+drop table if exists `delta_encoding_required_column`;
+create table `delta_encoding_required_column`(
    c_customer_sk int,
     c_current_cdemo_sk int,
    c_current_hdemo_sk int,
@@ -27,7 +28,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_required_column/'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table delta_encoding_required_column;
-
-

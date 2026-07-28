@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
-#include "format_v2/jni/jni_data_bridge.h"
+#include "format/jni/jni_data_bridge.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"
@@ -84,6 +84,7 @@ protected:
     virtual Status _open_jni_scanner();
     bool _reserve_split_profile_publication();
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
+    RuntimeProfile::Counter* connector_total_timer() const { return _connector_total_time; }
     TFileRangeDesc _current_range;
 
 private:
@@ -110,6 +111,7 @@ private:
     bool _eof = false;
     bool _split_profile_published = false;
 
+    RuntimeProfile::Counter* _connector_total_time = nullptr;
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
     RuntimeProfile::Counter* _java_scan_time = nullptr;
     RuntimeProfile::Counter* _java_append_data_time = nullptr;

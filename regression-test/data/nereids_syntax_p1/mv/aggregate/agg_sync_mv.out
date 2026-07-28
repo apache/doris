@@ -1500,7 +1500,7 @@
 11	[0, 0]
 
 -- !test --
-\N	{}
+\N	{null:"null"}
 1	{0:"string1"}
 2	{1:"string2"}
 3	{2:"string3"}

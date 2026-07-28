@@ -42,6 +42,40 @@ class IColumn;
 
 namespace doris::format::json {
 
+struct TransparentStringHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view value) const {
+        return std::hash<std::string_view> {}(value);
+    }
+};
+
+struct CaseInsensitiveStringHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view value) const {
+        size_t hash = 1469598103934665603ULL;
+        for (const unsigned char c : value) {
+            const unsigned char folded = c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+            hash = (hash ^ folded) * 1099511628211ULL;
+        }
+        return hash;
+    }
+};
+
+struct CaseInsensitiveStringEqual {
+    using is_transparent = void;
+    bool operator()(std::string_view lhs, std::string_view rhs) const {
+        if (lhs.size() != rhs.size()) return false;
+        for (size_t i = 0; i < lhs.size(); ++i) {
+            const unsigned char left =
+                    lhs[i] >= 'A' && lhs[i] <= 'Z' ? lhs[i] + ('a' - 'A') : lhs[i];
+            const unsigned char right =
+                    rhs[i] >= 'A' && rhs[i] <= 'Z' ? rhs[i] + ('a' - 'A') : rhs[i];
+            if (left != right) return false;
+        }
+        return true;
+    }
+};
+
 // FileScannerV2 JSON reader.
 //
 // JSON files do not carry an embedded physical schema. The v2 table layer still needs a
@@ -74,7 +108,12 @@ public:
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status close() override;
 
+#ifdef BE_TEST
+    size_t TEST_document_buffer_size() const { return _document_buffer.size(); }
+#endif
+
 private:
+    void _init_profile() override;
     // A requested column keeps both identities:
     // - `source_index`: index in FE file slots, used for jsonpaths and SerDe lookup.
     // - `block_position`: index in the caller's output block, used for materialization.
@@ -134,8 +173,18 @@ private:
     TFileCompressType::type _range_compress_type = TFileCompressType::UNKNOWN;
     std::optional<TUniqueId> _stream_load_id;
     std::vector<RequestedColumn> _requested_columns;
-    std::unordered_map<std::string, size_t> _slot_name_to_index;
+    std::unordered_map<std::string, size_t, TransparentStringHash, std::equal_to<>>
+            _slot_name_to_index;
+    std::unordered_map<std::string, size_t, CaseInsensitiveStringHash, CaseInsensitiveStringEqual>
+            _hive_slot_name_to_index;
     std::vector<size_t> _previous_positions;
+
+    RuntimeProfile::Counter* _total_time = nullptr;
+    RuntimeProfile::Counter* _open_time = nullptr;
+    RuntimeProfile::Counter* _read_document_time = nullptr;
+    RuntimeProfile::Counter* _parse_time = nullptr;
+    RuntimeProfile::Counter* _materialize_time = nullptr;
+    RuntimeProfile::Counter* _filter_time = nullptr;
 
     io::FileReaderSPtr _physical_file_reader;
     std::unique_ptr<Decompressor> _decompressor;
@@ -170,6 +219,7 @@ private:
     simdjson::ondemand::array _array;
     simdjson::ondemand::array_iterator _array_iter;
     std::string _document_buffer;
+    std::string_view _document_view;
     std::string _padding_buffer;
     size_t _original_doc_size = 0;
     size_t _padded_size = 1024 * 1024 * 8 + simdjson::SIMDJSON_PADDING;
