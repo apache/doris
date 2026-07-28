@@ -202,6 +202,13 @@ public:
         return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
     }
 
+    // Typed reader evaluation is an optional capability for runtime-filter wrappers. It lets a
+    // storage reader consume converted logical values without scheduling the same expression on
+    // a materialized file block afterwards.
+    virtual bool can_execute_on_reader_values(const DataTypePtr& data_type, int column_id) const {
+        return false;
+    }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),

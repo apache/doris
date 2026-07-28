@@ -92,6 +92,8 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_batches = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
@@ -218,6 +220,8 @@ struct ParquetProfile {
     RuntimeProfile::Counter* predicate_alignment_columns = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* fixed_width_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_batches = nullptr;
+    RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;

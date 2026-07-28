@@ -71,6 +71,15 @@ public:
                                                   IColumn* projected_column,
                                                   IColumn::Filter* row_filter, bool* used_filter);
 
+    // Consume batch_rows and evaluate runtime filters on file-local logical values inside the
+    // reader. This covers encodings and logical conversions that cannot use the raw fixed-width
+    // path while still preventing a second expression pass in the scan scheduler.
+    virtual Status select_with_runtime_filter(const SelectionVector& selection,
+                                              uint16_t selected_rows, int64_t batch_rows,
+                                              const VExprContextSPtrs& conjuncts, int column_id,
+                                              MutableColumnPtr* projected_column,
+                                              IColumn::Filter* row_filter, bool* used_filter);
+
     // Native statistics are cumulative and can be recursively aggregated for complex columns.
     // Flush once at the scheduler batch boundary instead of snapshotting after each operation.
     virtual void flush_profile() {}
