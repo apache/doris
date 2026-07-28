@@ -394,6 +394,37 @@ private:
     const std::string _expr_name = "AlwaysTrueSingleColumnExpr";
 };
 
+class ReaderValuesStringGreaterExpr final : public VExpr {
+public:
+    ReaderValuesStringGreaterExpr(int column_id, std::string lower_bound)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _lower_bound(std::move(lower_bound)) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& input = string_data_column(*block->get_by_position(_column_id).column);
+        auto result = ColumnUInt8::create(count, 0);
+        for (size_t row = 0; row < count; ++row) {
+            result->get_data()[row] = input.get_data_at(row).to_string_view() > _lower_bound;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+private:
+    int _column_id;
+    std::string _lower_bound;
+    const std::string _expr_name = "ReaderValuesStringGreaterExpr";
+};
+
 VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
                                                int32_t value) {
     return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
@@ -844,6 +875,16 @@ VExprContextSPtr create_string_runtime_comparison_conjunct(int column_id,
     node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
     node.__set_is_nullable(false);
     return wrap_runtime_filter(impl_context->root(), node, filter_id);
+}
+
+VExprContextSPtr create_reader_values_string_runtime_conjunct(int column_id,
+                                                              const std::string& lower_bound,
+                                                              int filter_id) {
+    auto impl = std::make_shared<ReaderValuesStringGreaterExpr>(column_id, lower_bound);
+    impl->add_child(VSlotRef::create_shared(column_id, column_id, -1,
+                                            make_nullable(std::make_shared<DataTypeString>()),
+                                            "runtime_reader_value_key"));
+    return wrap_runtime_filter(std::move(impl), make_runtime_in_node(), filter_id);
 }
 
 template <PrimitiveType T>
@@ -2537,6 +2578,47 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainStringBloomRuntimeFilterUsesDirectRead
     EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectRows"), 4);
     EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, ProjectedTypedRuntimeFilterPreservesNullableOutputColumn) {
+    write_string_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    auto conjunct = create_reader_values_string_runtime_conjunct(0, "bravo", 16);
+    conjunct->_prepared = false;
+    conjunct->_opened = false;
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    // Doris exposes the required Parquet field through a nullable scan slot, matching schema
+    // evolution readers that allow older files to omit the field.
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    ASSERT_TRUE(is_column_nullable(*block.get_by_position(0).column));
+    const auto& text = string_data_column(*block.get_by_position(0).column);
+    ASSERT_EQ(text.size(), 2);
+    EXPECT_EQ(text.get_data_at(0).to_string_view(), "charlie");
+    EXPECT_EQ(text.get_data_at(1).to_string_view(), "delta");
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {30, 40}));
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 0);
+    EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 1);
     conjunct->close();
 }
 
