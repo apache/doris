@@ -136,9 +136,18 @@ sudo docker container prune -f
 sudo docker image prune -f
 sudo docker pull "${docker_image}"
 docker_name=doris-compile-"${commit_id_from_trigger}"
-if sudo docker ps -a --no-trunc | grep "${docker_name}"; then
-    sudo docker stop "${docker_name}"
-    sudo docker rm "${docker_name}"
+if sudo docker container inspect "${docker_name}" >/dev/null 2>&1; then
+    sudo docker rm -f "${docker_name}" || true
+    for _ in $(seq 1 30); do
+        if ! sudo docker container inspect "${docker_name}" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    if sudo docker container inspect "${docker_name}" >/dev/null 2>&1; then
+        echo "ERROR: timed out removing stale compile container ${docker_name}"
+        exit 1
+    fi
 fi
 rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
