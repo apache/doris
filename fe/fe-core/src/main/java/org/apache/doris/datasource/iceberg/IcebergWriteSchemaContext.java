@@ -399,9 +399,10 @@ public final class IcebergWriteSchemaContext {
     /**
      * Validate that the fresh table can commit files described by the pinned writer metadata.
      *
-     * <p>Static partition overwrite additionally requires the pinned spec to remain current because
-     * its replacement filter was planned from that spec. Appends can safely write an older retained
-     * spec, so they only require the pinned definition to remain available.
+     * <p>Every overwrite additionally requires the pinned spec to remain current because both
+     * dynamic replacement and static replacement semantics depend on whether and how that spec is
+     * partitioned. Appends can safely write an older retained spec, so they only require the pinned
+     * definition to remain available.
      */
     public void validateCurrentSchema(Table table, boolean requireCurrentPartitionSpec) {
         Schema currentSchema = branchName.isPresent()
@@ -428,7 +429,7 @@ public final class IcebergWriteSchemaContext {
             PartitionSpec activeSpec = table.spec();
             if (activeSpec.specId() != partitionSpec.specId()
                     || !partitionSpecJson.equals(PartitionSpecParser.toJson(activeSpec))) {
-                throw new AnalysisException("Iceberg current partition spec changed during static overwrite "
+                throw new AnalysisException("Iceberg current partition spec changed during overwrite "
                         + "planning for " + tableName + ": pinned spec " + partitionSpec.specId()
                         + ", current spec " + activeSpec.specId() + "; retry the statement");
             }

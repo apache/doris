@@ -386,6 +386,25 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testMetadataCountSkipsEqualityDeleteFilePreflight() throws Exception {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        CountPlanningIcebergScanNode node =
+                new CountPlanningIcebergScanNode(sv, tableScan, 30_000);
+        node.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        node.setPushDownCountSlotIds(Collections.emptyList());
+
+        Assert.assertEquals(
+                Collections.emptySet(), node.getEqualityDeleteFieldIdsForPlanning());
+        Assert.assertEquals(1, node.snapshotCountCalls);
+        Mockito.verify(tableScan, Mockito.never()).snapshot();
+        Mockito.verify(tableScan, Mockito.never()).planFiles();
+
+        Assert.assertFalse(node.isBatchMode());
+        Assert.assertEquals(1, node.snapshotCountCalls);
+    }
+
+    @Test
     public void testInitialDefaultMetadataUsesCurrentSchemaForOrdinaryScan() throws Exception {
         Schema snapshotSchema = new Schema(Types.NestedField.optional("historical_binary")
                 .withId(7)
@@ -1096,6 +1115,42 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
         }
+    }
+
+    @Test
+    public void testReusedNestedNameRejectsSmoothUpgradeSourceBackend() throws Exception {
+        Types.NestedField renamedPayload = Types.NestedField.optional(
+                3, "renamed_payload",
+                Types.ListType.ofOptional(4, Types.IntegerType.get()));
+        Types.NestedField replacementPayload = Types.NestedField.optional(
+                5, "payload",
+                Types.MapType.ofOptional(
+                        6, 7, Types.StringType.get(), Types.IntegerType.get()));
+        Schema schema = new Schema(Types.NestedField.optional(
+                1, "root", Types.StructType.of(renamedPayload, replacementPayload)));
+        Optional<Map<Integer, List<String>>> mapping = Optional.of(Map.of(
+                3, List.of("payload", "renamed_payload"),
+                5, Collections.singletonList("payload")));
+
+        Assert.assertTrue(IcebergScanNode.hasCurrentNameAliasCollision(schema, mapping));
+        Assert.assertFalse(IcebergScanNode.hasCurrentNameAliasCollision(
+                schema, Optional.of(Map.of(
+                        3, List.of("legacy_payload", "renamed_payload"),
+                        5, Collections.singletonList("payload")))));
+
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        IcebergScanNode.checkNameMappingBackendCompatibility(
+                schema, mapping, Collections.singletonList(currentBackend));
+
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10004L);
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> IcebergScanNode.checkNameMappingBackendCompatibility(
+                        schema, mapping, Collections.singletonList(smoothUpgradeSource)));
+        Assert.assertTrue(exception.getMessage().contains(
+                "backend 10004 is a smooth upgrade source"));
     }
 
     @Test

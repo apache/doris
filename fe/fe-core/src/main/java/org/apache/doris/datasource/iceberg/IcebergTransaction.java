@@ -31,13 +31,16 @@ import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -46,10 +49,16 @@ import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ContentFileUtil;
@@ -65,6 +74,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 
 public class IcebergTransaction implements Transaction {
 
@@ -83,6 +93,7 @@ public class IcebergTransaction implements Transaction {
     private Optional<IcebergWriteSchemaContext> writeSchemaContext = Optional.empty();
     private String branchName;
     private Long baseSnapshotId;
+    private boolean hasStagedUpdates;
     private Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     // Rewrite operation support
@@ -136,6 +147,7 @@ public class IcebergTransaction implements Transaction {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.loadFreshIcebergTable(dorisTable);
                 this.baseSnapshotId = null;
+                this.hasStagedUpdates = false;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
                     this.branchName = insertCtx.getBranchName().get();
@@ -150,9 +162,9 @@ public class IcebergTransaction implements Transaction {
                 }
                 if (writeSchemaContext.isPresent()) {
                     writeSchemaContext.get().validateCurrentSchema(
-                            table, insertCtx.isStaticPartitionOverwrite());
+                            table, insertCtx.isOverwrite());
                 }
-                this.transaction = table.newTransaction();
+                this.transaction = newWriteTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
         } catch (Exception e) {
@@ -317,6 +329,7 @@ public class IcebergTransaction implements Transaction {
                 this.branchName = null;
                 this.table = IcebergUtils.loadFreshIcebergTable(dorisTable);
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
+                this.hasStagedUpdates = false;
                 if (writeSchemaContext.isPresent()) {
                     writeSchemaContext.get().validateCurrentSchema(table);
                 }
@@ -328,7 +341,7 @@ public class IcebergTransaction implements Transaction {
                                 + " must have format version 2 or higher for position deletes");
                     }
                 }
-                this.transaction = table.newTransaction();
+                this.transaction = newWriteTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started merge transaction for table: {}", dorisTable.getName());
                 return null;
@@ -459,6 +472,7 @@ public class IcebergTransaction implements Transaction {
     }
 
     private void updateManifestAfterMerge() {
+        validatePinnedWriterMetadata();
         if (commitDataList.isEmpty()) {
             LOG.info("No commit data for merge operation");
             return;
@@ -513,6 +527,7 @@ public class IcebergTransaction implements Transaction {
         }
 
         rowDelta.commit();
+        hasStagedUpdates = true;
         LOG.info("Committed merge with {} data files, {} delete files and removed {} previous delete files",
                 dataFiles.size(), deleteFiles.size(), rewrittenDeleteFiles.size());
     }
@@ -541,6 +556,7 @@ public class IcebergTransaction implements Transaction {
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
+        validatePinnedWriterMetadata();
         List<WriteResult> pendingResults;
         if (commitDataList.isEmpty()) {
             pendingResults = Collections.emptyList();
@@ -571,8 +587,128 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        // commit the iceberg transaction
+        // Empty overwrites may intentionally stage no Iceberg update, so validate once more even
+        // when commitTransaction() has no metadata CAS to invoke the atomic operations fence.
+        if (!hasStagedUpdates) {
+            validatePinnedWriterMetadata();
+        }
         transaction.commitTransaction();
+    }
+
+    /**
+     * Create an Iceberg transaction whose final metadata CAS validates the statement-pinned
+     * writer metadata against the exact base metadata used by every commit attempt.
+     *
+     * <p>Iceberg simple transactions refresh and replay pending updates after a concurrent commit.
+     * A begin-time validation alone would therefore allow replay to stamp files with a newer
+     * schema. The operations wrapper repeats the validation at the final commit boundary, including
+     * every retry after replay.
+     */
+    @VisibleForTesting
+    org.apache.iceberg.Transaction newWriteTransaction() {
+        if (!writeSchemaContext.isPresent()) {
+            return table.newTransaction();
+        }
+        Preconditions.checkState(table instanceof HasTableOperations,
+                "Iceberg write table %s does not expose table operations", table.name());
+        TableOperations operations = ((HasTableOperations) table).operations();
+        BooleanSupplier requireCurrentPartitionSpec =
+                () -> insertCtx != null && insertCtx.isOverwrite();
+        Table validatingTable = new BaseTable(
+                new ValidatingTableOperations(
+                        operations, writeSchemaContext.get(), requireCurrentPartitionSpec,
+                        table.name()),
+                table.name());
+        return validatingTable.newTransaction();
+    }
+
+    /**
+     * Fail before staging files when a refresh already exposes incompatible writer metadata.
+     *
+     * <p>The final operations wrapper remains the atomic fence for non-empty transactions. This
+     * refresh is also required for empty dynamic overwrites, which intentionally stage no Iceberg
+     * update when the pinned spec is partitioned and therefore have no final metadata CAS.
+     */
+    private void validatePinnedWriterMetadata() {
+        if (!writeSchemaContext.isPresent()) {
+            return;
+        }
+        table.refresh();
+        writeSchemaContext.get().validateCurrentSchema(
+                table, insertCtx != null && insertCtx.isOverwrite());
+    }
+
+    private static class ValidatingTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private final IcebergWriteSchemaContext writeSchemaContext;
+        private final BooleanSupplier requireCurrentPartitionSpec;
+        private final String tableName;
+
+        private ValidatingTableOperations(
+                TableOperations delegate,
+                IcebergWriteSchemaContext writeSchemaContext,
+                BooleanSupplier requireCurrentPartitionSpec,
+                String tableName) {
+            this.delegate = delegate;
+            this.writeSchemaContext = writeSchemaContext;
+            this.requireCurrentPartitionSpec = requireCurrentPartitionSpec;
+            this.tableName = tableName;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return delegate.current();
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return delegate.refresh();
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            Table baseTable = new BaseTable(
+                    new StaticTableOperations(base, delegate.io(), delegate.locationProvider()),
+                    tableName);
+            writeSchemaContext.validateCurrentSchema(
+                    baseTable, requireCurrentPartitionSpec.getAsBoolean());
+            delegate.commit(base, metadata);
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
+
+        @Override
+        public TableOperations temp(TableMetadata metadata) {
+            return delegate.temp(metadata);
+        }
+
+        @Override
+        public long newSnapshotId() {
+            return delegate.newSnapshotId();
+        }
+
+        @Override
+        public boolean requireStrictCleanup() {
+            return delegate.requireStrictCleanup();
+        }
     }
 
     @Override
@@ -659,6 +795,7 @@ public class IcebergTransaction implements Transaction {
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
         appendFiles.commit();
+        hasStagedUpdates = true;
     }
 
     private Long getSnapshotIdIfPresent(Table icebergTable) {
@@ -884,6 +1021,7 @@ public class IcebergTransaction implements Transaction {
                     throw new RuntimeException(e);
                 }
                 overwriteFiles.commit();
+                hasStagedUpdates = true;
             }
             return;
         }
@@ -900,6 +1038,7 @@ public class IcebergTransaction implements Transaction {
             Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
         }
         appendPartitionOp.commit();
+        hasStagedUpdates = true;
     }
 
     /**
@@ -936,6 +1075,7 @@ public class IcebergTransaction implements Transaction {
 
         // Commit the overwrite operation
         overwriteFiles.commit();
+        hasStagedUpdates = true;
     }
 
     /**

@@ -195,6 +195,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String cachedFsIdentifier;
 
     private Boolean isBatchMode = null;
+    private Boolean canUseSnapshotCount = null;
     private boolean isSystemTable = false;
 
     // ReferencedDataFile path -> List<DeleteFile> / List<TIcebergDeleteFileDesc> (exclude equal delete)
@@ -525,9 +526,12 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void createScanRangeLocations() throws UserException {
         Schema scanSchema = getQuerySchema();
+        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
         Set<Integer> equalityDeleteFieldIds = Collections.emptySet();
         if (!isSystemTable) {
-            equalityDeleteFieldIds = getEqualityDeleteFieldIdsForScan();
+            checkNameMappingBackendCompatibility(
+                    scanSchema, nameMapping, backendPolicy.getBackends());
+            equalityDeleteFieldIds = getEqualityDeleteFieldIdsForPlanning();
             boolean requiresCurrentSemantics = requiresRecursiveInitialDefaultMaterialization(
                     scanSchema, desc.getSlots()) || !equalityDeleteFieldIds.isEmpty();
             if (!requiresCurrentSemantics
@@ -542,7 +546,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         enableCurrentIcebergScanSemantics();
         super.createScanRangeLocations();
 
-        initializeIcebergSchemaInfo(extractNameMapping(), scanSchema, equalityDeleteFieldIds);
+        initializeIcebergSchemaInfo(nameMapping, scanSchema, equalityDeleteFieldIds);
     }
 
     @VisibleForTesting
@@ -973,6 +977,63 @@ public class IcebergScanNode extends FileQueryScanNode {
         boolean requires(NestedField field, boolean isTopLevel);
     }
 
+    /**
+     * Detect a reused name that current BEs resolve before an older sibling's historical alias.
+     *
+     * <p>A smooth-upgrade source BE recognizes only the original semantics marker and performs one
+     * ordered name/alias pass. If a sibling retains another sibling's current name as an alias, the
+     * two BE generations can bind the same projected path to different field IDs and types.
+     */
+    @VisibleForTesting
+    static boolean hasCurrentNameAliasCollision(
+            Schema schema, Optional<Map<Integer, List<String>>> nameMapping) {
+        return nameMapping.isPresent()
+                && hasCurrentNameAliasCollision(schema.asStruct(), nameMapping.get());
+    }
+
+    @VisibleForTesting
+    static void checkNameMappingBackendCompatibility(
+            Schema schema,
+            Optional<Map<Integer, List<String>>> nameMapping,
+            Iterable<Backend> backends) throws UserException {
+        if (hasCurrentNameAliasCollision(schema, nameMapping)) {
+            checkCurrentIcebergScanSemanticsBackendCompatibility(backends);
+        }
+    }
+
+    private static boolean hasCurrentNameAliasCollision(
+            Type type, Map<Integer, List<String>> nameMapping) {
+        switch (type.typeId()) {
+            case STRUCT:
+                List<NestedField> fields = type.asStructType().fields();
+                for (NestedField field : fields) {
+                    List<String> aliases =
+                            nameMapping.getOrDefault(field.fieldId(), Collections.emptyList());
+                    for (String alias : aliases) {
+                        for (NestedField sibling : fields) {
+                            if (sibling.fieldId() != field.fieldId()
+                                    && sibling.name().equalsIgnoreCase(alias)) {
+                                return true;
+                            }
+                        }
+                    }
+                    if (hasCurrentNameAliasCollision(field.type(), nameMapping)) {
+                        return true;
+                    }
+                }
+                return false;
+            case LIST:
+                return hasCurrentNameAliasCollision(
+                        type.asListType().elementType(), nameMapping);
+            case MAP:
+                return hasCurrentNameAliasCollision(type.asMapType().keyType(), nameMapping)
+                        || hasCurrentNameAliasCollision(
+                                type.asMapType().valueType(), nameMapping);
+            default:
+                return false;
+        }
+    }
+
     private static boolean matchesAccessPathComponent(Column column, String component) {
         return Integer.toString(column.getUniqueId()).equals(component)
                 || column.getName().equalsIgnoreCase(component);
@@ -1012,6 +1073,19 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    /**
+     * Skip exhaustive delete-file planning when the exact snapshot summary already proves that
+     * metadata-only COUNT(*) is safe. A usable count requires the summary's equality-delete total
+     * to be zero, so no equality field IDs can affect this scan.
+     */
+    @VisibleForTesting
+    Set<Integer> getEqualityDeleteFieldIdsForPlanning() throws UserException {
+        if (prepareTableLevelSnapshotCount()) {
+            return Collections.emptySet();
+        }
+        return getEqualityDeleteFieldIdsForScan();
     }
 
     @VisibleForTesting
@@ -1954,17 +2028,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (cached != null) {
             return cached;
         }
-        if (isTableLevelCountStarPushdown()) {
-            try {
-                countFromSnapshot = getCountFromSnapshot();
-            } catch (UserException e) {
-                throw new RuntimeException(e);
-            }
-            if (countFromSnapshot >= 0) {
-                tableLevelPushDownCount = true;
-                isBatchMode = false;
-                return false;
-            }
+        if (prepareTableLevelSnapshotCount()) {
+            return false;
         }
 
         try {
@@ -2009,6 +2074,28 @@ public class IcebergScanNode extends FileQueryScanNode {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
+    }
+
+    private boolean prepareTableLevelSnapshotCount() {
+        Boolean cached = canUseSnapshotCount;
+        if (cached != null) {
+            return cached;
+        }
+        if (!isTableLevelCountStarPushdown()) {
+            canUseSnapshotCount = false;
+            return false;
+        }
+        try {
+            countFromSnapshot = getCountFromSnapshot();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+        canUseSnapshotCount = countFromSnapshot >= 0;
+        if (canUseSnapshotCount) {
+            tableLevelPushDownCount = true;
+            isBatchMode = false;
+        }
+        return canUseSnapshotCount;
     }
 
     public IcebergTableQueryInfo getSpecifiedSnapshot() throws UserException {

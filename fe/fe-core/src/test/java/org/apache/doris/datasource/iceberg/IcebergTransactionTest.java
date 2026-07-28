@@ -424,6 +424,119 @@ public class IcebergTransactionTest {
     }
 
     @Test
+    public void testDynamicOverwriteRejectsPartitionedToUnpartitionedSpecDrift() throws UserException {
+        verifyDynamicOverwriteRejectsPartitionedToUnpartitionedSpecDrift(false);
+        verifyDynamicOverwriteRejectsPartitionedToUnpartitionedSpecDrift(true);
+    }
+
+    private void verifyDynamicOverwriteRejectsPartitionedToUnpartitionedSpecDrift(
+            boolean hasOutputFile) throws UserException {
+        String tableName = "dynamic_overwrite_drift_" + hasOutputFile;
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("p")
+                .build();
+        TableIdentifier identifier = TableIdentifier.of(dbName, tableName);
+        Table table = ops.getCatalog().createTable(identifier, schema, spec);
+        PartitionSpec activeSpec = table.spec();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 2, activeSpec, table.sortOrder(), FileFormat.PARQUET,
+                MetricsConfig.getDefault(),
+                org.apache.iceberg.TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                table.location() + "/data", table.properties(), true, true);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tableName);
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setOverwrite(true);
+        insertContext.setWriteSchemaContext(Optional.of(context));
+
+        IcebergTransaction txn = getTxn();
+        if (hasOutputFile) {
+            TIcebergCommitData commitData = new TIcebergCommitData();
+            commitData.setFilePath(table.location() + "/data/output.parquet");
+            commitData.setPartitionValues(Collections.singletonList("7"));
+            commitData.setPartitionSpecId(activeSpec.specId());
+            commitData.setFileContent(TFileContent.DATA);
+            commitData.setRowCount(1);
+            commitData.setFileSize(1);
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+        }
+
+        try (MockedStatic<IcebergUtils> mockedUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            txn.beginInsert(dorisTable, Optional.of(insertContext));
+            if (hasOutputFile) {
+                txn.finishInsert(NameMapping.createForTest(dbName, tableName));
+            }
+
+            table.updateSpec().removeField("p").commit();
+            table.refresh();
+
+            RuntimeException exception;
+            if (hasOutputFile) {
+                exception = Assert.assertThrows(RuntimeException.class, txn::commit);
+            } else {
+                exception = Assert.assertThrows(RuntimeException.class,
+                        () -> txn.finishInsert(NameMapping.createForTest(dbName, tableName)));
+            }
+            Assert.assertTrue(exception.getMessage().contains("current partition spec changed"));
+            Assert.assertTrue(exception.getMessage().contains("retry the statement"));
+            Assert.assertNull(table.currentSnapshot());
+        }
+    }
+
+    @Test
+    public void testCommitReplayRejectsRequiredSchemaChangeAfterStaging() throws UserException {
+        String tableName = "commit_replay_schema_drift";
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        Table table = ops.getCatalog().createTable(
+                TableIdentifier.of(dbName, tableName), schema);
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 2, table.spec(), table.sortOrder(), FileFormat.PARQUET,
+                MetricsConfig.getDefault(),
+                org.apache.iceberg.TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                table.location() + "/data", table.properties(), true, true);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tableName);
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath(table.location() + "/data/output.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        IcebergTransaction txn = getTxn();
+        txn.updateIcebergCommitData(Collections.singletonList(commitData));
+        try (MockedStatic<IcebergUtils> mockedUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            txn.beginInsert(dorisTable, Optional.of(insertContext));
+            txn.finishInsert(NameMapping.createForTest(dbName, tableName));
+
+            table.updateSchema()
+                    .allowIncompatibleChanges()
+                    .addRequiredColumn("required_after_begin", Types.IntegerType.get())
+                    .commit();
+            table.refresh();
+
+            RuntimeException exception =
+                    Assert.assertThrows(RuntimeException.class, txn::commit);
+            Assert.assertTrue(exception.getMessage().contains("schema changed during write planning"));
+            Assert.assertTrue(exception.getMessage().contains("retry the statement"));
+            Assert.assertNull(table.currentSnapshot());
+        }
+    }
+
+    @Test
     public void testInsertCommitUsesStatementPinnedWriterMetadata() throws UserException {
         Schema schema = new Schema(92,
                 Collections.singletonList(Types.NestedField.optional(
@@ -469,7 +582,8 @@ public class IcebergTransactionTest {
                             ArgumentMatchers.same(context), ArgumentMatchers.anyList()))
                     .thenReturn(writeResult);
 
-            IcebergTransaction txn = getTxn();
+            IcebergTransaction txn = Mockito.spy(getTxn());
+            Mockito.doReturn(icebergTxn).when(txn).newWriteTransaction();
             txn.updateIcebergCommitData(Collections.singletonList(commitData));
             txn.beginInsert(dorisTable, Optional.of(insertContext));
             txn.finishInsert(NameMapping.createForTest(dbName, "pinned_writer_table"));
