@@ -814,9 +814,6 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
     auto cp = _cumulative_point.load(std::memory_order_relaxed);
     for (auto& [v, r] : _rs_version_map) {
         if (v.second < cp) {
-            if (is_row_binlog_tablet()) {
-                cumu_num_deltas += 1;
-            }
             continue;
         }
         cumu_num_deltas += r->is_segments_overlapping() ? r->num_segments() : 1;
@@ -1242,8 +1239,6 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         }
     }
 
-    RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
-                                             next_visible_version, rowset));
     if (build_row_binlog) {
         for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
             if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID &&
@@ -1260,6 +1255,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                 txn_id, binlog_tablet->tablet_id(), txn_info->attach_row_binlog.delete_bitmap,
                 cur_rowset_ids, PublishStatus::SUCCEED, txn_info->publish_info));
     }
+
+    RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
+                                             next_visible_version, rowset));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -2018,7 +2016,7 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
 
 void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
                                                 int64_t version_update_time_ms) {
-    if (tablet_schema()->enable_tso()) {
+    if (tablet_schema()->is_tso_enabled()) {
         return;
     }
 

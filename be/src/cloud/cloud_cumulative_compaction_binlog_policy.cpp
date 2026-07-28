@@ -154,8 +154,8 @@ int64_t CloudBinlogCumulativeCompactionPolicy::pick_input_rowsets(
         }
         if (!level_rowsets.empty() &&
             rs->start_version() != level_rowsets.back()->end_version() + 1) {
-            LOG(WARNING) << "rowset is non-continuous in the same compaction_level of binlog "
-                            "compaction. tablet="
+            LOG(WARNING) << "rowset is non-continuous in the same compaction_level "
+                            "of binlog compaction. tablet="
                          << tablet->tablet_id()
                          << ", compaction_level=" << static_cast<int>(compaction_level)
                          << ", prev_version=" << level_rowsets.back()->version()

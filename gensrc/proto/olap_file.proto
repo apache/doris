@@ -707,7 +707,6 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
-    optional int64 binlog_tablet_id = 42;
     optional string compaction_policy = 28 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 1000];
@@ -717,6 +716,7 @@ message TabletMetaPB {
     optional EncryptionAlgorithmPB encryption_algorithm = 34;
     optional int32 vertical_compaction_num_columns_per_group = 35 [default = 5];
     optional bool is_row_binlog_tablet = 36 [default = false];
+    optional int64 binlog_tablet_id = 42;
 
     // For cloud
     optional int64 index_id = 1000;
@@ -776,6 +776,7 @@ message TabletMetaCloudPB {
     optional EncryptionAlgorithmPB encryption_algorithm = 39;
     optional int32 vertical_compaction_num_columns_per_group = 40 [default = 5];
     optional bool is_row_binlog_tablet = 41 [default = false];
+    optional int64 binlog_tablet_id = 42;
 
     // Use for selectdb-cloud
     optional string table_name = 101;

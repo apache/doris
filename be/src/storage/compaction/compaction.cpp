@@ -2021,7 +2021,7 @@ void CloudCompactionMixin::update_compaction_level() {
         auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
         auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
         if (cumu_policy && (cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY ||
-                            cumu_policy->name() == std::string(CUMULATIVE_BINLOG_POLICY))) {
+                            cumu_policy->name() == CUMULATIVE_BINLOG_POLICY)) {
             int64_t compaction_level = cumu_policy->get_compaction_level(
                     cloud_tablet(), _input_rowsets, _output_rowset);
             _output_rowset->rowset_meta()->set_compaction_level(compaction_level);

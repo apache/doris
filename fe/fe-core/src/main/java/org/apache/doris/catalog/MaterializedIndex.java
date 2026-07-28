@@ -34,24 +34,18 @@ import java.util.Map;
 public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
     public enum IndexState {
         NORMAL,
-        ROW_BINLOG,
         @Deprecated
         ROLLUP,
         @Deprecated
         SCHEMA_CHANGE,
-        SHADOW, // index in SHADOW state is visible to load process, but invisible to query
-        SHADOW_ROW_BINLOG;
+        SHADOW; // index in SHADOW state is visible to load process, but invisible to query
 
         public boolean isVisible() {
-            return this == IndexState.NORMAL || this == IndexState.ROW_BINLOG;
-        }
-
-        public boolean isRowBinlog() {
-            return this == IndexState.ROW_BINLOG || this == IndexState.SHADOW_ROW_BINLOG;
+            return this == IndexState.NORMAL;
         }
 
         public boolean isShadow() {
-            return this == IndexState.SHADOW || this == IndexState.SHADOW_ROW_BINLOG;
+            return this == IndexState.SHADOW;
         }
     }
 
@@ -69,6 +63,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     private IndexState state;
     @SerializedName(value = "rowCount")
     private long rowCount;
+    @SerializedName(value = "isRowBinlog")
+    private boolean isRowBinlog = false;
 
     // Published as a volatile immutable snapshot in lockstep with `tablets`.
     // Writers (synchronized) build a fresh HashMap and assign the field; readers
@@ -113,7 +109,11 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public boolean isRowBinlog() {
-        return state.isRowBinlog();
+        return isRowBinlog;
+    }
+
+    public void setIsRowBinlog(boolean isRowBinlog) {
+        this.isRowBinlog = isRowBinlog;
     }
 
     public List<Tablet> getTablets() {
@@ -325,6 +325,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
                 && idToTablets.size() == other.idToTablets.size()
                 && idToTablets.equals(other.idToTablets)
                 && (state.equals(other.state))
+                && (isRowBinlog == other.isRowBinlog)
                 && (rowCount == other.rowCount);
     }
 
@@ -334,6 +335,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         StringBuilder buffer = new StringBuilder();
         buffer.append("index id: ").append(id).append("; ");
         buffer.append("index state: ").append(state.name()).append("; ");
+        buffer.append("is row binlog: ").append(isRowBinlog).append("; ");
 
         buffer.append("row count: ").append(rowCount).append("; ");
         buffer.append("tablets size: ").append(snapshot.size()).append("; ");

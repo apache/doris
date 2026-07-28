@@ -2100,8 +2100,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 continue;
             }
 
-            MaterializedIndex rollup = new MaterializedIndex(indexId,
-                    indexIdToMeta.get(indexId).isRowBinlogIndex() ? IndexState.ROW_BINLOG : IndexState.NORMAL);
+            MaterializedIndex rollup = new MaterializedIndex(indexId, IndexState.NORMAL);
+            rollup.setIsRowBinlog(indexIdToMeta.get(indexId).isRowBinlogIndex());
             indexMap.put(indexId, rollup);
         }
 
@@ -2163,11 +2163,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Tablet baseTablet = null;
                 TStorageMedium taskMedium = realStorageMedium;
                 if (isRowBinlogIndex) {
-                    // The binlog tablet records its base tablet id via alignedTabletId.
-                    baseTablet = baseIndex.getTablet(tablet.getAlignedTabletId());
+                    baseTablet = baseIndex.getTablet(tablet.getRowBinlogBaseTabletId());
                     Preconditions.checkNotNull(baseTablet,
                             "row binlog tablet %s's base tablet %s can not be found in meta",
-                            tabletId, tablet.getAlignedTabletId());
+                            tabletId, tablet.getRowBinlogBaseTabletId());
                     // The companion tablet shares the partition data medium with its base tablet (same disk).
                     taskMedium = dataProperty.getStorageMedium();
                 }
@@ -3455,7 +3454,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     // Create the companion row-binlog tablets aligned to base tablets. Each companion reuses its
     // base replica backends so BE can place it on the same disk (located via base_tablet_id in the
-    // CreateReplicaTask). The base <-> binlog tablet ids are cross-linked via alignedTabletId.
+    // CreateReplicaTask).
     private void createRowBinlogTablets(MaterializedIndex rowBinlogIndex, MaterializedIndex baseIndex,
             long version, TabletMeta tabletMeta, Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -3463,8 +3462,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Tablet> rowBinlogTablets = new ArrayList<>(baseTablets.size());
         for (Tablet baseTablet : baseTablets) {
             Tablet rowBinlogTablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
-            baseTablet.setAlignedTabletId(rowBinlogTablet.getId());
-            rowBinlogTablet.setAlignedTabletId(baseTablet.getId());
+            baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+            rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
             invertedIndex.addTablet(rowBinlogTablet.getId(), tabletMeta);
             rowBinlogTablets.add(rowBinlogTablet);
             tabletIdSet.add(rowBinlogTablet.getId());

@@ -139,8 +139,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 continue;
             }
 
-            MaterializedIndex rollup = new MaterializedIndex(indexId,
-                    indexIdToMeta.get(indexId).isRowBinlogIndex() ? IndexState.ROW_BINLOG : IndexState.NORMAL);
+            MaterializedIndex rollup = new MaterializedIndex(indexId, IndexState.NORMAL);
+            rollup.setIsRowBinlog(indexIdToMeta.get(indexId).isRowBinlogIndex());
             indexMap.put(indexId, rollup);
         }
 
@@ -503,8 +503,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         for (int i = 0; i < baseTablets.size(); ++i) {
             Tablet baseTablet = baseTablets.get(i);
             Tablet rowBinlogTablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
-            baseTablet.setAlignedTabletId(rowBinlogTablet.getId());
-            rowBinlogTablet.setAlignedTabletId(baseTablet.getId());
+            baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+            rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
             invertedIndex.addTablet(rowBinlogTablet.getId(), tabletMeta);
             rowBinlogTablets.add(rowBinlogTablet);
             tabletIdSet.add(rowBinlogTablet.getId());

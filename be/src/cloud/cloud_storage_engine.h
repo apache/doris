@@ -259,6 +259,8 @@ private:
     // tablet_id -> submitted cumu compactions, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             _submitted_cumu_compactions;
+    // submitted binlog cumu compaction task count, guarded by `_compaction_mtx`
+    int _submitted_cumu_binlog_compaction_count = 0;
     // tablet_id -> active compaction stop tokens
     std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
             _active_compaction_stop_tokens;

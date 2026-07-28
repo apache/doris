@@ -96,7 +96,6 @@ Status CloudRowsetBuilder::init() {
     context.tablet_schema_hash = _req.schema_hash;
     context.index_id = _req.index_id;
     context.tablet = _tablet;
-    context.enable_segcompaction = true;
     if (_req.write_req_type == WriteRequestType::ROW_BINLOG || !_attach_rowset_ids.empty()) {
         context.enable_segcompaction = false;
     }
@@ -268,7 +267,7 @@ Status CloudRowsetBuilder::set_txn_related_info() {
                 _req.txn_expiration, _partial_update_info, _attach_row_binlog);
     } else {
         // TSO-enabled rowsets must become visible from MS rowset meta.
-        if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->enable_tso()) {
+        if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->is_tso_enabled()) {
             if (_skip_writing_rowset_metadata) {
                 _engine.committed_rs_mgr().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
                                                              _req.txn_expiration);

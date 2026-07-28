@@ -1248,10 +1248,11 @@ public class OlapTableSink extends DataSink {
                             bePathsMap = ((CloudTablet) tablet)
                                     .getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
                         } else if (index.isRowBinlog()) {
-                            Tablet baseTablet = partition.getBaseIndex().getTablet(tablet.getAlignedTabletId());
+                            long baseTabletId = tablet.getRowBinlogBaseTabletId();
+                            Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
                             Preconditions.checkNotNull(baseTablet,
                                     "row binlog tablet %s's base tablet %s can not be found in partition %s",
-                                    tablet.getId(), tablet.getAlignedTabletId(), partition.getId());
+                                    tablet.getId(), baseTabletId, partition.getId());
                             bePathsMap = getBinlogColocatedReplicaBackendPathMap(baseTablet, tablet);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
@@ -1272,8 +1273,8 @@ public class OlapTableSink extends DataSink {
                                     // replica num is counted after intersecting with the base tablet for same-disk
                                     // co-location, so also surface the base tablet status for diagnosis.
                                     Tablet baseTablet = partition.getBaseIndex()
-                                            .getTablet(tablet.getAlignedTabletId());
-                                    errMsgBuilder.append(", base tablet ").append(tablet.getAlignedTabletId())
+                                            .getTablet(tablet.getRowBinlogBaseTabletId());
+                                    errMsgBuilder.append(", base tablet ").append(tablet.getRowBinlogBaseTabletId())
                                             .append(" detail: ")
                                             .append(baseTablet.getDetailsStatusForQuery(partition.getVisibleVersion()));
                                 }
@@ -1311,8 +1312,8 @@ public class OlapTableSink extends DataSink {
                         TTabletLocation slaveLocation = new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(slaveBePathsMap.keySet()));
                         if (index.isRowBinlog()) {
-                            location.setBaseTabletId(tablet.getAlignedTabletId());
-                            slaveLocation.setBaseTabletId(tablet.getAlignedTabletId());
+                            location.setBaseTabletId(tablet.getRowBinlogBaseTabletId());
+                            slaveLocation.setBaseTabletId(tablet.getRowBinlogBaseTabletId());
                         }
                         locationParam.addToTablets(location);
                         slaveLocationParam.addToTablets(slaveLocation);
@@ -1321,7 +1322,7 @@ public class OlapTableSink extends DataSink {
                                 Lists.newArrayList(bePathsMap.keySet()));
                         if (index.isRowBinlog()) {
                             // BE pairs the binlog tablet with its base tablet via base_tablet_id.
-                            location.setBaseTabletId(tablet.getAlignedTabletId());
+                            location.setBaseTabletId(tablet.getRowBinlogBaseTabletId());
                         }
                         locationParam.addToTablets(location);
                     }

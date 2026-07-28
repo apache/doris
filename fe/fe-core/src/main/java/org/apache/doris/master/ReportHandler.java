@@ -1094,11 +1094,12 @@ public class ReportHandler extends Daemon {
                                                                 .getInvertedIndexFileStorageFormat());
                                     if (indexMeta.isRowBinlogIndex()) {
                                         Tablet baseTablet = partition.getBaseIndex()
-                                                .getTablet(tablet.getAlignedTabletId());
+                                                .getTablet(tablet.getRowBinlogBaseTabletId());
                                         Preconditions.checkNotNull(baseTablet,
                                                 "row binlog tablet %s's base tablet %s can not be found "
                                                         + "in partition %s",
-                                                tablet.getId(), tablet.getAlignedTabletId(), partition.getId());
+                                                tablet.getId(), tablet.getRowBinlogBaseTabletId(),
+                                                partition.getId());
                                         createReplicaTask.setIsRowBinlogTablet(true);
                                         createReplicaTask.setBaseTablet(baseTablet.getId(),
                                                 olapTable.getBaseIndexMeta().getSchemaHash());

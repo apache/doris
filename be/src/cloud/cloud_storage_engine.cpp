@@ -767,6 +767,7 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     std::unordered_set<int64_t> tablet_preparing_cumu_compaction;
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             submitted_cumu_compactions;
+    int submitted_cumu_binlog_compaction_count = 0;
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> submitted_base_compactions;
     std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> submitted_full_compactions;
     std::unordered_map<int64_t, std::shared_ptr<CloudIndexChangeCompaction>>
@@ -777,6 +778,7 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
         std::lock_guard lock(_compaction_mtx);
         tablet_preparing_cumu_compaction = _tablet_preparing_cumu_compaction;
         submitted_cumu_compactions = _submitted_cumu_compactions;
+        submitted_cumu_binlog_compaction_count = _submitted_cumu_binlog_compaction_count;
         submitted_base_compactions = _submitted_base_compactions;
         submitted_full_compactions = _submitted_full_compactions;
         submitted_index_change_cumu_compactions = _submitted_index_change_cumu_compaction;
@@ -790,11 +792,13 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     int num_cumu =
             std::accumulate(submitted_cumu_compactions.begin(), submitted_cumu_compactions.end(), 0,
                             [](int a, auto& b) { return a + b.second.size(); });
+    int num_cumu_binlog = submitted_cumu_binlog_compaction_count;
+    int num_cumu_data = num_cumu - num_cumu_binlog;
     int num_base =
             cast_set<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
     int n = compaction_type == CompactionType::CUMU_BINLOG_COMPACTION
-                    ? thread_per_disk
-                    : thread_per_disk - num_cumu - num_base;
+                    ? thread_per_disk - num_cumu_binlog
+                    : thread_per_disk - num_cumu_data - num_base;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         // We need to reserve at least one thread for cumulative compaction,
         // because base compactions may take too long to complete, which may
@@ -1106,6 +1110,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         std::lock_guard lock(_compaction_mtx);
         _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
         _submitted_cumu_compactions[tablet->tablet_id()].push_back(compaction);
+        if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+            ++_submitted_cumu_binlog_compaction_count;
+        }
     }
     auto erase_submitted_cumu_compaction = [=, this]() {
         std::lock_guard lock(_compaction_mtx);
@@ -1115,6 +1122,10 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         auto it1 = std::find(compactions.begin(), compactions.end(), compaction);
         DCHECK(it1 != compactions.end());
         compactions.erase(it1);
+        if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+            DCHECK_GT(_submitted_cumu_binlog_compaction_count, 0);
+            --_submitted_cumu_binlog_compaction_count;
+        }
         if (compactions.empty()) { // No compactions on this tablet, erase key
             _submitted_cumu_compactions.erase(it);
             // No cumu compaction on this tablet, reset `last_cumu_no_suitable_version_ms` to enable this tablet to

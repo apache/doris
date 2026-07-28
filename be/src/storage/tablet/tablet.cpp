@@ -1891,8 +1891,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
                 return Status::InternalError("prepare binlog compaction with err: {}",
                                              res.to_string());
             }
-            // return OK if there is no suitable version, so that we don't need to
-            // print too many useless logs.
+            // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
+            // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }

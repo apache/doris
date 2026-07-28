@@ -59,6 +59,7 @@ public:
     std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
 private:
+    // Convert `_rowset_builder` from `BaseRowsetBuilder` to `CloudRowsetBuilder`
     CloudRowsetBuilder* rowset_builder();
 
     // Handle commit for empty rowset (when no data is written)

@@ -103,10 +103,12 @@ public abstract class Tablet {
 
     @SerializedName(value = "id")
     protected long id;
-    // The aligned tablet for the base <-> row binlog tablet relationship:
-    // on a base tablet it holds the binlog tablet id, on a binlog tablet it holds the base tablet id.
-    @SerializedName(value = "ati")
-    protected long alignedTabletId = -1;
+    // Set only on a row binlog tablet. It points to the corresponding base tablet.
+    @SerializedName(value = "rbbti")
+    protected Long rowBinlogBaseTabletId;
+    // Set only on a base tablet. It points to the corresponding row binlog tablet.
+    @SerializedName(value = "rbti")
+    protected Long rowBinlogTabletId;
 
     public Tablet() {
         this(0L);
@@ -120,12 +122,20 @@ public abstract class Tablet {
         return this.id;
     }
 
-    public long getAlignedTabletId() {
-        return alignedTabletId;
+    public long getRowBinlogBaseTabletId() {
+        return rowBinlogBaseTabletId;
     }
 
-    public void setAlignedTabletId(long alignedTabletId) {
-        this.alignedTabletId = alignedTabletId;
+    public void setRowBinlogBaseTabletId(long rowBinlogBaseTabletId) {
+        this.rowBinlogBaseTabletId = rowBinlogBaseTabletId;
+    }
+
+    public long getRowBinlogTabletId() {
+        return rowBinlogTabletId;
+    }
+
+    public void setRowBinlogTabletId(long rowBinlogTabletId) {
+        this.rowBinlogTabletId = rowBinlogTabletId;
     }
 
     public long getCheckedVersion() {

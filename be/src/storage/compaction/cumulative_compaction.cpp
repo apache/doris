@@ -186,7 +186,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         if (tablet()->is_row_binlog_tablet()) {
             max_score = std::max<int64_t>(config::binlog_level_compaction_max_deltas /
                                                   config::cumulative_compaction_max_deltas_factor,
-                                          1);
+                                          config::cumulative_compaction_min_deltas + 1);
         } else {
             max_score = std::max(config::cumulative_compaction_max_deltas /
                                          config::cumulative_compaction_max_deltas_factor,
