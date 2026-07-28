@@ -17,13 +17,16 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
@@ -126,6 +129,12 @@ public class IcebergScanNodeTest {
             return Collections.emptyList();
         }
 
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
+
         @Override
         public TableSnapshot getQueryTableSnapshot() {
             return tableSnapshot;
@@ -141,6 +150,12 @@ public class IcebergScanNodeTest {
             enableCurrentIcebergScanSemantics();
             return params.getIcebergScanSemanticsVersion();
         }
+
+        TFileScanRangeParams initializeAndGetIcebergSchemaInfo() throws UserException {
+            params = new TFileScanRangeParams();
+            initializeIcebergSchemaInfo(Optional.empty());
+            return params;
+        }
     }
 
     @Test
@@ -149,6 +164,33 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION,
                 node.enableAndGetIcebergScanSemanticsVersion());
+    }
+
+    @Test
+    public void testPartitionEvolutionKeepsNonFileSlotInReaderSchema() throws Exception {
+        Column evolvedIdentityColumn = new Column("int_col", Type.BIGINT, true);
+        evolvedIdentityColumn.setUniqueId(1);
+        Column projectedColumn = new Column("payload", Type.STRING, true);
+        projectedColumn.setUniqueId(2);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(targetTable.getColumns()).thenReturn(
+                ImmutableList.of(evolvedIdentityColumn, projectedColumn));
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        node.addSlot(1, projectedColumn);
+        setIcebergSource(node, source);
+        Mockito.doReturn(Collections.emptyMap()).when(node).getBase64EncodedInitialDefaultsForScan();
+
+        TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo();
+
+        Assert.assertEquals(2, scanParams.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assert.assertEquals("int_col", scanParams.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+        Assert.assertEquals("payload", scanParams.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
     }
 
     @Test
