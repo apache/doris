@@ -63,7 +63,6 @@ private:
     Status _build_inner_sinks();
     Status _prepare_output_layout();
     Status _validate_matched_row_ids(const Block& block, const uint8_t* delete_filter);
-    size_t _matched_row_id_state_bytes() const;
 
     TDataSink _t_sink;
     TDataSink _table_sink;
@@ -78,6 +77,7 @@ private:
     int _row_id_idx = -1;
     std::vector<int> _data_column_indices;
     std::map<std::string, roaring::Roaring64Map> _matched_row_positions;
+    size_t _matched_row_id_state_size = sizeof(std::map<std::string, roaring::Roaring64Map>);
 
     VExprContextSPtrs _table_output_expr_ctxs;
     VExprContextSPtrs _delete_output_expr_ctxs;

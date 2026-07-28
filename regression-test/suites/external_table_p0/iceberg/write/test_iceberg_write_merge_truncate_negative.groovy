@@ -65,9 +65,9 @@ suite("test_iceberg_write_merge_truncate_negative",
     """
     sql """insert into merge_truncate_negative values (1, 'alpha', 'before')"""
 
-    // WM03-S01: A MERGE source projection is nullable even when every source
-    // value and the Iceberg target column are NOT NULL. The writer must reject
-    // an invalid input as a query error and must never terminate a BE.
+    // WM03-S01: A MERGE source projection is physically nullable even when every source
+    // value and the Iceberg target column are NOT NULL. The writer must accept those
+    // non-NULL values without terminating a BE or changing truncate partition routing.
     sql """
         merge into merge_truncate_negative t
         using (

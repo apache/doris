@@ -36,6 +36,35 @@ import java.util.Optional;
 class CreateTableCommandTest {
 
     @Test
+    void ctasIfNotExistsReturnsBeforeUnsupportedSinkValidation() throws Exception {
+        LogicalPlan query = Mockito.mock(LogicalPlan.class);
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Env env = Mockito.mock(Env.class);
+        List<String> tableNameParts = ImmutableList.of("catalog", "database", "target");
+
+        Mockito.when(createTableInfo.getTableNameParts()).thenReturn(tableNameParts);
+        Mockito.when(createTableInfo.isIfNotExists()).thenReturn(true);
+        Mockito.when(env.createTable(createTableInfo)).thenReturn(true);
+        CreateTableCommand command = Mockito.spy(
+                new CreateTableCommand(Optional.of(query), createTableInfo));
+        Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<UnboundTableSinkCreator> sinkMock =
+                        Mockito.mockStatic(UnboundTableSinkCreator.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+                    () -> command.run(context, executor));
+
+            sinkMock.verifyNoInteractions();
+            Mockito.verify(env).createTable(createTableInfo);
+        }
+    }
+
+    @Test
     void ctasValidatesSinkBeforePublishingMetadata() throws Exception {
         LogicalPlan query = Mockito.mock(LogicalPlan.class);
         CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);

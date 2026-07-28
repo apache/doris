@@ -106,7 +106,8 @@ protected:
         return output_exprs;
     }
 
-    Block build_block_with_ops(const std::vector<int8_t>& ops, bool distinct_files = true) {
+    Block build_block_with_ops(const std::vector<int8_t>& ops, bool distinct_files = true,
+                               size_t file_index_offset = 0) {
         Block block;
 
         auto op_col = ColumnInt8::create();
@@ -121,10 +122,11 @@ protected:
         auto id_col = ColumnInt32::create();
         auto name_col = ColumnString::create();
         for (size_t i = 0; i < ops.size(); ++i) {
-            std::string file_path = distinct_files ? "file" + std::to_string(i + 1) + ".parquet"
-                                                   : "shared-file.parquet";
+            std::string file_path =
+                    distinct_files ? "file" + std::to_string(file_index_offset + i + 1) + ".parquet"
+                                   : "shared-file.parquet";
             file_path_col->insert_data(file_path.data(), file_path.size());
-            row_pos_col->insert_value(static_cast<int64_t>((i + 1) * 10));
+            row_pos_col->insert_value(static_cast<int64_t>((file_index_offset + i + 1) * 10));
             id_col->insert_value(static_cast<int32_t>(i + 1));
             char name_value = static_cast<char>('a' + i);
             name_col->insert_data(&name_value, 1);
@@ -372,6 +374,42 @@ TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdsUseCompactRetainedState) {
     auto* retained_bytes = profile.get_counter("MatchedRowIdStateBytes");
     ASSERT_NE(nullptr, retained_bytes);
     EXPECT_LT(retained_bytes->value(), static_cast<int64_t>(row_count * sizeof(int64_t)));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdStateAcrossManyFilesAndWrites) {
+    ObjectPool pool;
+    MockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    auto* retained_bytes = profile.get_counter("MatchedRowIdStateBytes");
+    ASSERT_NE(nullptr, retained_bytes);
+    constexpr size_t files_per_write = 32;
+    constexpr size_t write_count = 64;
+    std::vector<int8_t> operations(files_per_write, 3);
+    int64_t previous_bytes = 0;
+    for (size_t write_index = 0; write_index < write_count; ++write_index) {
+        Block block = build_block_with_ops(operations, true, write_index * files_per_write);
+        ASSERT_TRUE(sink->write(&state, block).ok());
+        EXPECT_GT(retained_bytes->value(), previous_bytes);
+        previous_bytes = retained_bytes->value();
+    }
+
+    EXPECT_EQ(files_per_write * write_count, sink->_matched_row_positions.size());
+    EXPECT_EQ(static_cast<int64_t>(sink->_matched_row_id_state_size), retained_bytes->value());
 }
 
 } // namespace doris

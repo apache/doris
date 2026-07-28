@@ -43,8 +43,9 @@ boundaries.
 
 Paimon P0 was incomplete. No suite selected a `merge-engine`, and write rejection was not checked
 across all DML shapes with pre/post data and snapshot invariants. PM01-PM03 below close those gaps.
-PM04 exposes one remaining product defect as an opt-in negative regression: failed Paimon CTAS leaves
-target metadata. Streaming writes, overwrite, delete/update and merge listed as unsupported by the
+PM04 now runs as an active negative regression: failed Paimon CTAS is rejected without leaving target
+metadata, while `IF NOT EXISTS` remains a no-op for an existing table. Streaming writes, overwrite,
+delete/update and merge listed as unsupported by the
 Paimon ecosystem matrix are boundary tests rather than positive Doris P0 contracts.
 
 ## Risks
@@ -95,7 +96,7 @@ Detailed schema/time-travel and Iceberg write combinations are maintained in
 | PM01 | Distinguish all four primary-key merge engines | R01, R02, R04 | Functional, correctness, compatibility | Paimon Parquet/ORC tables | Duplicate keys across several commits | Each engine returns its documented merged row under automatic and forced-JNI routing |
 | PM02 | Validate dynamic-bucket cross-partition deduplication | R03, R04 | Correctness | Primary key excludes partition key, bucket=-1 | Move one key between partitions | Exactly one current row remains in the new partition |
 | PM03 | Preserve the Paimon read-only boundary | R05, R10 | Negative, atomicity | Existing Paimon PK table | VALUES, SELECT, OVERWRITE, UPDATE, DELETE, MERGE | Every statement fails before a snapshot or data change |
-| PM04 | Reject or roll back Paimon CTAS atomically | R05, R10 | Isolated negative, atomicity | Paimon catalog with no target table | CREATE TABLE AS SELECT | Desired contract: the command fails and no target table remains; current bug leaves the table |
+| PM04 | Reject or roll back Paimon CTAS atomically | R05, R10 | Negative, atomicity | Missing and existing Paimon target tables | CREATE TABLE AS SELECT, including IF NOT EXISTS | Unsupported CTAS leaves no target; an existing target makes IF NOT EXISTS a successful no-op |
 
 Every P0 risk maps to at least one deterministic positive, boundary, or isolated known-bug
 regression. Catalog authentication and cloud storage permutations stay in their existing connector

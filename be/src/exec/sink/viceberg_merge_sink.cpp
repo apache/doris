@@ -138,7 +138,7 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     RETURN_IF_ERROR(_validate_matched_row_ids(output_block, delete_filter.data()));
     if (_matched_row_id_state_bytes_counter != nullptr) {
         COUNTER_SET(_matched_row_id_state_bytes_counter,
-                    static_cast<int64_t>(_matched_row_id_state_bytes()));
+                    static_cast<int64_t>(_matched_row_id_state_size));
     }
     _row_count += output_block.rows();
     _delete_row_count += delete_rows;
@@ -228,6 +228,7 @@ Status VIcebergMergeSink::_validate_matched_row_ids(const Block& block,
         return Status::InternalError("Iceberg merge row_id fields have incorrect types");
     }
 
+    std::map<roaring::Roaring64Map*, size_t> touched_bitmap_sizes;
     for (size_t i = 0; i < block.rows(); ++i) {
         if (delete_filter[i] == 0) {
             continue;
@@ -247,24 +248,35 @@ Status VIcebergMergeSink::_validate_matched_row_ids(const Block& block,
         // full path string per matched row makes MERGE memory grow with path_length * row_count.
         auto [file_it, inserted] =
                 _matched_row_positions.try_emplace(file_paths->get_data_at(i).to_string());
-        static_cast<void>(inserted);
-        if (!file_it->second.addChecked(static_cast<uint64_t>(row_position))) {
+        auto* positions = &file_it->second;
+        auto touched_it = touched_bitmap_sizes.find(positions);
+        if (touched_it == touched_bitmap_sizes.end()) {
+            touched_it = touched_bitmap_sizes.emplace(positions, positions->getSizeInBytes()).first;
+        }
+        if (inserted) {
+            _matched_row_id_state_size +=
+                    sizeof(std::pair<const std::string, roaring::Roaring64Map>);
+            _matched_row_id_state_size += file_it->first.capacity();
+            _matched_row_id_state_size += touched_it->second;
+        }
+        if (!positions->addChecked(static_cast<uint64_t>(row_position))) {
             return Status::InvalidArgument(
                     "Iceberg MERGE failed because multiple source rows matched the same target "
                     "row");
         }
     }
-    return Status::OK();
-}
 
-size_t VIcebergMergeSink::_matched_row_id_state_bytes() const {
-    size_t bytes = sizeof(_matched_row_positions);
-    for (const auto& [file_path, positions] : _matched_row_positions) {
-        bytes += sizeof(std::pair<const std::string, roaring::Roaring64Map>);
-        bytes += file_path.capacity();
-        bytes += positions.getSizeInBytes();
+    // Measure only bitmaps touched by this block; rescanning all retained files on every write
+    // makes a many-file MERGE quadratic in the number of input blocks.
+    for (const auto& [positions, previous_size] : touched_bitmap_sizes) {
+        size_t current_size = positions->getSizeInBytes();
+        if (current_size >= previous_size) {
+            _matched_row_id_state_size += current_size - previous_size;
+        } else {
+            _matched_row_id_state_size -= previous_size - current_size;
+        }
     }
-    return bytes;
+    return Status::OK();
 }
 
 Status VIcebergMergeSink::close(Status close_status) {

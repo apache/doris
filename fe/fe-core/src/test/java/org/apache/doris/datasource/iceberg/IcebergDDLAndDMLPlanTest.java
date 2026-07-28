@@ -494,6 +494,31 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testIcebergUpdateAvoidsExchangeWhenStrictConsistencyDisabled() throws Exception {
+        useIceberg();
+        boolean previousMergePartitioning = connectContext.getSessionVariable().enableIcebergMergePartitioning;
+        boolean previousStrictConsistency = connectContext.getSessionVariable().enableStrictConsistencyDml;
+        connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
+        connectContext.getSessionVariable().enableStrictConsistencyDml = false;
+        try {
+            String sql = "update " + tableName + " set name = 'new_name' where id = 1";
+            LogicalPlan updatePlan = parseStmt(sql);
+            Plan explainPlan = ((UpdateCommand) updatePlan).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan =
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
+
+            PhysicalIcebergMergeSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            Assertions.assertFalse(sink.child() instanceof PhysicalDistribute,
+                    "Strict-consistency-off UPDATE should not add an Iceberg merge exchange\n"
+                            + physicalPlan.treeString());
+        } finally {
+            connectContext.getSessionVariable().enableIcebergMergePartitioning = previousMergePartitioning;
+            connectContext.getSessionVariable().enableStrictConsistencyDml = previousStrictConsistency;
+        }
+    }
+
+    @Test
     public void testIcebergUpdateCastsConstantForSmallintAndDecimal() throws Exception {
         useIceberg();
         String sql = "update " + tableName + " set score = 1, amount = 1.23 where id = 1";

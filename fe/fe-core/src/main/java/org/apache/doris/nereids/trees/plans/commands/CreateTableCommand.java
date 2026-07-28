@@ -99,10 +99,13 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                     ctx.queryId(), createTableInfo.getTableName());
         }
-        // Reject unsupported destinations before publishing metadata; rollback by table name
-        // cannot distinguish this CTAS table from a concurrent replacement with the same name.
-        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
+        LogicalPlan sinkQuery = null;
+        if (!createTableInfo.isIfNotExists()) {
+            // Reject unsupported destinations before publishing metadata; rollback by table name
+            // cannot distinguish this CTAS table from a concurrent replacement with the same name.
+            sinkQuery = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
+        }
         try {
             if (Env.getCurrentEnv().createTable(this.createTableInfo)) {
                 return;
@@ -112,9 +115,15 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
 
         try {
+            if (sinkQuery == null) {
+                // IF NOT EXISTS must honor the catalog's atomic existing-table result before sink
+                // validation, otherwise an unsupported connector turns the required no-op into an error.
+                sinkQuery = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                        ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
+            }
             InsertIntoTableCommand insertCommand = null;
             if (!FeConstants.runningUnitTest) {
-                insertCommand = new InsertIntoTableCommand(query, Optional.empty(),
+                insertCommand = new InsertIntoTableCommand(sinkQuery, Optional.empty(),
                         Optional.empty(), Optional.empty(), true, Optional.empty());
                 insertCommand.run(ctx, executor);
                 if (ctx.getState().getStateType() == MysqlStateType.OK) {

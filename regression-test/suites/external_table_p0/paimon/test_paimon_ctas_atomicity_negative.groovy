@@ -59,6 +59,18 @@ suite("test_paimon_ctas_atomicity_negative",
             exception "PaimonExternalCatalog"
         }
         assertEquals(0, (sql """show tables like 'ctas_target'""").size())
+
+        spark_paimon """
+            create table paimon.${dbName}.ctas_target (id int, payload string)
+            using paimon
+        """
+        // IF NOT EXISTS must remain a no-op even though Paimon does not support the CTAS sink.
+        sql """
+            create table if not exists ctas_target engine=paimon
+            as select cast(1 as int) as id, cast('candidate' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        assertEquals(0, (sql """select * from ctas_target""").size())
     } finally {
         spark_paimon """drop table if exists paimon.${dbName}.ctas_target"""
         sql """drop catalog if exists ${catalogName}"""

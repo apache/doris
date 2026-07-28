@@ -223,9 +223,17 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         Schema schema = toPaimonSchema(structType, rootFieldNames, createTableInfo.getPartitionDesc(),
                 createTableInfo.getProperties());
         try {
+            // Let Paimon report a concurrent winner so callers can distinguish an existing table
+            // from the table created by this statement before deciding whether rollback is owned.
             catalog.createTable(new Identifier(createTableInfo.getDbName(), createTableInfo.getTableName()),
-                    schema, createTableInfo.isIfNotExists());
-        } catch (TableAlreadyExistException | DatabaseNotExistException e) {
+                    schema, false);
+        } catch (TableAlreadyExistException e) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return true;
+            }
+            throw new RuntimeException(e);
+        } catch (DatabaseNotExistException e) {
             throw new RuntimeException(e);
         }
         return false;

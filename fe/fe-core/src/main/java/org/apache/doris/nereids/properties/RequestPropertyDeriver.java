@@ -202,9 +202,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalIcebergMergeSink(
             PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, PlanContext context) {
-        // MERGE cardinality is a statement invariant: matching row IDs must be co-located even
-        // when the optional strict-consistency routing for other DML statements is disabled.
-        addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
+        if (!icebergMergeSink.isRequireMergeCardinalityCheck()
+                && connectContext != null
+                && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            // SQL MERGE cardinality is mandatory even when optional UPDATE consistency is disabled.
+            addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
+        }
         return null;
     }
 

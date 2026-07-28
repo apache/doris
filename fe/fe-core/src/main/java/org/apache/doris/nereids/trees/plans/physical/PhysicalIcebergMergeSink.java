@@ -56,6 +56,7 @@ import java.util.TreeMap;
  */
 public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final DeleteCommandContext deleteContext;
+    private final boolean requireMergeCardinalityCheck;
 
     /**
      * Constructor
@@ -65,10 +66,12 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     DeleteCommandContext deleteContext,
+                                    boolean requireMergeCardinalityCheck,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, deleteContext, groupExpression, logicalProperties,
+        this(database, targetTable, cols, outputExprs, deleteContext, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
     }
 
@@ -80,6 +83,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     DeleteCommandContext deleteContext,
+                                    boolean requireMergeCardinalityCheck,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     PhysicalProperties physicalProperties,
@@ -89,17 +93,22 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 logicalProperties, physicalProperties, statistics, child);
         this.deleteContext = Objects.requireNonNull(
                 deleteContext, "deleteContext != null in PhysicalIcebergMergeSink");
+        this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
     public DeleteCommandContext getDeleteContext() {
         return deleteContext;
     }
 
+    public boolean isRequireMergeCardinalityCheck() {
+        return requireMergeCardinalityCheck;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                cols, outputExprs, deleteContext, groupExpression,
+                cols, outputExprs, deleteContext, requireMergeCardinalityCheck, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -112,7 +121,8 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                deleteContext, groupExpression, getLogicalProperties(), child());
+                deleteContext, requireMergeCardinalityCheck,
+                groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -120,14 +130,16 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                deleteContext, groupExpression, logicalProperties.get(), children.get(0));
+                deleteContext, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                deleteContext, requireMergeCardinalityCheck,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     @Override
@@ -142,12 +154,13 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
             return false;
         }
         PhysicalIcebergMergeSink<?> that = (PhysicalIcebergMergeSink<?>) o;
-        return Objects.equals(deleteContext, that.deleteContext);
+        return Objects.equals(deleteContext, that.deleteContext)
+                && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), deleteContext);
+        return Objects.hash(super.hashCode(), deleteContext, requireMergeCardinalityCheck);
     }
 
     /**
