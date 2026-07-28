@@ -205,6 +205,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictFilterTypedCompareColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_string_compare_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictFilterStringCompareColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_vectorized_runtime_filter_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterVectorizedRuntimeFilterColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_unsupported_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictFilterUnsupportedColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_read_failures = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterReadFailures",
@@ -345,6 +347,8 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .dict_filter_columns = dict_filter_columns,
             .dict_filter_typed_compare_columns = dict_filter_typed_compare_columns,
             .dict_filter_string_compare_columns = dict_filter_string_compare_columns,
+            .dict_filter_vectorized_runtime_filter_columns =
+                    dict_filter_vectorized_runtime_filter_columns,
             .dict_filter_unsupported_columns = dict_filter_unsupported_columns,
             .dict_filter_read_failures = dict_filter_read_failures,
             .rows_filtered_by_dict_filter = rows_filtered_by_dict_filter,

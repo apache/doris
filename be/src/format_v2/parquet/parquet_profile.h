@@ -107,6 +107,8 @@ struct ParquetScanProfile {
             nullptr; // fixed-width typed comparison columns
     RuntimeProfile::Counter* dict_filter_string_compare_columns =
             nullptr; // string typed comparison columns
+    RuntimeProfile::Counter* dict_filter_vectorized_runtime_filter_columns =
+            nullptr; // vectorized runtime-filter columns
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr; // unsupported columns
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;       // dictionary read failures
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;    // rows filtered by dict
@@ -227,6 +229,7 @@ struct ParquetProfile {
     RuntimeProfile::Counter* dict_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_typed_compare_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_string_compare_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_vectorized_runtime_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_unsupported_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_read_failures = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_dict_filter = nullptr;
