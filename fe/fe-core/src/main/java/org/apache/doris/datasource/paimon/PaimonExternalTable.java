@@ -106,6 +106,32 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         }
     }
 
+    public Table getPaimonTable(TableScanParams scanParams) {
+        if (scanParams != null && scanParams.isOptions()) {
+            Map<String, String> options = scanParams.getMapParams();
+            Table statementTable = getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+            Table resolutionTable = PaimonScanParams.usesStatementSnapshot(options)
+                    ? statementTable
+                    : getBasePaimonTable();
+            Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
+                    relationOptions -> PaimonScanParams.resolveOptions(resolutionTable, relationOptions));
+            // Startup options are normalized to an immutable snapshot before schema binding. The
+            // scan phase reuses that exact resolution instead of consulting a mutable tag or clock.
+            Table table = PaimonScanParams.selectsSchema(resolvedOptions)
+                    ? getBasePaimonTable()
+                    : statementTable;
+            return PaimonScanParams.applyOptions(table, resolvedOptions);
+        }
+        return getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    public List<Column> getFullSchema(TableScanParams scanParams) {
+        Table table = getPaimonTable(scanParams);
+        return PaimonUtil.parseSchema(table,
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz());
+    }
+
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();
@@ -423,7 +449,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return !getBasePaimonTable().partitionKeys().isEmpty();
     }
 
-    private Table getBasePaimonTable() {
+    Table getBasePaimonTable() {
         return PaimonUtils.getPaimonTable(this);
     }
 }

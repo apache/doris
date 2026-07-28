@@ -209,8 +209,8 @@ public:
                                      ColumnSelectVector& select_vector,
                                      const IColumn* typed_dictionary, IColumn* projected_values,
                                      ColumnInt32* matched_dictionary_ids,
-                                     IColumn::Filter* row_filter, bool* projected_directly,
-                                     bool* used_filter);
+                                     IColumn::Filter* row_filter, size_t* survivor_count,
+                                     bool* projected_directly, bool* used_filter);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }
