@@ -179,23 +179,29 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
-        routineLoadJob.setCloudCluster("routine-load-compute-group");
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        partitionIdToOffset.put(1, 10L);
-        partitionIdToOffset.put(2, 20L);
-        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test-cloud";
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            routineLoadJob.setCloudCluster("routine-load-compute-group");
+            Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+            partitionIdToOffset.put(1, 10L);
+            partitionIdToOffset.put(2, 20L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
 
-        try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
-            kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
-                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList(),
-                    Mockito.eq("routine-load-compute-group")))
-                    .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
+            try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+                kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                        Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList(),
+                        Mockito.eq("routine-load-compute-group")))
+                        .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
 
-            routineLoadJob.updateLag();
+                routineLoadJob.updateLag();
 
-            Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+                Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+            }
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
     }
 
