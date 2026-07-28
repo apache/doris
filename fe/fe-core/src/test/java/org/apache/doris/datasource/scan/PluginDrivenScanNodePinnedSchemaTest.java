@@ -17,11 +17,13 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -80,6 +82,53 @@ public class PluginDrivenScanNodePinnedSchemaTest {
         TableIf table = Mockito.mock(TableIf.class);
         Assertions.assertNull(
                 PluginDrivenScanNode.pinnedSchemaOrNull(table, Optional.of(Mockito.mock(MvccSnapshot.class))));
+    }
+
+    @Test
+    public void sysTablePositionMapsAgainstItsOwnPinNotLatest() throws Exception {
+        // A plugin SYSTEM table is not an MvccTable and BindRelation returns from handleMetaTable BEFORE
+        // loadSnapshots, so MvccUtil.getSnapshotFromContext is empty BY CONSTRUCTION for it. Resolving the
+        // pinned schema through that lookup therefore fell back to the LATEST schema while the slots were
+        // bound (LogicalFileScan) and the handles built (buildColumnHandles) at the PINNED one -- and
+        // FileQueryScanNode.setColumnPositionMapping then failed with "Column old_name not found in table
+        // top_timeline$audit_log" (External Regression 1007887,
+        // test_paimon_schema_time_travel_matrix.order_qt_audit_log_options_tag_schema).
+        // MUTATION: routing the sys table back through pinnedSchemaOrNull/getSnapshotFromContext ->
+        // getFullSchemaAt is never called -> the pinned old_name schema is lost -> red.
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        TableScanParams optionsPin = Mockito.mock(TableScanParams.class);
+        List<Column> pinnedSchema = Arrays.asList(col("rowkind", true), col("old_name", true));
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(null).when(node).getQueryTableSnapshot();
+        Mockito.doReturn(optionsPin).when(node).getScanParams();
+        Mockito.when(sysTable.getFullSchemaAt(Optional.empty(), Optional.of(optionsPin)))
+                .thenReturn(pinnedSchema);
+
+        Assertions.assertSame(pinnedSchema, node.getPinnedFullSchema());
+        Mockito.verify(sysTable).getFullSchemaAt(Optional.empty(), Optional.of(optionsPin));
+        // The MVCC-context route must not be consulted for a sys table: it answers empty by construction,
+        // which is precisely how the schema silently degraded to latest.
+        Mockito.verify(sysTable, Mockito.never()).getFullSchema(Mockito.any());
+    }
+
+    @Test
+    public void sysTablePinnedBaseSchemaDropsHiddenColumns() throws Exception {
+        // getPinnedBaseSchema feeds numOfColumnsFromFile, so it must be the VISIBLE half of the SAME pinned
+        // schema getPinnedFullSchema position-maps against -- ExternalTable.getBaseSchema(false) parity.
+        // MUTATION: returning the pinned schema unfiltered -> the hidden column inflates the count -> red.
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        TableScanParams optionsPin = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(null).when(node).getQueryTableSnapshot();
+        Mockito.doReturn(optionsPin).when(node).getScanParams();
+        Mockito.when(sysTable.getFullSchemaAt(Optional.empty(), Optional.of(optionsPin)))
+                .thenReturn(Arrays.asList(col("rowkind", true), col("old_name", true), col("__hidden__", false)));
+
+        List<Column> base = node.getPinnedBaseSchema();
+        Assertions.assertEquals(2, base.size());
+        Assertions.assertTrue(base.stream().allMatch(Column::isVisible));
     }
 
     @Test
