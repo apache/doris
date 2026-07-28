@@ -19,17 +19,24 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypeRoot;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -73,7 +80,11 @@ public class PaimonWriteBinding {
             throw new UserException("Failed to bind Paimon table for write", e);
         }
         Map<String, Expression> typedStaticPartition = context.getStaticPartition();
-        Map<String, String> staticPartition = resolveStaticPartition(table, typedStaticPartition);
+        Map<String, String> staticPartition = resolveStaticPartition(
+                table,
+                dorisTable.getWriteColumnTypes(),
+                typedStaticPartition,
+                context.isOverwrite());
         return new PaimonWriteBinding(
                 dorisTable,
                 table,
@@ -112,8 +123,10 @@ public class PaimonWriteBinding {
         return (FileStoreTable) table;
     }
 
-    private static Map<String, String> resolveStaticPartition(FileStoreTable table,
-            Map<String, Expression> typedStaticPartition) throws AnalysisException {
+    static Map<String, String> resolveStaticPartition(FileStoreTable table,
+            Map<String, org.apache.doris.catalog.Type> writeColumnTypes,
+            Map<String, Expression> typedStaticPartition,
+            boolean overwrite) throws AnalysisException {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
@@ -132,11 +145,58 @@ public class PaimonWriteBinding {
                 throw new AnalysisException("Static partition value must be a literal, but got: "
                         + value);
             }
-            String partitionValue = value instanceof NullLiteral
-                    ? defaultPartitionName : ((Literal) value).getStringValue();
+            DataField partitionField = table.rowType().getField(canonicalName);
+            org.apache.doris.catalog.Type writeType = writeColumnTypes.get(canonicalName);
+            Preconditions.checkNotNull(writeType,
+                    "Paimon partition column is missing from the write schema: " + canonicalName);
+            Literal castValue = castPartitionValue((Literal) value, writeType);
+            boolean isNull = castValue instanceof NullLiteral;
+            String partitionValue = isNull
+                    ? defaultPartitionName
+                    : canonicalPartitionValue(castValue, partitionField);
+            if (overwrite && !isNull
+                    && defaultPartitionName.equals(partitionValue)) {
+                // Paimon 1.3's public static-overwrite API uses this string as the
+                // NULL marker for every partition type, so the corresponding literal
+                // value cannot be represented without changing its typed identity.
+                throw new AnalysisException("Static partition value for column '" + canonicalName
+                        + "' equals Paimon partition.default-name '" + defaultPartitionName
+                        + "' and cannot be represented in a static overwrite");
+            }
             resolved.put(canonicalName, partitionValue);
         }
         return resolved;
+    }
+
+    private static Literal castPartitionValue(
+            Literal literal, org.apache.doris.catalog.Type writeType) throws AnalysisException {
+        Expression castValue = literal.checkedCastTo(DataType.fromCatalogType(writeType));
+        Preconditions.checkState(castValue instanceof Literal,
+                "Static Paimon partition cast must produce a literal");
+        return (Literal) castValue;
+    }
+
+    private static String canonicalPartitionValue(
+            Literal literal, DataField partitionField) {
+        String value = literal.getStringValue();
+        if (partitionField.type().getTypeRoot()
+                != DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            return value;
+        }
+
+        // Doris writes an LTZ literal as civil time in the session zone. Paimon 1.3
+        // parses the string accepted by withOverwrite in the FE JVM default zone.
+        // Translate the same instant into that zone so the overwrite predicate and
+        // the row written by the JNI writer identify the same typed partition.
+        LocalDateTime sessionValue = LocalDateTime.parse(
+                value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        return sessionValue.atZone(TimeUtils.getDorisZoneId())
+                .withZoneSameInstant(ZoneId.systemDefault())
+                .toLocalDateTime()
+                // Paimon 1.3's timestamp parser accepts a space, but not ISO's
+                // 'T', between the date and time components.
+                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                .replace('T', ' ');
     }
 
     private static Map<String, String> buildHadoopConfig(PaimonExternalCatalog catalog) {

@@ -577,7 +577,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         checkUnsupportedColumnAttributes(column);
         Map<String, DataField> fieldsByDorisName = indexFieldsByDorisName(loadRemoteFields(dorisTable));
         DataField currentField = resolveRemoteField(fieldsByDorisName, column.getName());
-        DataType requestedType = toPaimonColumnType(column);
+        DataType requestedType = requestedColumnType(column, currentField);
         List<SchemaChange> changes = new ArrayList<>();
 
         DataType requestedTypeWithCurrentNullability =
@@ -606,6 +606,21 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         }
 
         alterTable(dorisTable, changes, "modify column " + currentField.name(), updateTime);
+    }
+
+    DataType requestedColumnType(Column column, DataField currentField)
+            throws UserException {
+        Type currentDorisType = PaimonUtil.paimonTypeToDorisType(
+                currentField.type(),
+                dorisCatalog.getEnableMappingVarbinary(),
+                dorisCatalog.getEnableMappingTimestampTz());
+        // Doris external-table types are a projection of the remote schema. The projection can
+        // lose Paimon timestamp precision, binary/string length, LTZ identity and nested
+        // nullability. If ALTER did not change that projected type, retain the exact remote type
+        // and apply only the independently requested attributes below.
+        return currentDorisType.equals(column.getType())
+                ? currentField.type().copy(column.isAllowNull())
+                : toPaimonColumnType(column);
     }
 
     @Override

@@ -370,11 +370,8 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
+        this.queryGlobals.setTimeZone(
+                TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
         this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();

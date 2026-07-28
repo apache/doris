@@ -25,7 +25,6 @@
 
 #include <algorithm>
 #include <map>
-#include <mutex>
 #include <string_view>
 #include <vector>
 
@@ -44,33 +43,6 @@ namespace doris {
 
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
-
-/// Retains managers whose Java users could not be confirmed as stopped.
-///
-/// A failed Java close may leave asynchronous Paimon flush or compaction tasks
-/// holding MemorySegments backed by these managers. There is no safe signal
-/// for reclaiming those pages later, so keep the manager alive until process
-/// exit instead of risking a use-after-free. The exceptional leak is bounded
-/// by the per-writer native page limit.
-class PaimonJniMemoryManagerQuarantine {
-public:
-    void retain(std::unique_ptr<PaimonJniMemoryManager> manager) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _managers.emplace_back(std::move(manager));
-    }
-
-    static PaimonJniMemoryManagerQuarantine& instance() {
-        // Intentionally never destroy the quarantine: destructing it during
-        // process shutdown could free pages while JVM shutdown order is
-        // already undefined.
-        static auto* quarantine = new PaimonJniMemoryManagerQuarantine();
-        return *quarantine;
-    }
-
-private:
-    std::mutex _mutex;
-    std::vector<std::unique_ptr<PaimonJniMemoryManager>> _managers;
-};
 } // namespace
 
 // ────────────────────────────────────────────────────────────
@@ -133,7 +105,12 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
         LOG(WARNING) << "Retaining Paimon JNI native memory after an unconfirmed Java close: limit="
                      << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
                      << PrettyPrinter::print_bytes(_memory_manager->native_peak_allocated_bytes());
-        PaimonJniMemoryManagerQuarantine::instance().retain(std::move(_memory_manager));
+        // Paimon may still have asynchronous flush or compaction tasks using
+        // MemorySegments backed by these pages. Its close API provides no
+        // reliable completion signal after an exception, so deliberately
+        // abandon ownership and let the OS reclaim the memory at process exit
+        // instead of risking a use-after-free.
+        static_cast<void>(_memory_manager.release());
     }
     _opened = false;
 }

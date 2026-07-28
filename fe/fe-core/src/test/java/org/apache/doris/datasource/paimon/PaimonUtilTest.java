@@ -355,6 +355,22 @@ public class PaimonUtilTest {
     }
 
     @Test
+    public void testGeneratePartitionInfoDoesNotCacheSessionZonedLtzBounds() {
+        List<Column> partitionColumns =
+                Collections.singletonList(new Column("part", Type.DATETIMEV2));
+        Table table = mockPartitionTable(Collections.emptyMap(),
+                DataTypes.FIELD(0, "part",
+                        DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                table,
+                partitionColumns,
+                Collections.singletonList(Mockito.mock(PartitionEntry.class)));
+
+        Assert.assertSame(PaimonPartitionInfo.UNPRUNABLE, partitionInfo);
+    }
+
+    @Test
     public void testGeneratePartitionInfoPreservesAmbiguousTypedValues() {
         String defaultPartitionName = "__CUSTOM_DEFAULT_PARTITION__";
         List<Column> partitionColumns = Collections.singletonList(new Column("region", Type.STRING));

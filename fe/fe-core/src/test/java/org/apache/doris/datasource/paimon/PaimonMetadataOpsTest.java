@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
@@ -243,6 +245,22 @@ public class PaimonMetadataOpsTest {
         Table table = catalog.getTable(identifier);
         Assert.assertEquals("4", table.options().get("bucket"));
         Assert.assertEquals("c0", table.options().get("bucket-key"));
+    }
+
+    @Test
+    public void testModifyColumnPreservesRemoteTypeBehindLossyProjection()
+            throws Exception {
+        TimestampType remoteType = new TimestampType(9);
+        DataField remoteField = new DataField(0, "ts", remoteType);
+        Column projectedColumn = new Column(
+                "ts", ScalarType.createDatetimeV2Type(6), true);
+
+        org.apache.paimon.types.DataType requestedType =
+                ops.requestedColumnType(projectedColumn, remoteField);
+
+        Assert.assertTrue(requestedType instanceof TimestampType);
+        Assert.assertEquals(9, ((TimestampType) requestedType).getPrecision());
+        Assert.assertEquals(projectedColumn.isAllowNull(), requestedType.isNullable());
     }
 
     public void createTable(String sql) throws UserException {

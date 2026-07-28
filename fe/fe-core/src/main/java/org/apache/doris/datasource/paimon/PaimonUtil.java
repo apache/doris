@@ -70,6 +70,7 @@ import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -152,9 +153,19 @@ public class PaimonUtil {
         }
 
         CoreOptions options = new CoreOptions(table.options());
+        RowType partitionType = table.rowType().project(table.partitionKeys());
+        if (partitionType.getFields().stream().anyMatch(field ->
+                field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE)) {
+            // This metadata is cached by table snapshot, but LTZ values are represented as
+            // session-local civil times in Doris. Caching those bounds would let one session
+            // reuse pruning metadata produced in another time zone. Keep scan correctness by
+            // delegating pruning to Paimon until this cache can carry a time-zone-independent
+            // typed representation.
+            return PaimonPartitionInfo.UNPRUNABLE;
+        }
         InternalRowPartitionComputer partitionComputer = new InternalRowPartitionComputer(
                 options.partitionDefaultName(),
-                table.rowType().project(table.partitionKeys()),
+                partitionType,
                 table.partitionKeys().toArray(new String[0]),
                 options.legacyPartitionName());
         List<Type> types = partitionColumns.stream()

@@ -28,7 +28,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 public class PaimonCommitCodecTest {
 
@@ -55,8 +57,33 @@ public class PaimonCommitCodecTest {
 
     @Test
     public void testRejectOversizedSinglePayload() {
+        PaimonCommitCodec codec = new PaimonCommitCodec(1024, 1);
+
+        Exception exception = Assertions.assertThrows(
+                Exception.class,
+                () -> codec.encode(Collections.singletonList(
+                        commitMessage("x".repeat(2048)))));
+
+        Assertions.assertTrue(exception.getMessage().contains("exceeds"));
+    }
+
+    @Test
+    public void testAdaptiveChunkingStaysWithinFramedLimit() throws Exception {
+        PaimonCommitCodec codec = new PaimonCommitCodec(1024, 2);
+        List<CommitMessage> messages = new ArrayList<>();
+        messages.add(commitMessage("x".repeat(400)));
+        messages.add(commitMessage("y".repeat(400)));
+
+        byte[][] payloads = codec.encode(messages);
+
+        Assertions.assertEquals(2, payloads.length);
+        Assertions.assertTrue(payloads[0].length <= 1024);
+        Assertions.assertTrue(payloads[1].length <= 1024);
+    }
+
+    private static CommitMessage commitMessage(String fileName) {
         DataFileMeta dataFile = DataFileMeta.forAppend(
-                "x".repeat(PaimonCommitCodec.MAX_PAYLOAD_BYTES),
+                fileName,
                 1,
                 1,
                 SimpleStats.EMPTY_STATS,
@@ -70,7 +97,7 @@ public class PaimonCommitCodecTest {
                 null,
                 null,
                 null);
-        CommitMessage message = new CommitMessageImpl(
+        return new CommitMessageImpl(
                 BinaryRow.EMPTY_ROW,
                 0,
                 1,
@@ -79,11 +106,5 @@ public class PaimonCommitCodecTest {
                         Collections.emptyList(),
                         Collections.emptyList()),
                 CompactIncrement.emptyIncrement());
-        PaimonCommitCodec codec = new PaimonCommitCodec();
-
-        Exception exception = Assertions.assertThrows(
-                Exception.class, () -> codec.encode(Collections.singletonList(message)));
-
-        Assertions.assertTrue(exception.getMessage().contains("exceeds"));
     }
 }

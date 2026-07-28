@@ -149,7 +149,13 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
         BucketMode bucketMode = fileStoreTable.bucketMode();
         if (bucketMode == BucketMode.HASH_DYNAMIC
-                || bucketMode == BucketMode.KEY_DYNAMIC) {
+                || bucketMode == BucketMode.KEY_DYNAMIC
+                // Until Doris has a Paimon bucket-aware exchange, a fixed-bucket
+                // primary-key table must not let independent writers own the same
+                // partition/bucket. Hashing the complete primary key is insufficient
+                // when bucket-key is a subset and can also split compaction ownership.
+                || (bucketMode == BucketMode.HASH_FIXED
+                        && !paimonTable.primaryKeys().isEmpty())) {
             return true;
         }
 
