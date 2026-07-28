@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -300,6 +302,47 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
                     instanceof org.apache.doris.nereids.trees.expressions.literal.NullLiteral);
         } finally {
             useMockedIcebergSchema(baseIcebergSchema, 2);
+        }
+    }
+
+    @Test
+    public void testIcebergStaticPartitionSatisfiesRequiredFieldWithoutWriteDefault() throws Exception {
+        useIceberg();
+        Schema schema = new Schema(37, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "name", Types.StringType.get()),
+                Types.NestedField.required(3, "age", Types.IntegerType.get()),
+                Types.NestedField.required(4, "score", Types.IntegerType.get()),
+                Types.NestedField.required(5, "amount", Types.DecimalType.of(10, 2))));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("age").build();
+        useMockedIcebergSchema(schema, 3);
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
+        Mockito.doReturn(ImmutableMap.of(partitionSpec.specId(), partitionSpec))
+                .when(mockedIcebergTable).specs();
+        try {
+            String sql = "insert overwrite table " + tableName
+                    + " partition (age=7) "
+                    + "select 1, 'static-partition', 9, cast(10.25 as decimal(10, 2))";
+            LogicalPlan insertPlan = parseStmt(sql);
+            Assertions.assertTrue(insertPlan instanceof InsertOverwriteTableCommand);
+
+            Plan explainPlan = ((InsertOverwriteTableCommand) insertPlan).getExplainPlan(connectContext);
+            PhysicalIcebergTableSink<?> sink = getSinglePhysicalSink(
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql),
+                    PhysicalIcebergTableSink.class);
+            Assertions.assertEquals(37, sink.getWriteSchemaContext().get().getSchemaId());
+            Assertions.assertEquals(partitionSpec.specId(),
+                    sink.getWriteSchemaContext().get().getPartitionSpec().specId());
+            Assertions.assertEquals(ImmutableList.of("id", "name", "age", "score", "amount"),
+                    sink.getOutputExprs().stream().map(NamedExpression::getName)
+                            .collect(ImmutableList.toImmutableList()));
+            Assertions.assertEquals(IntegerType.INSTANCE,
+                    findOutputExprByName(sink.getOutputExprs(), "age").getDataType());
+        } finally {
+            useMockedIcebergSchema(baseIcebergSchema, 2);
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
+            Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of())
+                    .when(mockedIcebergTable).specs();
         }
     }
 
