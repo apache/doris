@@ -26,6 +26,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
+#include "core/arena.h"
 
 namespace doris {
 
@@ -49,6 +50,8 @@ template <typename Map, typename ColumnType>
 struct MapActionImpl<Map, ColumnType, MapOperation::UNION> {
     using Action = UnionAction<Map, ColumnType>;
 };
+
+
 
 template <MapOperation operation, typename ColumnType>
 struct OpenMapImpl {
@@ -167,10 +170,19 @@ public:
                           std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         ColumnArrayMutableData dst =
                 create_mutable_data(datas[0].nested_col.get(), datas[0].nested_nullmap_data);
-        if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row)) {
+        // if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row) || 
+        //       _execute_nested_array(dst, datas, col_const, start_row, end_row)) {
+        //     res_ptr = assemble_column_array(dst);
+        //     return Status::OK();
+        // }
+        bool executed = _execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row);
+        if constexpr(operation == MapOperation::UNION) {
+            executed = executed || _execute_nested_array(dst, datas, col_const, start_row, end_row);
+        }  
+        if(executed) {
             res_ptr = assemble_column_array(dst);
             return Status::OK();
-        }
+        }                  
         return Status::RuntimeError("Unexpected columns");
     }
 
@@ -188,6 +200,70 @@ private:
         Impl impl;
         ColumnPtr res_column;
         impl.apply(dst, datas, col_const, start_row, end_row);
+        return true;
+    }
+
+     static bool _execute_nested_array(ColumnArrayMutableData& dst,
+                                      const ColumnArrayExecutionDatas& datas,
+                                      const std::vector<bool>& col_const, size_t start_row,
+                                      size_t end_row) {
+        for (const auto& data : datas) {
+            if (!is_column<ColumnArray>(*data.nested_col)) {
+                return false;
+            }
+        }
+
+        size_t result_offset = 0;
+        phmap::flat_hash_set<StringRef, StringRefHash> seen;
+        std::vector<StringRef> distinct_elements;
+        Arena arena;
+
+        for (size_t row = start_row; row < end_row; ++row) {
+            seen.clear();
+            distinct_elements.clear();
+            arena.clear();
+
+            bool has_null = false;
+            for (size_t arg_idx = 0; arg_idx < datas.size(); ++arg_idx) {
+                const auto& data = datas[arg_idx];
+                const size_t input_row = index_check_const(row, col_const[arg_idx]);
+                const size_t begin = (*data.offsets_ptr)[input_row - 1];
+                const size_t end = (*data.offsets_ptr)[input_row];
+
+                for (size_t off = begin; off < end; ++off) {
+                    if (data.nested_nullmap_data && data.nested_nullmap_data[off]) {
+                        has_null = true;
+                        continue;
+                    }
+
+                    const char* serialized_begin = nullptr;
+                    StringRef key = data.nested_col->serialize_value_into_arena(
+                            off, arena, serialized_begin);
+
+                    if (seen.emplace(key).second) {
+                        distinct_elements.emplace_back(key);
+                    }
+                }
+            }
+
+            if (has_null) {
+                dst.nested_col->insert_default();
+                if (dst.nested_nullmap_data) {
+                    dst.nested_nullmap_data->push_back(1);
+                }
+                ++result_offset;
+            }
+
+            for (const auto& key : distinct_elements) {
+                dst.nested_col->deserialize_and_insert_from_arena(key.data);
+                if (dst.nested_nullmap_data) {
+                    dst.nested_nullmap_data->push_back(0);
+                }
+                ++result_offset;
+            }
+
+            dst.offsets_ptr->push_back(result_offset);
+        }
         return true;
     }
 
