@@ -13,14 +13,19 @@
 3	300	carol	30	added-3	3.30	old-c	2026-07-03
 4	400	dave	40	unknown	4.40	old-d	2026-07-01
 
+-- !sc_add_default_omitted --
+100	unknown
+
 -- !sc_add_first_before_insert --
 1	\N	100	alice	10	\N	1.10	old-a	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	old-default	2026-07-10
 2	\N	200	bob	20	\N	2.20	old-b	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	2026-07-01
 
 -- !sc_add_first_after_insert --
 1	\N	100	alice	10	\N	1.10	old-a	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	old-default	2026-07-10
 2	\N	200	bob	20	\N	2.20	old-b	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	2026-07-01
@@ -28,6 +33,7 @@
 
 -- !sc_add_columns_before_insert --
 1	\N	100	alice	10	\N	1.10	old-a	\N	\N	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	old-default	\N	\N	2026-07-10
 2	\N	200	bob	20	\N	2.20	old-b	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	\N	\N	2026-07-01
@@ -35,6 +41,7 @@
 
 -- !sc_add_columns_after_insert --
 1	\N	100	alice	10	\N	1.10	old-a	\N	\N	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	old-default	\N	\N	2026-07-10
 2	\N	200	bob	20	\N	2.20	old-b	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	\N	\N	2026-07-01
@@ -44,6 +51,7 @@
 
 -- !sc_drop_before_insert --
 1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
 2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
@@ -53,6 +61,7 @@
 
 -- !sc_drop_after_insert --
 1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
 2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
@@ -63,6 +72,7 @@
 
 -- !sc_rename_before_insert --
 1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
 2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
@@ -73,6 +83,7 @@
 
 -- !sc_rename_after_insert --
 1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
 2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
@@ -84,6 +95,7 @@
 
 -- !sc_modify_bigint_before_insert --
 1	alice	10	1.10	100	2026-07-01
+100	default-value	100	100.00	10000	2026-07-10
 2	bob	20	2.20	200	2026-07-02
 3	carol	30	3.30	300	2026-07-03
 4	dave	40	4.40	400	2026-07-01
@@ -95,6 +107,7 @@
 
 -- !sc_modify_bigint_after_insert --
 1	alice	10	1.10	100	2026-07-01
+100	default-value	100	100.00	10000	2026-07-10
 2	bob	20	2.20	200	2026-07-02
 3	carol	30	3.30	300	2026-07-03
 4	dave	40	4.40	400	2026-07-01
@@ -107,6 +120,7 @@
 
 -- !sc_modify_decimal_before_insert --
 1	alice	10	1.10	2026-07-01
+100	default-value	100	100.00	2026-07-10
 2	bob	20	2.20	2026-07-02
 3	carol	30	3.30	2026-07-03
 4	dave	40	4.40	2026-07-01
@@ -120,6 +134,7 @@
 -- !sc_modify_decimal_after_insert --
 1	alice	10	1.10	2026-07-01
 10	judy	100	1234567890.12	2026-07-08
+100	default-value	100	100.00	2026-07-10
 2	bob	20	2.20	2026-07-02
 3	carol	30	3.30	2026-07-03
 4	dave	40	4.40	2026-07-01
@@ -133,6 +148,7 @@
 -- !sc_modify_nullable_before_insert --
 1	alice	100	2026-07-01
 10	judy	1000	2026-07-08
+100	default-value	10000	2026-07-10
 2	bob	200	2026-07-02
 3	carol	300	2026-07-03
 4	dave	400	2026-07-01
@@ -146,6 +162,7 @@
 -- !sc_modify_nullable_after_insert --
 1	alice	100	2026-07-01
 10	judy	1000	2026-07-08
+100	default-value	10000	2026-07-10
 11	kate	\N	2026-07-09
 2	bob	200	2026-07-02
 3	carol	300	2026-07-03
@@ -172,6 +189,7 @@ small_col	smallint	Yes	true	\N		small integer
 -- !sc_modify_metadata_before_insert --
 1	alice	\N	10	2026-07-01
 10	judy	after-decimal	100	2026-07-08
+100	default-value	unknown	100	2026-07-10
 11	kate	after-nullable	110	2026-07-09
 2	bob	\N	20	2026-07-02
 3	carol	added-3	30	2026-07-03
@@ -183,11 +201,16 @@ small_col	smallint	Yes	true	\N		small integer
 8	heidi	after-rename	80	2026-07-02
 9	ivan	after-bigint	3000000000	2026-07-07
 
+-- !sc_modify_default_omitted --
+120	changed-default
+
 -- !sc_modify_metadata_after_insert --
 1	alice	\N	10	2026-07-01
 10	judy	after-decimal	100	2026-07-08
+100	default-value	unknown	100	2026-07-10
 11	kate	after-nullable	110	2026-07-09
 12	leo	after-metadata	120	2026-07-10
+120	modified-default	changed-default	1200	2026-07-10
 2	bob	\N	20	2026-07-02
 3	carol	added-3	30	2026-07-03
 4	dave	unknown	40	2026-07-01
@@ -213,8 +236,10 @@ small_col	smallint	Yes	true	\N		small integer
 -- !sc_modify_remove_metadata_before_insert --
 1	alice	10	\N	2026-07-01
 10	judy	100	after-decimal	2026-07-08
+100	default-value	100	unknown	2026-07-10
 11	kate	110	after-nullable	2026-07-09
 12	leo	120	after-metadata	2026-07-10
+120	modified-default	1200	changed-default	2026-07-10
 2	bob	20	\N	2026-07-02
 3	carol	30	added-3	2026-07-03
 4	dave	40	unknown	2026-07-01
@@ -225,12 +250,18 @@ small_col	smallint	Yes	true	\N		small integer
 8	heidi	80	after-rename	2026-07-02
 9	ivan	3000000000	after-bigint	2026-07-07
 
+-- !sc_remove_default_omitted --
+130	\N
+
 -- !sc_modify_remove_metadata_after_insert --
 1	alice	10	\N	2026-07-01
 10	judy	100	after-decimal	2026-07-08
+100	default-value	100	unknown	2026-07-10
 11	kate	110	after-nullable	2026-07-09
 12	leo	120	after-metadata	2026-07-10
+120	modified-default	1200	changed-default	2026-07-10
 13	mallory	130	after-remove-metadata	2026-07-11
+130	removed-default	1300	\N	2026-07-11
 2	bob	20	\N	2026-07-02
 3	carol	30	added-3	2026-07-03
 4	dave	40	unknown	2026-07-01
@@ -244,9 +275,12 @@ small_col	smallint	Yes	true	\N		small integer
 -- !sc_reorder_before_insert --
 1	alice	10	1.10	100	\N	\N	\N	\N	2026-07-01
 10	judy	100	1234567890.12	1000	after-decimal	10000	10	1000	2026-07-08
+100	default-value	100	100.00	10000	unknown	\N	\N	\N	2026-07-10
 11	kate	110	11.11	\N	after-nullable	11000	11	1100	2026-07-09
 12	leo	120	12.12	1200	after-metadata	12000	12	1200	2026-07-10
+120	modified-default	1200	120.00	12000	changed-default	120000	12	1200	2026-07-10
 13	mallory	130	13.13	1300	after-remove-metadata	13000	13	1300	2026-07-11
+130	removed-default	1300	130.00	13000	\N	130000	13	1300	2026-07-11
 2	bob	20	2.20	200	\N	\N	\N	\N	2026-07-02
 3	carol	30	3.30	300	added-3	\N	\N	\N	2026-07-03
 4	dave	40	4.40	400	unknown	\N	\N	\N	2026-07-01
@@ -260,9 +294,12 @@ small_col	smallint	Yes	true	\N		small integer
 -- !sc_reorder_after_insert --
 1	alice	10	1.10	100	\N	\N	\N	\N	2026-07-01
 10	judy	100	1234567890.12	1000	after-decimal	10000	10	1000	2026-07-08
+100	default-value	100	100.00	10000	unknown	\N	\N	\N	2026-07-10
 11	kate	110	11.11	\N	after-nullable	11000	11	1100	2026-07-09
 12	leo	120	12.12	1200	after-metadata	12000	12	1200	2026-07-10
+120	modified-default	1200	120.00	12000	changed-default	120000	12	1200	2026-07-10
 13	mallory	130	13.13	1300	after-remove-metadata	13000	13	1300	2026-07-11
+130	removed-default	1300	130.00	13000	\N	130000	13	1300	2026-07-11
 14	nick	140	14.14	1400	after-reorder	14000	14	1400	2026-07-12
 2	bob	20	2.20	200	\N	\N	\N	\N	2026-07-02
 3	carol	30	3.30	300	added-3	\N	\N	\N	2026-07-03
@@ -277,9 +314,12 @@ small_col	smallint	Yes	true	\N		small integer
 -- !sc_after_failed_alters --
 1	alice	10	1.10	100	\N	\N	\N	\N	2026-07-01
 10	judy	100	1234567890.12	1000	after-decimal	10000	10	1000	2026-07-08
+100	default-value	100	100.00	10000	unknown	\N	\N	\N	2026-07-10
 11	kate	110	11.11	\N	after-nullable	11000	11	1100	2026-07-09
 12	leo	120	12.12	1200	after-metadata	12000	12	1200	2026-07-10
+120	modified-default	1200	120.00	12000	changed-default	120000	12	1200	2026-07-10
 13	mallory	130	13.13	1300	after-remove-metadata	13000	13	1300	2026-07-11
+130	removed-default	1300	130.00	13000	\N	130000	13	1300	2026-07-11
 14	nick	140	14.14	1400	after-reorder	14000	14	1400	2026-07-12
 15	olivia	150	15.15	\N	after-failed-alters	15000	15	1500	2026-07-13
 2	bob	20	2.20	200	\N	\N	\N	\N	2026-07-02
@@ -295,9 +335,12 @@ small_col	smallint	Yes	true	\N		small integer
 -- !sc_after_partition_evolution_failures --
 1	alice	10	1.10	100	\N	\N	\N	\N	2026-07-01
 10	judy	100	1234567890.12	1000	after-decimal	10000	10	1000	2026-07-08
+100	default-value	100	100.00	10000	unknown	\N	\N	\N	2026-07-10
 11	kate	110	11.11	\N	after-nullable	11000	11	1100	2026-07-09
 12	leo	120	12.12	1200	after-metadata	12000	12	1200	2026-07-10
+120	modified-default	1200	120.00	12000	changed-default	120000	12	1200	2026-07-10
 13	mallory	130	13.13	1300	after-remove-metadata	13000	13	1300	2026-07-11
+130	removed-default	1300	130.00	13000	\N	130000	13	1300	2026-07-11
 14	nick	140	14.14	1400	after-reorder	14000	14	1400	2026-07-12
 15	olivia	150	15.15	\N	after-failed-alters	15000	15	1500	2026-07-13
 16	peggy	160	16.16	1600	after-partition-evolution-failures	16000	16	1600	2026-07-14
@@ -321,8 +364,8 @@ small_col	smallint	Yes	true	\N		small integer
 {2026-07-07}	1
 {2026-07-08}	1
 {2026-07-09}	1
-{2026-07-10}	1
-{2026-07-11}	1
+{2026-07-10}	3
+{2026-07-11}	2
 {2026-07-12}	1
 {2026-07-13}	1
 {2026-07-14}	1
@@ -462,6 +505,10 @@ small_col	smallint	Yes	true	\N		small integer
 4	2026-08-02	40	new-after-rename
 5	2026-08-03	3000000000	new-after-type
 
+-- !sc_pk_partial_default --
+8	2026-08-05	81	default-note
+9	2026-08-05	\N	default-note
+
 -- !sc_pk_drop_after_insert --
 1	2026-08-01	11	updated-after-add
 2	2026-08-01	22	updated-after-rename
@@ -469,6 +516,8 @@ small_col	smallint	Yes	true	\N		small integer
 4	2026-08-02	40	new-after-rename
 5	2026-08-03	3000000000	new-after-type
 6	2026-08-03	60	new-after-drop
+8	2026-08-05	81	default-note
+9	2026-08-05	\N	default-note
 
 -- !sc_pk_after_key_failures --
 1	2026-08-01	11	updated-after-add
@@ -478,4 +527,6 @@ small_col	smallint	Yes	true	\N		small integer
 5	2026-08-03	3000000000	new-after-type
 6	2026-08-03	60	new-after-drop
 7	2026-08-04	70	after-key-failures
+8	2026-08-05	81	default-note
+9	2026-08-05	\N	default-note
 

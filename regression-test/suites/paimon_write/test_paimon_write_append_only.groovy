@@ -59,6 +59,17 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         CREATE TABLE paimon.${dbName}.t_append_default (
             id INT, name STRING NOT NULL DEFAULT 'unknown'
         ) USING paimon;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_append_required;
+        CREATE TABLE paimon.${dbName}.t_append_required (
+            id INT, name STRING NOT NULL
+        ) USING paimon;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_partition_default;
+        CREATE TABLE paimon.${dbName}.t_partition_default (
+            id INT, name STRING, dt STRING NOT NULL DEFAULT '2026-07-01'
+        ) USING paimon
+        PARTITIONED BY (dt);
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -145,14 +156,57 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         order_qt_ao_empty """SELECT id, name FROM t_append_empty ORDER BY id"""
         assertTableEquals("t_append_empty", "ORDER BY id")
 
-        // TODO: Support omitted columns with Paimon schema defaults. The JNI
-        // writer currently expands an omitted field to NULL, and Paimon checks
-        // NOT NULL before its writer-side default-value wrapper is applied.
-        // Enable this case after Doris fills defaults only for omitted fields.
-        //
-        // sql """INSERT INTO t_append_default (id) VALUES (1)"""
-        // order_qt_ao_default_value """SELECT id, name FROM t_append_default ORDER BY id"""
-        // assertTableEquals("t_append_default", "ORDER BY id")
+        // FT-043: Only omitted fields are filled from the real Paimon schema.
+        sql """INSERT INTO t_append_default (id) VALUES (1)"""
+        order_qt_ao_default_value """SELECT id, name FROM t_append_default ORDER BY id"""
+        assertTableEquals("t_append_default", "ORDER BY id")
+
+        // Explicit NULL remains an input value. Paimon checks the real NOT NULL
+        // schema before applying its writer-side default wrapper.
+        test {
+            sql """INSERT INTO t_append_default (name, id) VALUES (NULL, 2)"""
+            exception "Cannot write null to non-null column(name)"
+        }
+        order_qt_ao_default_after_explicit_null """
+            SELECT id, name FROM t_append_default ORDER BY id
+        """
+
+        // Doris does not duplicate Paimon's nullability validation. An omitted
+        // NOT NULL field without a default remains NULL and is rejected by the
+        // writer against the real Paimon schema.
+        test {
+            sql """INSERT INTO t_append_required (id) VALUES (1)"""
+            exception "Cannot write null to non-null column(name)"
+        }
+
+        // A defaulted partition field uses the schema default as its logical and
+        // physical partition value instead of the configured null-partition name.
+        sql """INSERT INTO t_partition_default (name, id) VALUES ('omitted-partition', 1)"""
+        order_qt_ao_partition_default_data """
+            SELECT id, name, dt FROM t_partition_default ORDER BY id
+        """
+        assertTableEquals("t_partition_default", "ORDER BY id")
+        def sparkDefaultPartitions = spark_paimon """
+            SELECT `partition`, record_count
+            FROM paimon.${dbName}.`t_partition_default\$partitions`
+            ORDER BY `partition`
+        """
+        def dorisDefaultPartitions = sql """
+            SELECT `partition`, record_count
+            FROM t_partition_default\$partitions
+            ORDER BY `partition`
+        """
+        assertSparkDorisResultEquals(sparkDefaultPartitions, dorisDefaultPartitions)
+        order_qt_ao_partition_default_metadata """
+            SELECT `partition`, record_count
+            FROM t_partition_default\$partitions
+            ORDER BY `partition`
+        """
+        test {
+            sql """INSERT INTO t_partition_default (id, name, dt)
+                VALUES (2, 'explicit-null-partition', NULL)"""
+            exception "Cannot write null to non-null column(dt)"
+        }
 
         // FT-044: Duplicate target columns are rejected case-insensitively.
         test {

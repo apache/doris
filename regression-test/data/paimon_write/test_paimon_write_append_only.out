@@ -29,3 +29,15 @@
 -- !ao_empty --
 1	\N
 2	reordered
+
+-- !ao_default_value --
+1	unknown
+
+-- !ao_default_after_explicit_null --
+1	unknown
+
+-- !ao_partition_default_data --
+1	omitted-partition	2026-07-01
+
+-- !ao_partition_default_metadata --
+{2026-07-01}	1

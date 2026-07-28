@@ -136,18 +136,14 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
                 "id, required_value, name, score, added_after, amount, obsolete, dt",
                 "ORDER BY id")
 
-        // TODO: The correct behavior for an omitted field with a Paimon default
-        // is to write "unknown". The JNI writer currently expands the omitted
-        // field to NULL before Paimon's default-value wrapper is applied.
-        //
-        // sql """
-        //     INSERT INTO `${appendTable}`
-        //         (id, required_value, name, score, amount, obsolete, dt)
-        //     VALUES (100, 10000, 'default-value', 100, 100.00, 'old-default', '2026-07-10')
-        // """
-        // order_qt_sc_add_default_omitted """
-        //     SELECT id, added_after FROM `${appendTable}` WHERE id = 100
-        // """
+        sql """
+            INSERT INTO `${appendTable}`
+                (id, required_value, name, score, amount, obsolete, dt)
+            VALUES (100, 10000, 'default-value', 100, 100.00, 'old-default', '2026-07-10')
+        """
+        order_qt_sc_add_default_omitted """
+            SELECT id, added_after FROM `${appendTable}` WHERE id = 100
+        """
 
         // ADD COLUMN FIRST. All historical rows expose NULL for the new column.
         sql """ALTER TABLE `${appendTable}` ADD COLUMN first_col BIGINT NULL FIRST"""
@@ -426,6 +422,17 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
                 ('after-metadata', 12, 12000, 1200, 'leo',
                  120, 12.12, 12, 1200, '2026-07-10')
         """
+        sql """
+            INSERT INTO `${appendTable}`
+                (id, first_col, required_value, full_name,
+                 score, amount, tiny_col, small_col, dt)
+            VALUES
+                (120, 120000, 12000, 'modified-default',
+                 1200, 120.00, 12, 1200, '2026-07-10')
+        """
+        order_qt_sc_modify_default_omitted """
+            SELECT id, added_after FROM `${appendTable}` WHERE id = 120
+        """
         order_qt_sc_modify_metadata_after_insert """
             SELECT id, full_name, added_after, score, dt
             FROM `${appendTable}`
@@ -460,6 +467,17 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
             VALUES
                 (13, 13000, 1300, 'mallory', 130,
                  'after-remove-metadata', 13.13, 13, 1300, '2026-07-11')
+        """
+        sql """
+            INSERT INTO `${appendTable}`
+                (id, first_col, required_value, full_name, score,
+                 amount, tiny_col, small_col, dt)
+            VALUES
+                (130, 130000, 13000, 'removed-default', 1300,
+                 130.00, 13, 1300, '2026-07-11')
+        """
+        order_qt_sc_remove_default_omitted """
+            SELECT id, added_after FROM `${appendTable}` WHERE id = 130
         """
         order_qt_sc_modify_remove_metadata_after_insert """
             SELECT id, full_name, score, added_after, dt
@@ -867,7 +885,8 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
             PARTITION BY (dt) ()
             PROPERTIES (
                 'primary-key' = 'id,dt',
-                'bucket' = '2'
+                'bucket' = '2',
+                'merge-engine' = 'partial-update'
             )
         """
         sql """
@@ -882,7 +901,7 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
 
         sql """
             ALTER TABLE `${primaryKeyTable}`
-            ADD COLUMN note STRING NULL AFTER metric
+            ADD COLUMN note STRING NULL DEFAULT 'default-note' AFTER metric
         """
         order_qt_sc_pk_add_before_insert """
             SELECT id, dt, metric, note, legacy
@@ -974,6 +993,39 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
         order_qt_sc_pk_drop_before_insert """
             SELECT id, dt, metric_value, note
             FROM `${primaryKeyTable}`
+            ORDER BY dt, id
+        """
+        assertTableEquals(
+                primaryKeyTable,
+                "id, dt, metric_value, note",
+                "ORDER BY dt, id")
+
+        // A PK partial-update writer also distinguishes omitted fields from
+        // explicit NULL using the evolved remote schema. A later partial row
+        // which omits note applies its schema default again.
+        sql """
+            INSERT INTO `${primaryKeyTable}`
+                (id, dt, metric_value)
+            VALUES
+                (8, '2026-08-05', 80)
+        """
+        sql """
+            INSERT INTO `${primaryKeyTable}`
+                (id, dt, note)
+            VALUES
+                (8, '2026-08-05', 'explicit-note'),
+                (9, '2026-08-05', NULL)
+        """
+        sql """
+            INSERT INTO `${primaryKeyTable}`
+                (id, dt, metric_value)
+            VALUES
+                (8, '2026-08-05', 81)
+        """
+        order_qt_sc_pk_partial_default """
+            SELECT id, dt, metric_value, note
+            FROM `${primaryKeyTable}`
+            WHERE id IN (8, 9)
             ORDER BY dt, id
         """
         assertTableEquals(
