@@ -44,6 +44,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
@@ -1206,7 +1207,11 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
 
 Status TabletManager::start_trash_sweep(uint64_t sweep_epoch,
                                         const ShutdownTabletMoveExecutor& move_executor,
-                                        const std::function<void(int)>& wait_next_round) {
+                                        const std::function<void(int)>& wait_next_round,
+                                        TrashSweepStats* stats) {
+    if (stats != nullptr) {
+        *stats = {};
+    }
     DBUG_EXECUTE_IF("TabletManager.start_trash_sweep.sleep", DBUG_BLOCK);
     std::unique_lock<std::mutex> lock(_gc_tablets_lock, std::defer_lock);
     if (!lock.try_lock()) {
@@ -1217,7 +1222,12 @@ Status TabletManager::start_trash_sweep(uint64_t sweep_epoch,
     MonotonicStopWatch stale_rowset_watch(true);
     for_each_tablet([](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
                     filter_all_tablets);
-    g_trash_sweep_stale_rowset_phase_ms.set_value(stale_rowset_watch.elapsed_time_milliseconds());
+    TEST_SYNC_POINT("TabletManager::start_trash_sweep::stale_rowset_phase");
+    const int64_t stale_rowset_elapsed_ms = stale_rowset_watch.elapsed_time_milliseconds();
+    g_trash_sweep_stale_rowset_phase_ms.set_value(stale_rowset_elapsed_ms);
+    if (stats != nullptr) {
+        stats->stale_rowset_elapsed_ms = stale_rowset_elapsed_ms;
+    }
 
     if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
         int64_t max_useless_rowset_count = 0;
@@ -1268,11 +1278,17 @@ Status TabletManager::start_trash_sweep(uint64_t sweep_epoch,
         };
     }
 
-    // Execute the shutdown tablet sweep with round-based throttling.
-    return _sweep_shutdown_tablets(
+    // Execute and time only the shutdown tablet sweep. Keep this inside _gc_tablets_lock so stale
+    // rowset cleanup and shutdown tablet cleanup remain serialized as one trash sweep operation.
+    MonotonicStopWatch shutdown_tablet_watch(true);
+    auto status = _sweep_shutdown_tablets(
             sweep_epoch, effective_move_executor,
             [this](const TabletSharedPtr& tablet) { return _move_tablet_to_trash(tablet); },
             effective_wait);
+    if (stats != nullptr) {
+        stats->shutdown_tablet_elapsed_ms = shutdown_tablet_watch.elapsed_time_milliseconds();
+    }
+    return status;
 }
 
 Status TabletManager::_execute_shutdown_tablet_moves_synchronously(
@@ -1420,49 +1436,6 @@ TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
     }
 }
 
-#ifdef BE_TEST
-TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
-        ShutdownTabletIter& last_it, std::list<TabletSharedPtr>& failed_tablets,
-        const std::function<bool(const TabletSharedPtr&)>& move_tablet, int round_budget,
-        int fetch_chunk, int scan_chunk) {
-    DCHECK_GT(round_budget, 0);
-    DCHECK_GT(fetch_chunk, 0);
-    DCHECK_GT(scan_chunk, 0);
-
-    MonotonicStopWatch round_watch(true);
-    RoundResult result;
-    int budget = round_budget;
-    for (;;) {
-        const int max_to_fetch = std::min(budget, fetch_chunk);
-        DCHECK_GT(max_to_fetch, 0);
-        auto fetch_result = _fetch_shutdown_tablets(last_it, max_to_fetch, scan_chunk);
-        for (const auto& tablet : fetch_result.tablets) {
-            if (move_tablet(tablet)) {
-                --budget;
-                ++result.resolved_count;
-                // Decrement the pending backlog after the shutdown entry is fully resolved.
-                _adjust_shutdown_tablet_backlog(-1);
-            } else {
-                failed_tablets.push_back(tablet);
-                ++result.failed_count;
-            }
-        }
-        // Reaching the current queue tail means this pass is already finished, even when the
-        // success budget happens to be exhausted at the same time. Return here to avoid an extra
-        // sleep and a no-op round.
-        if (fetch_result.reached_end) {
-            result.elapsed_ms = round_watch.elapsed_time_milliseconds();
-            return result;
-        }
-        if (budget <= 0) {
-            result.need_continue = true;
-            result.elapsed_ms = round_watch.elapsed_time_milliseconds();
-            return result;
-        }
-    }
-}
-#endif
-
 Status TabletManager::_sweep_shutdown_tablets(uint64_t sweep_epoch,
                                               const ShutdownTabletMoveExecutor& move_executor,
                                               const MoveTabletCallback& move_tablet,
@@ -1506,47 +1479,6 @@ Status TabletManager::_sweep_shutdown_tablets(uint64_t sweep_epoch,
     g_shutdown_tablet_last_sweep_ms.set_value(sweep_watch.elapsed_time_milliseconds());
     return result;
 }
-
-#ifdef BE_TEST
-Status TabletManager::_sweep_shutdown_tablets(const MoveTabletCallback& move_tablet,
-                                              const std::function<void(int)>& wait_next_round) {
-    MonotonicStopWatch sweep_watch(true);
-    ShutdownTabletIter last_it;
-    {
-        std::shared_lock rdlock(_shutdown_tablets_lock);
-        last_it = _shutdown_tablets.begin();
-        if (last_it == _shutdown_tablets.end()) {
-            g_shutdown_tablet_last_sweep_ms.set_value(0);
-            return Status::OK();
-        }
-    }
-
-    std::list<TabletSharedPtr> failed_tablets;
-    for (;;) {
-        auto round_result = _delete_shutdown_tablets_one_round(
-                last_it, failed_tablets, move_tablet,
-                get_effective_shutdown_tablet_sweep_round_budget(), kShutdownTabletFetchChunk,
-                kShutdownTabletScanChunk);
-        g_shutdown_tablet_last_round_resolved.set_value(round_result.resolved_count);
-        g_shutdown_tablet_last_round_move_failed_attempts.set_value(round_result.failed_count);
-        g_shutdown_tablet_last_round_ms.set_value(round_result.elapsed_ms);
-        g_shutdown_tablet_sweep_resolved_total << round_result.resolved_count;
-        g_shutdown_tablet_sweep_move_failed_attempts_total << round_result.failed_count;
-        if (!round_result.need_continue) {
-            break;
-        }
-        wait_next_round(get_effective_shutdown_tablet_sweep_interval_ms());
-    }
-
-    if (!failed_tablets.empty()) {
-        std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
-        _shutdown_tablets.splice(_shutdown_tablets.end(), failed_tablets);
-    }
-    g_shutdown_tablet_last_sweep_ms.set_value(sweep_watch.elapsed_time_milliseconds());
-
-    return Status::OK();
-}
-#endif
 
 bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
     RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));

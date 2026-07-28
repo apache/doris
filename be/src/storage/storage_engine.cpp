@@ -1192,8 +1192,6 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     g_garbage_sweep_path_phase_ms.set_value(phase_watch.elapsed_time_milliseconds());
 
     // Clear expired incremental rowsets, then move shutdown tablets in per-DataDir waves.
-    phase_watch.reset();
-    phase_watch.start();
     TabletManager::ShutdownTabletMoveExecutor move_executor =
             [this](uint64_t epoch, TabletManager::ShutdownTabletBatches&& batches,
                    const TabletManager::MoveTabletCallback& move_tablet,
@@ -1232,9 +1230,11 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         static_cast<void>(
                 _stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval_ms)));
     };
-    update_first_error(&result, _tablet_manager->start_trash_sweep(sweep_epoch, move_executor,
-                                                                   wait_next_round));
-    g_garbage_sweep_shutdown_phase_ms.set_value(phase_watch.elapsed_time_milliseconds());
+    TabletManager::TrashSweepStats trash_sweep_stats;
+    update_first_error(
+            &result, _tablet_manager->start_trash_sweep(sweep_epoch, move_executor, wait_next_round,
+                                                        &trash_sweep_stats));
+    g_garbage_sweep_shutdown_phase_ms.set_value(trash_sweep_stats.shutdown_tablet_elapsed_ms);
 
     phase_watch.reset();
     phase_watch.start();

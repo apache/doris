@@ -71,6 +71,11 @@ public:
             uint64_t sweep_epoch, ShutdownTabletBatches&& batches,
             const MoveTabletCallback& move_tablet, std::vector<ShutdownTabletMoveResult>* results)>;
 
+    struct TrashSweepStats {
+        int64_t stale_rowset_elapsed_ms = 0;
+        int64_t shutdown_tablet_elapsed_ms = 0;
+    };
+
     TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
 
@@ -163,7 +168,8 @@ public:
 
     Status start_trash_sweep(uint64_t sweep_epoch = 0,
                              const ShutdownTabletMoveExecutor& move_executor = {},
-                             const std::function<void(int)>& wait_next_round = {});
+                             const std::function<void(int)>& wait_next_round = {},
+                             TrashSweepStats* stats = nullptr);
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                        SchemaHash schema_hash, const std::string& schema_hash_path,
@@ -281,17 +287,6 @@ private:
                                    const ShutdownTabletMoveExecutor& move_executor,
                                    const MoveTabletCallback& move_tablet,
                                    const std::function<void(int)>& wait_next_round);
-
-#ifdef BE_TEST
-    RoundResult _delete_shutdown_tablets_one_round(ShutdownTabletIter& last_it,
-                                                   std::list<TabletSharedPtr>& failed_tablets,
-                                                   const MoveTabletCallback& move_tablet,
-                                                   int round_budget, int fetch_chunk,
-                                                   int scan_chunk);
-
-    Status _sweep_shutdown_tablets(const MoveTabletCallback& move_tablet,
-                                   const std::function<void(int)>& wait_next_round);
-#endif
 
     static Status _execute_shutdown_tablet_moves_synchronously(
             uint64_t sweep_epoch, ShutdownTabletBatches&& batches,
