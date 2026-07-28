@@ -181,7 +181,10 @@ public class ShowTableCommand extends ShowCommand {
             // instead of dbIf.getTables(), which loads every table via the meta
             // cache (one remote metadata load per table). The per-table SHOW priv
             // filter below must be kept (name-based, needs no table load).
-            for (String tableName : dbIf.getTableNamesOrEmptyWithLock()) {
+            // NOTE: must use getTableNamesWithLock(), NOT getTableNamesOrEmptyWithLock():
+            // the latter swallows the case-insensitive name-conflict / meta_names_mapping
+            // exception and returns an empty set, silently hiding conflicting table names.
+            for (String tableName : dbIf.getTableNamesWithLock()) {
                 if (matcher != null && !matcher.match(tableName)) {
                     continue;
                 }
