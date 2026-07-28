@@ -1192,6 +1192,8 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_TRUE(commit_txn_immediatelly_hit);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit());
         ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
@@ -1274,6 +1276,8 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
                              &commit_req, &commit_res, nullptr);
     ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK);
     ASSERT_TRUE(failure_injected.load());
+    ASSERT_TRUE(commit_res.has_is_lazy_commit());
+    ASSERT_TRUE(commit_res.is_lazy_commit());
     ASSERT_TRUE(commit_res.has_is_lazy_commit_incomplete());
     ASSERT_TRUE(commit_res.is_lazy_commit_incomplete());
 
@@ -2301,6 +2305,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_TRUE(res.has_is_lazy_commit());
+            ASSERT_TRUE(res.is_lazy_commit());
             ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
             ASSERT_TRUE(res.is_lazy_commit_incomplete());
         }
@@ -3483,6 +3489,8 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_TRUE(res.is_lazy_commit());
         ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
@@ -3503,6 +3511,8 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit());
         ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
         ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }

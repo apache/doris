@@ -2194,6 +2194,7 @@ void MetaServiceImpl::commit_txn_eventually(
         std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         KVStats& stats) {
+    response->set_is_lazy_commit(true);
     StopWatch sw;
     DORIS_CLOUD_DEFER {
         if (config::use_detailed_metrics && !instance_id.empty()) {
@@ -3286,6 +3287,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_txn, get, put, del);
+    response->set_is_lazy_commit(false);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";
