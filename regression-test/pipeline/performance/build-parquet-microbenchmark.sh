@@ -36,22 +36,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-rm -rf "${output_dir}/head" "${output_dir}/base"
-mkdir -p "${result_dir}" "${output_dir}"
+rm -rf "${result_dir}" "${output_dir}/head" "${output_dir}/base"
+mkdir -p "${result_dir}" "${output_dir}/head/be/lib"
 printf '%s\n' "${base_sha}" >"${result_dir}/base-sha.txt"
 git -C "${doris_home}" rev-parse HEAD >"${result_dir}/head-sha.txt"
 
-# The shared benchmark target contains a legacy memcpy benchmark that GCC diagnoses as
-# class-memaccess. Keep warnings strict everywhere else, but build the identical base/head
-# benchmark harness without promoting that unrelated warning to an error.
-benchmark_cxx="${CXX:-g++}"
-if "${benchmark_cxx}" --version 2>/dev/null | head -n 1 | grep -Eq 'g\+\+|GCC'; then
-    export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} -Wno-error=class-memaccess"
+head_binary="${doris_home}/output/be/lib/benchmark_test"
+if [[ ! -x "${head_binary}" ]]; then
+    echo "ERROR: PR benchmark binary was not produced by the main compile: ${head_binary}"
+    exit 1
 fi
-
-echo "INFO: build Parquet benchmark for PR revision"
-bash "${doris_home}/build.sh" --benchmark --output "${output_dir}/head" \
-    2>&1 | tee "${result_dir}/build-head.log"
+cp -p "${head_binary}" "${output_dir}/head/be/lib/benchmark_test"
+echo "INFO: reuse Parquet benchmark from the PR compile" |
+    tee "${result_dir}/build-head.log"
 
 echo "INFO: build Parquet benchmark for target-branch revision ${base_sha}"
 git -C "${doris_home}" worktree add --detach "${base_worktree}" "${base_sha}"
@@ -59,5 +56,9 @@ git -C "${doris_home}" worktree add --detach "${base_worktree}" "${base_sha}"
     cd "${base_worktree}"
     ROOT_WORKSPACE_PATH="${doris_home}" bash hooks/setup_worktree.sh
     git submodule update --init --recursive --depth 1
+    benchmark_cxx="${CXX:-g++}"
+    if "${benchmark_cxx}" --version 2>/dev/null | head -n 1 | grep -Eq 'g\+\+|GCC'; then
+        export EXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS:-} -Wno-error=class-memaccess"
+    fi
     bash build.sh --benchmark --output "${output_dir}/base"
 ) 2>&1 | tee "${result_dir}/build-base.log"

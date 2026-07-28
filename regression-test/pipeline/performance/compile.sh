@@ -174,7 +174,7 @@ sudo docker run -i --rm \
                     && export ENABLE_PCH=OFF \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
-                    && bash build.sh --fe --be --clean 2>&1 | tee build.log \
+                    && bash build.sh --fe --be --benchmark --clean 2>&1 | tee build.log \
                     && bash regression-test/pipeline/performance/build-parquet-microbenchmark.sh ${parquet_benchmark_base_sha}"
 docker_status=$?
 set +x
