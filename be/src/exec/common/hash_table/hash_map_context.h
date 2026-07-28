@@ -947,17 +947,21 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
 
         for (size_t j = 0; j < key_columns.size(); ++j) {
-            const char* __restrict data = key_columns[j]->get_raw_data().data;
-
             auto goo = [&]<typename Fixed, bool aligned>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), key_sizes[j]);
                 if (has_null_column.size() && has_null_column[j]) {
                     const auto* nullmap =
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     // make sure null cell is filled by 0x0
+                    // This mutates the same underlying buffer returned by get_raw_data(), so get
+                    // the restricted data pointer only after the replacement finishes.
                     const_cast<IColumn*>(key_columns[j])->replace_column_null_data(nullmap);
                 }
                 auto* __restrict current = result_data + offset;
+                // Do not hoist data out of goo. A reference capture is lowered to an ordinary
+                // closure field, so restrict/noalias information is lost when goo is not inlined,
+                // which prevents the copy loop from being optimized.
+                const char* __restrict data = key_columns[j]->get_raw_data().data;
                 for (size_t i = 0; i < row_numbers; ++i) {
                     memcpy_fixed<Fixed, aligned>(current, data);
                     current += sizeof(T);
@@ -969,6 +973,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 // Also verify that the stride sizeof(T) is a multiple of alignof(Fixed),
                 // otherwise alignment will be lost on subsequent loop iterations
                 // (e.g. UInt96 has sizeof=12, stride 12 is not a multiple of alignof(uint64_t)=8).
+                const char* data = key_columns[j]->get_raw_data().data;
                 if (sizeof(T) % alignof(Fixed) == 0 &&
                     reinterpret_cast<uintptr_t>(result_data + offset) % alignof(Fixed) == 0 &&
                     reinterpret_cast<uintptr_t>(data) % alignof(Fixed) == 0) {
