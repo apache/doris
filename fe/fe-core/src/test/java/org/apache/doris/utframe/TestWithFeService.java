@@ -150,6 +150,10 @@ public abstract class TestWithFeService {
         Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
         FeConstants.disableWGCheckerForUT = true;
+        // HeartbeatMgr runs its first cycle before createDorisCluster() registers any BE, so with the
+        // production default (10s) every test class blocks a full interval waiting for the second cycle
+        // to mark BEs alive. Set before beforeCreatingConnectContext() so subclasses can still override.
+        Config.heartbeat_interval_second = 1;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         connectContext.getSessionVariable().feDebug = true;
@@ -424,15 +428,17 @@ public abstract class TestWithFeService {
     }
 
     private boolean checkBEHeartbeatStatus(List<Backend> bes, boolean isAlive) {
-        int maxTry = Config.heartbeat_interval_second + 2;
-        while (maxTry-- > 0) {
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                // no exception
-            }
+        // Poll instead of sleeping a fixed 1s before each check: the status flips as soon as
+        // HeartbeatMgr finishes a cycle, so a coarse sleep just wastes wall clock in every test class.
+        long deadline = System.currentTimeMillis() + (Config.heartbeat_interval_second + 2) * 1000L;
+        while (System.currentTimeMillis() < deadline) {
             if (bes.stream().allMatch(be -> be.isAlive() == isAlive)) {
                 return true;
+            }
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                // no exception
             }
         }
 
