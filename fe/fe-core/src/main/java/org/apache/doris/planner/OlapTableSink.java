@@ -1175,8 +1175,14 @@ public class OlapTableSink extends DataSink {
             if (context == null) {
                 throw new UserException("connect context is null when creating dummy location");
             }
-            currentComputeGroupBackends = ((CloudSystemInfoService) clusterInfo)
-                    .getBackendsByClusterName(context.getCloudCluster());
+            CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) clusterInfo;
+            String computeGroupId = context.getComputeGroupId();
+            if (StringUtils.isEmpty(computeGroupId)) {
+                computeGroupId = cloudSystemInfoService.getCloudClusterIdByName(context.getCloudCluster());
+            }
+            currentComputeGroupBackends = StringUtils.isEmpty(computeGroupId)
+                    ? Collections.emptyList()
+                    : cloudSystemInfoService.getBackendsByClusterId(computeGroupId);
         } else {
             currentComputeGroupBackends = new ArrayList<>(clusterInfo.getBackendsByCurrentCluster().values());
         }

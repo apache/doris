@@ -69,11 +69,11 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
         // NOTE: set user info here for the following text auth check.
         if (ConnectContext.get() == null) {
             ConnectContext connectContext = new ConnectContext();
-            connectContext.setCloudCluster(clusterName);
+            connectContext.setCloudCluster(clusterName, cloudClusterId);
             connectContext.setCurrentUserIdentity(this.userInfo);
             return new AutoCloseConnectContext(connectContext);
         } else {
-            ConnectContext.get().setCloudCluster(clusterName);
+            ConnectContext.get().setCloudCluster(clusterName, cloudClusterId);
             ConnectContext.get().setCurrentUserIdentity(this.userInfo);
             return null;
         }

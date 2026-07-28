@@ -127,14 +127,14 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         // NOTE: set user info in context in for auth check in CloudReplica
         if (ConnectContext.get() == null) {
             ConnectContext connectContext = new ConnectContext();
-            connectContext.setCloudCluster(clusterName);
+            connectContext.setCloudCluster(clusterName, cloudClusterId);
             connectContext.setCurrentUserIdentity(this.userInfo);
             if (connectContext.getEnv() == null) {
                 connectContext.setEnv(Env.getCurrentEnv());
             }
             return new AutoCloseConnectContext(connectContext);
         } else {
-            ConnectContext.get().setCloudCluster(clusterName);
+            ConnectContext.get().setCloudCluster(clusterName, cloudClusterId);
             ConnectContext.get().setCurrentUserIdentity(this.userInfo);
             if (ConnectContext.get().getEnv() == null) {
                 ConnectContext.get().setEnv(Env.getCurrentEnv());

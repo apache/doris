@@ -339,7 +339,7 @@ public class CloudEnv extends Env {
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         }
-        ctx.setCloudCluster(clusterName);
+        ctx.setCloudCluster(clusterName, getCloudSystemInfoService().getCloudClusterIdByName(clusterName));
         ctx.getState().setOk();
     }
 
