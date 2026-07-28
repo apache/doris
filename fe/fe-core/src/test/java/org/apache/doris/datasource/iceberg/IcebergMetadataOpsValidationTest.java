@@ -308,7 +308,7 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testPrimitiveModifyPreservesOmittedCommentAndClearsExplicitEmptyComment() throws Throwable {
+    public void testPrimitiveModifyKeepsBranchCommentCompatibility() throws Throwable {
         Schema schema = new Schema(
                 Types.NestedField.optional(1, "info", Types.StructType.of(
                         Types.NestedField.optional(2, "metric", Types.IntegerType.get(), "metric doc"),
@@ -337,7 +337,7 @@ public class IcebergMetadataOpsValidationTest {
         }
 
         Mockito.verify(updateSchema).updateColumn("info.metric", Types.LongType.get(), "metric doc");
-        Mockito.verify(updateSchema).updateColumn("top_metric", Types.LongType.get(), "top metric doc");
+        Mockito.verify(updateSchema).updateColumn("top_metric", Types.LongType.get(), "");
         Mockito.verify(updateSchema).updateColumnDoc("info.clear_me", "");
         Mockito.verify(updateSchema, Mockito.times(3)).commit();
     }
