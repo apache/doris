@@ -418,6 +418,23 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomOverridesPa
     EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_custom");
 }
 
+TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserOverridesNormalizer) {
+    std::map<std::string, std::string> properties;
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "MY_NORMALIZER";
+    properties[INVERTED_INDEX_PARSER_KEY] = "chinese";
+
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "chinese");
+}
+
+TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_AnalyzerOverridesNormalizer) {
+    std::map<std::string, std::string> properties;
+    properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "MY_ANALYZER";
+    properties[INVERTED_INDEX_NORMALIZER_NAME_KEY] = "MY_NORMALIZER";
+    properties[INVERTED_INDEX_PARSER_KEY] = "chinese";
+
+    EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_analyzer");
+}
+
 // ============================================================================
 // AnalyzerConfigParser Tests
 // ============================================================================

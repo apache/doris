@@ -19,9 +19,12 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "util/debug_points.h"
 
 namespace lucene {
@@ -119,6 +122,36 @@ struct InvertedIndexAnalyzerCtx {
     // Used for creating reader and tokenization
     CharFilterMap char_filter_map;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+    segment_v2::inverted_index::AnalyzerProviderPtr analyzer_provider;
+    std::optional<segment_v2::inverted_index::CommonGramsQueryIdentity> common_grams_identity;
+
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
+            segment_v2::inverted_index::AnalysisPurpose purpose) const {
+        if (analyzer_provider != nullptr) {
+            return analyzer_provider->get_analyzer(purpose);
+        }
+        return analyzer;
+    }
+
+    const segment_v2::inverted_index::CommonGramsQueryIdentity* get_common_grams_identity() const {
+        if (common_grams_identity.has_value()) {
+            return &*common_grams_identity;
+        }
+        return analyzer_provider == nullptr ? nullptr : analyzer_provider->common_grams_identity();
+    }
+
+    bool has_complete_common_grams_identity() const {
+        const auto* identity = get_common_grams_identity();
+        return identity != nullptr && !identity->common_grams_dictionary_identity.empty() &&
+               !identity->base_analyzer_fingerprint.empty() &&
+               !identity->common_grams_fingerprint.empty();
+    }
+
+    // Raw-query cache and single-flight keys intentionally exclude analyzer output. A tokenizing
+    // provider therefore needs a complete immutable identity before those results may be shared.
+    bool can_share_raw_query_semantics() const {
+        return !should_tokenize() || has_complete_common_grams_identity();
+    }
 
     // Returns true if tokenization should be performed.
     // Decision is based on parser_type (from index properties):
@@ -170,7 +203,7 @@ std::string get_parser_dict_compression_from_properties(
 std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
 // Build a normalized analyzer key from index properties.
-// Checks custom_analyzer first, then falls back to parser type.
+// Precedence is analyzer, then parser type. Normalizer is not an index-selection key.
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties);
 

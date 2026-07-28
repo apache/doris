@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
@@ -134,6 +135,10 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexType indexType = existedIdx.getIndexType();
+        OlapTable olapTable = (OlapTable) table;
+        if (olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.SNII) {
+            throw new AnalysisException("BUILD INDEX is not supported for SNII inverted index storage format yet");
+        }
         if ((Config.isNotCloudMode() && indexType == IndexType.NGRAM_BF)
                 || indexType == IndexType.BLOOMFILTER
                 || (Config.isCloudMode()

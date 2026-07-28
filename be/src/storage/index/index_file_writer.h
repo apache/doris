@@ -22,23 +22,38 @@
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_storage_format.h"
+#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+
+namespace doris::snii::writer {
+class MemoryReporter;
+class SpimiTermBuffer;
+class SniiCompoundWriter;
+} // namespace doris::snii::writer
 
 namespace doris {
 class TabletIndex;
 
 namespace segment_v2 {
 class DorisFSDirectory;
+namespace snii_doris {
+class DorisSniiFileWriter;
+} // namespace snii_doris
 
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
@@ -55,6 +70,55 @@ public:
     virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
+    // Write-path facts for one SNII index flush.
+    struct SniiAddIndexOptions {
+        // This flush serves a stream/broker load (DataWriteType::TYPE_DIRECT):
+        // the prx region compresses at snii_prx_zstd_level_direct_load;
+        // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
+        bool is_direct_load = false;
+        // Present only for a CommonGrams writer that has a complete immutable
+        // capability identity. These are semantic BM25 inputs; physical TTF is
+        // still derived from every emitted unigram and gram posting.
+        std::vector<uint8_t> encoded_norms;
+        std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata;
+        snii::format::CommonGramsPostingPolicy common_grams_posting_policy =
+                snii::format::CommonGramsPostingPolicy::kNone;
+    };
+    Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
+                          std::vector<uint32_t> null_docids,
+                          doris::snii::writer::SpimiTermBuffer* const term_buffer,
+                          doris::snii::format::IndexConfig index_config,
+                          SniiAddIndexOptions options,
+                          doris::snii::writer::MemoryReporter* const mem_reporter);
+    // T2.2 compaction index merge fast path: begins a STREAMED SNII index
+    // session on this compound. Unlike add_snii_index (which drains a SPIMI
+    // term buffer), the caller pushes pre-merged, lexicographically sorted
+    // terms through *session and seals the index with (*session)->finish().
+    // Write parameters resolve through the SAME helper as add_snii_index
+    // (write_freq / zstd levels / dict block size), always at the COMPACTION
+    // prx tier (a merge is never a direct load). CommonGrams T3 callers transfer
+    // a precharged destination norm vector and a validated static metadata seed;
+    // the streamed session late-binds semantic token_count before finish. Only ONE
+    // session may be active per compound at a time, and begin_close() with an
+    // unfinished session fails instead of sealing a half-fed container. The
+    // handle is owned by this writer and valid until it is destroyed.
+    Status add_snii_index_streamed(
+            const TabletIndex* index_meta, uint32_t doc_count,
+            doris::snii::writer::TrackedNullDocids null_docids,
+            doris::snii::format::IndexConfig index_config,
+            std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
+            doris::snii::writer::SniiStreamedIndexSession** session);
+    Status add_snii_index_streamed(
+            const TabletIndex* index_meta, uint32_t doc_count,
+            doris::snii::writer::TrackedNullDocids null_docids,
+            doris::snii::writer::TrackedEncodedNorms encoded_norms,
+            std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata,
+            doris::snii::format::CommonGramsPostingPolicy common_grams_posting_policy,
+            doris::snii::format::IndexConfig index_config,
+            std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
+            doris::snii::writer::SniiStreamedIndexSession** session);
+    void retain_snii_memory_reporter(
+            std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();
@@ -113,6 +177,10 @@ private:
 
     IndexStorageFormatPtr _index_storage_format;
     int64_t _tablet_id = -1;
+    std::unique_ptr<snii_doris::DorisSniiFileWriter> _snii_file_writer;
+    std::vector<std::shared_ptr<doris::snii::writer::MemoryReporter>> _snii_memory_reporters;
+    std::unique_ptr<doris::snii::writer::SniiCompoundWriter> _snii_compound_writer;
+    size_t _snii_index_count = 0;
 
     friend class IndexStorageFormatV1;
     friend class IndexStorageFormatV2;

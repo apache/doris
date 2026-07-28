@@ -1,0 +1,986 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/index/snii/query/query_profile.h"
+
+#include <gtest/gtest.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <functional>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/runtime_profile.h"
+#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/boolean_query.h"
+#include "storage/index/snii/query/internal/query_test_counters.h"
+#include "storage/index/snii/query/phrase_prx_validation.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/phrase_verify_timer.h"
+#include "storage/index/snii/query/prefix_query.h"
+#include "storage/index/snii/query/regexp_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/wildcard_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_prx_profile.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
+#include "util/defer_op.h"
+
+using namespace doris::snii;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
+using doris::Status;
+
+namespace {
+
+template <typename T>
+concept HasSniiPrxEncodedBytes = requires(T value) { value.snii_prx_encoded_bytes; };
+template <typename T>
+concept HasSniiPrxPayloadBytes = requires(T value) { value.snii_prx_payload_bytes; };
+template <typename T>
+concept HasSniiPrxCompressedBytes = requires(T value) { value.snii_prx_compressed_bytes; };
+template <typename T>
+concept HasSniiPrxChild128Touches = requires(T value) { value.snii_prx_child_128_touches; };
+template <typename T>
+concept HasSniiPrxChild256Touches = requires(T value) { value.snii_prx_child_256_touches; };
+template <typename T>
+concept HasSniiPrxCrcValidationNs = requires(T value) { value.snii_prx_crc_validation_ns; };
+template <typename T>
+concept HasSniiPrxDecompressNs = requires(T value) { value.snii_prx_decompress_ns; };
+template <typename T>
+concept HasSniiPrxScratchAllocationEvents =
+        requires(T value) { value.snii_prx_scratch_allocation_events; };
+template <typename T>
+concept HasSniiPrxContainerAllocationEvents =
+        requires(T value) { value.snii_prx_container_allocation_events; };
+
+static_assert(!HasSniiPrxEncodedBytes<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxPayloadBytes<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxCompressedBytes<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxChild128Touches<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxChild256Touches<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxCrcValidationNs<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxDecompressNs<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxScratchAllocationEvents<doris::OlapReaderStatistics>);
+static_assert(!HasSniiPrxContainerAllocationEvents<doris::OlapReaderStatistics>);
+
+std::string TempPath() {
+    static int counter = 0;
+    return "/tmp/snii_query_profile_" + std::to_string(getpid()) + "_" + std::to_string(counter++) +
+           ".idx";
+}
+
+struct Corpus {
+    std::vector<std::vector<std::string>> docs;
+};
+
+Corpus BuildCorpus() {
+    Corpus c;
+    c.docs.resize(128);
+    for (uint32_t d = 0; d < c.docs.size(); ++d) {
+        std::vector<std::string>& doc = c.docs[d];
+        doc.emplace_back("lead");
+        doc.emplace_back("quick");
+        doc.emplace_back(d % 2 == 0 ? "brown" : "bronze");
+        char term[16];
+        std::snprintf(term, sizeof(term), "aa_%03u", d);
+        doc.emplace_back(term);
+    }
+    return c;
+}
+
+Corpus BuildHighTfCorpus() {
+    constexpr uint32_t kTailCount = 33;
+    constexpr uint32_t kRepetitions = 48;
+    Corpus corpus;
+    corpus.docs.resize(600);
+    for (uint32_t docid = 0; docid < corpus.docs.size(); ++docid) {
+        std::vector<std::string>& doc = corpus.docs[docid];
+        doc.reserve(kRepetitions * 5);
+        char tail[32];
+        std::snprintf(tail, sizeof(tail), "epsilon_%02u", docid % kTailCount);
+        for (uint32_t repetition = 0; repetition < kRepetitions; ++repetition) {
+            doc.insert(doc.end(), {"alpha", "beta", "gamma", "delta", tail});
+        }
+    }
+    return corpus;
+}
+
+Corpus BuildSingleTailGroupCorpus() {
+    Corpus corpus;
+    corpus.docs.resize(96);
+    for (uint32_t docid = 0; docid < corpus.docs.size(); ++docid) {
+        char tail[32];
+        std::snprintf(tail, sizeof(tail), "epsilon_%02u", docid % 3);
+        corpus.docs[docid] = {"alpha", "beta", tail};
+    }
+    return corpus;
+}
+
+Corpus BuildDisjointTailGroupCorpus() {
+    Corpus corpus;
+    corpus.docs.resize(99);
+    for (uint32_t docid = 0; docid < 96; ++docid) {
+        corpus.docs[docid] = {"alpha", "beta", "other"};
+    }
+    for (uint32_t tail = 0; tail < 3; ++tail) {
+        char term[32];
+        std::snprintf(term, sizeof(term), "epsilon_%02u", tail);
+        corpus.docs[96 + tail] = {term};
+    }
+    return corpus;
+}
+
+void WriteCorpus(const Corpus& c, const std::string& path) {
+    SpimiTermBuffer buf(/*has_positions=*/true);
+    for (uint32_t d = 0; d < c.docs.size(); ++d) {
+        const std::vector<std::string>& terms = c.docs[d];
+        for (uint32_t pos = 0; pos < terms.size(); ++pos) {
+            buf.add_token(terms[pos], d, pos);
+        }
+    }
+
+    SniiIndexInput in;
+    in.index_id = 1;
+    in.index_suffix = "body";
+    in.config = doris::snii::format::IndexConfig::kDocsPositionsScoring;
+    in.doc_count = static_cast<uint32_t>(c.docs.size());
+    in.encoded_norms.assign(c.docs.size(), 1);
+    doris::segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
+    metadata.plain_term_key_version =
+            doris::segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
+    metadata.scoring_coverage = doris::segment_v2::inverted_index::ScoringCoverage::kComplete;
+    metadata.scoring_stats_version =
+            doris::segment_v2::inverted_index::COMMON_GRAMS_SCORING_STATS_VERSION_V1;
+    metadata.norm_semantics_version =
+            doris::segment_v2::inverted_index::COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1;
+    metadata.base_analyzer_fingerprint = "query-profile-test";
+    metadata.scoring_doc_count = c.docs.size();
+    for (const auto& terms : c.docs) {
+        metadata.scoring_token_count += terms.size();
+    }
+    in.common_grams_metadata = std::move(metadata);
+    in.terms = buf.finalize_sorted();
+    in.target_dict_block_bytes = 512;
+
+    io::LocalFileWriter writer;
+    ASSERT_TRUE(writer.open(path).ok());
+    SniiCompoundWriter compound(&writer);
+    ASSERT_TRUE(compound.add_logical_index(in).ok());
+    ASSERT_TRUE(compound.finish().ok());
+}
+
+LogicalIndexReader OpenMeteredIndex(io::MeteredFileReader* file, SniiSegmentReader* segment) {
+    EXPECT_TRUE(SniiSegmentReader::open(file, segment).ok());
+    LogicalIndexReader idx;
+    EXPECT_TRUE(segment->open_index(1, "body", &idx).ok());
+    return idx;
+}
+
+void ExpectProfileMatchesMeteredDelta(io::MeteredFileReader* metered,
+                                      const std::function<Status(query::QueryProfile*)>& run) {
+    metered->reset_metrics();
+    query::QueryProfile profile;
+    const Status st = run(&profile);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_GT(profile.elapsed_ns, 0U);
+    ASSERT_TRUE(profile.has_io_metrics);
+    EXPECT_EQ(profile.io_delta.read_at_calls, metered->metrics().read_at_calls);
+    EXPECT_EQ(profile.io_delta.serial_rounds, metered->metrics().serial_rounds);
+    EXPECT_EQ(profile.io_delta.range_gets, metered->metrics().range_gets);
+    EXPECT_EQ(profile.io_delta.remote_bytes, metered->metrics().remote_bytes);
+    EXPECT_EQ(profile.io_delta.total_request_bytes, metered->metrics().total_request_bytes);
+}
+
+template <typename... Args>
+concept CanCallPhraseQuery = requires(Args... args) { query::phrase_query(args...); };
+
+template <typename... Args>
+concept CanCallPhrasePrefixQuery = requires(Args... args) { query::phrase_prefix_query(args...); };
+
+} // namespace
+
+TEST(SniiQueryProfileTest, PhraseProfileInterfacesDoNotExposeTraceSinks) {
+    using PhraseProfileFunction =
+            Status (*)(const LogicalIndexReader&, const std::vector<std::string>&,
+                       std::vector<uint32_t>*, query::QueryProfile*);
+    using PhrasePrefixProfileFunction =
+            Status (*)(const LogicalIndexReader&, const std::vector<std::string>&,
+                       std::vector<uint32_t>*, query::QueryProfile*, int32_t);
+
+    EXPECT_NE(static_cast<PhraseProfileFunction>(&query::phrase_query), nullptr);
+    EXPECT_NE(static_cast<PhrasePrefixProfileFunction>(&query::phrase_prefix_query), nullptr);
+    static_assert(
+            !CanCallPhraseQuery<const LogicalIndexReader&, const std::vector<std::string>&,
+                                std::vector<uint32_t>*, query::QueryProfile*, std::nullptr_t>);
+    static_assert(!CanCallPhrasePrefixQuery<const LogicalIndexReader&,
+                                            const std::vector<std::string>&, std::vector<uint32_t>*,
+                                            query::QueryProfile*, int32_t, std::nullptr_t>);
+}
+
+TEST(SniiQueryProfileTest, SuccessfulDecodeKeepsStatsWhenCallerShapeValidationFails) {
+    const std::vector<std::vector<uint32_t>> positions = {{1}, {2, 4}, {3}};
+    ByteSink sink;
+    ASSERT_TRUE(format::build_prx_window(positions, /*zstd_level=*/0, &sink).ok());
+
+    const std::vector<uint32_t> selected_ordinals = {0, 2};
+    std::vector<uint32_t> flat;
+    std::vector<uint32_t> offsets;
+    format::PrxDecodeStats stats;
+    format::PrxDecodeContext context {.stats = &stats};
+    ByteSource source(sink.view());
+    EXPECT_TRUE(query::internal::decode_and_validate_prx_frame(
+                        &source, selected_ordinals,
+                        /*decode_full=*/false,
+                        /*all_docs_selected=*/false,
+                        /*expected_total_docs=*/static_cast<uint32_t>(positions.size() + 1),
+                        /*expected_selected_docs=*/selected_ordinals.size(), &flat, &offsets,
+                        &context)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    EXPECT_EQ(stats.raw_frames, 1U);
+    EXPECT_EQ(stats.total_docs, positions.size());
+    EXPECT_EQ(stats.selected_docs, selected_ordinals.size());
+    EXPECT_EQ(stats.total_positions, 4U);
+    EXPECT_EQ(stats.selected_positions, 2U);
+}
+
+TEST(SniiQueryProfileTest, PhrasePrxValidationRejectsOnlyTotalDocMismatch) {
+    const std::vector<uint32_t> flat = {1, 2, 3, 4};
+    const std::vector<uint32_t> selected_ordinals = {0, 2};
+    EXPECT_TRUE(query::internal::validate_prx_frame(
+                        flat, std::vector<uint32_t> {0, 1, 4},
+                        /*actual_total_docs=*/3, /*expected_total_docs=*/4,
+                        /*expected_selected_docs=*/selected_ordinals.size(), selected_ordinals,
+                        /*offsets_by_prx_ordinal=*/false,
+                        /*all_docs_selected=*/false)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiQueryProfileTest, PhrasePrxValidationRejectsOnlyOffsetCountMismatch) {
+    const std::vector<uint32_t> flat = {1, 2, 3, 4};
+    const std::vector<uint32_t> selected_ordinals = {0, 2};
+    EXPECT_TRUE(query::internal::validate_prx_frame(
+                        flat, std::vector<uint32_t> {0, 4},
+                        /*actual_total_docs=*/4, /*expected_total_docs=*/4,
+                        /*expected_selected_docs=*/selected_ordinals.size(), selected_ordinals,
+                        /*offsets_by_prx_ordinal=*/false,
+                        /*all_docs_selected=*/false)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiQueryProfileTest, PhrasePrxValidationRejectsOnlyFinalOffsetMismatch) {
+    const std::vector<uint32_t> flat = {1, 2, 3, 4};
+    const std::vector<uint32_t> selected_ordinals = {0, 2};
+    EXPECT_TRUE(query::internal::validate_prx_frame(
+                        flat, std::vector<uint32_t> {0, 1, 3},
+                        /*actual_total_docs=*/4, /*expected_total_docs=*/4,
+                        /*expected_selected_docs=*/selected_ordinals.size(), selected_ordinals,
+                        /*offsets_by_prx_ordinal=*/false,
+                        /*all_docs_selected=*/false)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiQueryProfileTest, PhrasePrxValidationRejectsOnlySelectionCountMismatch) {
+    const std::vector<uint32_t> flat = {1, 2, 3, 4};
+    const std::vector<uint32_t> selected_ordinals = {0, 2};
+    EXPECT_TRUE(query::internal::validate_prx_frame(flat, std::vector<uint32_t> {0, 4},
+                                                    /*actual_total_docs=*/4,
+                                                    /*expected_total_docs=*/4,
+                                                    /*expected_selected_docs=*/1, selected_ordinals,
+                                                    /*offsets_by_prx_ordinal=*/false,
+                                                    /*all_docs_selected=*/false)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiQueryProfileTest, PhrasePrxValidationRejectsOnlyOrdinalRangeMismatch) {
+    const std::vector<uint32_t> flat = {1, 2, 3, 4};
+    const std::vector<uint32_t> selected_ordinals = {0, 4};
+    EXPECT_TRUE(query::internal::validate_prx_frame(
+                        flat, std::vector<uint32_t> {0, 1, 2, 3, 4},
+                        /*actual_total_docs=*/4, /*expected_total_docs=*/4,
+                        /*expected_selected_docs=*/selected_ordinals.size(), selected_ordinals,
+                        /*offsets_by_prx_ordinal=*/true,
+                        /*all_docs_selected=*/false)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiQueryProfileTest, PhraseVerifyTimeExcludesDecodeDelta) {
+    EXPECT_EQ(query::internal::exclusive_phrase_verify_ns(
+                      /*elapsed_ns=*/100, /*decode_ns_before=*/20, /*decode_ns_after=*/65),
+              55U);
+    EXPECT_EQ(query::internal::exclusive_phrase_verify_ns(
+                      /*elapsed_ns=*/100, /*decode_ns_before=*/65, /*decode_ns_after=*/65),
+              100U);
+    EXPECT_EQ(query::internal::exclusive_phrase_verify_ns(
+                      /*elapsed_ns=*/30, /*decode_ns_before=*/20, /*decode_ns_after=*/65),
+              0U);
+}
+
+TEST(SniiQueryProfileTest, UnprofiledSelectivePhraseKeepsInstrumentationDisabled) {
+    Corpus corpus;
+    corpus.docs.resize(600);
+    for (uint32_t docid = 0; docid < corpus.docs.size(); ++docid) {
+        corpus.docs[docid] = {"common", docid % 4 == 0 ? "rare" : "other"};
+    }
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    std::vector<uint32_t> docs;
+    format::testing::reset_prx_clock_read_count();
+    query::internal::testing::reset_phrase_verify_clock_read_count();
+    DEFER(format::testing::reset_prx_clock_read_count());
+    DEFER(query::internal::testing::reset_phrase_verify_clock_read_count());
+    ASSERT_TRUE(query::phrase_query(idx, {"common", "rare"}, &docs).ok());
+
+    EXPECT_EQ(docs.size(), 150U);
+    EXPECT_EQ(format::testing::prx_clock_read_count(), 0U);
+    EXPECT_EQ(query::internal::testing::phrase_verify_clock_read_count(), 0U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, PhraseVerifyClockIsDisabledWithoutProfile) {
+    const Corpus corpus = BuildCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    std::vector<uint32_t> docs;
+    query::internal::testing::reset_phrase_verify_clock_read_count();
+    ASSERT_TRUE(query::phrase_query(idx, {"quick", "brown"}, &docs).ok());
+    EXPECT_EQ(query::internal::testing::phrase_verify_clock_read_count(), 0U);
+
+    query::QueryProfile profile;
+    ASSERT_TRUE(query::phrase_query(idx, {"quick", "brown"}, &docs, &profile).ok());
+    EXPECT_GT(query::internal::testing::phrase_verify_clock_read_count(), 0U);
+    EXPECT_GT(profile.prx_decode_stats.decode_ns, 0U);
+    EXPECT_GT(profile.prx_decode_stats.phrase_verify_ns, 0U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, MultiWindowFiveTermQueriesAggregateEveryPrxFrame) {
+    Corpus corpus;
+    corpus.docs.resize(600);
+    for (auto& doc : corpus.docs) {
+        doc = {"alpha", "beta", "gamma", "delta", "epsilon"};
+    }
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+    const auto expect_totals = [](const query::QueryProfile& profile) {
+        EXPECT_EQ(profile.prx_decode_stats.frame_count(), 15U);
+        EXPECT_EQ(profile.prx_decode_stats.total_docs, 3000U);
+        EXPECT_EQ(profile.prx_decode_stats.selected_docs, 3000U);
+        EXPECT_EQ(profile.prx_decode_stats.total_positions, 3000U);
+        EXPECT_EQ(profile.prx_decode_stats.selected_positions, 3000U);
+    };
+
+    std::vector<uint32_t> docs;
+    ASSERT_TRUE(query::phrase_query(idx, {"alpha", "beta"}, &docs).ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+
+    query::QueryProfile phrase_profile;
+    ASSERT_TRUE(query::phrase_query(idx, {"alpha", "beta", "gamma", "delta", "epsilon"}, &docs,
+                                    &phrase_profile)
+                        .ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    expect_totals(phrase_profile);
+    EXPECT_EQ(phrase_profile.prx_decode_stats.zstd_frames, 10U);
+
+    query::QueryProfile prefix_profile;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"alpha", "beta", "gamma", "delta", "eps"}, &docs,
+                                           &prefix_profile)
+                        .ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    expect_totals(prefix_profile);
+    EXPECT_EQ(prefix_profile.prx_decode_stats.zstd_frames, 10U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, HighTfPhraseAndPrefixAggregateRetainedPrxStats) {
+    const Corpus corpus = BuildHighTfCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    std::vector<uint32_t> docs;
+    ASSERT_TRUE(query::phrase_query(idx, {"alpha", "beta"}, &docs).ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    const std::vector<uint32_t> matched_docs = docs;
+
+    ASSERT_TRUE(query::phrase_query(idx, {"alpha", "gamma"}, &docs).ok());
+    EXPECT_TRUE(docs.empty());
+
+    std::vector<query::PhraseMatch> frequency_matches;
+    ASSERT_TRUE(
+            query::phrase_query_with_frequencies(idx, {"alpha", "beta"}, &frequency_matches).ok());
+    std::vector<uint32_t> frequency_docids;
+    frequency_docids.reserve(frequency_matches.size());
+    for (const auto& match : frequency_matches) {
+        frequency_docids.push_back(match.docid);
+    }
+    EXPECT_EQ(matched_docs, frequency_docids);
+
+    ASSERT_TRUE(query::phrase_query(idx, {"delta", "epsilon_00"}, &docs).ok());
+    EXPECT_EQ(docs.size(), 19U);
+
+    format::testing::reset_prx_clock_read_count();
+    query::internal::testing::reset_phrase_verify_clock_read_count();
+    DEFER(format::testing::reset_prx_clock_read_count());
+    DEFER(query::internal::testing::reset_phrase_verify_clock_read_count());
+    ASSERT_TRUE(query::phrase_query(idx, {"alpha", "beta", "gamma", "delta"}, &docs).ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    EXPECT_EQ(format::testing::prx_clock_read_count(), 0U);
+    EXPECT_EQ(query::internal::testing::phrase_verify_clock_read_count(), 0U);
+
+    query::QueryProfile phrase_profile;
+    ASSERT_TRUE(
+            query::phrase_query(idx, {"alpha", "beta", "gamma", "delta"}, &docs, &phrase_profile)
+                    .ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    EXPECT_EQ(phrase_profile.prx_decode_stats.zstd_frames, 12U);
+    EXPECT_EQ(phrase_profile.prx_decode_stats.frame_count(), 12U);
+    EXPECT_EQ(phrase_profile.prx_decode_stats.total_docs, 2400U);
+    EXPECT_EQ(phrase_profile.prx_decode_stats.selected_docs, 2400U);
+    EXPECT_EQ(phrase_profile.prx_decode_stats.total_positions, 115200U);
+    EXPECT_EQ(phrase_profile.prx_decode_stats.selected_positions, 115200U);
+
+    query::internal::query_test_counters() = query::internal::QueryTestCounters {};
+    DEFER(query::internal::query_test_counters() = query::internal::QueryTestCounters {});
+    query::QueryProfile prefix_profile;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"alpha", "beta", "gamma", "delta", "eps"}, &docs,
+                                           &prefix_profile, /*max_expansions=*/0)
+                        .ok());
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    EXPECT_EQ(prefix_profile.prx_decode_stats.zstd_frames, 45U);
+    EXPECT_EQ(prefix_profile.prx_decode_stats.frame_count(), 45U);
+    EXPECT_EQ(prefix_profile.prx_decode_stats.total_docs, 3000U);
+    EXPECT_EQ(prefix_profile.prx_decode_stats.selected_docs, 3000U);
+    EXPECT_EQ(prefix_profile.prx_decode_stats.total_positions, 144000U);
+    EXPECT_EQ(prefix_profile.prx_decode_stats.selected_positions, 144000U);
+    EXPECT_GT(query::internal::query_test_counters().monotonic_position_scans, 0U);
+
+    format::testing::reset_prx_clock_read_count();
+    query::internal::testing::reset_phrase_verify_clock_read_count();
+    query::QueryProfile single_phrase_profile;
+    ASSERT_TRUE(query::phrase_query(idx, {"alpha"}, &docs, &single_phrase_profile).ok());
+    EXPECT_EQ(single_phrase_profile.prx_decode_stats, format::PrxDecodeStats {});
+    query::QueryProfile single_prefix_profile;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"eps"}, &docs, &single_prefix_profile).ok());
+    EXPECT_EQ(single_prefix_profile.prx_decode_stats, format::PrxDecodeStats {});
+    EXPECT_EQ(format::testing::prx_clock_read_count(), 0U);
+    EXPECT_EQ(query::internal::testing::phrase_verify_clock_read_count(), 0U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, SingleTailGroupVisitsExpectedDocsOnce) {
+    const Corpus corpus = BuildSingleTailGroupCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    query::internal::query_test_counters() = query::internal::QueryTestCounters {};
+    DEFER(query::internal::query_test_counters() = query::internal::QueryTestCounters {});
+    std::vector<uint32_t> docs;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"alpha", "beta", "eps"}, &docs,
+                                           /*max_expansions=*/0)
+                        .ok());
+
+    EXPECT_EQ(docs.size(), corpus.docs.size());
+    EXPECT_EQ(query::internal::query_test_counters().prefix_expected_doc_visits,
+              corpus.docs.size());
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, DisjointTailGroupDoesNotVisitExpectedDocs) {
+    const Corpus corpus = BuildDisjointTailGroupCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    query::internal::query_test_counters() = query::internal::QueryTestCounters {};
+    DEFER(query::internal::query_test_counters() = query::internal::QueryTestCounters {});
+    std::vector<uint32_t> docs;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"alpha", "beta", "eps"}, &docs,
+                                           /*max_expansions=*/0)
+                        .ok());
+
+    EXPECT_TRUE(docs.empty());
+    EXPECT_EQ(query::internal::query_test_counters().prefix_expected_doc_visits, 0U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, MultiTermPhraseResumesPairStartsAndEmitsEachDocOnce) {
+    Corpus corpus;
+    corpus.docs.resize(64, {"c"});
+    corpus.docs[0] = {"a", "b", "x", "a", "b", "c"};
+    corpus.docs[1] = {"a", "a", "a", "c"};
+    corpus.docs[2] = {"a", "b", "c", "a", "b", "c"};
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    std::vector<uint32_t> docs;
+    ASSERT_TRUE(query::phrase_query(idx, {"a", "b", "c"}, &docs).ok());
+    EXPECT_EQ(docs, (std::vector<uint32_t> {0, 2}));
+
+    ASSERT_TRUE(query::phrase_query(idx, {"a", "a", "a"}, &docs).ok());
+    EXPECT_EQ(docs, (std::vector<uint32_t> {1}));
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, HalfDensePhraseUsesFullDecodeAndReportsOriginalSelection) {
+    Corpus corpus;
+    corpus.docs.resize(600);
+    for (uint32_t docid = 0; docid < corpus.docs.size(); ++docid) {
+        corpus.docs[docid] = {"common", docid % 2 == 0 ? "rare" : "other"};
+    }
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    LogicalIndexReader idx;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    ASSERT_TRUE(segment.open_index(1, "body", &idx).ok());
+
+    query::QueryProfile profile;
+    std::vector<uint32_t> docs;
+    ASSERT_TRUE(query::phrase_query(idx, {"common", "rare"}, &docs, &profile).ok());
+
+    ASSERT_EQ(docs.size(), 300U);
+    for (size_t i = 0; i < docs.size(); ++i) {
+        EXPECT_EQ(docs[i], i * 2);
+    }
+    EXPECT_EQ(profile.prx_decode_stats.frame_count(), 4U);
+    EXPECT_EQ(profile.prx_decode_stats.total_docs, 900U);
+    EXPECT_EQ(profile.prx_decode_stats.selected_docs, 600U);
+    EXPECT_EQ(profile.prx_decode_stats.total_positions, 900U);
+    EXPECT_EQ(profile.prx_decode_stats.selected_positions, 600U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfile, ReportsElapsedTimeAndMeteredIoForNativeOperators) {
+    const Corpus corpus = BuildCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    io::MeteredFileReader metered(&local, /*block_size=*/512);
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenMeteredIndex(&metered, &segment);
+
+    std::vector<uint32_t> docs;
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::term_query(idx, "lead", &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::boolean_or(idx, {"lead", "missing"}, &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::boolean_and(idx, {"quick", "brown"}, &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::prefix_query(idx, "aa_", &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::wildcard_query(idx, "aa_0??", &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::regexp_query(idx, "aa_00[0-9]", &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::phrase_query(idx, {"quick", "brown"}, &docs, profile);
+    });
+    ExpectProfileMatchesMeteredDelta(&metered, [&](query::QueryProfile* profile) {
+        return query::phrase_prefix_query(idx, {"quick", "bro"}, &docs, profile);
+    });
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfile, ReportsElapsedTimeForInvalidRegexpPath) {
+    const Corpus corpus = BuildCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    io::MeteredFileReader metered(&local, /*block_size=*/512);
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenMeteredIndex(&metered, &segment);
+
+    metered.reset_metrics();
+    std::vector<uint32_t> docs;
+    query::QueryProfile profile;
+    const Status st = query::regexp_query(idx, "(", &docs, &profile);
+
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(docs.empty());
+    EXPECT_GT(profile.elapsed_ns, 0U);
+    ASSERT_TRUE(profile.has_io_metrics);
+    EXPECT_EQ(profile.io_delta.read_at_calls, 0U);
+    EXPECT_EQ(profile.io_delta.serial_rounds, 0U);
+    EXPECT_EQ(profile.io_delta.range_gets, 0U);
+    EXPECT_EQ(profile.io_delta.remote_bytes, 0U);
+    EXPECT_EQ(profile.io_delta.total_request_bytes, 0U);
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfile, ScopeFinalizesProfileOnEarlyReturn) {
+    query::QueryProfile profile;
+    { query::QueryProfileScope scope(/*reader=*/nullptr, &profile); }
+
+    EXPECT_GT(profile.elapsed_ns, 0U);
+    EXPECT_FALSE(profile.has_io_metrics);
+}
+
+TEST(SniiQueryProfileTest, AggregatesMultiTermPrxAndKeepsSingleTermControlsAtZero) {
+    const Corpus corpus = BuildCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    io::MeteredFileReader metered(&local, /*block_size=*/512);
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenMeteredIndex(&metered, &segment);
+
+    std::vector<uint32_t> docs;
+    query::QueryProfile phrase_profile;
+    ASSERT_TRUE(query::phrase_query(idx, {"quick", "brown"}, &docs, &phrase_profile).ok());
+    EXPECT_GT(phrase_profile.prx_decode_stats.frame_count(), 0U);
+    EXPECT_GT(phrase_profile.prx_decode_stats.total_docs, 0U);
+    EXPECT_LE(phrase_profile.prx_decode_stats.selected_docs,
+              phrase_profile.prx_decode_stats.total_docs);
+    EXPECT_GT(phrase_profile.prx_decode_stats.phrase_verify_ns, 0U);
+
+    query::QueryProfile prefix_profile;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"quick", "bro"}, &docs, &prefix_profile).ok());
+    EXPECT_GT(prefix_profile.prx_decode_stats.frame_count(), 0U);
+    EXPECT_TRUE(prefix_profile.prx_decode_stats.is_valid());
+
+    query::QueryProfile one_phrase_profile;
+    ASSERT_TRUE(query::phrase_query(idx, {"quick"}, &docs, &one_phrase_profile).ok());
+    EXPECT_EQ(one_phrase_profile.prx_decode_stats, doris::snii::format::PrxDecodeStats {});
+
+    query::QueryProfile one_prefix_profile;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"bro"}, &docs, &one_prefix_profile).ok());
+    EXPECT_EQ(one_prefix_profile.prx_decode_stats, doris::snii::format::PrxDecodeStats {});
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiQueryProfileTest, ReaderAndRuntimePrxTotalsAreAdditiveWithStableNames) {
+    doris::snii::format::PrxDecodeStats delta;
+    delta.raw_frames = 1;
+    delta.zstd_frames = 2;
+    delta.pfor_frames = 3;
+    delta.plaintext_bytes = 101;
+    delta.total_docs = 8;
+    delta.selected_docs = 7;
+    delta.total_positions = 9;
+    delta.selected_positions = 6;
+    delta.fetch_ns = 10;
+    delta.decode_ns = 11;
+    delta.phrase_verify_ns = 12;
+
+    doris::OlapReaderStatistics reader_stats;
+    doris::snii::add_prx_decode_stats(&reader_stats, delta);
+    doris::snii::add_prx_decode_stats(&reader_stats, delta);
+    EXPECT_EQ(reader_stats.snii_stats.prx_raw_frames, 2);
+    EXPECT_EQ(reader_stats.snii_stats.prx_zstd_frames, 4);
+    EXPECT_EQ(reader_stats.snii_stats.prx_pfor_frames, 6);
+    EXPECT_EQ(reader_stats.snii_stats.prx_plaintext_bytes, 202);
+    EXPECT_EQ(reader_stats.snii_stats.prx_total_docs, 16);
+    EXPECT_EQ(reader_stats.snii_stats.prx_selected_docs, 14);
+    EXPECT_EQ(reader_stats.snii_stats.prx_total_positions, 18);
+    EXPECT_EQ(reader_stats.snii_stats.prx_selected_positions, 12);
+    EXPECT_EQ(reader_stats.snii_stats.prx_fetch_ns, 20);
+    EXPECT_EQ(reader_stats.snii_stats.prx_decode_ns, 22);
+    EXPECT_EQ(reader_stats.snii_stats.prx_phrase_verify_ns, 24);
+
+    doris::RuntimeProfile runtime_profile("IndexFilter");
+    doris::snii::SniiPrxRuntimeProfileCounters counters;
+    counters.initialize(&runtime_profile);
+
+    std::vector<doris::TRuntimeProfileNode> zero_nodes;
+    runtime_profile.to_thrift(&zero_nodes);
+    ASSERT_EQ(zero_nodes.size(), 1U);
+    for (const char* name : doris::snii::SniiPrxRuntimeProfileCounters::counter_names()) {
+        EXPECT_TRUE(std::ranges::none_of(
+                zero_nodes.front().counters,
+                [name](const doris::TCounter& counter) { return counter.name == name; }))
+                << name;
+    }
+
+    counters.update(reader_stats);
+    counters.update(reader_stats);
+
+    EXPECT_EQ(doris::snii::SniiPrxRuntimeProfileCounters::counter_names().size(), 11U);
+    for (const char* name : doris::snii::SniiPrxRuntimeProfileCounters::counter_names()) {
+        auto* counter = runtime_profile.get_counter(name);
+        ASSERT_NE(counter, nullptr) << name;
+        EXPECT_NE(dynamic_cast<doris::RuntimeProfile::NonZeroCounter*>(counter), nullptr) << name;
+    }
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxEncodedBytes"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxPayloadBytes"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxCompressedBytes"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxChild128Touches"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxChild256Touches"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxNestedCrcValidationTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxNestedDecompressTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxScratchAllocationEvents"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxContainerAllocationEvents"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxCountScanTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxSkipTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxTraceAllocationEvents"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxTraceRecords"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxDecodeTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxCrcValidationTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxDecompressTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxPhraseVerifyTime"), nullptr);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxRawFrames")->type(), doris::TUnit::UNIT);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxPlaintextBytes")->type(), doris::TUnit::BYTES);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxInclusiveDecodeTime")->type(),
+              doris::TUnit::TIME_NS);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxExclusivePhraseVerifyTime")->type(),
+              doris::TUnit::TIME_NS);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxRawFrames")->value(), 4);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxZstdFrames")->value(), 8);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxPforFrames")->value(), 12);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxPlaintextBytes")->value(), 404);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxTotalDocs")->value(), 32);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxSelectedDocs")->value(), 28);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxTotalPositions")->value(), 36);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxSelectedPositions")->value(), 24);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxFetchTime")->value(), 40);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxInclusiveDecodeTime")->value(), 44);
+    EXPECT_EQ(runtime_profile.get_counter("SniiPrxExclusivePhraseVerifyTime")->value(), 48);
+
+    std::vector<doris::TRuntimeProfileNode> nonzero_nodes;
+    runtime_profile.to_thrift(&nonzero_nodes);
+    ASSERT_EQ(nonzero_nodes.size(), 1U);
+    for (const char* name : doris::snii::SniiPrxRuntimeProfileCounters::counter_names()) {
+        EXPECT_TRUE(std::ranges::any_of(
+                nonzero_nodes.front().counters,
+                [name](const doris::TCounter& counter) { return counter.name == name; }))
+                << name;
+    }
+}
+
+TEST(SniiQueryProfileTest, PhraseReaderAndRuntimeTotalsAreAdditiveAndNonZero) {
+    doris::snii::format::PhraseQueryExecutionStats delta;
+    delta.exact_candidate_docs = 1;
+    delta.exact_candidate_visits = 2;
+    delta.prefix_leading_candidate_docs = 3;
+    delta.prefix_tail_candidate_visits = 4;
+    delta.common_grams_candidate_queries = 5;
+    delta.common_grams_plain_plans = 6;
+    delta.common_grams_gram_plans = 7;
+    delta.common_grams_fallback_no_gram = 8;
+    delta.common_grams_fallback_incompatible = 9;
+    delta.common_grams_fallback_kill_switch = 10;
+    delta.common_grams_fallback_cost = 11;
+    delta.common_grams_authoritative_empty = 12;
+    delta.common_grams_plain_posting_bytes = 13;
+    delta.common_grams_gram_posting_bytes = 14;
+    delta.common_grams_plain_estimated_candidate_df = 15;
+    delta.common_grams_gram_estimated_candidate_df = 16;
+    delta.common_grams_plain_estimated_cost = 17;
+    delta.common_grams_gram_estimated_cost = 18;
+    delta.common_grams_fallback_base_analyzer_mismatch = 19;
+    delta.common_grams_fallback_prefix_tail_empty = 20;
+    delta.common_grams_planning_ns = 23;
+
+    doris::OlapReaderStatistics reader_stats;
+    doris::snii::add_phrase_query_stats(&reader_stats, delta);
+    doris::snii::add_phrase_query_stats(&reader_stats, delta);
+    EXPECT_EQ(reader_stats.snii_stats.phrase_candidate_docs, 2);
+    EXPECT_EQ(reader_stats.snii_stats.phrase_candidate_visits, 4);
+    EXPECT_EQ(reader_stats.snii_stats.phrase_prefix_leading_candidate_docs, 6);
+    EXPECT_EQ(reader_stats.snii_stats.phrase_prefix_tail_candidate_visits, 8);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_candidate_queries, 10);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_plans, 12);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_plans, 14);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_no_gram, 16);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_incompatible, 18);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_kill_switch, 20);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_cost, 22);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_authoritative_empty, 24);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_posting_bytes, 26);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_posting_bytes, 28);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_estimated_candidate_df, 30);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_estimated_candidate_df, 32);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_plain_estimated_cost, 34);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_gram_estimated_cost, 36);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_base_analyzer_mismatch, 38);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_fallback_prefix_tail_empty, 40);
+    EXPECT_EQ(reader_stats.snii_stats.common_grams_planning_ns, 46);
+
+    doris::RuntimeProfile runtime_profile("IndexFilter");
+    doris::snii::SniiPhraseRuntimeProfileCounters counters;
+    counters.initialize(&runtime_profile);
+
+    struct ExpectedCounter {
+        const char* name;
+        int64_t value_after_two_updates;
+        doris::TUnit::type unit;
+    };
+    const ExpectedCounter expected_counters[] = {
+            {"SniiPhraseCandidateDocs", 4, doris::TUnit::UNIT},
+            {"SniiPhraseCandidateVisits", 8, doris::TUnit::UNIT},
+            {"SniiPhrasePrefixLeadingCandidateDocs", 12, doris::TUnit::UNIT},
+            {"SniiPhrasePrefixTailCandidateVisits", 16, doris::TUnit::UNIT},
+            {"SniiCommonGramsCandidateQueries", 20, doris::TUnit::UNIT},
+            {"SniiCommonGramsPlainPlans", 24, doris::TUnit::UNIT},
+            {"SniiCommonGramsGramPlans", 28, doris::TUnit::UNIT},
+            {"SniiCommonGramsFallbackNoGram", 32, doris::TUnit::UNIT},
+            {"SniiCommonGramsFallbackIncompatible", 36, doris::TUnit::UNIT},
+            {"SniiCommonGramsFallbackKillSwitch", 40, doris::TUnit::UNIT},
+            {"SniiCommonGramsFallbackCost", 44, doris::TUnit::UNIT},
+            {"SniiCommonGramsAuthoritativeEmpty", 48, doris::TUnit::UNIT},
+            {"SniiCommonGramsPlainPostingBytes", 52, doris::TUnit::BYTES},
+            {"SniiCommonGramsGramPostingBytes", 56, doris::TUnit::BYTES},
+            {"SniiCommonGramsPlainEstimatedCandidateDf", 60, doris::TUnit::UNIT},
+            {"SniiCommonGramsGramEstimatedCandidateDf", 64, doris::TUnit::UNIT},
+            {"SniiCommonGramsPlainEstimatedCost", 68, doris::TUnit::UNIT},
+            {"SniiCommonGramsGramEstimatedCost", 72, doris::TUnit::UNIT},
+            {"SniiCommonGramsFallbackBaseAnalyzerMismatch", 76, doris::TUnit::UNIT},
+            {"SniiCommonGramsFallbackPrefixTailEmpty", 80, doris::TUnit::UNIT},
+            {"SniiCommonGramsPlanningTime", 92, doris::TUnit::TIME_NS},
+    };
+
+    std::vector<doris::TRuntimeProfileNode> zero_nodes;
+    runtime_profile.to_thrift(&zero_nodes);
+    ASSERT_EQ(zero_nodes.size(), 1U);
+    for (const auto& expected : expected_counters) {
+        EXPECT_TRUE(std::ranges::none_of(
+                zero_nodes.front().counters,
+                [&](const doris::TCounter& counter) { return counter.name == expected.name; }))
+                << expected.name;
+    }
+
+    counters.update(reader_stats);
+    counters.update(reader_stats);
+
+    EXPECT_EQ(doris::snii::SniiPrxRuntimeProfileCounters::counter_names().size(), 11U);
+    for (const auto& expected : expected_counters) {
+        auto* counter = runtime_profile.get_counter(expected.name);
+        ASSERT_NE(counter, nullptr) << expected.name;
+        EXPECT_NE(dynamic_cast<doris::RuntimeProfile::NonZeroCounter*>(counter), nullptr)
+                << expected.name;
+        EXPECT_EQ(counter->type(), expected.unit) << expected.name;
+        EXPECT_EQ(counter->value(), expected.value_after_two_updates) << expected.name;
+    }
+
+    std::vector<doris::TRuntimeProfileNode> nonzero_nodes;
+    runtime_profile.to_thrift(&nonzero_nodes);
+    ASSERT_EQ(nonzero_nodes.size(), 1U);
+    for (const auto& expected : expected_counters) {
+        EXPECT_TRUE(std::ranges::any_of(
+                nonzero_nodes.front().counters,
+                [&](const doris::TCounter& counter) { return counter.name == expected.name; }))
+                << expected.name;
+    }
+}
+
+TEST(SniiQueryProfileTest, ExecutionProfileScopeFlushesNormalAndErrorReturnsAdditively) {
+    static_assert(!std::is_copy_constructible_v<doris::snii::SniiPrxExecutionProfileScope>);
+    static_assert(!std::is_move_constructible_v<doris::snii::SniiPrxExecutionProfileScope>);
+
+    doris::OlapReaderStatistics reader_stats;
+    const auto execute = [&](bool fail) -> Status {
+        doris::snii::SniiPrxExecutionProfileScope scope(reader_stats);
+        scope.profile()->prx_decode_stats.raw_frames = 1;
+        scope.profile()->prx_decode_stats.plaintext_bytes = 17;
+        if (fail) {
+            return Status::InternalError("injected execution failure");
+        }
+        return Status::OK();
+    };
+
+    ASSERT_TRUE(execute(false).ok());
+    EXPECT_EQ(reader_stats.snii_stats.prx_raw_frames, 1);
+    EXPECT_EQ(reader_stats.snii_stats.prx_plaintext_bytes, 17);
+    ASSERT_FALSE(execute(true).ok());
+    EXPECT_EQ(reader_stats.snii_stats.prx_raw_frames, 2);
+    EXPECT_EQ(reader_stats.snii_stats.prx_plaintext_bytes, 34);
+}

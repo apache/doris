@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
@@ -30,6 +31,7 @@
 #include <fstream> // IWYU pragma: keep
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -1296,6 +1298,103 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
 
+namespace {
+
+constexpr uint64_t COMMON_GRAMS_QUERY_PLAN_ENABLED_MASK = 1;
+constexpr uint64_t COMMON_GRAMS_QUERY_PLAN_GENERATION_SHIFT = 1;
+std::atomic<uint64_t> common_grams_query_plan_state {COMMON_GRAMS_QUERY_PLAN_ENABLED_MASK};
+constexpr uint64_t COMMON_GRAMS_COST_RATIO_MASK = std::numeric_limits<uint32_t>::max();
+constexpr uint64_t COMMON_GRAMS_VERIFY_FACTOR_SHIFT = 32;
+std::atomic<uint64_t> common_grams_cost_model_state {85};
+
+bool valid_common_grams_cost_ratio(int32_t value) {
+    return value >= 0 && value <= 100;
+}
+
+bool valid_common_grams_verify_factor(int32_t value) {
+    return value >= 0;
+}
+
+void publish_common_grams_query_plan_state(bool enabled) {
+    uint64_t current = common_grams_query_plan_state.load(std::memory_order_acquire);
+    while ((current & COMMON_GRAMS_QUERY_PLAN_ENABLED_MASK) != static_cast<uint64_t>(enabled)) {
+        const uint64_t generation = (current >> COMMON_GRAMS_QUERY_PLAN_GENERATION_SHIFT) + 1;
+        const uint64_t desired = (generation << COMMON_GRAMS_QUERY_PLAN_GENERATION_SHIFT) |
+                                 static_cast<uint64_t>(enabled);
+        if (common_grams_query_plan_state.compare_exchange_weak(
+                    current, desired, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            return;
+        }
+    }
+}
+
+void publish_common_grams_cost_ratio(int32_t value) {
+    uint64_t current = common_grams_cost_model_state.load(std::memory_order_acquire);
+    if ((current & COMMON_GRAMS_COST_RATIO_MASK) == static_cast<uint32_t>(value)) {
+        return;
+    }
+    uint64_t desired = 0;
+    do {
+        desired = (current & ~COMMON_GRAMS_COST_RATIO_MASK) | static_cast<uint32_t>(value);
+    } while (!common_grams_cost_model_state.compare_exchange_weak(
+            current, desired, std::memory_order_acq_rel, std::memory_order_acquire));
+}
+
+void publish_common_grams_verify_factor(int32_t value) {
+    uint64_t current = common_grams_cost_model_state.load(std::memory_order_acquire);
+    if (current >> COMMON_GRAMS_VERIFY_FACTOR_SHIFT == static_cast<uint32_t>(value)) {
+        return;
+    }
+    uint64_t desired = 0;
+    do {
+        desired = (current & COMMON_GRAMS_COST_RATIO_MASK) |
+                  (static_cast<uint64_t>(static_cast<uint32_t>(value))
+                   << COMMON_GRAMS_VERIFY_FACTOR_SHIFT);
+    } while (!common_grams_cost_model_state.compare_exchange_weak(
+            current, desired, std::memory_order_acq_rel, std::memory_order_acquire));
+}
+
+} // namespace
+
+DEFINE_mBool(enable_common_grams_query_plan, "false");
+DEFINE_ON_UPDATE(enable_common_grams_query_plan, [](bool /*old_value*/, bool new_value) {
+    publish_common_grams_query_plan_state(new_value);
+});
+DEFINE_mBool(enable_common_grams_index_build, "true");
+DEFINE_mInt32(common_grams_plan_cost_ratio_percent, "85");
+DEFINE_Validator(common_grams_plan_cost_ratio_percent, valid_common_grams_cost_ratio);
+DEFINE_ON_UPDATE(common_grams_plan_cost_ratio_percent,
+                 [](int32_t /*old_value*/, int32_t new_value) {
+                     publish_common_grams_cost_ratio(new_value);
+                 });
+DEFINE_mInt32(common_grams_position_verify_factor, "0");
+DEFINE_Validator(common_grams_position_verify_factor, valid_common_grams_verify_factor);
+DEFINE_ON_UPDATE(common_grams_position_verify_factor, [](int32_t /*old_value*/, int32_t new_value) {
+    publish_common_grams_verify_factor(new_value);
+});
+
+namespace {
+
+void publish_common_grams_query_plan_config() {
+    publish_common_grams_query_plan_state(enable_common_grams_query_plan);
+    publish_common_grams_cost_ratio(common_grams_plan_cost_ratio_percent);
+    publish_common_grams_verify_factor(common_grams_position_verify_factor);
+}
+
+} // namespace
+
+CommonGramsQueryPlanConfigSnapshot common_grams_query_plan_config_snapshot() {
+    const uint64_t state = common_grams_query_plan_state.load(std::memory_order_acquire);
+    const uint64_t cost_model_state = common_grams_cost_model_state.load(std::memory_order_acquire);
+    return {.enabled = (state & COMMON_GRAMS_QUERY_PLAN_ENABLED_MASK) != 0,
+            .cache_generation = state >> COMMON_GRAMS_QUERY_PLAN_GENERATION_SHIFT,
+            .plan_cost_ratio_percent =
+                    static_cast<uint32_t>(cost_model_state & COMMON_GRAMS_COST_RATIO_MASK),
+            .position_verify_factor =
+                    static_cast<uint32_t>(cost_model_state >> COMMON_GRAMS_VERIFY_FACTOR_SHIFT),
+            .cost_model_generation = cost_model_state};
+}
+
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 
@@ -1309,6 +1408,63 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+// DIAGNOSTIC (default off): force SNII inverted-index reads onto NO_CACHE
+// (precise S3 range GETs) instead of the 1MiB FILE_BLOCK_CACHE. Per-open on the
+// SNII reader only -- does NOT touch global enable_file_cache, so cloud mode
+// still boots. Measures the block-cache read amplification's true cost. Warm
+// queries lose the local cache under this flag, so it is a measurement knob, not
+// a production setting.
+DEFINE_mBool(inverted_index_read_bypass_file_cache, "false");
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
+// does not reach yet (scoring_query has no production caller), so the default
+// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
+// freq regardless. Applies at segment build (write side only); existing
+// segments keep whatever layout they were written with (self-describing).
+DEFINE_mBool(snii_positions_index_write_freq, "false");
+// G16-h: zstd levels for the SNII dict-block compression and the .prx window
+// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
+// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
+// CPU cost inside the run-to-run variance band; zstd decode speed does not
+// depend on the level, and warm/cold benches measured no query change.
+// Write side only; segments self-describe their compression.
+// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
+// level 9 the settled index grows only +0.6%..+6.3% (whole table
+// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
+// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
+// delta+varint-encoded payloads are high-entropy, so level 9's extra search
+// buys almost no ratio. Raise only for size-critical deployments.
+DEFINE_mInt32(snii_dict_block_zstd_level, "3");
+DEFINE_mInt32(snii_prx_zstd_level, "3");
+// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
+// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
+// the defaults (both levels 3); it exists for size-critical deployments that
+// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
+// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
+// cold-query path over it) is unaffected by the load tier -- measured -290s
+// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
+// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
+// lands on in-flight segments); the direct-load BIT itself is captured once.
+DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// G16-d: target SNII dict block size in bytes; 0 uses the format default
+// (64 KiB). Larger blocks compress better under the per-block zstd (the dict
+// is the dominant physical section on high-cardinality corpora) at the cost
+// of a larger fetch+decompress unit per cold dict-block miss. Write side
+// only; the block size is self-described by the on-disk directory.
+DEFINE_mInt32(snii_target_dict_block_bytes, "0");
+// Process-wide SNII index-build RAM budget across ALL live segment writers
+// (G09); the largest writers are asked to spill early once the sum crosses it.
+// 0 disables. Default 8 GiB.
+DEFINE_mInt64(snii_index_writer_global_memory_bytes, "0");
+// Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
+// (and before a writer is eligible as a spill victim): forced spills reclaim
+// ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
+// Default 64 MiB.
+DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
+// Max spill-run files one SNII writer accumulates before its runs are
+// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
+// every run is held open for the whole merge). 0 = uncapped. Default 64.
+DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
@@ -2204,6 +2360,10 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
+    // Startup loading does not invoke mutable-config callbacks. Publish after all three fields are
+    // validated so query threads never seed the atomics by reading mutable config globals.
+    publish_common_grams_query_plan_config();
+
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)
     // are silently ignored above, so without this warning operators would have no feedback
@@ -2270,6 +2430,33 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         return Status::OK();                                                                       \
     }
 
+namespace {
+
+// UPDATE_FIELD invokes registered validators before assigning the candidate value. Validate the two
+// mutable planner coefficients explicitly so their startup and runtime constraints stay identical.
+Status validate_common_grams_runtime_config(const std::string& field, const std::string& value) {
+    bool (*validator)(int32_t) = nullptr;
+    if (field == "common_grams_plan_cost_ratio_percent") {
+        validator = valid_common_grams_cost_ratio;
+    } else if (field == "common_grams_position_verify_factor") {
+        validator = valid_common_grams_verify_factor;
+    } else {
+        return Status::OK();
+    }
+
+    int32_t candidate = 0;
+    if (!convert(value, candidate)) {
+        return Status::OK();
+    }
+    if (!validator(candidate)) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed", field,
+                                                                 candidate);
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
 Status persist_config(const std::string& field, const std::string& value) {
@@ -2299,6 +2486,8 @@ Status set_config(const std::string& field, const std::string& value, bool need_
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
                 "'{}' is not support to modify", field);
     }
+
+    RETURN_IF_ERROR(validate_common_grams_runtime_config(field, value));
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);

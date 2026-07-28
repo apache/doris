@@ -17,9 +17,13 @@
 
 #include <gmock/gmock.h>
 
+#include <iterator>
+
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/compaction/util/index_compaction_utils.cpp"
 #include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -730,6 +734,62 @@ protected:
                 EXPECT_TRUE(st.ok()) << st.to_string();
             }
         }
+    }
+
+    void _build_snii_multi_index_tablet(bool second_supports_phrase = true) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), 0, "INT", "key");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), 1, "STRING", "v1");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), 2, "STRING", "v2");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), 3, "INT", "v3");
+
+        auto add_index = [&schema_pb](int64_t index_id, std::string_view name,
+                                      bool supports_phrase) {
+            TabletIndexPB* index = schema_pb.add_index();
+            index->set_index_id(index_id);
+            index->set_index_name(std::string(name));
+            index->set_index_type(IndexType::INVERTED);
+            index->add_col_unique_id(1);
+            auto* properties = index->mutable_properties();
+            (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_UNICODE;
+            (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
+                    supports_phrase ? INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES
+                                    : INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+            (*properties)[INVERTED_INDEX_PARSER_LOWERCASE_KEY] = INVERTED_INDEX_PARSER_TRUE;
+        };
+        add_index(11001, "v1_phrase_a", true);
+        add_index(11002, "v1_phrase_b", second_supports_phrase);
+
+        _tablet_schema = std::make_shared<TabletSchema>();
+        _tablet_schema->init_from_pb(schema_pb);
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+        _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+        EXPECT_TRUE(_tablet->init().ok());
+    }
+
+    std::vector<RowsetSharedPtr> _build_snii_source_rowsets() {
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+        const std::vector<std::string> data_files = {
+                _current_dir + "/be/test/storage/index/inverted/data/data1.csv",
+                _current_dir + "/be/test/storage/index/inverted/data/data2.csv"};
+        std::vector<RowsetSharedPtr> rowsets(data_files.size());
+        auto check_indexes = [](const int32_t& size) { EXPECT_EQ(size, 2); };
+        IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+                _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+                check_indexes, false, 1000);
+        return rowsets;
+    }
+
+    static std::string _read_index_file_bytes(const RowsetSharedPtr& rowset, uint32_t segment_id) {
+        const std::string path = fmt::format("{}/{}_{}.idx", rowset->tablet_path(),
+                                             rowset->rowset_id().to_string(), segment_id);
+        std::ifstream input(path, std::ios::binary);
+        EXPECT_TRUE(input.is_open()) << path;
+        return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
     }
 
 private:
@@ -1687,5 +1747,209 @@ TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable_with_debug_point
 
     config::inverted_index_ram_dir_enable = original_ram_dir_enable;
     config::enable_debug_points = original_enable_debug_points;
+}
+
+TEST_F(IndexCompactionTest, snii_native_merge_validates_rowids_once_and_matches_raw_rebuild) {
+    const bool old_common_grams = config::enable_common_grams_index_build;
+    const bool old_debug_points = config::enable_debug_points;
+    const bool old_write_freq = config::snii_positions_index_write_freq;
+    config::enable_common_grams_index_build = false;
+    config::enable_debug_points = true;
+    config::snii_positions_index_write_freq = false;
+    constexpr std::string_view kValidationPoint =
+            "Compaction::snii_validated_rowid_conversion_created";
+    constexpr std::string_view kReaderInitPoint = "Compaction::snii_eligibility_reader_initialized";
+    DEFER({
+        DebugPoints::instance()->remove(std::string(kValidationPoint));
+        DebugPoints::instance()->remove(std::string(kReaderInitPoint));
+        config::enable_common_grams_index_build = old_common_grams;
+        config::enable_debug_points = old_debug_points;
+        config::snii_positions_index_write_freq = old_write_freq;
+    });
+
+    _build_snii_multi_index_tablet();
+    const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
+    size_t validation_count = 0;
+    size_t reader_init_count = 0;
+    std::function<void()> count_validation = [&validation_count]() { ++validation_count; };
+    std::function<void()> count_reader_init = [&reader_init_count]() { ++reader_init_count; };
+    DebugPoints::instance()->add_with_callback(std::string(kValidationPoint), count_validation);
+    DebugPoints::instance()->add_with_callback(std::string(kReaderInitPoint), count_reader_init);
+
+    auto check_native_merge = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_EQ(ctx.columns_to_do_index_compaction, (std::set<int32_t> {1}));
+        EXPECT_EQ(compaction._output_rowset->num_segments(), 2);
+    };
+    RowsetSharedPtr native_merge;
+    Status status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                        native_merge, check_native_merge, 1000);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(native_merge, nullptr);
+    EXPECT_EQ(validation_count, 1);
+    EXPECT_EQ(reader_init_count, rowsets.size());
+    DebugPoints::instance()->remove(std::string(kValidationPoint));
+    DebugPoints::instance()->remove(std::string(kReaderInitPoint));
+
+    auto check_raw_rebuild = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
+        EXPECT_EQ(compaction._output_rowset->num_segments(), 2);
+    };
+    RowsetSharedPtr raw_rebuild;
+    status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false, raw_rebuild,
+                                                 check_raw_rebuild, 1000);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(raw_rebuild, nullptr);
+    ASSERT_EQ(native_merge->num_segments(), raw_rebuild->num_segments());
+    for (uint32_t segment_id = 0; segment_id < native_merge->num_segments(); ++segment_id) {
+        EXPECT_EQ(_read_index_file_bytes(native_merge, segment_id),
+                  _read_index_file_bytes(raw_rebuild, segment_id));
+    }
+}
+
+TEST_F(IndexCompactionTest, snii_native_merge_falls_back_for_entire_multi_index_column) {
+    const bool old_common_grams = config::enable_common_grams_index_build;
+    const bool old_write_freq = config::snii_positions_index_write_freq;
+    config::enable_common_grams_index_build = false;
+    config::snii_positions_index_write_freq = false;
+    DEFER({
+        config::enable_common_grams_index_build = old_common_grams;
+        config::snii_positions_index_write_freq = old_write_freq;
+    });
+
+    _build_snii_multi_index_tablet(/*second_supports_phrase=*/false);
+    const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
+    auto check_fallback = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
+        EXPECT_EQ(compaction._output_rowset->num_segments(), 2);
+    };
+    RowsetSharedPtr output;
+    const Status status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                              output, check_fallback, 1000);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(output, nullptr);
+    for (uint32_t segment_id = 0; segment_id < output->num_segments(); ++segment_id) {
+        const auto segment_path = output->segment_path(segment_id);
+        ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
+        auto file_reader = IndexCompactionUtils::init_index_file_reader(
+                output, segment_path.value(), InvertedIndexStorageFormatPB::SNII);
+        for (const TabletIndex* index : _tablet_schema->inverted_indexes()) {
+            const auto logical_index = file_reader->open_snii_index(index);
+            EXPECT_TRUE(logical_index.has_value()) << logical_index.error();
+        }
+    }
+}
+
+TEST_F(IndexCompactionTest, snii_native_merge_aborts_after_partial_destination_creation) {
+    const bool old_common_grams = config::enable_common_grams_index_build;
+    const bool old_debug_points = config::enable_debug_points;
+    const bool old_write_freq = config::snii_positions_index_write_freq;
+    config::enable_common_grams_index_build = false;
+    config::enable_debug_points = true;
+    config::snii_positions_index_write_freq = false;
+    constexpr std::string_view kFailurePoint = "Compaction::before_add_snii_destination_session";
+    constexpr std::string_view kAbortPoint = "Compaction::snii_destination_session_aborted";
+    DEFER({
+        DebugPoints::instance()->remove(std::string(kFailurePoint));
+        DebugPoints::instance()->remove(std::string(kAbortPoint));
+        config::enable_common_grams_index_build = old_common_grams;
+        config::enable_debug_points = old_debug_points;
+        config::snii_positions_index_write_freq = old_write_freq;
+    });
+
+    _build_snii_multi_index_tablet();
+    const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
+    std::function<void(size_t, Status*)> fail_second_destination = [](size_t destination_ordinal,
+                                                                      Status* status) {
+        if (destination_ordinal == 1) {
+            *status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                    "injected SNII destination session failure");
+        }
+    };
+    DebugPoints::instance()->add_with_callback(std::string(kFailurePoint), fail_second_destination);
+    size_t abort_count = 0;
+    std::function<void(size_t)> count_abort = [&abort_count](size_t) { ++abort_count; };
+    DebugPoints::instance()->add_with_callback(std::string(kAbortPoint), count_abort);
+
+    RowsetSharedPtr output;
+    const Status status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                              output, nullptr, 1000);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>());
+    EXPECT_THAT(status.to_string(),
+                testing::HasSubstr("injected SNII destination session failure"));
+    EXPECT_EQ(output, nullptr);
+    EXPECT_EQ(abort_count, 1);
+    for (const RowsetSharedPtr& rowset : rowsets) {
+        EXPECT_FALSE(rowset->is_skip_index_compaction(1));
+    }
+}
+
+TEST_F(IndexCompactionTest, snii_native_merge_mem_limit_arms_raw_rebuild_without_wrapping) {
+    const bool old_common_grams = config::enable_common_grams_index_build;
+    const bool old_debug_points = config::enable_debug_points;
+    const bool old_write_freq = config::snii_positions_index_write_freq;
+    config::enable_common_grams_index_build = false;
+    config::enable_debug_points = true;
+    config::snii_positions_index_write_freq = false;
+    constexpr std::string_view kFailurePoint = "Compaction::before_execute_snii_merge";
+    DEFER({
+        DebugPoints::instance()->remove(std::string(kFailurePoint));
+        config::enable_common_grams_index_build = old_common_grams;
+        config::enable_debug_points = old_debug_points;
+        config::snii_positions_index_write_freq = old_write_freq;
+    });
+
+    _build_snii_multi_index_tablet();
+    const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
+    std::function<void(Status*)> inject_mem_limit = [](Status* status) {
+        *status = Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>("injected SNII merge memory limit");
+    };
+    DebugPoints::instance()->add_with_callback(std::string(kFailurePoint), inject_mem_limit);
+
+    RowsetSharedPtr output;
+    const Status status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                              output, nullptr, 1000);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_THAT(status.to_string(), testing::HasSubstr("injected SNII merge memory limit"));
+    EXPECT_EQ(output, nullptr);
+    for (const RowsetSharedPtr& rowset : rowsets) {
+        EXPECT_TRUE(rowset->is_skip_index_compaction(1));
+    }
+}
+
+TEST_F(IndexCompactionTest, snii_native_merge_corruption_arms_raw_rebuild_fallback) {
+    const bool old_common_grams = config::enable_common_grams_index_build;
+    const bool old_debug_points = config::enable_debug_points;
+    const bool old_write_freq = config::snii_positions_index_write_freq;
+    config::enable_common_grams_index_build = false;
+    config::enable_debug_points = true;
+    config::snii_positions_index_write_freq = false;
+    constexpr std::string_view kFailurePoint = "Compaction::before_execute_snii_merge";
+    DEFER({
+        DebugPoints::instance()->remove(std::string(kFailurePoint));
+        config::enable_common_grams_index_build = old_common_grams;
+        config::enable_debug_points = old_debug_points;
+        config::snii_positions_index_write_freq = old_write_freq;
+    });
+
+    _build_snii_multi_index_tablet();
+    const std::vector<RowsetSharedPtr> rowsets = _build_snii_source_rowsets();
+    std::function<void(Status*)> inject_corruption = [](Status* status) {
+        *status = Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "injected SNII merge corruption");
+    };
+    DebugPoints::instance()->add_with_callback(std::string(kFailurePoint), inject_corruption);
+
+    RowsetSharedPtr output;
+    const Status status = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                              output, nullptr, 1000);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    EXPECT_THAT(status.to_string(), testing::HasSubstr("injected SNII merge corruption"));
+    EXPECT_EQ(output, nullptr);
+    for (const RowsetSharedPtr& rowset : rowsets) {
+        EXPECT_TRUE(rowset->is_skip_index_compaction(1));
+    }
 }
 } // namespace doris

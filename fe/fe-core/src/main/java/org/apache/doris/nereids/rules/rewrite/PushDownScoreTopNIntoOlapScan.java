@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -127,6 +128,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
                     "WHERE clause must contain at least one MATCH or SEARCH function"
                             + " for score() push down optimization");
         }
+
+        CheckScoreUsage.checkScoringPolicyAdmission(
+                filter, scan, Env.getCurrentEnv().getIndexPolicyMgr());
 
         // 3. Check for score() predicates in WHERE clause and extract score range info
         List<Expression> scorePredicates = filter.getConjuncts().stream()

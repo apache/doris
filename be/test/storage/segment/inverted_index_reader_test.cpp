@@ -34,6 +34,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -70,12 +71,19 @@ public:
         _inverted_index_query_cache = std::unique_ptr<segment_v2::InvertedIndexQueryCache>(
                 InvertedIndexQueryCache::create_global_cache(inverted_index_cache_limit, 1));
 
+        // Both caches are owned by this fixture, so the previous globals must come back in
+        // TearDown -- otherwise ExecEnv keeps pointing at them after the fixture is destroyed and
+        // the next test that reaches InvertedIndexQueryCache::instance() reads freed memory.
+        _previous_searcher_cache = ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+        _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
                 _inverted_index_searcher_cache.get());
-        ExecEnv::GetInstance()->_inverted_index_query_cache = _inverted_index_query_cache.get();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_inverted_index_query_cache.get());
     }
 
     void TearDown() override {
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_previous_searcher_cache);
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_previous_query_cache);
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -703,11 +711,14 @@ public:
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_miss);
         }
 
-        // Query cache disabled (miss) while searcher cache should still hit.
+        // Query cache disabled while searcher cache should still hit.
         {
             OlapReaderStatistics stats;
             run_match(false, true, kImages, &stats);
-            EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_lookup);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_insert);
             EXPECT_EQ(1, stats.inverted_index_searcher_cache_hit);
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_miss);
         }
@@ -722,12 +733,14 @@ public:
             EXPECT_EQ(1, stats.inverted_index_searcher_cache_miss);
         }
 
-        // Both caches disabled should report misses.
+        // Both caches disabled should not touch the query cache.
         {
             OlapReaderStatistics stats;
             run_match(false, false, kUnique, &stats);
-            EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_lookup);
             EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_insert);
             EXPECT_EQ(0, stats.inverted_index_searcher_cache_hit);
             EXPECT_EQ(1, stats.inverted_index_searcher_cache_miss);
         }
@@ -874,6 +887,7 @@ public:
             OlapReaderStatistics stats;
             RuntimeState runtime_state;
             TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = false;
             query_options.enable_inverted_index_searcher_cache = false;
             runtime_state.set_query_options(query_options);
 
@@ -909,6 +923,10 @@ public:
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 600)
                     << "V3: Should find 600 documents matching 'common_term'";
+            EXPECT_EQ(0, stats.inverted_index_query_cache_lookup);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_hit);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_miss);
+            EXPECT_EQ(0, stats.inverted_index_query_cache_insert);
 
             // Verify first and last document IDs
             EXPECT_TRUE(bitmap->contains(0)) << "V3: First document should match 'common_term'";
@@ -943,6 +961,51 @@ public:
                                              InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
+
+            InvertedIndexAnalyzerConfig analyzer_config;
+            analyzer_config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+            analyzer_config.lower_case = INVERTED_INDEX_PARSER_TRUE;
+            auto analyzer_provider =
+                    inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
+                            &analyzer_config);
+            InvertedIndexAnalyzerCtx analyzer_ctx;
+            analyzer_ctx.parser_type = analyzer_config.parser_type;
+            analyzer_ctx.analyzer_provider = std::move(analyzer_provider);
+
+            RuntimeState cached_runtime_state;
+            TQueryOptions cached_query_options;
+            cached_query_options.enable_inverted_index_query_cache = true;
+            cached_query_options.enable_inverted_index_searcher_cache = true;
+            cached_runtime_state.set_query_options(cached_query_options);
+            OlapReaderStatistics cached_stats;
+            auto cached_context = std::make_shared<segment_v2::IndexQueryContext>();
+            cached_context->io_ctx = &io_ctx;
+            cached_context->stats = &cached_stats;
+            cached_context->runtime_state = &cached_runtime_state;
+            const Field cached_query = Field::create_field<TYPE_STRING>("common_term");
+
+            std::shared_ptr<roaring::Roaring> first_bitmap;
+            query_status = str_reader->query(cached_context, field_name, cached_query,
+                                             InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                             first_bitmap, &analyzer_ctx);
+            EXPECT_TRUE(query_status.ok()) << query_status;
+            ASSERT_NE(first_bitmap, nullptr);
+            EXPECT_EQ(first_bitmap->cardinality(), 600);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_lookup, 1);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_miss, 1);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_insert, 1);
+
+            std::shared_ptr<roaring::Roaring> second_bitmap;
+            query_status = str_reader->query(cached_context, field_name, cached_query,
+                                             InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                             second_bitmap, &analyzer_ctx);
+            EXPECT_TRUE(query_status.ok()) << query_status;
+            ASSERT_NE(second_bitmap, nullptr);
+            EXPECT_EQ(*second_bitmap, *first_bitmap);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_lookup, 2);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_hit, 1);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_miss, 1);
+            EXPECT_EQ(cached_stats.inverted_index_query_cache_insert, 1);
         }
         {
             TabletIndex idx_meta;
@@ -4048,6 +4111,8 @@ public:
     }
 
 private:
+    InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
+    InvertedIndexQueryCache* _previous_query_cache = nullptr;
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
     std::unique_ptr<InvertedIndexQueryCache> _inverted_index_query_cache;
 };

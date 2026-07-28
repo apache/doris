@@ -1363,6 +1363,24 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
+// Process-wide emergency switch for CommonGrams query plans. The generation changes on every
+// effective transition so result-cache and single-flight entries from an older state are unreachable.
+DECLARE_mBool(enable_common_grams_query_plan);
+// Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
+// it affects only writers created after the transition and never changes query/cache semantics.
+DECLARE_mBool(enable_common_grams_index_build);
+// Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
+DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
+DECLARE_mInt32(common_grams_position_verify_factor);
+struct CommonGramsQueryPlanConfigSnapshot {
+    bool enabled = true;
+    uint64_t cache_generation = 0;
+    uint32_t plan_cost_ratio_percent = 85;
+    uint32_t position_verify_factor = 0;
+    uint64_t cost_model_generation = 0;
+};
+CommonGramsQueryPlanConfigSnapshot common_grams_query_plan_config_snapshot();
+
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
@@ -1374,6 +1392,62 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// DIAGNOSTIC: force SNII inverted-index reads to bypass the 1MiB FILE_BLOCK_CACHE
+// and issue precise S3 range GETs (NO_CACHE) instead. Applies ONLY to the SNII
+// index file reader (per-open cache_type), NOT the global enable_file_cache, so
+// cloud mode does not FATAL. Default false (keep block cache). Used to measure
+// whether the block-cache read amplification hurts cold reads at the cost of
+// re-reading S3 on every (warm) query. Not for production: warm loses the local
+// cache. Read-side only.
+DECLARE_mBool(inverted_index_read_bypass_file_cache);
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
+// default (false) drops the layout; scoring-config indexes always keep freq.
+// Write-side only; segments are self-describing either way.
+DECLARE_mBool(snii_positions_index_write_freq);
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
+// PROCESS-WIDE budget in bytes for SNII index-build RAM, summed across every
+// live SNII segment writer of the BE (all tablets x all concurrent loads; G09).
+// The per-writer inverted_index_ram_buffer_size is a reclaimable-buffer spill
+// threshold, not a hard cap on persistent vocabulary bytes. A concurrent load
+// keeps (tablets x concurrency) writers alive at once, none of which may reach
+// that threshold, while their SUM can still be large. When the registered total
+// exceeds this process-wide budget, the LARGEST writers are asked to spill their
+// posting buffers to disk early (async-safe advisory requests, honored on each
+// writer's own thread; output stays byte-identical). 0 disables the global
+// limiter (per-writer spilling only). Checked at index-writer creation: a change
+// applies to writers created afterwards.
+DECLARE_mInt64(snii_index_writer_global_memory_bytes);
+// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
+// writer must hold before a process-wide forced-spill request is honored, and
+// before the global limiter selects it as a spill victim. A forced spill
+// reclaims ONLY the posting arena -- the persistent vocab / pair-map
+// structures survive it -- so honoring below a real floor degenerates into a
+// storm of tiny runs whenever the budget is dominated by persistent bytes
+// (each run then costs a file, a sort and a merge-fd for near-zero memory
+// relief). The global budget therefore bounds SPILLABLE memory, not
+// persistent memory. Default 64 MiB.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
+// on the next spill past the cap, the existing runs are merge-compacted into
+// a single run first (term stream unchanged). Bounds the final k-way merge's
+// fan-in and, decisively, its simultaneously-open file descriptors -- every
+// run of a buffer is reopened and held open for the whole merge, so unbounded
+// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
+// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

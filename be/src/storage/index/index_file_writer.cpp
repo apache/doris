@@ -19,9 +19,12 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 
+#include "common/cast_set.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/packed_file_writer.h"
 #include "io/fs/s3_file_writer.h"
@@ -35,9 +38,52 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
+
+// Resolves whether one segment index lays out freq regions (G16-c). Freq
+// serves ONLY BM25 scoring: a scoring config always keeps it; a plain
+// positions config keeps it only when the escape-hatch config asks for the
+// full T2 layout. NOT in the anonymous namespace on purpose -- the UT covers
+// this production policy line directly (a flipped operator or inverted flag
+// here would otherwise stay green: no BE test drives add_snii_index).
+bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config) {
+    return doris::snii::format::has_scoring(index_config) ||
+           config::snii_positions_index_write_freq;
+}
+
+// Shared write-parameter resolution for one SNII index flush; `input->config`
+// must already be set. BOTH the build path (add_snii_index) and the T2.2
+// compaction-merge streamed session resolve through this single helper, so the
+// merge fast path can never drift from the rebuild contract (the T2 semantic
+// golden invariant depends on parameter parity). NOT in the anonymous
+// namespace on purpose -- the UT pins the resolved values directly.
+void snii_resolve_index_write_params(bool is_direct_load,
+                                     doris::snii::writer::SniiIndexInput* input) {
+    // G16-c: freq regions serve only BM25 scoring; a plain positions index
+    // drops them unless the escape hatch asks for the full T2 layout.
+    input->write_freq = snii_effective_write_freq(input->config);
+    // G16-h: zstd levels. dict blocks accept zstd's full sane range; the prx
+    // level floor is 3 because the writer passes -level into the prx builders
+    // and -1 is the historic "auto at default level 3" sentinel -- a
+    // configured level 1 would silently resolve to 3 anyway (levels 1-2 buy
+    // nothing over 3 on these payloads).
+    input->dict_block_zstd_level = std::clamp(config::snii_dict_block_zstd_level, 1, 19);
+    // Patch C prx tiering: a direct load compresses prx at the cheaper load
+    // level; compaction / schema change / ADD INDEX keep snii_prx_zstd_level
+    // and compaction rewrites every segment with it, so settled segments (and
+    // the cold-query path over them) are byte-for-byte unaffected.
+    input->prx_zstd_level = std::clamp(
+            is_direct_load ? config::snii_prx_zstd_level_direct_load : config::snii_prx_zstd_level,
+            3, 19);
+    // G16-d: dict block size experiment knob; <= 0 keeps the format default.
+    if (config::snii_target_dict_block_bytes > 0) {
+        input->target_dict_block_bytes =
+                static_cast<uint32_t>(config::snii_target_dict_block_bytes);
+    }
+}
 
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                                  std::string rowset_id, int64_t seg_id,
@@ -57,7 +103,7 @@ IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_p
     _tmp_dir = tmp_file_dir.native();
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         _index_storage_format = std::make_unique<IndexStorageFormatV1>(this);
-    } else {
+    } else if (_storage_format != InvertedIndexStorageFormatPB::SNII) {
         _index_storage_format = std::make_unique<IndexStorageFormatV2>(this);
     }
 }
@@ -85,6 +131,10 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 }
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SNII format does not open CLucene directories"));
+    }
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
     auto dir = std::shared_ptr<DorisFSDirectory>(DorisFSDirectoryFactory::getDirectory(
@@ -96,6 +146,121 @@ Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletInde
     }
 
     return dir;
+}
+
+Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
+                                       std::vector<uint32_t> null_docids,
+                                       doris::snii::writer::SpimiTermBuffer* const term_buffer,
+                                       doris::snii::format::IndexConfig index_config,
+                                       SniiAddIndexOptions options,
+                                       doris::snii::writer::MemoryReporter* const mem_reporter) {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    DCHECK(index_meta != nullptr);
+    DCHECK(term_buffer != nullptr);
+    if (_idx_v2_writer == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file writer is null for {}", _index_path_prefix);
+    }
+    if (_snii_file_writer == nullptr) {
+        _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
+        _snii_compound_writer =
+                std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+    }
+
+    doris::snii::writer::SniiIndexInput input;
+    input.index_id = cast_set<uint64_t>(index_meta->index_id());
+    input.index_suffix = index_meta->get_index_suffix();
+    input.config = index_config;
+    input.doc_count = doc_count;
+    input.null_docids = std::move(null_docids);
+    input.encoded_norms = std::move(options.encoded_norms);
+    input.common_grams_metadata = std::move(options.common_grams_metadata);
+    input.common_grams_posting_policy = options.common_grams_posting_policy;
+    input.term_source = term_buffer;
+    input.mem_reporter = mem_reporter;
+    snii_resolve_index_write_params(options.is_direct_load, &input);
+    RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
+    ++_snii_index_count;
+    return Status::OK();
+}
+
+Status IndexFileWriter::add_snii_index_streamed(
+        const TabletIndex* index_meta, uint32_t doc_count,
+        doris::snii::writer::TrackedNullDocids null_docids,
+        doris::snii::format::IndexConfig index_config,
+        std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
+        doris::snii::writer::SniiStreamedIndexSession** session) {
+    return add_snii_index_streamed(index_meta, doc_count, std::move(null_docids),
+                                   doris::snii::writer::TrackedEncodedNorms(std::vector<uint8_t>()),
+                                   std::nullopt,
+                                   doris::snii::format::CommonGramsPostingPolicy::kNone,
+                                   index_config, std::move(mem_reporter), session);
+}
+
+Status IndexFileWriter::add_snii_index_streamed(
+        const TabletIndex* index_meta, uint32_t doc_count,
+        doris::snii::writer::TrackedNullDocids null_docids,
+        doris::snii::writer::TrackedEncodedNorms encoded_norms,
+        std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata,
+        doris::snii::format::CommonGramsPostingPolicy common_grams_posting_policy,
+        doris::snii::format::IndexConfig index_config,
+        std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
+        doris::snii::writer::SniiStreamedIndexSession** session) {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    DCHECK(index_meta != nullptr);
+    if (session == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "SNII streamed session out parameter is null for {}", _index_path_prefix);
+    }
+    *session = nullptr;
+    if (_idx_v2_writer == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file writer is null for {}", _index_path_prefix);
+    }
+    const bool has_scoring = doris::snii::format::has_scoring(index_config);
+    const bool valid_scoring_shape =
+            has_scoring ? common_grams_metadata.has_value() && encoded_norms.size() == doc_count
+                        : !common_grams_metadata.has_value() && encoded_norms.empty();
+    if (!valid_scoring_shape) {
+        return Status::InternalError(
+                "SNII streamed merge scoring shape disagrees with eligibility for {}",
+                _index_path_prefix);
+    }
+    if (_snii_file_writer == nullptr) {
+        _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
+        _snii_compound_writer =
+                std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+    }
+
+    doris::snii::writer::SniiIndexInput input;
+    input.index_id = cast_set<uint64_t>(index_meta->index_id());
+    input.index_suffix = index_meta->get_index_suffix();
+    input.config = index_config;
+    input.doc_count = doc_count;
+    input.mem_reporter = mem_reporter.get();
+    input.common_grams_metadata = std::move(common_grams_metadata);
+    input.common_grams_posting_policy = common_grams_posting_policy;
+    // Merge output is always the settled-segment shape: COMPACTION prx level.
+    snii_resolve_index_write_params(/*is_direct_load=*/false, &input);
+    if (mem_reporter != nullptr) {
+        constexpr uint64_t kMaxStreamedDictResidentBytes = 64ULL << 20;
+        DORIS_CHECK_GE(mem_reporter->cap_bytes(), 8);
+        input.dict_resident_cap_bytes =
+                std::min(kMaxStreamedDictResidentBytes, mem_reporter->cap_bytes() / 8);
+    }
+    RETURN_IF_ERROR(_snii_compound_writer->begin_streamed_index(
+            std::move(input), std::move(null_docids), std::move(encoded_norms), session));
+    if (mem_reporter != nullptr) {
+        _snii_memory_reporters.push_back(std::move(mem_reporter));
+    }
+    ++_snii_index_count;
+    return Status::OK();
+}
+
+void IndexFileWriter::retain_snii_memory_reporter(
+        std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter) {
+    DCHECK(mem_reporter != nullptr);
+    _snii_memory_reporters.emplace_back(std::move(mem_reporter));
 }
 
 Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {
@@ -124,6 +289,9 @@ Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {
 }
 
 Status IndexFileWriter::add_into_searcher_cache() {
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        return Status::OK();
+    }
     auto index_file_reader = std::make_unique<IndexFileReader>(
             _fs, _index_path_prefix, _storage_format, InvertedIndexFileInfo(), _tablet_id);
     auto st = index_file_reader->init();
@@ -197,6 +365,21 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexFileWriter::_construct_index_
 Status IndexFileWriter::begin_close() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        if (_snii_compound_writer == nullptr) {
+            if (_idx_v2_writer == nullptr) {
+                return Status::OK();
+            }
+            _snii_file_writer =
+                    std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
+            _snii_compound_writer = std::make_unique<doris::snii::writer::SniiCompoundWriter>(
+                    _snii_file_writer.get());
+        }
+        RETURN_IF_ERROR(_snii_compound_writer->finish());
+        _total_file_size = _idx_v2_writer->bytes_appended();
+        _file_info.set_index_size(_total_file_size);
+        return _idx_v2_writer->close(true);
+    }
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
@@ -239,6 +422,12 @@ Status IndexFileWriter::begin_close() {
 
 Status IndexFileWriter::finish_close() {
     DCHECK(_closed) << debug_string();
+    if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+        if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
+            RETURN_IF_ERROR(_idx_v2_writer->close(false));
+        }
+        return Status::OK();
+    }
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||

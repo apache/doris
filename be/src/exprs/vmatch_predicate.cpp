@@ -77,7 +77,8 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     // Always create analyzer based on parser_type for slow path (tables without index).
     // For index path, FullTextIndexReader will check analyzer_name to decide whether
     // to use this analyzer or fallback to index's own analyzer.
-    _analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+    _analyzer_provider = inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+    _analyzer = _analyzer_provider->get_analyzer(inverted_index::AnalysisPurpose::kPlainQuery);
 
     // Step 3: Create runtime context (only extract runtime-needed info)
     _analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
@@ -85,6 +86,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->parser_type = config.parser_type;
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
     _analyzer_ctx->analyzer = _analyzer;
+    _analyzer_ctx->analyzer_provider = _analyzer_provider;
 }
 
 VMatchPredicate::~VMatchPredicate() = default;

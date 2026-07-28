@@ -87,6 +87,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
+    segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+    param.null_bitmap_cache_handle = &null_bitmap_cache_handle;
     param.analyzer_ctx = analyzer_ctx;
     if (is_string_type(param_type)) {
         RETURN_IF_ERROR(iter->read_from_index(&param));
@@ -95,11 +97,11 @@ Status FunctionMatchBase::evaluate_inverted_index(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
                 param_type);
     }
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (iter->has_null()) {
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-        null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    if (null_bitmap == nullptr) {
+        // query_with_null_bitmap leaves the handle empty only when the selected reader proves that
+        // the index has no null rows.
+        null_bitmap = std::make_shared<roaring::Roaring>();
     }
     segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
     bitmap_result = result;

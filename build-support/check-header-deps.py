@@ -60,6 +60,7 @@ RULES = [
             # A leaf statistics struct with no project includes of its own, which
             # storage/olap_common.h carries as a plain data type.
             "storage/index/inverted/inverted_index_stats.h",
+            "storage/index/snii/snii_query_stats.h",
         },
         "ExecEnv only ever names index types as pointers and already forward-declares "
         "them; reaching the index implementation headers from here puts the whole "

@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string_view>
+
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cpp/sync_point.h"
@@ -71,6 +73,95 @@ public:
 
     bool contains_str(std::string origin, std::string sub_str) {
         return origin.find(sub_str) != std::string::npos;
+    }
+
+    CloudTabletSPtr create_tablet_for_index_compaction_gate(
+            InvertedIndexStorageFormatPB storage_format) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(storage_format);
+        schema_pb.set_schema_version(1);
+
+        ColumnPB* column_pb = schema_pb.add_column();
+        column_pb->set_unique_id(1);
+        column_pb->set_name("body");
+        column_pb->set_type("STRING");
+        column_pb->set_is_nullable(true);
+
+        auto add_index = [&schema_pb](int64_t index_id, std::string_view index_name) {
+            TabletIndexPB* index_pb = schema_pb.add_index();
+            index_pb->set_index_id(index_id);
+            index_pb->set_index_name(std::string(index_name));
+            index_pb->set_index_type(IndexType::INVERTED);
+            index_pb->add_col_unique_id(1);
+            (*index_pb->mutable_properties())[INVERTED_INDEX_PARSER_KEY] =
+                    INVERTED_INDEX_PARSER_UNICODE;
+        };
+        add_index(11001, "idx_to_drop");
+        add_index(11002, "idx_to_keep");
+
+        auto input_schema = std::make_shared<TabletSchema>();
+        input_schema->init_from_pb(schema_pb);
+        auto input_rowset_meta = std::make_shared<RowsetMeta>();
+        init_rs_meta(input_rowset_meta, 2, 2);
+        input_rowset_meta->set_num_segments(1);
+        input_rowset_meta->set_tablet_schema(input_schema);
+        RowsetSharedPtr input_rowset =
+                std::make_shared<BetaRowset>(input_schema, input_rowset_meta, "");
+
+        TabletMetaPB tablet_meta_pb;
+        tablet_meta_pb.set_tablet_id(1000);
+        tablet_meta_pb.set_schema_hash(123456);
+        tablet_meta_pb.set_tablet_state(PB_RUNNING);
+        *tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->init_from_pb(tablet_meta_pb);
+        CloudTabletSPtr tablet = std::make_shared<CloudTablet>(*_engine, tablet_meta);
+        tablet->_rs_version_map[Version(2, 2)] = input_rowset;
+        return tablet;
+    }
+
+    void verify_index_compaction_gate(InvertedIndexStorageFormatPB storage_format,
+                                      bool initially_enabled, bool expected_enabled) {
+        CloudTabletSPtr tablet = create_tablet_for_index_compaction_gate(storage_format);
+
+        TColumn body_column;
+        body_column.__set_column_name("body");
+        body_column.__set_col_unique_id(1);
+        TColumnType body_type;
+        body_type.__set_type(TPrimitiveType::STRING);
+        body_column.__set_column_type(body_type);
+        std::vector<TColumn> columns {body_column};
+
+        TOlapTableIndex surviving_index;
+        surviving_index.__set_index_id(11002);
+        surviving_index.__set_index_name("idx_to_keep");
+        surviving_index.__set_index_type(TIndexType::INVERTED);
+        surviving_index.__set_columns({"body"});
+        surviving_index.__set_column_unique_ids({1});
+        surviving_index.__set_properties(
+                {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE}});
+        std::vector<TOlapTableIndex> final_indexes {surviving_index};
+
+        CloudIndexChangeCompaction compaction(*_engine, tablet, 2, final_indexes, columns);
+        compaction._enable_inverted_index_compaction = initially_enabled;
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [](auto&& outcome) {
+            auto* result = try_any_cast_ret<Status>(outcome);
+            result->second = true;
+            result->first = Status::OK();
+        });
+        Status prepare_status = compaction.prepare_compact();
+        sync_point->clear_call_back("CloudMetaMgr::sync_tablet_rowsets");
+
+        ASSERT_TRUE(prepare_status.ok()) << prepare_status;
+        ASSERT_EQ(compaction._input_rowsets.size(), 1);
+        EXPECT_EQ(compaction._enable_inverted_index_compaction, expected_enabled);
+        ASSERT_TRUE(compaction.rebuild_tablet_schema().ok());
+        ASSERT_EQ(compaction._final_tablet_schema->get_inverted_index_storage_format(),
+                  storage_format);
+        ASSERT_EQ(compaction._final_tablet_schema->inverted_indexes().size(), 1);
+        EXPECT_EQ(compaction._final_tablet_schema->inverted_indexes().front()->index_id(), 11002);
     }
 
 public:
@@ -411,6 +502,14 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
     ASSERT_TRUE(in_predicates[0].column_name() == "col1");
     ASSERT_TRUE(in_predicates[0].is_not_in() == true);
     ASSERT_TRUE(in_predicates[0].values().size() == 2);
+}
+
+TEST_F(CloudIndexChangeCompactionTest, snii_drop_index_enables_native_index_compaction) {
+    verify_index_compaction_gate(InvertedIndexStorageFormatPB::SNII, true, true);
+    verify_index_compaction_gate(InvertedIndexStorageFormatPB::SNII, false, false);
+    verify_index_compaction_gate(InvertedIndexStorageFormatPB::V1, true, false);
+    verify_index_compaction_gate(InvertedIndexStorageFormatPB::V2, true, false);
+    verify_index_compaction_gate(InvertedIndexStorageFormatPB::V3, true, false);
 }
 
 TEST_F(CloudIndexChangeCompactionTest, test_cloud_tablet) {

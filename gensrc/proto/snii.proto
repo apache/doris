@@ -1,0 +1,82 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax = "proto2";
+
+package doris.snii;
+
+message SniiMetadataDirectoryPB {
+    repeated uint32 required_features = 1 [packed = true];
+    repeated SniiLogicalIndexMetadataPB indexes = 2;
+}
+
+message SniiLogicalIndexMetadataPB {
+    optional uint64 index_id = 1;
+    optional bytes index_suffix = 2;
+    optional SniiBlobRefPB core_metadata = 3;
+    optional SniiBlobRefPB sampled_term_index = 4;
+    optional SniiBlobRefPB dict_block_directory = 5;
+}
+
+message SniiBlobRefPB {
+    optional uint64 offset = 1;
+    optional uint64 length = 2;
+}
+
+message SniiCoreMetadataPB {
+    optional uint32 index_config = 1;
+    optional SniiStatsPB stats = 2;
+    optional SniiSectionRefsPB section_refs = 3;
+    optional SniiCommonGramsMetadataPB common_grams = 4;
+    optional uint32 common_grams_posting_policy = 5;
+}
+
+message SniiStatsPB {
+    optional uint64 doc_count = 1;
+    optional uint64 indexed_doc_count = 2;
+    optional uint64 term_count = 3;
+    optional uint64 sum_total_term_freq = 4;
+    optional uint64 null_count = 5;
+}
+
+message SniiRegionRefPB {
+    optional uint64 offset = 1;
+    optional uint64 length = 2;
+}
+
+message SniiSectionRefsPB {
+    optional SniiRegionRefPB dict_region = 1;
+    optional SniiRegionRefPB posting_region = 2;
+    optional SniiRegionRefPB norms = 3;
+    optional SniiRegionRefPB null_bitmap = 4;
+    optional SniiRegionRefPB bsbf = 5;
+}
+
+message SniiCommonGramsMetadataPB {
+    optional uint32 plain_term_key_version = 1;
+    optional uint32 common_grams_coverage = 2;
+    optional uint32 common_grams_semantics_version = 3;
+    optional uint32 common_grams_key_version = 4;
+    optional bytes common_grams_dictionary_identity = 5;
+    optional bytes base_analyzer_fingerprint = 6;
+    optional bytes common_grams_fingerprint = 7;
+    optional uint32 scoring_coverage = 8;
+    optional uint32 scoring_stats_version = 9;
+    optional uint32 norm_semantics_version = 10;
+    optional uint64 scoring_doc_count = 11;
+    optional uint64 scoring_token_count = 12;
+}

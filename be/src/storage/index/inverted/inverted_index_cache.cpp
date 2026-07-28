@@ -27,9 +27,49 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/coding.h"
 #include "util/defer_op.h"
 
 namespace doris::segment_v2 {
+
+namespace {
+
+void append_length_prefixed(std::string_view value, std::string* output) {
+    put_fixed64_le(output, value.size());
+    output->append(value);
+}
+
+} // namespace
+
+std::string InvertedIndexRawQuerySemantic::encode() const {
+    std::string output;
+    output.reserve(sizeof(cache_semantics_version) + sizeof(uint64_t) + raw_query_bytes.size() +
+                   sizeof(query_type) + sizeof(slop) + sizeof(ordered) + sizeof(max_expansions) +
+                   sizeof(common_grams_cache_generation) + sizeof(uint64_t));
+    put_fixed32_le(&output, cache_semantics_version);
+    append_length_prefixed(raw_query_bytes, &output);
+    put_fixed32_le(&output, static_cast<uint32_t>(query_type));
+    put_fixed32_le(&output, static_cast<uint32_t>(slop));
+    output.push_back(static_cast<char>(ordered));
+    put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
+    put_fixed64_le(&output, common_grams_cache_generation);
+    return output;
+}
+
+std::string InvertedIndexQueryCache::CacheKey::encode() const {
+    if (query_type_to_string(query_type).empty()) {
+        return {};
+    }
+    std::string output;
+    const std::string index_path_string = index_path.string();
+    output.reserve(3 * sizeof(uint64_t) + index_path_string.size() + column_name.size() +
+                   sizeof(query_type) + value.size());
+    append_length_prefixed(index_path_string, &output);
+    append_length_prefixed(column_name, &output);
+    put_fixed32_le(&output, static_cast<uint32_t>(query_type));
+    append_length_prefixed(value, &output);
+    return output;
+}
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
         size_t capacity, uint32_t num_shards) {

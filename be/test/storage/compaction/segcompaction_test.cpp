@@ -19,12 +19,15 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -114,6 +117,10 @@ public:
     }
 
     void TearDown() {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+        sync_point->clear_trace();
         config::enable_segcompaction = false;
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         l_engine = nullptr;
@@ -287,6 +294,55 @@ private:
     std::unique_ptr<DataDir> _data_dir;
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
 };
+
+TEST_F(SegCompactionTest, FatalStatusPreservesOriginalError) {
+    config::segcompaction_candidate_max_rows = 10;
+    config::segcompaction_batch_size = 2;
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(10046, tablet_schema, &writer_context);
+    auto writer_result = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    const auto expected_status = Status::Error<INVERTED_INDEX_ANALYZER_ERROR>(
+            "CommonGrams analysis failed; set enable_common_grams_index_build=false and retry "
+            "the load as a new transaction");
+    std::promise<void> worker_started;
+    auto worker_started_future = worker_started.get_future();
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard callback_guard;
+    sync_point->set_call_back(
+            "SegcompactionWorker::_do_compact_segments",
+            [&worker_started, expected_status](auto&& args) {
+                auto* result = try_any_cast_ret<Status>(args);
+                result->first = expected_status;
+                result->second = true;
+                worker_started.set_value();
+            },
+            &callback_guard);
+    sync_point->enable_processing();
+
+    for (int segment_id = 0; segment_id < 3; ++segment_id) {
+        Block block = tablet_schema->create_block();
+        auto columns = std::move(block).mutate_columns();
+        for (uint32_t column_id = 0; column_id < columns.size(); ++column_id) {
+            const uint32_t value = segment_id + column_id;
+            columns[column_id]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+    }
+    ASSERT_EQ(worker_started_future.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+    RowsetSharedPtr rowset;
+    const auto status = rowset_writer->build(rowset);
+    EXPECT_EQ(status.code(), INVERTED_INDEX_ANALYZER_ERROR);
+    EXPECT_EQ(status.to_string(), expected_status.to_string());
+}
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::enable_segcompaction = true;

@@ -190,16 +190,11 @@ std::string normalize_analyzer_key(std::string_view analyzer) {
 
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties) {
-    // Build analyzer key from index properties for reader registration.
-    // This determines how the index is stored/identified.
-
-    // 1. Check for custom analyzer name
-    auto custom_it = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
-    if (custom_it != properties.end() && !custom_it->second.empty()) {
-        return to_lower(custom_it->second);
+    auto analyzer = properties.find(INVERTED_INDEX_ANALYZER_NAME_KEY);
+    if (analyzer != properties.end() && !analyzer->second.empty()) {
+        return normalize_analyzer_key(analyzer->second);
     }
 
-    // 2. Fall back to parser type
     std::string parser;
     auto parser_it = properties.find(INVERTED_INDEX_PARSER_KEY);
     if (parser_it != properties.end()) {
@@ -211,11 +206,10 @@ std::string build_analyzer_key_from_properties(
         }
     }
 
-    // 3. Return normalized parser or "" for no explicit configuration
     if (parser.empty()) {
-        return ""; // No explicit parser - empty key means "no configuration"
+        return "";
     }
-    return to_lower(parser);
+    return normalize_analyzer_key(parser);
 }
 
 // ============================================================================

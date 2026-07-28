@@ -20,7 +20,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
+
+#include "common/config.h"
+#include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/snii/query/term_query.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -28,9 +33,28 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace testing;
+
+class ScopedIndexBuilderDebugPoints {
+public:
+    ScopedIndexBuilderDebugPoints() : _debug_points_enabled(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->clear();
+    }
+
+    ~ScopedIndexBuilderDebugPoints() {
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = _debug_points_enabled;
+    }
+
+    void enable(const std::string& name) { DebugPoints::instance()->add(name); }
+
+private:
+    bool _debug_points_enabled;
+};
 
 class IndexBuilderTest : public ::testing::Test {
 protected:
@@ -170,6 +194,230 @@ protected:
         rs_meta->set_tablet_schema(tablet_schema);
     }
 
+    void prepare_single_index_build(int64_t rowset_id) {
+        auto tablet_path = _absolute_dir + "/" + std::to_string(rowset_id);
+        _tablet->_tablet_path = tablet_path;
+        ASSERT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet_path).ok());
+
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id.init(rowset_id);
+        writer_context.tablet_id = _tablet->tablet_id();
+        writer_context.tablet_schema_hash = _tablet_meta->schema_hash();
+        writer_context.partition_id = 10;
+        writer_context.rowset_type = BETA_ROWSET;
+        writer_context.tablet_path = tablet_path;
+        writer_context.rowset_state = VISIBLE;
+        writer_context.tablet_schema = _tablet_schema;
+        writer_context.version = Version(10, 10);
+
+        auto result = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        auto rowset_writer = std::move(result).value();
+
+        Block block = _tablet_schema->create_block();
+        auto columns = std::move(block).mutate_columns();
+        for (int i = 0; i < 8; ++i) {
+            int32_t k1 = i * 10;
+            int32_t k2 = i;
+            columns[0]->insert_data(reinterpret_cast<const char*>(&k1), sizeof(k1));
+            columns[1]->insert_data(reinterpret_cast<const char*>(&k2), sizeof(k2));
+        }
+        block.set_columns(std::move(columns));
+        ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+
+        RowsetSharedPtr rowset;
+        ASSERT_TRUE(rowset_writer->build(rowset).ok());
+        ASSERT_TRUE(_tablet->add_rowset(rowset).ok());
+
+        TOlapTableIndex index;
+        index.index_id = 101;
+        index.index_name = "k1_index";
+        index.columns.emplace_back("k1");
+        index.column_unique_ids.push_back(1);
+        index.index_type = TIndexType::INVERTED;
+        _alter_indexes.push_back(std::move(index));
+    }
+
+    Status build_single_index() {
+        IndexBuilder builder(*_engine_ref, _tablet, _columns, _alter_indexes, false);
+        RETURN_IF_ERROR(builder.init());
+        return builder.do_build_inverted_index();
+    }
+
+    static TabletSchemaSPtr create_snii_drop_schema() {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+
+        TabletColumn key_column;
+        key_column.set_unique_id(1);
+        key_column.set_name("k1");
+        key_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+        key_column.set_length(4);
+        key_column.set_index_length(4);
+        key_column.set_is_key(true);
+        key_column.set_is_nullable(false);
+        tablet_schema->append_column(key_column);
+
+        for (const auto& [unique_id, name] : {std::pair<int32_t, std::string_view> {2, "body_a"},
+                                              std::pair<int32_t, std::string_view> {3, "body_b"}}) {
+            TabletColumn column;
+            column.set_unique_id(unique_id);
+            column.set_name(std::string(name));
+            column.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+            column.set_length(65535);
+            column.set_is_nullable(false);
+            tablet_schema->append_column(column);
+        }
+
+        for (const auto& [index_id, index_name, column_unique_id] :
+             {std::tuple<int64_t, std::string_view, int32_t> {1, "idx_a", 2},
+              std::tuple<int64_t, std::string_view, int32_t> {2, "idx_b", 3}}) {
+            TabletIndex index;
+            index._index_id = index_id;
+            index._index_name = index_name;
+            index._index_type = IndexType::INVERTED;
+            index._col_unique_ids.push_back(column_unique_id);
+            index._properties["parser"] = "english";
+            index._properties["lower_case"] = "true";
+            index._properties["support_phrase"] = "true";
+            tablet_schema->append_index(std::move(index));
+        }
+        return tablet_schema;
+    }
+
+    Status create_snii_drop_tablet(const TabletSchemaSPtr& tablet_schema,
+                                   const std::string& tablet_path, TabletSharedPtr* tablet) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tablet_path));
+        auto tablet_meta = create_tablet_meta();
+        tablet_meta->_schema = tablet_schema;
+        *tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+        (*tablet)->_tablet_path = tablet_path;
+        return (*tablet)->init();
+    }
+
+    Status create_snii_source_rowset(const TabletSharedPtr& tablet,
+                                     const TabletSchemaSPtr& tablet_schema,
+                                     const std::string& tablet_path,
+                                     RowsetSharedPtr* rowset) const {
+        RowsetWriterContext writer_context;
+        writer_context.rowset_id.init(15691);
+        writer_context.tablet_id = tablet->tablet_id();
+        writer_context.tablet_schema_hash = tablet->schema_hash();
+        writer_context.partition_id = 10;
+        writer_context.rowset_type = BETA_ROWSET;
+        writer_context.tablet_path = tablet_path;
+        writer_context.rowset_state = VISIBLE;
+        writer_context.tablet_schema = tablet_schema;
+        writer_context.version = Version(10, 10);
+
+        auto rowset_writer =
+                DORIS_TRY(RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false));
+        Block block = tablet_schema->create_block();
+        auto columns = std::move(block).mutate_columns();
+        const std::vector<std::string> dropped_values = {"drop alpha", "drop beta"};
+        const std::vector<std::string> surviving_values = {"keep alpha", "keep beta"};
+        for (int32_t i = 0; i < 2; ++i) {
+            columns[0]->insert_data(reinterpret_cast<const char*>(&i), sizeof(i));
+            columns[1]->insert_data(dropped_values[i].data(), dropped_values[i].size());
+            columns[2]->insert_data(surviving_values[i].data(), surviving_values[i].size());
+        }
+        block = tablet_schema->create_block();
+        block.set_columns(std::move(columns));
+        RETURN_IF_ERROR(rowset_writer->add_block(&block));
+        RETURN_IF_ERROR(rowset_writer->flush());
+        RETURN_IF_ERROR(rowset_writer->build(*rowset));
+        return tablet->add_rowset(*rowset);
+    }
+
+    static TOlapTableIndex create_drop_index(int64_t index_id, std::string index_name,
+                                             std::string column_name, int32_t column_unique_id) {
+        TOlapTableIndex index;
+        index.index_id = index_id;
+        index.index_name = std::move(index_name);
+        index.index_type = TIndexType::INVERTED;
+        index.columns.emplace_back(std::move(column_name));
+        index.column_unique_ids.push_back(column_unique_id);
+        return index;
+    }
+
+    Status drop_snii_index(const TabletSharedPtr& tablet, TOlapTableIndex index,
+                           RowsetSharedPtr* output_rowset) const {
+        std::vector<TOlapTableIndex> drop_indexes {std::move(index)};
+        IndexBuilder builder(*_engine_ref, tablet, _columns, drop_indexes, true);
+        RETURN_IF_ERROR(builder.init());
+        RETURN_IF_ERROR(builder.do_build_inverted_index());
+        DORIS_CHECK_EQ(builder._output_rowsets.size(), 1);
+        *output_rowset = builder._output_rowsets.front();
+        return Status::OK();
+    }
+
+    static void assert_snii_surviving_index(const RowsetSharedPtr& source_rowset,
+                                            const RowsetSharedPtr& output_rowset) {
+        const auto& output_schema = output_rowset->tablet_schema();
+        EXPECT_FALSE(output_schema->has_inverted_index_with_index_id(1));
+        ASSERT_TRUE(output_schema->has_inverted_index_with_index_id(2));
+        EXPECT_EQ(output_rowset->index_disk_size(), source_rowset->index_disk_size());
+        EXPECT_EQ(output_rowset->data_disk_size(), source_rowset->data_disk_size());
+        EXPECT_EQ(output_rowset->total_disk_size(), source_rowset->total_disk_size());
+
+        auto source_segment_path = source_rowset->segment_path(0);
+        ASSERT_TRUE(source_segment_path.has_value()) << source_segment_path.error();
+        auto output_segment_path = output_rowset->segment_path(0);
+        ASSERT_TRUE(output_segment_path.has_value()) << output_segment_path.error();
+        const auto source_index_path = segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        source_segment_path.value()));
+        const auto output_index_path = segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        output_segment_path.value()));
+        std::error_code equivalent_error;
+        EXPECT_TRUE(
+                std::filesystem::equivalent(source_index_path, output_index_path, equivalent_error))
+                << equivalent_error.message();
+    }
+
+    static void assert_snii_term_query(const RowsetSharedPtr& rowset, int64_t tablet_id) {
+        auto segment_path = rowset->segment_path(0);
+        ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
+        const std::string index_path_prefix {
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value())};
+        segment_v2::IndexFileReader index_file_reader(
+                io::global_local_filesystem(), index_path_prefix,
+                InvertedIndexStorageFormatPB::SNII, InvertedIndexFileInfo(), tablet_id);
+        ASSERT_TRUE(index_file_reader.init().ok());
+
+        const auto& surviving_indexes = rowset->tablet_schema()->inverted_indexs(3);
+        ASSERT_EQ(surviving_indexes.size(), 1);
+        auto logical_index = index_file_reader.open_snii_index(surviving_indexes.front());
+        ASSERT_TRUE(logical_index.has_value()) << logical_index.error();
+        std::vector<uint32_t> docids;
+        ASSERT_TRUE(snii::query::term_query(*logical_index.value(), "keep", &docids).ok());
+        EXPECT_EQ(docids, (std::vector<uint32_t> {0, 1}));
+    }
+
+    static void assert_last_snii_index_dropped(const RowsetSharedPtr& source_rowset,
+                                               const RowsetSharedPtr& rowset) {
+        EXPECT_FALSE(rowset->tablet_schema()->has_inverted_index());
+        EXPECT_EQ(rowset->index_disk_size(), 0);
+        EXPECT_EQ(rowset->data_disk_size(), source_rowset->data_disk_size());
+        EXPECT_EQ(rowset->total_disk_size(), source_rowset->data_disk_size());
+        auto segment_path = rowset->segment_path(0);
+        ASSERT_TRUE(segment_path.has_value()) << segment_path.error();
+        const auto index_path = segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value()));
+        bool index_exists = true;
+        ASSERT_TRUE(io::global_local_filesystem()->exists(index_path, &index_exists).ok());
+        EXPECT_FALSE(index_exists);
+    }
+
     StorageEngine* _engine_ref = nullptr;
     TabletSharedPtr _tablet;
     TabletMetaSharedPtr _tablet_meta;
@@ -201,6 +449,17 @@ TEST_F(IndexBuilderTest, BasicBuildTest) {
     auto status = builder.init();
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
+}
+
+TEST_F(IndexBuilderTest, HandleSingleRowsetPreservesOrdinaryAppendFailure) {
+    prepare_single_index_build(16604);
+    ScopedIndexBuilderDebugPoints debug_points;
+    debug_points.enable("IndexBuilder::handle_single_rowset_write_inverted_index_data_error");
+
+    auto status = build_single_index();
+
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_EQ(status.msg(), "debug point: handle_single_rowset_write_inverted_index_data_error");
 }
 
 TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
@@ -3130,6 +3389,29 @@ TEST_F(IndexBuilderTest, DropOneIndexNotAffectOtherIndexesOnSameColumnTest) {
     }
     EXPECT_EQ(inverted_index_count, 1)
             << "Should have exactly 1 inverted index remaining after drop";
+}
+
+TEST_F(IndexBuilderTest, DropOneSniiIndexPreservesSurvivingPhysicalIndex) {
+    const auto tablet_path = _absolute_dir + "/15691";
+    auto tablet_schema = create_snii_drop_schema();
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(create_snii_source_rowset(tablet, tablet_schema, tablet_path, &source_rowset).ok());
+    ASSERT_GT(source_rowset->index_disk_size(), 0);
+
+    RowsetSharedPtr output_rowset;
+    ASSERT_TRUE(drop_snii_index(tablet, create_drop_index(1, "idx_a", "body_a", 2), &output_rowset)
+                        .ok());
+    assert_snii_surviving_index(source_rowset, output_rowset);
+    assert_snii_term_query(output_rowset, tablet->tablet_id());
+
+    ScopedIndexBuilderDebugPoints debug_points;
+    debug_points.enable("IndexBuilder::update_inverted_index_info_index_file_reader_init_not_ok");
+    RowsetSharedPtr final_rowset;
+    ASSERT_TRUE(drop_snii_index(tablet, create_drop_index(2, "idx_b", "body_b", 3), &final_rowset)
+                        .ok());
+    assert_last_snii_index_dropped(source_rowset, final_rowset);
 }
 
 } // namespace doris

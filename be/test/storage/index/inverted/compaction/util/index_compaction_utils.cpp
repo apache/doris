@@ -427,7 +427,8 @@ class IndexCompactionUtils {
             const TabletSharedPtr& tablet, bool is_index_compaction, RowsetSharedPtr& rowset_ptr,
             const std::function<void(const BaseCompaction&, const RowsetWriterContext&)>
                     custom_check = nullptr,
-            int64_t max_rows_per_segment = 100000) {
+            int64_t max_rows_per_segment = 100000,
+            const std::optional<StorageResource>& output_storage_resource = std::nullopt) {
         config::inverted_index_compaction_enable = is_index_compaction;
         // control max rows in one block
         config::compaction_batch_size = max_rows_per_segment;
@@ -441,6 +442,8 @@ class IndexCompactionUtils {
 
         RowsetWriterContext ctx;
         ctx.max_rows_per_segment = max_rows_per_segment;
+        // Empty for a local output rowset, which is what is_local_rowset() keys off.
+        ctx.storage_resource = output_storage_resource;
         RETURN_IF_ERROR(compaction.construct_output_rowset_writer(ctx));
 
         compaction._stats.rowid_conversion = compaction._rowid_conversion.get();
@@ -585,7 +588,8 @@ class IndexCompactionUtils {
                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
         auto index_file_reader = std::make_shared<IndexFileReader>(
                 fs, std::string(index_file_path_prefix),
-                tablet_schema->get_inverted_index_storage_format(), index_info);
+                tablet_schema->get_inverted_index_storage_format(), index_info,
+                output_rowset->rowset_meta()->tablet_id());
         EXPECT_TRUE(index_file_reader->init().ok());
         const auto& dirs = index_file_reader->get_all_directories();
         EXPECT_TRUE(dirs.has_value());
@@ -616,11 +620,11 @@ class IndexCompactionUtils {
         }
     }
 
-    static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,
-                                                     const TabletSchemaSPtr& schema,
-                                                     const std::string& tablet_path,
-                                                     int64_t& inc_id,
-                                                     int64_t max_rows_per_segment = 200) {
+    static RowsetWriterContext rowset_writer_context(
+            const std::unique_ptr<DataDir>& data_dir, const TabletSchemaSPtr& schema,
+            const std::string& tablet_path, int64_t& inc_id, int64_t max_rows_per_segment = 200,
+            const std::optional<StorageResource>& storage_resource = std::nullopt,
+            int64_t tablet_id = 0, bool write_file_cache = false) {
         RowsetWriterContext context;
         RowsetId rowset_id;
         rowset_id.init(inc_id);
@@ -630,8 +634,16 @@ class IndexCompactionUtils {
         context.rowset_state = VISIBLE;
         context.tablet_schema = schema;
         context.tablet_path = tablet_path;
+        // Remote rowsets need this: CachedRemoteFileReader asserts tablet_id > 0 for Doris tables.
+        context.tablet_id = tablet_id;
         context.version = Version(inc_id, inc_id);
         context.max_rows_per_segment = max_rows_per_segment;
+        // Set only by callers that want the rowset to live on remote storage; a local rowset
+        // leaves it empty, which is what is_local_rowset() keys off.
+        context.storage_resource = storage_resource;
+        // Cloud sets this from the load request (cloud_rowset_builder.cpp), which is what leaves
+        // the block cache warm for compaction. Off by default, matching non-cloud writes.
+        context.write_file_cache = write_file_cache;
         inc_id++;
         return context;
     }
@@ -643,7 +655,9 @@ class IndexCompactionUtils {
                               const std::vector<std::string>& data_files, int64_t& inc_id,
                               const std::function<void(const int32_t&)> custom_check = nullptr,
                               const bool& is_performance = false,
-                              int64_t max_rows_per_segment = 200) {
+                              int64_t max_rows_per_segment = 200,
+                              const std::optional<StorageResource>& storage_resource = std::nullopt,
+                              bool write_file_cache = false) {
         std::vector<std::vector<T>> data;
         for (const auto& file : data_files) {
             data.emplace_back(read_data<T>(file));
@@ -652,7 +666,8 @@ class IndexCompactionUtils {
             const auto& res = RowsetFactory::create_rowset_writer(
                     *engine_ref,
                     rowset_writer_context(data_dir, schema, tablet->tablet_path(), inc_id,
-                                          max_rows_per_segment),
+                                          max_rows_per_segment, storage_resource,
+                                          tablet->tablet_id(), write_file_cache),
                     false);
             EXPECT_TRUE(res.has_value()) << res.error();
             const auto& rowset_writer = res.value();
@@ -715,8 +730,10 @@ class IndexCompactionUtils {
                         (rowsets[i]->num_rows() / max_rows_per_segment))
                     << rowsets[i]->num_segments();
 
-            // check rowset meta and file
-            for (int seg_id = 0; seg_id < rowsets[i]->num_segments(); seg_id++) {
+            // check rowset meta and file -- local only: the paths below are local, so a remote
+            // rowset would always report size 0 here.
+            for (int seg_id = 0; rowsets[i]->is_local() && seg_id < rowsets[i]->num_segments();
+                 seg_id++) {
                 const auto& index_info = rowsets[i]->_rowset_meta->inverted_index_file_info(seg_id);
                 EXPECT_TRUE(index_info.has_index_size());
                 const auto& fs = rowsets[i]->_rowset_meta->fs();
@@ -733,13 +750,26 @@ class IndexCompactionUtils {
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
                 auto index_file_reader = std::make_shared<IndexFileReader>(
                         fs, std::string(index_file_path_prefix),
-                        schema->get_inverted_index_storage_format(), index_info);
+                        schema->get_inverted_index_storage_format(), index_info,
+                        rowsets[i]->rowset_meta()->tablet_id());
                 st = index_file_reader->init();
                 EXPECT_TRUE(st.ok()) << st.to_string();
-                const auto& dirs = index_file_reader->get_all_directories();
-                EXPECT_TRUE(dirs.has_value());
-                if (custom_check) {
-                    custom_check(dirs.value().size());
+                if (schema->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::SNII) {
+                    const auto& indexes = schema->inverted_indexes();
+                    for (const TabletIndex* index : indexes) {
+                        const auto logical_index = index_file_reader->open_snii_index(index);
+                        EXPECT_TRUE(logical_index.has_value()) << logical_index.error();
+                    }
+                    if (custom_check) {
+                        custom_check(indexes.size());
+                    }
+                } else {
+                    const auto& dirs = index_file_reader->get_all_directories();
+                    EXPECT_TRUE(dirs.has_value());
+                    if (custom_check) {
+                        custom_check(dirs.value().size());
+                    }
                 }
             }
         }

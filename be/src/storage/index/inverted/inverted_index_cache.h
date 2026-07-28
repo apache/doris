@@ -26,6 +26,7 @@
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <string_view>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -35,6 +36,7 @@
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
 #include "util/lru_cache.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -42,6 +44,7 @@
 namespace doris {
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
+class IndexFileReader;
 
 class InvertedIndexSearcherCache {
 public:
@@ -56,12 +59,22 @@ public:
     class CacheValue : public LRUCacheValueBase {
     public:
         IndexSearcherPtr index_searcher;
+        std::shared_ptr<IndexFileReader> snii_index_file_reader;
+        std::unique_ptr<doris::snii::reader::LogicalIndexReader> snii_logical_reader;
         size_t size = 0;
         int64_t last_visit_time;
 
         CacheValue() = default;
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
                 : index_searcher(std::move(searcher)) {
+            size = mem_size;
+            last_visit_time = visit_time;
+        }
+        explicit CacheValue(std::unique_ptr<doris::snii::reader::LogicalIndexReader> logical_reader,
+                            size_t mem_size, int64_t visit_time,
+                            std::shared_ptr<IndexFileReader> index_file_reader)
+                : snii_index_file_reader(std::move(index_file_reader)),
+                  snii_logical_reader(std::move(logical_reader)) {
             size = mem_size;
             last_visit_time = visit_time;
         }
@@ -166,6 +179,11 @@ public:
         return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->index_searcher;
     }
 
+    doris::snii::reader::LogicalIndexReader* get_snii_logical_reader() {
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))
+                ->snii_logical_reader.get();
+    }
+
     InvertedIndexSearcherCache::CacheValue* get_index_cache_value() {
         return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle));
     }
@@ -180,6 +198,23 @@ private:
 
 class InvertedIndexQueryCacheHandle;
 
+inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 1;
+
+// Stable identity shared by result-cache and row-accurate single-flight. It intentionally contains
+// no analyzer output or internal plan kind: those are segment-local implementation details below
+// the cache lookup.
+struct InvertedIndexRawQuerySemantic {
+    std::string_view raw_query_bytes;
+    InvertedIndexQueryType query_type;
+    int32_t slop = 0;
+    bool ordered = false;
+    int32_t max_expansions = 0;
+    uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
+    uint64_t common_grams_cache_generation = 0;
+
+    std::string encode() const;
+};
+
 class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
     using LRUCachePolicy::insert;
@@ -191,21 +226,8 @@ public:
         InvertedIndexQueryType query_type; // query type
         std::string value;                 // query value
 
-        // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const {
-            std::string key_buf(index_path.string());
-            key_buf.append("/");
-            key_buf.append(column_name);
-            key_buf.append("/");
-            auto query_type_str = query_type_to_string(query_type);
-            if (query_type_str.empty()) {
-                return "";
-            }
-            key_buf.append(query_type_str);
-            key_buf.append("/");
-            key_buf.append(value);
-            return key_buf;
-        }
+        // Encode to an unambiguous flat binary which can be used as LRUCache's key.
+        std::string encode() const;
     };
 
     class CacheValue : public LRUCacheValueBase {

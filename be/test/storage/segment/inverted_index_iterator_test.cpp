@@ -23,6 +23,9 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -140,9 +143,10 @@ TEST_F(InvertedIndexIteratorTest, AddReader_SingleReader) {
 
 TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     InvertedIndexIterator iterator;
-    auto reader1 = create_mock_reader("chinese");
-    auto reader2 = create_mock_reader("english");
-    auto reader3 = create_mock_reader(""); // empty key stays empty (no properties set)
+    auto reader1 = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 1);
+    auto reader2 = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 2);
+    auto reader3 = create_mock_reader("", InvertedIndexReaderType::FULLTEXT,
+                                      3); // empty key stays empty (no properties set)
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader1);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader2);
@@ -165,11 +169,39 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     // Don't assert specific reader - fallback mode returns first available
 }
 
+TEST_F(InvertedIndexIteratorTest, AddReader_DuplicateIndexIdFails) {
+    auto first_reader = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 7);
+    auto duplicate_reader = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 7);
+
+#ifndef NDEBUG
+    EXPECT_DEATH(
+            {
+                InvertedIndexIterator iterator;
+                iterator.add_reader(InvertedIndexReaderType::FULLTEXT, first_reader);
+                iterator.add_reader(InvertedIndexReaderType::FULLTEXT, duplicate_reader);
+            },
+            "Duplicate inverted index id 7 in one field");
+#else
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, first_reader);
+    try {
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT, duplicate_reader);
+        FAIL() << "Expected doris::Exception";
+    } catch (const Exception& e) {
+        const auto message = e.to_string();
+        EXPECT_NE(message.find("Duplicate inverted index id 7 in one field"), std::string::npos)
+                << message;
+    }
+#endif
+}
+
 // Test that "none" is treated as a distinct analyzer key (not empty string)
 TEST_F(InvertedIndexIteratorTest, AddReader_NoneAnalyzerIsDistinct) {
     InvertedIndexIterator iterator;
-    auto empty_reader = create_mock_reader("");    // empty key (no properties)
-    auto none_reader = create_mock_reader("none"); // explicit "none" key
+    auto empty_reader = create_mock_reader("", InvertedIndexReaderType::FULLTEXT,
+                                           1); // empty key (no properties)
+    auto none_reader = create_mock_reader("none", InvertedIndexReaderType::FULLTEXT,
+                                          2); // explicit "none" key
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, empty_reader);
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, none_reader);
@@ -251,8 +283,8 @@ TEST_F(InvertedIndexIteratorTest, EmptyString_NoSpecifiedAnalyzer_ReturnsAny) {
 // select_best_reader with column_type tests
 TEST_F(InvertedIndexIteratorTest, SelectBestReader_MatchQuerySelectsFulltext) {
     InvertedIndexIterator iterator;
-    auto fulltext_reader = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT);
-    auto string_reader = create_mock_reader("chinese", InvertedIndexReaderType::STRING_TYPE);
+    auto fulltext_reader = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 1);
+    auto string_reader = create_mock_reader("chinese", InvertedIndexReaderType::STRING_TYPE, 2);
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext_reader);
     iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_reader);
@@ -266,8 +298,8 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_MatchQuerySelectsFulltext) {
 
 TEST_F(InvertedIndexIteratorTest, SelectBestReader_EqualQuerySelectsStringType) {
     InvertedIndexIterator iterator;
-    auto fulltext_reader = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT);
-    auto string_reader = create_mock_reader("chinese", InvertedIndexReaderType::STRING_TYPE);
+    auto fulltext_reader = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 1);
+    auto string_reader = create_mock_reader("chinese", InvertedIndexReaderType::STRING_TYPE, 2);
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext_reader);
     iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_reader);
@@ -279,13 +311,43 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_EqualQuerySelectsStringType) 
     EXPECT_EQ(result.value(), string_reader);
 }
 
+TEST_F(InvertedIndexIteratorTest, SelectBestReader_ArrayUsesLeafStringType) {
+    InvertedIndexIterator iterator;
+    auto string_reader = create_mock_reader("chinese", InvertedIndexReaderType::STRING_TYPE, 10);
+    auto fulltext_reader = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 20);
+
+    iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_reader);
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext_reader);
+
+    DataTypePtr column_type = std::make_shared<DataTypeArray>(make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()))));
+    auto result = iterator.select_best_reader(column_type, InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                              "chinese");
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value(), fulltext_reader);
+}
+
+TEST_F(InvertedIndexIteratorTest, SelectAnyReaderIsDeterministicByIndexId) {
+    InvertedIndexIterator iterator;
+    auto reader_id_100 = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 100);
+    auto reader_id_50 = create_mock_reader("english", InvertedIndexReaderType::FULLTEXT, 50);
+
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
+
+    auto result = iterator.select_any_reader();
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result.value(), reader_id_50);
+}
+
 // Index lookup performance test
 TEST_F(InvertedIndexIteratorTest, IndexLookup_ManyReadersStillFast) {
     InvertedIndexIterator iterator;
 
     std::vector<std::shared_ptr<MockInvertedIndexReader>> readers;
     for (int i = 0; i < 100; i++) {
-        auto reader = create_mock_reader("analyzer_" + std::to_string(i));
+        auto reader = create_mock_reader("analyzer_" + std::to_string(i),
+                                         InvertedIndexReaderType::FULLTEXT, i + 1);
         readers.push_back(reader);
         iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
     }
@@ -326,8 +388,8 @@ TEST_F(InvertedIndexIteratorTest, EdgeCase_CaseInsensitiveQuery) {
 
 TEST_F(InvertedIndexIteratorTest, EdgeCase_GetReaderByType) {
     InvertedIndexIterator iterator;
-    auto fulltext = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT);
-    auto string_type = create_mock_reader("english", InvertedIndexReaderType::STRING_TYPE);
+    auto fulltext = create_mock_reader("chinese", InvertedIndexReaderType::FULLTEXT, 1);
+    auto string_type = create_mock_reader("english", InvertedIndexReaderType::STRING_TYPE, 2);
 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext);
     iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_type);
