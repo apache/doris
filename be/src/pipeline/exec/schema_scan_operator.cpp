@@ -23,6 +23,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -180,6 +181,8 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
         for (; j < columns_desc.size(); ++j) {
             if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(), columns_desc[j].name)) {
                 _slot_offsets[i] = j;
+                _common_scanner_param->required_columns.insert(
+                        to_upper(_dest_tuple_desc->slots()[i]->col_name()));
                 break;
             }
         }
