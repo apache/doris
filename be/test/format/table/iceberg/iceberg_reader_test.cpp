@@ -60,6 +60,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -138,6 +139,46 @@ void write_iceberg_three_int_orc_file(
     output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_iceberg_orc_containers_with_idless_struct_children(const std::string& file_path) {
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+            "struct<items:array<struct<a:int>>,attrs:map<int,struct<a:int>>>"));
+    type->getSubtype(0)->setAttribute("iceberg.id", "10");
+    type->getSubtype(1)->setAttribute("iceberg.id", "20");
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(1);
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+
+    auto& items = dynamic_cast<::orc::ListVectorBatch&>(*root.fields[0]);
+    auto& item = dynamic_cast<::orc::StructVectorBatch&>(*items.elements);
+    auto& item_a = dynamic_cast<::orc::LongVectorBatch&>(*item.fields[0]);
+    items.offsets[0] = 0;
+    items.offsets[1] = 1;
+    item_a.data[0] = 42;
+    items.numElements = item.numElements = item_a.numElements = 1;
+
+    auto& attrs = dynamic_cast<::orc::MapVectorBatch&>(*root.fields[1]);
+    auto& attr_key = dynamic_cast<::orc::LongVectorBatch&>(*attrs.keys);
+    auto& attr_value = dynamic_cast<::orc::StructVectorBatch&>(*attrs.elements);
+    auto& attr_a = dynamic_cast<::orc::LongVectorBatch&>(*attr_value.fields[0]);
+    attrs.offsets[0] = 0;
+    attrs.offsets[1] = 1;
+    attr_key.data[0] = 1;
+    attr_a.data[0] = 43;
+    attrs.numElements = attr_key.numElements = attr_value.numElements = attr_a.numElements = 1;
+
+    root.numElements = 1;
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream output(file_path, std::ios::binary);
+    output.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
 std::shared_ptr<arrow::Array> build_iceberg_int32_array(const std::vector<int32_t>& values) {
     arrow::Int32Builder builder;
     for (const auto value : values) {
@@ -181,6 +222,52 @@ void write_iceberg_three_int_parquet_file(
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *output,
                                                       static_cast<int64_t>(first_values.size()),
                                                       properties.build()));
+}
+
+void write_iceberg_id_and_idless_struct_parquet_file(const std::string& file_path, int32_t id,
+                                                     int32_t nested_value) {
+    auto id_field = arrow::field("id", arrow::int32(), false)
+                            ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+    auto child_field =
+            arrow::field("a", arrow::int32(), false)
+                    ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"2"}));
+    auto struct_result =
+            arrow::StructArray::Make({build_iceberg_int32_array({nested_value})}, {child_field});
+    DORIS_CHECK(struct_result.ok());
+    auto struct_field = arrow::field("s", arrow::struct_({child_field}), false);
+    auto table = arrow::Table::Make(arrow::schema({id_field, struct_field}),
+                                    {build_iceberg_int32_array({id}), *struct_result});
+    auto output = arrow::io::FileOutputStream::Open(file_path);
+    DORIS_CHECK(output.ok());
+    ::parquet::WriterProperties::Builder properties;
+    properties.version(::parquet::ParquetVersion::PARQUET_2_6);
+    properties.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    properties.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *output,
+                                                      1, properties.build()));
+}
+
+void write_iceberg_id_and_struct_with_idless_child_parquet_file(const std::string& file_path,
+                                                                int32_t id, int32_t nested_value) {
+    auto id_field = arrow::field("id", arrow::int32(), false)
+                            ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"1"}));
+    auto child_field = arrow::field("legacy_a", arrow::int32(), false);
+    auto struct_result =
+            arrow::StructArray::Make({build_iceberg_int32_array({nested_value})}, {child_field});
+    DORIS_CHECK(struct_result.ok());
+    auto struct_field =
+            arrow::field("s", arrow::struct_({child_field}), false)
+                    ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"10"}));
+    auto table = arrow::Table::Make(arrow::schema({id_field, struct_field}),
+                                    {build_iceberg_int32_array({id}), *struct_result});
+    auto output = arrow::io::FileOutputStream::Open(file_path);
+    DORIS_CHECK(output.ok());
+    ::parquet::WriterProperties::Builder properties;
+    properties.version(::parquet::ParquetVersion::PARQUET_2_6);
+    properties.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    properties.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *output,
+                                                      1, properties.build()));
 }
 
 void write_iceberg_int_equality_delete_parquet_file(const std::string& file_path,
@@ -240,6 +327,128 @@ Status create_single_int_tuple_descriptor(ObjectPool* object_pool, const std::st
     thrift_tuple.__set_tableId(0);
     thrift_table.__set_tupleDescriptors({thrift_tuple});
 
+    RETURN_IF_ERROR(DescriptorTbl::create(object_pool, thrift_table, descriptor_table));
+    *tuple_descriptor = (*descriptor_table)->get_tuple_descriptor(0);
+    return Status::OK();
+}
+
+Status create_single_struct_tuple_descriptor(ObjectPool* object_pool,
+                                             DescriptorTbl** descriptor_table,
+                                             const TupleDescriptor** tuple_descriptor) {
+    TDescriptorTable thrift_table;
+    TTableDescriptor table_descriptor;
+    table_descriptor.__set_id(0);
+    table_descriptor.__set_tableType(TTableType::OLAP_TABLE);
+    table_descriptor.__set_numCols(1);
+    table_descriptor.__set_numClusteringCols(0);
+    thrift_table.__set_tableDescriptors({table_descriptor});
+
+    TStructField child_field;
+    child_field.__set_name("a");
+    child_field.__set_contains_null(true);
+    TTypeNode struct_node;
+    struct_node.__set_type(TTypeNodeType::STRUCT);
+    struct_node.__set_struct_fields({child_field});
+    TTypeNode child_node;
+    child_node.__set_type(TTypeNodeType::SCALAR);
+    TScalarType child_scalar;
+    child_scalar.__set_type(TPrimitiveType::INT);
+    child_node.__set_scalar_type(child_scalar);
+    TTypeDesc type;
+    type.__set_types({struct_node, child_node});
+
+    TSlotDescriptor slot_descriptor;
+    slot_descriptor.__set_id(0);
+    slot_descriptor.__set_parent(0);
+    slot_descriptor.__set_col_unique_id(10);
+    slot_descriptor.__set_slotType(type);
+    slot_descriptor.__set_columnPos(0);
+    slot_descriptor.__set_byteOffset(0);
+    slot_descriptor.__set_nullIndicatorByte(0);
+    slot_descriptor.__set_nullIndicatorBit(-1);
+    slot_descriptor.__set_colName("s");
+    slot_descriptor.__set_slotIdx(0);
+    slot_descriptor.__set_isMaterialized(true);
+    thrift_table.__set_slotDescriptors({slot_descriptor});
+
+    TTupleDescriptor thrift_tuple;
+    thrift_tuple.__set_id(0);
+    thrift_tuple.__set_byteSize(16);
+    thrift_tuple.__set_numNullBytes(0);
+    thrift_tuple.__set_tableId(0);
+    thrift_table.__set_tupleDescriptors({thrift_tuple});
+    RETURN_IF_ERROR(DescriptorTbl::create(object_pool, thrift_table, descriptor_table));
+    *tuple_descriptor = (*descriptor_table)->get_tuple_descriptor(0);
+    return Status::OK();
+}
+
+Status create_array_map_struct_tuple_descriptor(ObjectPool* object_pool,
+                                                DescriptorTbl** descriptor_table,
+                                                const TupleDescriptor** tuple_descriptor) {
+    TDescriptorTable thrift_table;
+    TTableDescriptor table_descriptor;
+    table_descriptor.__set_id(0);
+    table_descriptor.__set_tableType(TTableType::OLAP_TABLE);
+    table_descriptor.__set_numCols(2);
+    table_descriptor.__set_numClusteringCols(0);
+    thrift_table.__set_tableDescriptors({table_descriptor});
+
+    auto scalar_int_node = [] {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar;
+        scalar.__set_type(TPrimitiveType::INT);
+        node.__set_scalar_type(scalar);
+        return node;
+    };
+    auto struct_a_node = [] {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::STRUCT);
+        TStructField child;
+        child.__set_name("a");
+        child.__set_contains_null(true);
+        node.__set_struct_fields({child});
+        return node;
+    };
+
+    TTypeNode array_node;
+    array_node.__set_type(TTypeNodeType::ARRAY);
+    array_node.__set_contains_nulls({true});
+    TTypeDesc items_type;
+    items_type.__set_types({array_node, struct_a_node(), scalar_int_node()});
+
+    TTypeNode map_node;
+    map_node.__set_type(TTypeNodeType::MAP);
+    map_node.__set_contains_nulls({false, true});
+    TTypeDesc attrs_type;
+    attrs_type.__set_types({map_node, scalar_int_node(), struct_a_node(), scalar_int_node()});
+
+    std::vector<TSlotDescriptor> slots;
+    auto add_slot = [&slots](int id, const std::string& name, int field_id, const TTypeDesc& type) {
+        TSlotDescriptor slot;
+        slot.__set_id(id);
+        slot.__set_parent(0);
+        slot.__set_col_unique_id(field_id);
+        slot.__set_slotType(type);
+        slot.__set_columnPos(id);
+        slot.__set_byteOffset(0);
+        slot.__set_nullIndicatorByte(0);
+        slot.__set_nullIndicatorBit(-1);
+        slot.__set_colName(name);
+        slot.__set_slotIdx(id);
+        slot.__set_isMaterialized(true);
+        slots.emplace_back(std::move(slot));
+    };
+    add_slot(0, "items", 10, items_type);
+    add_slot(1, "attrs", 20, attrs_type);
+    thrift_table.__set_slotDescriptors(std::move(slots));
+
+    TTupleDescriptor thrift_tuple;
+    thrift_tuple.__set_id(0);
+    thrift_tuple.__set_byteSize(32);
+    thrift_tuple.__set_numNullBytes(0);
+    thrift_tuple.__set_tableId(0);
+    thrift_table.__set_tupleDescriptors({thrift_tuple});
     RETURN_IF_ERROR(DescriptorTbl::create(object_pool, thrift_table, descriptor_table));
     *tuple_descriptor = (*descriptor_table)->get_tuple_descriptor(0);
     return Status::OK();
@@ -1075,18 +1284,24 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
         return field_ptr;
     };
 
+    static_assert(sizeof("0123456789abcdef0123456789abcdef") - 1 > StringView::kInlineSize);
+    const std::string binary_default = "0123456789abcdef0123456789abcdef";
+
     schema::external::TStructField root_field;
     root_field.__set_fields(
             {make_field("added_timestamp", 1, TPrimitiveType::DATETIMEV2,
                         "2024-01-01 00:00:00.123456", -1, 6, false),
-             make_field("added_binary", 2, TPrimitiveType::VARBINARY, "AAEC/w==", 4, -1, true),
-             make_field("added_string_binary", 3, TPrimitiveType::STRING, "AAEC/w==", -1, -1,
-                        true)});
+             make_field("added_binary", 2, TPrimitiveType::VARBINARY,
+                        "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+                        static_cast<int32_t>(binary_default.size()), -1, true),
+             make_field("added_string_binary", 3, TPrimitiveType::STRING,
+                        "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", -1, -1, true)});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1102,7 +1317,8 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
                                 &runtime_state, cache.get());
 
     const auto timestamp_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
-    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(4));
+    const auto varbinary_type = make_nullable(
+            std::make_shared<DataTypeVarbinary>(static_cast<int32_t>(binary_default.size())));
     const auto string_type = make_nullable(std::make_shared<DataTypeString>());
     Block block;
     block.insert({timestamp_type->create_column(), timestamp_type, "added_timestamp"});
@@ -1125,13 +1341,106 @@ TEST_F(IcebergReaderTest, v1_materializes_missing_equality_delete_initial_defaul
     ASSERT_EQ(block.rows(), 3);
     EXPECT_EQ(timestamp_type->to_string(*block.get_by_position(0).column, 0),
               "2024-01-01 00:00:00.123456");
-    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(1).column, 0),
-              std::string("\x00\x01\x02\xff", 4));
-    EXPECT_EQ(string_type->to_string(*block.get_by_position(2).column, 0),
-              std::string("\x00\x01\x02\xff", 4));
+    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(1).column, 0), binary_default);
+    EXPECT_EQ(string_type->to_string(*block.get_by_position(2).column, 0), binary_default);
     EXPECT_FALSE(is_column_const(*block.get_by_position(0).column));
     EXPECT_FALSE(is_column_const(*block.get_by_position(1).column));
     EXPECT_FALSE(is_column_const(*block.get_by_position(2).column));
+}
+
+TEST_F(IcebergReaderTest, v1_top_level_missing_binary_prefers_iceberg_initial_default) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name("added_uuid");
+    field->__set_id(1);
+    field->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
+    field->__set_initial_default_value_is_base64(true);
+    TColumnType thrift_type;
+    thrift_type.__set_type(TPrimitiveType::VARBINARY);
+    thrift_type.__set_len(16);
+    field->__set_type(thrift_type);
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.field_ptr = std::move(field);
+    field_ptr.__isset.field_ptr = true;
+    schema::external::TStructField root_field;
+    root_field.__set_fields({std::move(field_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({std::move(current_schema)});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
+                                &runtime_state, cache.get());
+
+    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(16));
+    Block block;
+    block.insert({varbinary_type->create_column(), varbinary_type, "added_uuid"});
+    std::unordered_map<std::string, uint32_t> positions = {{"added_uuid", 0}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+
+    ASSERT_TRUE(reader.on_fill_missing_columns(&block, 2, {"added_uuid"}).ok());
+
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(varbinary_type->to_string(*block.get_by_position(0).column, 0),
+              std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16));
+}
+
+TEST_F(IcebergReaderTest, v1_legacy_plan_keeps_missing_binary_null) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name("added_uuid");
+    field->__set_id(1);
+    field->__set_initial_default_value("Ej5FZ+ibEtOkVkJmFBdAAA==");
+    field->__set_initial_default_value_is_base64(true);
+    TColumnType thrift_type;
+    thrift_type.__set_type(TPrimitiveType::VARBINARY);
+    thrift_type.__set_len(16);
+    field->__set_type(thrift_type);
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.__set_field_ptr(std::move(field));
+    schema::external::TStructField root_field;
+    root_field.__set_fields({std::move(field_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams old_fe_scan_params;
+    old_fe_scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    old_fe_scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    old_fe_scan_params.__set_current_schema_id(-1);
+    old_fe_scan_params.__set_history_schema_info({std::move(current_schema)});
+    TFileRangeDesc scan_range;
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, old_fe_scan_params, scan_range, 1024, &ctz,
+                                &io_ctx, &runtime_state, cache.get());
+
+    const auto varbinary_type = make_nullable(std::make_shared<DataTypeVarbinary>(16));
+    Block block;
+    block.insert({varbinary_type->create_column(), varbinary_type, "added_uuid"});
+    std::unordered_map<std::string, uint32_t> positions = {{"added_uuid", 0}};
+    reader.TEST_set_column_name_to_block_index(&positions);
+    reader._fill_col_name_to_block_idx = &positions;
+
+    ASSERT_TRUE(reader.on_fill_missing_columns(&block, 2, {"added_uuid"}).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    ASSERT_EQ(nullable.size(), 2);
+    EXPECT_TRUE(nullable.is_null_at(0));
+    EXPECT_TRUE(nullable.is_null_at(1));
 }
 
 TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_default) {
@@ -1143,6 +1452,7 @@ TEST_F(IcebergReaderTest, v1_multi_equality_delete_hashes_materialized_missing_d
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_current_schema_id(-1);
     scan_params.__set_history_schema_info({current_schema});
     TFileRangeDesc scan_range;
@@ -1196,6 +1506,7 @@ TEST_F(IcebergReaderTest, v1_missing_equality_key_returns_error_for_pruned_descr
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_current_schema_id(-1);
     scan_params.__set_history_schema_info({current_schema});
     TFileRangeDesc scan_range;
@@ -1233,6 +1544,7 @@ TEST_F(IcebergReaderTest, v1_orc_equality_delete_matches_missing_initial_default
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);
@@ -1299,29 +1611,339 @@ TEST_F(IcebergReaderTest, v1_orc_equality_delete_matches_missing_initial_default
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_parquet_partial_id_equality_delete_ignores_stale_field_id) {
+TEST_F(IcebergReaderTest, v1_parquet_reads_idless_wrapper_with_authoritative_empty_mapping) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_v1_parquet_authoritative_empty_idless_wrapper_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.parquet").string();
+    write_iceberg_id_and_idless_struct_parquet_file(data_file, 1, 42);
+
+    TColumnType int_type;
+    int_type.__set_type(TPrimitiveType::INT);
+    TColumnType struct_type;
+    struct_type.__set_type(TPrimitiveType::STRUCT);
+    auto child_field = std::make_shared<schema::external::TField>();
+    child_field->__set_name("a");
+    child_field->__set_id(2);
+    child_field->__set_type(int_type);
+    schema::external::TFieldPtr child_ptr;
+    child_ptr.__set_field_ptr(child_field);
+    schema::external::TStructField struct_children;
+    struct_children.__set_fields({child_ptr});
+    auto struct_field = std::make_shared<schema::external::TField>();
+    struct_field->__set_name("s");
+    struct_field->__set_id(10);
+    struct_field->__set_type(struct_type);
+    struct_field->__set_name_mapping({});
+    struct_field->__set_name_mapping_is_authoritative(true);
+    struct_field->nestedField.__set_struct_field(struct_children);
+    struct_field->__isset.nestedField = true;
+    schema::external::TFieldPtr struct_ptr;
+    struct_ptr.__set_field_ptr(struct_field);
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_external_int_field("id", 1, std::nullopt), std::move(struct_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_struct_tuple_descriptor(&object_pool, &descriptor_table,
+                                                      &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
+                                &runtime_state, cache.get());
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &file_reader).ok());
+    reader.set_file_reader(file_reader);
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "s";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"s", 0}};
+    ParquetInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto init_status = reader.init_reader(&context);
+    ASSERT_TRUE(init_status.ok()) << init_status;
+
+    const auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto result_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {"a"}));
+    Block block;
+    block.insert({result_type->create_column(), result_type, "s"});
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader.get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(read_rows, 1);
+    EXPECT_EQ(result_type->to_string(*block.get_by_position(0).column, 0), "{\"a\":42}");
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, v1_parquet_keeps_file_id_mode_inside_nested_struct) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_v1_parquet_whole_file_id_mode_nested_struct_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.parquet").string();
+    write_iceberg_id_and_struct_with_idless_child_parquet_file(data_file, 1, 42);
+
+    TColumnType int_type;
+    int_type.__set_type(TPrimitiveType::INT);
+    TColumnType struct_type;
+    struct_type.__set_type(TPrimitiveType::STRUCT);
+    auto child_field = std::make_shared<schema::external::TField>();
+    child_field->__set_name("a");
+    child_field->__set_id(2);
+    child_field->__set_type(int_type);
+    child_field->__set_name_mapping({"legacy_a"});
+    child_field->__set_initial_default_value("7");
+    schema::external::TFieldPtr child_ptr;
+    child_ptr.__set_field_ptr(child_field);
+    schema::external::TStructField struct_children;
+    struct_children.__set_fields({child_ptr});
+    auto struct_field = std::make_shared<schema::external::TField>();
+    struct_field->__set_name("s");
+    struct_field->__set_id(10);
+    struct_field->__set_type(struct_type);
+    struct_field->nestedField.__set_struct_field(struct_children);
+    struct_field->__isset.nestedField = true;
+    schema::external::TFieldPtr struct_ptr;
+    struct_ptr.__set_field_ptr(struct_field);
+    schema::external::TStructField root_field;
+    root_field.__set_fields(
+            {make_external_int_field("id", 1, std::nullopt), std::move(struct_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(root_field);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_struct_tuple_descriptor(&object_pool, &descriptor_table,
+                                                      &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz, &io_ctx,
+                                &runtime_state, cache.get());
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &file_reader).ok());
+    reader.set_file_reader(file_reader);
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "s";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"s", 0}};
+    ParquetInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto init_status = reader.init_reader(&context);
+    ASSERT_TRUE(init_status.ok()) << init_status;
+
+    const auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto result_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {"a"}));
+    Block block;
+    block.insert({result_type->create_column(), result_type, "s"});
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader.get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(read_rows, 1);
+    EXPECT_EQ(result_type->to_string(*block.get_by_position(0).column, 0), "{\"a\":7}");
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_v1_orc_whole_file_id_mode_containers_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.orc").string();
+    write_iceberg_orc_containers_with_idless_struct_children(data_file);
+
+    TColumnType struct_type;
+    struct_type.__set_type(TPrimitiveType::STRUCT);
+    auto make_struct_field = [&struct_type](const std::string& name, int32_t id, int32_t child_id,
+                                            const std::string& default_value) {
+        schema::external::TStructField children;
+        children.__set_fields({make_external_int_field("a", child_id, default_value)});
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name(name);
+        field->__set_id(id);
+        field->__set_type(struct_type);
+        field->nestedField.__set_struct_field(std::move(children));
+        field->__isset.nestedField = true;
+        schema::external::TFieldPtr ptr;
+        ptr.__set_field_ptr(std::move(field));
+        return ptr;
+    };
+
+    TColumnType array_type;
+    array_type.__set_type(TPrimitiveType::ARRAY);
+    auto items = std::make_shared<schema::external::TField>();
+    items->__set_name("items");
+    items->__set_id(10);
+    items->__set_type(array_type);
+    schema::external::TArrayField array_field;
+    array_field.__set_item_field(make_struct_field("element", 11, 12, "7"));
+    items->nestedField.__set_array_field(std::move(array_field));
+    items->__isset.nestedField = true;
+    schema::external::TFieldPtr items_ptr;
+    items_ptr.__set_field_ptr(std::move(items));
+
+    TColumnType map_type;
+    map_type.__set_type(TPrimitiveType::MAP);
+    auto attrs = std::make_shared<schema::external::TField>();
+    attrs->__set_name("attrs");
+    attrs->__set_id(20);
+    attrs->__set_type(map_type);
+    schema::external::TMapField map_field;
+    map_field.__set_key_field(make_external_int_field("key", 21, std::nullopt));
+    map_field.__set_value_field(make_struct_field("value", 22, 23, "8"));
+    attrs->nestedField.__set_map_field(std::move(map_field));
+    attrs->__isset.nestedField = true;
+    schema::external::TFieldPtr attrs_ptr;
+    attrs_ptr.__set_field_ptr(std::move(attrs));
+
+    schema::external::TStructField root_field;
+    root_field.__set_fields({std::move(items_ptr), std::move(attrs_ptr)});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(-1);
+    current_schema.__set_root_field(std::move(root_field));
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({current_schema});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_array_map_struct_tuple_descriptor(&object_pool, &descriptor_table,
+                                                         &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                            "UTC", &io_ctx, cache.get());
+
+    std::vector<ColumnDescriptor> column_descriptors(2);
+    column_descriptors[0].name = "items";
+    column_descriptors[1].name = "attrs";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"items", 0}, {"attrs", 1}};
+    OrcInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+    const auto init_status = reader.init_reader(&context);
+    ASSERT_TRUE(init_status.ok()) << init_status;
+
+    Block block;
+    for (const auto* slot : tuple_descriptor->slots()) {
+        const auto& type = slot->get_data_type_ptr();
+        block.insert({type->create_column(), type, slot->col_name()});
+    }
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader.get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(read_rows, 1);
+    EXPECT_EQ(tuple_descriptor->slots()[0]->get_data_type_ptr()->to_string(
+                      *block.get_by_position(0).column, 0),
+              "[{\"a\":7}]");
+    EXPECT_EQ(tuple_descriptor->slots()[1]->get_data_type_ptr()->to_string(
+                      *block.get_by_position(1).column, 0),
+              "{1:{\"a\":8}}");
+
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, v1_parquet_mixed_ids_prefer_existing_equality_field_id) {
     const auto test_dir = std::filesystem::temp_directory_path() /
                           "doris_v1_parquet_partial_id_equality_delete_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.parquet").string();
     const auto delete_file = (test_dir / "equality-delete.parquet").string();
-    // The id-less columns put the complete Parquet file in BY_NAME mode. The unrelated
-    // stale_added column deliberately retains field id 1, which must not override the historical
-    // alias selected for the hidden added_column equality key.
-    write_iceberg_three_int_parquet_file(data_file, "id", std::nullopt, {1, 2, 3}, "legacy_added",
-                                         std::nullopt, {5, 7, 9}, "stale_added", 1, {70, 70, 70});
-    write_iceberg_int_equality_delete_parquet_file(delete_file, "added_column", 1, 7);
+    // The hidden equality-delete column keeps the old physical name after the table field is
+    // renamed. An unrelated ID-less sibling must not downgrade its authoritative ID lookup.
+    write_iceberg_three_int_parquet_file(data_file, "id", 0, {1, 2, 3}, "unrelated", std::nullopt,
+                                         {70, 70, 70}, "old_key", 1, {5, 7, 9});
+    write_iceberg_int_equality_delete_parquet_file(delete_file, "old_key", 1, 7);
 
     schema::external::TStructField root_field;
-    root_field.__set_fields(
-            {make_external_int_field("id", 0, std::nullopt),
-             make_external_int_field("added_column", 1, std::nullopt, {"legacy_added"})});
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt),
+                             make_external_int_field("new_key", 1, std::nullopt, {"old_key"})});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     scan_params.__set_current_schema_id(-1);
@@ -1392,32 +2014,59 @@ TEST_F(IcebergReaderTest, v1_parquet_partial_id_equality_delete_ignores_stale_fi
     EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 0), "1");
     EXPECT_EQ(id_type->to_string(*block.get_by_position(0).column, 1), "3");
 
+    TFileScanRangeParams legacy_scan_params = scan_params;
+    legacy_scan_params.__isset.iceberg_scan_semantics_version = false;
+    ShardedKVCache legacy_kv_cache(8);
+    IcebergParquetReader legacy_reader(&legacy_kv_cache, &profile, legacy_scan_params, scan_range,
+                                       1024, &ctz, &io_ctx, &runtime_state, cache.get());
+    io::FileReaderSPtr legacy_file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &legacy_file_reader).ok());
+    legacy_reader.set_file_reader(legacy_file_reader);
+    ParquetInitContext legacy_context;
+    legacy_context.column_descs = &column_descriptors;
+    legacy_context.col_name_to_block_idx = &block_positions;
+    legacy_context.tuple_descriptor = tuple_descriptor;
+    legacy_context.params = &legacy_scan_params;
+    legacy_context.range = &scan_range;
+    const auto legacy_init_status = legacy_reader.init_reader(&legacy_context);
+    ASSERT_TRUE(legacy_init_status.ok()) << legacy_init_status;
+
+    Block legacy_block;
+    legacy_block.insert({id_type->create_column(), id_type, "id"});
+    size_t legacy_read_rows = 0;
+    bool legacy_eof = false;
+    const auto legacy_status =
+            legacy_reader.get_next_block(&legacy_block, &legacy_read_rows, &legacy_eof);
+    ASSERT_TRUE(legacy_status.ok()) << legacy_status;
+    ASSERT_EQ(legacy_read_rows, 2);
+    ASSERT_EQ(legacy_block.rows(), 2);
+    EXPECT_EQ(id_type->to_string(*legacy_block.get_by_position(0).column, 0), "1");
+    EXPECT_EQ(id_type->to_string(*legacy_block.get_by_position(0).column, 1), "3");
+
     std::filesystem::remove_all(test_dir);
 }
 
-TEST_F(IcebergReaderTest, v1_orc_partial_id_equality_delete_ignores_stale_field_id) {
+TEST_F(IcebergReaderTest, v1_orc_mixed_ids_prefer_existing_equality_field_id) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_v1_orc_partial_id_equality_delete_test";
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
     const auto data_file = (test_dir / "data.orc").string();
     const auto delete_file = (test_dir / "equality-delete.orc").string();
-    // One id-less column switches the whole file to BY_NAME. The hidden current key is physically
-    // stored as its id-less historical alias, while an unrelated migrated column still carries
-    // the key's stale field id. Equality-delete binding must select legacy_added, not stale_added.
-    write_iceberg_three_int_orc_file(data_file, "id", std::nullopt, {1, 2, 3}, "legacy_added",
-                                     std::nullopt, {5, 7, 9}, "stale_added", 1, {70, 70, 70});
-    write_iceberg_int_orc_file(delete_file, "added_column", 1, {7});
+    // Exercise the same renamed, unprojected key with an old physical name in ORC.
+    write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "unrelated", std::nullopt,
+                                     {70, 70, 70}, "old_key", 1, {5, 7, 9});
+    write_iceberg_int_orc_file(delete_file, "old_key", 1, {7});
 
     schema::external::TStructField root_field;
-    root_field.__set_fields(
-            {make_external_int_field("id", 0, std::nullopt),
-             make_external_int_field("added_column", 1, std::nullopt, {"legacy_added"})});
+    root_field.__set_fields({make_external_int_field("id", 0, std::nullopt),
+                             make_external_int_field("new_key", 1, std::nullopt, {"old_key"})});
     schema::external::TSchema current_schema;
     current_schema.__set_schema_id(-1);
     current_schema.__set_root_field(root_field);
 
     TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
     scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
     scan_params.__set_current_schema_id(-1);

@@ -18,7 +18,8 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.thrift.TFileType;
@@ -35,7 +36,7 @@ import java.util.stream.Collectors;
 
 public class LocationPathTest {
 
-    private static Map<StorageProperties.Type, StorageProperties> STORAGE_PROPERTIES_MAP = new HashMap<>();
+    private static Map<StorageTypeId, StorageAdapter> STORAGE_PROPERTIES_MAP = new HashMap<>();
 
     static {
         Map<String, String> props = new HashMap<>();
@@ -65,12 +66,8 @@ public class LocationPathTest {
         props.put("azure.secret_key", "secret_key");
         props.put("broker.name", "mybroker");
 
-        try {
-            STORAGE_PROPERTIES_MAP = StorageProperties.createAll(props).stream()
-                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
+        STORAGE_PROPERTIES_MAP = StorageAdapter.ofAll(props).stream()
+                .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
     }
 
     @Test
@@ -90,15 +87,14 @@ public class LocationPathTest {
         props.put("dfs.namenode.rpc-address.ns1.nn2", "127.0.0.2:8020");
         props.put("dfs.client.failover.proxy.provider.ns1",
                 "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
-        //HdfsProperties hdfsProperties = (HdfsProperties) StorageProperties.createPrimary( props);
-        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = StorageProperties.createAll(props).stream()
-                .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
-        locationPath = LocationPath.of("hdfs:///dir/file.path", storagePropertiesMap);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = StorageAdapter.ofAll(props).stream()
+                .collect(java.util.stream.Collectors.toMap(StorageAdapter::getType, Function.identity()));
+        locationPath = LocationPath.ofAdapters("hdfs:///dir/file.path", storagePropertiesMap);
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://")
                 && !locationPath.getNormalizedLocation().startsWith("hdfs:///"));
 
         // nonstandard '/' for hdfs path
-        locationPath = LocationPath.of("hdfs:/dir/file.path", storagePropertiesMap);
+        locationPath = LocationPath.ofAdapters("hdfs:/dir/file.path", storagePropertiesMap);
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://"));
     }
 
@@ -251,7 +247,7 @@ public class LocationPathTest {
     }
 
     private void assertNormalize(String input, String expected) {
-        LocationPath locationPath = LocationPath.of(input, STORAGE_PROPERTIES_MAP);
+        LocationPath locationPath = LocationPath.ofAdapters(input, STORAGE_PROPERTIES_MAP);
         String actual = locationPath.getNormalizedLocation();
         Assertions.assertEquals(expected, actual);
     }
@@ -263,13 +259,13 @@ public class LocationPathTest {
         props.put("minio.access_key", "access_key");
         props.put("minio.secret_key", "secret_key");
 
-        StorageProperties minioProperties = StorageProperties.createAll(props).stream()
-                .filter(p -> p.getType() == StorageProperties.Type.MINIO)
+        StorageAdapter minioProperties = StorageAdapter.ofAll(props).stream()
+                .filter(p -> p.getType() == StorageTypeId.MINIO)
                 .findFirst()
                 .orElseThrow(() -> new UserException("MinIO properties not found"));
-        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(StorageProperties.Type.MINIO, minioProperties);
-        LocationPath locationPath = LocationPath.of("s3a://minio.example.com/bucket/path", storagePropertiesMap);
+        Map<StorageTypeId, StorageAdapter> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageTypeId.MINIO, minioProperties);
+        LocationPath locationPath = LocationPath.ofAdapters("s3a://minio.example.com/bucket/path", storagePropertiesMap);
         Assertions.assertEquals("s3://minio.example.com/bucket/path", locationPath.getNormalizedLocation());
         Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
@@ -278,7 +274,7 @@ public class LocationPathTest {
     @Test
     public void testHdfsStorageLocationConvert() {
         String location = "hdfs://172.16.0.35:8020/user/hive/warehouse/partition_special_characters_1/pt=1,1%3D1, 3%3D2+1, 1%3D3-2, 3%2F3%3D1, 2%2F2%3D1, 2%2F1%3D2, 2%2F1%3D2 +1 -1,2%2F1%3D2 %2A3 %2F3";
-        LocationPath locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        LocationPath locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         Assertions.assertEquals(location, locationPath.getNormalizedLocation());
         locationPath = LocationPath.of(location);
@@ -288,15 +284,15 @@ public class LocationPathTest {
     @Test
     public void testOnelakeStorageLocationConvert() {
         String location = "abfss://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
-        LocationPath locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        LocationPath locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         location = "abfs://1a2b3c4d-1234-5678-abcd-9876543210ef@onelake.dfs.fabric.microsoft.com/myworkspace/lakehouse/default/Files/data/test.parquet";
-        locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         location = "abfss://mycontainer@mystorageaccount.dfs.core.windows.net/data/2025/11/11/";
-        locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        locationPath = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
         Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
 
@@ -304,20 +300,20 @@ public class LocationPathTest {
 
     @Test
     public void testLocationPathDirect() {
-        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        StorageAdapter storageProperties = STORAGE_PROPERTIES_MAP.get(StorageTypeId.S3);
         LocationPath locationPath = LocationPath.ofDirect("s3://bucket/key", "s3", "s3://bucket", storageProperties);
         Assertions.assertEquals("s3://bucket/key", locationPath.getNormalizedLocation());
         Assertions.assertEquals("s3", locationPath.getSchema());
         Assertions.assertEquals("s3://bucket", locationPath.getFsIdentifier());
-        Assertions.assertEquals(storageProperties, locationPath.getStorageProperties());
+        Assertions.assertEquals(storageProperties, locationPath.getStorageAdapter());
     }
 
     @Test
     public void testLocationPathWithCacheFastPath() {
-        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        StorageAdapter storageProperties = STORAGE_PROPERTIES_MAP.get(StorageTypeId.S3);
         String location = "s3://bucket/path/to/file";
         LocationPath cached = LocationPath.ofWithCache(location, storageProperties, "s3", "s3://");
-        LocationPath full = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        LocationPath full = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
         Assertions.assertEquals(full.getFsIdentifier(), cached.getFsIdentifier());
         Assertions.assertEquals(full.getSchema(), cached.getSchema());
@@ -325,10 +321,10 @@ public class LocationPathTest {
 
     @Test
     public void testLocationPathWithCacheFallback() {
-        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        StorageAdapter storageProperties = STORAGE_PROPERTIES_MAP.get(StorageTypeId.S3);
         String location = "s3://bucket/path/to/file";
         LocationPath cached = LocationPath.ofWithCache(location, storageProperties, "s3", null);
-        LocationPath full = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        LocationPath full = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
         Assertions.assertEquals(full.getFsIdentifier(), cached.getFsIdentifier());
         Assertions.assertEquals(full.getSchema(), cached.getSchema());
@@ -336,10 +332,10 @@ public class LocationPathTest {
 
     @Test
     public void testLocationPathWithCacheUsesDefaultFsForHdfsPath() {
-        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.HDFS);
+        StorageAdapter storageProperties = STORAGE_PROPERTIES_MAP.get(StorageTypeId.HDFS);
         String location = "/hadoop_catalog/fdm/f_csm_t_consume_info/data/data_dt=20220407/file.parquet";
         LocationPath cached = LocationPath.ofWithCache(location, storageProperties, null, null);
-        LocationPath full = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        LocationPath full = LocationPath.ofAdapters(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(full.getNormalizedLocation(), cached.getNormalizedLocation());
         Assertions.assertEquals("hdfs://namenode:8020/hadoop_catalog/fdm/f_csm_t_consume_info/data/"
                 + "data_dt=20220407/file.parquet", cached.getNormalizedLocation());
@@ -351,7 +347,7 @@ public class LocationPathTest {
 
     @Test
     public void testLocationPathWithCacheMissingAuthority() {
-        StorageProperties storageProperties = STORAGE_PROPERTIES_MAP.get(StorageProperties.Type.S3);
+        StorageAdapter storageProperties = STORAGE_PROPERTIES_MAP.get(StorageTypeId.S3);
         Assertions.assertThrows(StoragePropertiesException.class,
                 () -> LocationPath.ofWithCache("s3:///path", storageProperties, "s3", "s3://"));
     }

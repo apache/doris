@@ -446,7 +446,7 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_NE(_profile.get_counter("DeleteConjunctFilterTime"), nullptr);
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
-    EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(counter_value(&_profile, "DelimitedRowsFilteredByConjunct"), 2);
     EXPECT_EQ(io_ctx->predicate_filtered_rows, 2);
     EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);
@@ -753,6 +753,20 @@ TEST_F(CsvV2ReaderTest, CountAggregateScansRows) {
     FileAggregateResult aggregate_result;
     ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
     EXPECT_EQ(aggregate_result.count, 2);
+}
+
+TEST_F(CsvV2ReaderTest, CountNullableColumnFallsBackToRowMaterialization) {
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    auto request = std::make_shared<FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+
+    FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::COUNT;
+    aggregate_request.columns.push_back(
+            {.projection = LocalColumnIndex::top_level(LocalColumnId(1))});
+    FileAggregateResult aggregate_result;
+    EXPECT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 }
 
 // Scenario: CSV v2 parses enclosed fields itself instead of delegating to the old CsvReader. A

@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -368,6 +369,17 @@ public final class ObsFileSystemProperties
     }
 
     private void normalize() {
+        // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2 (inherited by fe-core
+        // OBSProperties): derive the endpoint from the raw "uri" property when no endpoint key is
+        // set; parse failures are swallowed exactly like fe-core. Runs before region extraction so
+        // a uri-derived endpoint feeds it, matching the legacy ordering.
+        if (StringUtils.isBlank(endpoint)) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(rawProperties, usePathStyle,
+                    forceParsingByStandardUrl);
+            if (StringUtils.isNotBlank(derived)) {
+                endpoint = derived;
+            }
+        }
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
@@ -411,4 +423,10 @@ public final class ObsFileSystemProperties
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("obs");
+    }
+
 }

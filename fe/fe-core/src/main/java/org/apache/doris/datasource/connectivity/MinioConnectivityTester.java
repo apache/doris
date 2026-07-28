@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource.connectivity;
 
-import org.apache.doris.datasource.property.storage.MinioProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 public class MinioConnectivityTester extends AbstractS3CompatibleConnectivityTester {
 
-    public MinioConnectivityTester(MinioProperties properties, String testLocation) {
-        super(properties, testLocation);
+    public MinioConnectivityTester(StorageAdapter adapter, String testLocation) {
+        super(adapter, testLocation);
     }
 
     @Override

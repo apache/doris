@@ -58,7 +58,10 @@ struct TField {
     // True when initial_default_value is Base64 and must be decoded before constructing the Doris
     // STRING/CHAR/VARBINARY value. This cannot be inferred from the Doris type because Iceberg
     // UUID/BINARY/FIXED may map either to VARBINARY or to STRING/CHAR.
-    8: optional bool initial_default_value_is_base64
+    8: optional bool initial_default_value_is_base64,
+    // Version marker for authoritative Iceberg mapping semantics. Its absence preserves the
+    // legacy name fallback when a new BE executes a plan produced by an older FE during rollout.
+    9: optional bool name_mapping_is_authoritative
 }
 
 

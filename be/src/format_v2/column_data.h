@@ -248,6 +248,9 @@ struct ColumnDefinition {
     // Historical or external names for the same logical field. Table formats such as Iceberg can
     // use this to resolve partition path keys after column rename.
     std::vector<std::string> name_mapping {};
+    // Distinguishes no table-level mapping from an explicit empty field mapping. The latter must
+    // not fall back to the current name when matching fields in legacy files.
+    bool has_name_mapping = false;
     DataTypePtr type;
     // Semantic nested children for this schema node.
     //
@@ -255,6 +258,9 @@ struct ColumnDefinition {
     // FileReader::get_schema() also expose semantic children, not physical reader wrappers. For
     // example, MAP children are key/value and ARRAY children contain only the element field.
     std::vector<ColumnDefinition> children {};
+    // Full table-schema identity subtree before access-path pruning. ID-less physical complex
+    // wrappers must be discovered from this view without adding unrequested children to output.
+    std::vector<ColumnDefinition> identity_children {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.
     VExprContextSPtr default_expr = nullptr;

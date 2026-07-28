@@ -18,8 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -33,7 +32,7 @@ public class IcebergHMSMetaStorePropertiesTest {
     @Test
     public void testKerberosCatalog() throws Exception {
         Map<String, String> props = new HashMap<>();
-        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        props.put("fs.hdfs.support", "true");
         props.put("fs.defaultFS", "hdfs://mycluster_test");
         props.put("hadoop.security.authentication", "kerberos");
         props.put("hadoop.kerberos.principal", "myprincipal");
@@ -43,7 +42,7 @@ public class IcebergHMSMetaStorePropertiesTest {
         props.put("iceberg.catalog.type", "hms");
         props.put("warehouse", "hdfs://mycluster_test/ice");
         IcebergHMSMetaStoreProperties icebergProps = (IcebergHMSMetaStoreProperties) MetastoreProperties.create(props);
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
+        List<StorageAdapter> storagePropertiesList = Collections.singletonList(StorageAdapter.of(props));
         //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
         Assertions.assertThrows(RuntimeException.class,
                 () -> icebergProps.initializeCatalog("iceberg", storagePropertiesList));
@@ -52,7 +51,7 @@ public class IcebergHMSMetaStorePropertiesTest {
     @Test
     public void testNonKerberosCatalog() throws Exception {
         Map<String, String> props = new HashMap<>();
-        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        props.put("fs.hdfs.support", "true");
         props.put("fs.defaultFS", "file:///tmp");
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "hms");
@@ -61,7 +60,7 @@ public class IcebergHMSMetaStorePropertiesTest {
         IcebergHMSMetaStoreProperties paimonProps = (IcebergHMSMetaStoreProperties) MetastoreProperties.create(props);
         Assertions.assertEquals("hms", paimonProps.getIcebergCatalogType());
 
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
+        List<StorageAdapter> storagePropertiesList = Collections.singletonList(StorageAdapter.of(props));
         Assertions.assertDoesNotThrow(() -> paimonProps.initializeCatalog("iceberg", storagePropertiesList));
         Assertions.assertEquals(HadoopExecutionAuthenticator.class, paimonProps.getExecutionAuthenticator().getClass());
     }

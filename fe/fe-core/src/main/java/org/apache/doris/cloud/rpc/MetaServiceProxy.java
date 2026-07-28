@@ -19,6 +19,7 @@ package org.apache.doris.cloud.rpc;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.metric.CloudMetrics;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
@@ -39,6 +40,7 @@ import java.util.function.Function;
 
 public class MetaServiceProxy {
     private static final Logger LOG = LogManager.getLogger(MetaServiceProxy.class);
+    private static final MetaServiceRpcRateLimiter META_SERVICE_RPC_RATE_LIMITER = new MetaServiceRpcRateLimiter();
 
     // use exclusive lock to make sure only one thread can add or remove client from
     // serviceMap.
@@ -105,6 +107,7 @@ public class MetaServiceProxy {
         }
 
         try {
+            acquireRateLimit(methodName);
             final MetaServiceClient client = getProxy();
             Cloud.GetInstanceResponse response = client.getInstance(request);
             if (MetricRepo.isInit && Config.isCloudMode()) {
@@ -112,14 +115,60 @@ public class MetaServiceProxy {
                         .update(System.currentTimeMillis() - startTime);
             }
             return response;
+        } catch (MetaServiceRateLimitException e) {
+            recordRpcRateLimited(methodName);
+            throw e;
         } catch (Exception e) {
-            if (MetricRepo.isInit && Config.isCloudMode()) {
-                CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
-                CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
-                CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                        .update(System.currentTimeMillis() - startTime);
-            }
+            recordRpcFailed(methodName, startTime);
             throw new RpcException("", e.getMessage(), e);
+        }
+    }
+
+    private static long acquireRateLimit(String methodName) throws RpcException {
+        return META_SERVICE_RPC_RATE_LIMITER.acquire(methodName);
+    }
+
+    private static long acquireRateLimit(String methodName, int permits) throws RpcException {
+        return META_SERVICE_RPC_RATE_LIMITER.acquire(methodName, permits);
+    }
+
+    private static int getGetVersionRateLimitPermits(Cloud.GetVersionRequest request) {
+        if (!request.getBatchMode()) {
+            return 1;
+        }
+        int permits = request.hasIsTableVersion() && request.getIsTableVersion()
+                ? request.getTableIdsCount()
+                : request.getPartitionIdsCount();
+        return Math.max(permits, 1);
+    }
+
+    static void resetMetaServiceRpcRateLimitForTest() {
+        META_SERVICE_RPC_RATE_LIMITER.reset();
+    }
+
+    private static void recordRpcFailed(String methodName, long startTime) {
+        if (MetricRepo.isInit && Config.isCloudMode()) {
+            CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
+            CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
+            CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
+                    .update(System.currentTimeMillis() - startTime);
+        }
+    }
+
+    private static void recordRpcRateLimited(String methodName) {
+        if (MetricRepo.isInit && Config.isCloudMode()) {
+            CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.increase(1L);
+            CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd(methodName).increase(1L);
+        }
+    }
+
+    private static void recordGetVersionRateLimitWait(long waitNs) {
+        if (waitNs <= 0) {
+            return;
+        }
+        SummaryProfile profile = SummaryProfile.getSummaryProfile(null);
+        if (profile != null) {
+            profile.addGetMetaVersionRateLimitWaitTime(waitNs);
         }
     }
 
@@ -207,6 +256,7 @@ public class MetaServiceProxy {
                 MetaServiceClient client = null;
                 boolean requestFailed = false;
                 try {
+                    acquireRateLimit(methodName, 1);
                     client = proxy.getProxy();
                     if (tried > 1 && MetricRepo.isInit && Config.isCloudMode()) {
                         CloudMetrics.META_SERVICE_RPC_ALL_RETRY.increase(1L);
@@ -289,13 +339,11 @@ public class MetaServiceProxy {
                         .update(System.currentTimeMillis() - startTime);
             }
             return response;
+        } catch (MetaServiceRateLimitException e) {
+            recordRpcRateLimited(methodName);
+            throw e;
         } catch (RpcException e) {
-            if (MetricRepo.isInit && Config.isCloudMode()) {
-                CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
-                CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
-                CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                        .update(System.currentTimeMillis() - startTime);
-            }
+            recordRpcFailed(methodName, startTime);
             throw e;
         }
     }
@@ -313,6 +361,7 @@ public class MetaServiceProxy {
         }
 
         try {
+            recordGetVersionRateLimitWait(acquireRateLimit(methodName, getGetVersionRateLimitPermits(request)));
             client = getProxy();
             Future<Cloud.GetVersionResponse> future = client.getVisibleVersionAsync(request);
             if (future instanceof com.google.common.util.concurrent.ListenableFuture) {
@@ -331,12 +380,7 @@ public class MetaServiceProxy {
 
                             @Override
                             public void onFailure(Throwable t) {
-                                if (MetricRepo.isInit && Config.isCloudMode()) {
-                                    CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
-                                    CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
-                                    CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                                            .update(System.currentTimeMillis() - startTime);
-                                }
+                                recordRpcFailed(methodName, startTime);
                                 if (finalClient != null) {
                                     finalClient.shutdown(true);
                                 }
@@ -344,25 +388,16 @@ public class MetaServiceProxy {
                         }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
             }
             return future;
+        } catch (MetaServiceRateLimitException e) {
+            recordRpcRateLimited(methodName);
+            throw e;
         } catch (Exception e) {
-            if (MetricRepo.isInit && Config.isCloudMode()) {
-                CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
-                CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
-                CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                        .update(System.currentTimeMillis() - startTime);
-            }
+            recordRpcFailed(methodName, startTime);
             if (client != null) {
                 client.shutdown(true);
             }
             throw new RpcException("", e.getMessage(), e);
         }
-    }
-
-    public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) throws RpcException {
-        String methodName = request.hasIsTableVersion() && request.getIsTableVersion() ? "getTableVersion"
-                : "getPartitionVersion";
-        return executeWithMetrics(methodName, (client) -> client.getVersion(request),
-                Cloud.GetVersionResponse::getStatus);
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {

@@ -130,7 +130,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
         THiveLocationParams locationParams = new THiveLocationParams();
         String originalLocation = sd.getLocation();
-        LocationPath locationPath = LocationPath.of(sd.getLocation(), targetTable.getStoragePropertiesMap());
+        LocationPath locationPath = LocationPath.ofAdapters(sd.getLocation(), targetTable.getStorageAdaptersMap());
         String location = sd.getLocation();
         TFileType fileType = locationPath.getTFileTypeForBE();
         if (fileType == TFileType.FILE_S3) {

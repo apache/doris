@@ -18,11 +18,12 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageRegistry;
+import org.apache.doris.datasource.storage.StorageTypeId;
+import org.apache.doris.datasource.storage.StorageUriUtils;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.foundation.property.StoragePropertiesException;
-import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
@@ -44,7 +45,7 @@ import java.util.UUID;
  * <p>
  * Core responsibilities include:
  * - Extracting the schema (e.g., "s3", "hdfs", "file") from a location string.
- * - Normalizing the location path using the corresponding {@link StorageProperties} for the schema.
+ * - Normalizing the location path using the corresponding {@link StorageAdapter} for the schema.
  * - Deriving the file system identifier (e.g., "s3://bucket") to uniquely identify a storage endpoint.
  * - Mapping the schema to corresponding {@link TFileType} and {@link FileSystemType} for backend access.
  * <p>
@@ -75,21 +76,22 @@ public class LocationPath {
     private final String fsIdentifier;
 
     /**
-     * Storage properties associated with this schema
+     * Storage facade binding associated with this schema (null when created without
+     * normalization context, e.g. {@link #of(String)}).
      */
-    private final StorageProperties storageProperties;
+    private final StorageAdapter storageAdapter;
 
     /**
-     * Private constructor to enforce creation through the factory method.
+     * Private constructor to enforce creation through the factory methods.
      */
     private LocationPath(String schema,
                          String normalizedLocation,
                          String fsIdentifier,
-                         StorageProperties storageProperties) {
+                         StorageAdapter storageAdapter) {
         this.schema = schema;
         this.normalizedLocation = normalizedLocation;
         this.fsIdentifier = fsIdentifier;
-        this.storageProperties = storageProperties;
+        this.storageAdapter = storageAdapter;
     }
 
     private static String parseScheme(String finalLocation) {
@@ -115,30 +117,30 @@ public class LocationPath {
     }
 
     /**
-     * Static factory method to create a LocationPath instance.
+     * Static factory method to create a LocationPath instance over a type-keyed adapter map.
      *
-     * @param location             the input URI location string
-     * @param storagePropertiesMap map of schema type to corresponding storage properties
+     * @param location           the input URI location string
+     * @param storageAdaptersMap map of storage type id to corresponding facade binding
      * @return a new LocationPath instance
      * @throws UserException if validation fails or required data is missing
      */
-    public static LocationPath of(String location,
-                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
-                                  boolean normalize) throws UserException {
+    public static LocationPath ofAdapters(String location,
+                                          Map<StorageTypeId, StorageAdapter> storageAdaptersMap,
+                                          boolean normalize) throws UserException {
         String schema = extractScheme(location);
         String normalizedLocation = location;
-        StorageProperties storageProperties = null;
-        StorageProperties.Type type = fromSchemaWithContext(location, schema);
-        if (StorageProperties.Type.LOCAL.equals(type)) {
+        StorageAdapter storageAdapter = null;
+        StorageTypeId type = fromSchemaWithContext(location, schema);
+        if (StorageTypeId.LOCAL.equals(type)) {
             normalize = false;
         }
         if (normalize) {
-            storageProperties = findStorageProperties(type, schema, storagePropertiesMap);
+            storageAdapter = findStorageAdapter(type, schema, storageAdaptersMap);
 
-            if (storageProperties == null) {
+            if (storageAdapter == null) {
                 throw new UserException("No storage properties found for schema: " + schema);
             }
-            normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+            normalizedLocation = storageAdapter.validateAndNormalizeUri(location);
             if (StringUtils.isBlank(normalizedLocation)) {
                 throw new IllegalArgumentException("Invalid location: " + location + ", normalized location is null");
             }
@@ -150,14 +152,14 @@ public class LocationPath {
             schema = Strings.nullToEmpty(uri.getScheme());
         }
 
-        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageAdapter);
     }
 
-    public static StorageProperties.Type fromSchemaWithContext(String location, String schema) {
+    public static StorageTypeId fromSchemaWithContext(String location, String schema) {
         if (isHdfsOnOssEndpoint(location)) {
-            return StorageProperties.Type.OSS_HDFS;
+            return StorageTypeId.OSS_HDFS;
         }
-        return SchemaTypeMapper.fromSchema(schema); // fallback to default
+        return StorageRegistry.fromScheme(schema); // fallback to default
     }
 
     public static LocationPath of(String location) {
@@ -168,38 +170,31 @@ public class LocationPath {
         return new LocationPath(schema, location, fsIdentifier, null);
     }
 
-    /**
-     * Static factory method to create a LocationPath instance.
-     *
-     * @param location             the input URI location string
-     * @param storagePropertiesMap map of schema type to corresponding storage properties
-     * @return a new LocationPath instance
-     */
-    public static LocationPath of(String location,
-                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
+    /** Normalizing factory over a type-keyed adapter map (unchecked wrapper). */
+    public static LocationPath ofAdapters(String location,
+                                          Map<StorageTypeId, StorageAdapter> storageAdaptersMap) {
         try {
-            return LocationPath.of(location, storagePropertiesMap, true);
-        } catch (UserException e) {
+            return LocationPath.ofAdapters(location, storageAdaptersMap, true);
+        } catch (UserException | StoragePropertiesException e) {
+            // the facade throws unchecked StoragePropertiesException where legacy threw checked
+            // UserException — keep the legacy location context in the wrapped message
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
         }
     }
 
+    /** Normalizing factory over a single pre-resolved facade binding. */
     public static LocationPath of(String location,
-                                  StorageProperties storageProperties) {
-        try {
-            String schema = extractScheme(location);
-            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
-            String encodedLocation = encodedLocation(normalizedLocation);
-            URI uri = URI.create(encodedLocation);
-            String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
-                    + Strings.nullToEmpty(uri.getAuthority());
-            if (StringUtils.isBlank(schema)) {
-                schema = Strings.nullToEmpty(uri.getScheme());
-            }
-            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
-        } catch (UserException e) {
-            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+                                  StorageAdapter storageAdapter) {
+        String schema = extractScheme(location);
+        String normalizedLocation = storageAdapter.validateAndNormalizeUri(location);
+        String encodedLocation = encodedLocation(normalizedLocation);
+        URI uri = URI.create(encodedLocation);
+        String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                + Strings.nullToEmpty(uri.getAuthority());
+        if (StringUtils.isBlank(schema)) {
+            schema = Strings.nullToEmpty(uri.getScheme());
         }
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageAdapter);
     }
 
     /**
@@ -209,69 +204,65 @@ public class LocationPath {
      * @param normalizedLocation the already-normalized location string
      * @param schema             pre-computed schema
      * @param fsIdentifier       pre-computed filesystem identifier
-     * @param storageProperties  the storage properties (can be null)
+     * @param storageAdapter     the facade binding (can be null)
      * @return a new LocationPath instance
      */
     public static LocationPath ofDirect(String normalizedLocation,
                                         String schema,
                                         String fsIdentifier,
-                                        StorageProperties storageProperties) {
-        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+                                        StorageAdapter storageAdapter) {
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageAdapter);
     }
 
     /**
      * Fast factory method that reuses pre-computed schema and fsIdentifier.
      * This is optimized for batch processing where many files share the same bucket/prefix.
      *
-     * @param location           the input URI location string
-     * @param storageProperties  pre-computed storage properties for normalization
-     * @param cachedSchema       pre-computed schema (can be null to compute)
-     * @param cachedFsIdPrefix   pre-computed fsIdentifier prefix like "s3://" (can be null to compute)
+     * @param location         the input URI location string
+     * @param storageAdapter   pre-computed facade binding for normalization
+     * @param cachedSchema     pre-computed schema (can be null to compute)
+     * @param cachedFsIdPrefix pre-computed fsIdentifier prefix like "s3://" (can be null to compute)
      * @return a new LocationPath instance
      */
     public static LocationPath ofWithCache(String location,
-                                           StorageProperties storageProperties,
+                                           StorageAdapter storageAdapter,
                                            String cachedSchema,
                                            String cachedFsIdPrefix) {
-        try {
-            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+        String normalizedLocation = storageAdapter.validateAndNormalizeUri(location);
 
-            String fsIdentifier;
-            String schema = cachedSchema;
-            if (cachedFsIdPrefix != null && normalizedLocation.startsWith(cachedFsIdPrefix)) {
-                // Fast path: extract authority from normalized location without full URI parsing
-                int authorityStart = cachedFsIdPrefix.length();
-                int authorityEnd = normalizedLocation.indexOf('/', authorityStart);
-                if (authorityEnd == -1) {
-                    authorityEnd = normalizedLocation.length();
-                }
-                String authority = normalizedLocation.substring(authorityStart, authorityEnd);
-                if (authority.isEmpty()) {
-                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
-                }
-                fsIdentifier = cachedFsIdPrefix + authority;
-                if (StringUtils.isBlank(schema)) {
-                    schema = cachedFsIdPrefix.substring(0, cachedFsIdPrefix.length() - SCHEME_DELIM.length());
-                }
-            } else {
-                // Fallback to full URI parsing
-                String encodedLocation = encodedLocation(normalizedLocation);
-                URI uri = URI.create(encodedLocation);
-                String authority = uri.getAuthority();
-                if (Strings.isNullOrEmpty(authority)) {
-                    throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
-                }
-                fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
-                        + authority;
-                if (StringUtils.isBlank(schema)) {
-                    schema = Strings.nullToEmpty(uri.getScheme());
-                }
+        String fsIdentifier;
+        String schema = cachedSchema;
+        if (cachedFsIdPrefix != null && normalizedLocation.startsWith(cachedFsIdPrefix)) {
+            // Fast path: extract authority from normalized location without full URI parsing
+            int authorityStart = cachedFsIdPrefix.length();
+            int authorityEnd = normalizedLocation.indexOf('/', authorityStart);
+            if (authorityEnd == -1) {
+                authorityEnd = normalizedLocation.length();
             }
-
-            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
-        } catch (UserException e) {
-            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+            String authority = normalizedLocation.substring(authorityStart, authorityEnd);
+            if (authority.isEmpty()) {
+                throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+            }
+            fsIdentifier = cachedFsIdPrefix + authority;
+            if (StringUtils.isBlank(schema)) {
+                schema = cachedFsIdPrefix.substring(0, cachedFsIdPrefix.length() - SCHEME_DELIM.length());
+            }
+        } else {
+            // Fallback to full URI parsing
+            String encodedLocation = encodedLocation(normalizedLocation);
+            URI uri = URI.create(encodedLocation);
+            String authority = uri.getAuthority();
+            if (Strings.isNullOrEmpty(authority)) {
+                throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
+            }
+            fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                    + authority;
+            if (StringUtils.isBlank(schema)) {
+                schema = Strings.nullToEmpty(uri.getScheme());
+            }
         }
+
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageAdapter);
     }
 
     /**
@@ -289,50 +280,48 @@ public class LocationPath {
     }
 
     /**
-     * Finds the appropriate {@link StorageProperties} configuration for a given storage type and schema.
+     * Finds the appropriate {@link StorageAdapter} binding for a given storage type and schema.
      * <p>
-     * This method attempts to locate the storage properties using the following logic:
+     * This method attempts to locate the binding using the following logic:
      * <p>
-     * 1. Direct match by type: Attempts to retrieve the properties from the map using the given {@code type}.
-     * 2. S3-Minio fallback: If the requested type is S3 and no properties are found, try to fall back to MinIO
-     * configuration,
-     * assuming it is compatible with S3.
+     * 1. Direct match by type: Attempts to retrieve the binding from the map using the given {@code type}.
+     * 2. S3-Minio fallback: If the requested type is S3 and no binding is found, try to fall back to MinIO
+     * (or Ozone) configuration, assuming it is compatible with S3.
      * 3. Compatibility fallback based on schema:
      * In older configurations, the schema name might not strictly match the actual storage type.
      * For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
      * To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
      * if the schema maps to a file type of FILE_S3.
      *
-     * @param type                 the storage type to search for
-     * @param schema               the schema string used in the original request (e.g., "s3://bucket/file")
-     * @param storagePropertiesMap a map of available storage types to their configuration
-     * @return a matching {@link StorageProperties} if found; otherwise, {@code null}
+     * @param type               the storage type to search for
+     * @param schema             the schema string used in the original request (e.g., "s3://bucket/file")
+     * @param storageAdaptersMap a map of available storage types to their bindings
+     * @return a matching {@link StorageAdapter} if found; otherwise, {@code null}
      */
-    private static StorageProperties findStorageProperties(StorageProperties.Type type, String schema,
-                                                           Map<StorageProperties.Type, StorageProperties>
-                                                                   storagePropertiesMap) {
+    private static StorageAdapter findStorageAdapter(StorageTypeId type, String schema,
+                                                     Map<StorageTypeId, StorageAdapter> storageAdaptersMap) {
         // Step 1: Try direct match by type
-        StorageProperties props = storagePropertiesMap.get(type);
-        if (props != null) {
-            return props;
+        StorageAdapter adapter = storageAdaptersMap.get(type);
+        if (adapter != null) {
+            return adapter;
         }
 
         // Step 2: Fallback - if type is S3 and MinIO is configured, assume it's compatible
-        if (type == StorageProperties.Type.S3
-                && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
-            return storagePropertiesMap.get(StorageProperties.Type.MINIO);
+        if (type == StorageTypeId.S3
+                && storageAdaptersMap.containsKey(StorageTypeId.MINIO)) {
+            return storageAdaptersMap.get(StorageTypeId.MINIO);
         }
-        if (type == StorageProperties.Type.S3
-                && storagePropertiesMap.containsKey(StorageProperties.Type.OZONE)) {
-            return storagePropertiesMap.get(StorageProperties.Type.OZONE);
+        if (type == StorageTypeId.S3
+                && storageAdaptersMap.containsKey(StorageTypeId.OZONE)) {
+            return storageAdaptersMap.get(StorageTypeId.OZONE);
         }
 
         // Step 3: Compatibility fallback based on schema
         // In previous configurations, the schema name may not strictly match the actual storage type.
         // For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
         // To handle such legacy inconsistencies, we try to find a storage configuration whose name is "s3".
-        if (TFileType.FILE_S3.equals(SchemaTypeMapper.fromSchemaToFileType(schema))) {
-            return storagePropertiesMap.values().stream()
+        if (TFileType.FILE_S3.equals(StorageRegistry.fromSchemeToFileType(schema))) {
+            return storageAdaptersMap.values().stream()
                     .filter(p -> "s3".equalsIgnoreCase(p.getStorageName()))
                     .findFirst()
                     .orElse(null);
@@ -386,14 +375,14 @@ public class LocationPath {
     }
 
     public TFileType getTFileTypeForBE() {
-        if ((SchemaTypeMapper.ABFS.getSchema().equals(schema) || SchemaTypeMapper.ABFSS.getSchema()
-                .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
+        if (("abfs".equals(schema) || "abfss".equals(schema))
+                && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
             return TFileType.FILE_HDFS;
         }
         if (StringUtils.isNotBlank(normalizedLocation) && isHdfsOnOssEndpoint(normalizedLocation)) {
             return TFileType.FILE_HDFS;
         }
-        return SchemaTypeMapper.fromSchemaToFileType(schema);
+        return StorageRegistry.fromSchemeToFileType(schema);
     }
 
     /**
@@ -407,11 +396,11 @@ public class LocationPath {
 
 
     public FileSystemType getFileSystemType() {
-        if ((SchemaTypeMapper.ABFS.getSchema().equals(schema) || SchemaTypeMapper.ABFSS.getSchema()
-                .equals(schema)) && AzurePropertyUtils.isOneLakeLocation(normalizedLocation)) {
+        if (("abfs".equals(schema) || "abfss".equals(schema))
+                && StorageUriUtils.isOneLakeLocation(normalizedLocation)) {
             return FileSystemType.HDFS;
         }
-        return SchemaTypeMapper.fromSchemaToFileSystemType(schema);
+        return StorageRegistry.fromSchemeToFileSystemType(schema);
     }
 
 
@@ -428,8 +417,8 @@ public class LocationPath {
         return fsIdentifier;
     }
 
-    public StorageProperties getStorageProperties() {
-        return storageProperties;
+    public StorageAdapter getStorageAdapter() {
+        return storageAdapter;
     }
 
     public Path getPath() {

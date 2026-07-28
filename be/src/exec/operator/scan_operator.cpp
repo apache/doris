@@ -1047,6 +1047,12 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
+    return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
+}
+
+template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
 }
@@ -1230,6 +1236,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
+    }
+    if (tnode.__isset.push_down_count_slot_ids) {
+        _push_down_count_slot_ids = tnode.push_down_count_slot_ids;
     }
 
     if (tnode.__isset.topn_filter_source_node_ids) {

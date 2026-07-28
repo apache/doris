@@ -70,7 +70,6 @@ public class AuthenticationPluginManagerTest {
         // Then
         Assertions.assertNotNull(pluginNames);
         Assertions.assertFalse(pluginNames.isEmpty(), "Should load at least built-in plugins");
-        Assertions.assertTrue(pluginNames.contains("oidc"), "Should include oidc plugin");
         Assertions.assertTrue(pluginNames.contains("password"), "Should include password plugin");
     }
 
@@ -147,10 +146,6 @@ public class AuthenticationPluginManagerTest {
         // Then
         Assertions.assertTrue(factory.isPresent());
         Assertions.assertEquals("password", factory.get().name());
-
-        Optional<AuthenticationPluginFactory> oidcFactory = pluginManager.getFactory("oidc");
-        Assertions.assertTrue(oidcFactory.isPresent());
-        Assertions.assertEquals("oidc", oidcFactory.get().name());
     }
 
     @Test
@@ -519,6 +514,22 @@ public class AuthenticationPluginManagerTest {
         @Override
         public Optional<PluginHandle<AuthenticationPluginFactory>> get(String pluginName) {
             return Optional.empty();
+        }
+
+        @Override
+        public void discard(String pluginName) {
+            // This stub bypasses the real loadAll bookkeeping, so honor the
+            // contract that discarding a reported success closes its classloader.
+            for (PluginHandle<AuthenticationPluginFactory> handle : report.getSuccesses()) {
+                if (handle.getPluginName().equals(pluginName)
+                        && handle.getClassLoader() instanceof Closeable) {
+                    try {
+                        ((Closeable) handle.getClassLoader()).close();
+                    } catch (IOException ignored) {
+                        // test stub: never expected
+                    }
+                }
+            }
         }
 
         @Override

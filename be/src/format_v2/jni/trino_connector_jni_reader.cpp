@@ -84,8 +84,15 @@ Status TrinoConnectorJniReader::validate_scan_range(const TFileRangeDesc& range)
 }
 
 Status TrinoConnectorJniReader::prepare_split(const format::SplitReadOptions& options) {
-    RETURN_IF_ERROR(validate_scan_range(options.current_range));
-    RETURN_IF_ERROR(_set_spi_plugins_dir());
+    {
+        // Plugin discovery can dominate a cold split. Use non-overlapping common scopes because
+        // the JNI base method subsequently enters the same RuntimeProfile counters.
+        SCOPED_TIMER(_profile.total_timer);
+        SCOPED_TIMER(_profile.prepare_split_timer);
+        SCOPED_TIMER(connector_total_timer());
+        RETURN_IF_ERROR(validate_scan_range(options.current_range));
+        RETURN_IF_ERROR(_set_spi_plugins_dir());
+    }
     return format::JniTableReader::prepare_split(options);
 }
 

@@ -45,7 +45,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -557,7 +557,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             return brokerDesc.getName();
         } else if (storageType == StorageBackend.StorageType.S3) {
             return Optional.ofNullable(brokerDesc.getProperties())
-                .map(o -> o.get(S3Properties.Env.ENDPOINT))
+                .map(o -> o.get(S3ResourceCompat.Env.ENDPOINT))
                 .orElse("s3_cluster");
         } else {
             return storageType.name().toLowerCase().concat("_cluster");

@@ -247,6 +247,9 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         ImmutableSet.Builder<Expression> argumentsOfAggregateFunctionBuilder = ImmutableSet.builder();
         for (AggregateFunction function : aggregateFunctions) {
             for (Expression arg : function.getArguments()) {
+                if (arg.isConstant()) {
+                    continue;
+                }
                 if (arg instanceof OrderExpression) {
                     argumentsOfAggregateFunctionBuilder.add(arg.child(0));
                 } else {

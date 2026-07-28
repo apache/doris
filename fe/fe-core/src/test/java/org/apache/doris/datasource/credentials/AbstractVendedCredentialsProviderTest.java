@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.credentials;
 
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -82,7 +82,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         // Note: The actual result depends on StorageProperties.createAll() implementation
@@ -98,7 +98,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         Assertions.assertNull(result);
@@ -111,7 +111,7 @@ public class AbstractVendedCredentialsProviderTest {
 
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, null);
 
         Assertions.assertNull(result);
@@ -126,7 +126,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         Assertions.assertNull(result);
@@ -149,7 +149,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         // The filtering should happen internally via CredentialUtils.filterCloudStorageProperties()
@@ -172,7 +172,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         // Should return null since no cloud storage properties after filtering
@@ -188,7 +188,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         Assertions.assertNull(result);
@@ -219,7 +219,7 @@ public class AbstractVendedCredentialsProviderTest {
         Object tableObject = new Object();
 
         // Should handle null credentials gracefully and return null
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         Assertions.assertNull(result);
@@ -288,7 +288,7 @@ public class AbstractVendedCredentialsProviderTest {
         MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
         Object tableObject = new Object();
 
-        Map<Type, StorageProperties> result = provider.getStoragePropertiesMapWithVendedCredentials(
+        Map<StorageTypeId, StorageAdapter> result = provider.getStoragePropertiesMapWithVendedCredentials(
                 metastoreProperties, tableObject);
 
         // Should process multiple cloud storage types

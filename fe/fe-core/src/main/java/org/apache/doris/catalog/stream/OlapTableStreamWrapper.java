@@ -213,6 +213,10 @@ public class OlapTableStreamWrapper extends OlapTable {
         return baseTable;
     }
 
+    public KeysType getStreamKeysType() {
+        return keysType;
+    }
+
     public BaseTableStream.StreamScanType getStreamScanType() {
         if (keysType == KeysType.DUP_KEYS) {
             return BaseTableStream.StreamScanType.APPEND_ONLY;

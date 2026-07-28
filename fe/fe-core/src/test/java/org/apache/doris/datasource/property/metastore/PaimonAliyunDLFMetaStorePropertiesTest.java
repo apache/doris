@@ -18,7 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
@@ -83,7 +84,7 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
         ossProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
 
 
-        List<StorageProperties> storageProperties = StorageProperties.createAll(ossProps);
+        List<StorageAdapter> storageProperties = StorageAdapter.ofAll(ossProps);
 
         Catalog mockCatalog = Mockito.mock(Catalog.class);
 
@@ -117,7 +118,7 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
         ossProps.put("oss.hdfs.enabled", "true");
 
 
-        List<StorageProperties> storageProperties = StorageProperties.createAll(ossProps);
+        List<StorageAdapter> storageProperties = StorageAdapter.ofAll(ossProps);
 
         Catalog mockCatalog = Mockito.mock(Catalog.class);
 
@@ -140,7 +141,7 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
         ossProps.put("oss.access_key", "ak");
         ossProps.put("oss.secret_key", "sk");
         ossProps.put("oss.endpoint", "oss-cn-beijing.oss-dls.aliyuncs.com");
-        storageProperties = StorageProperties.createAll(ossProps);
+        storageProperties = StorageAdapter.ofAll(ossProps);
 
         mockCatalog = Mockito.mock(Catalog.class);
 
@@ -165,7 +166,7 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
                 new PaimonAliyunDLFMetaStoreProperties(props);
         dlfProps.initNormalizeAndCheckProps();
 
-        List<StorageProperties> storageProperties = new ArrayList<>(); // No OSS properties
+        List<StorageAdapter> storageProperties = new ArrayList<>(); // No OSS properties
 
         IllegalStateException ex = Assertions.assertThrows(
                 IllegalStateException.class,
@@ -182,10 +183,10 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
                 new PaimonAliyunDLFMetaStoreProperties(props);
         dlfProps.initNormalizeAndCheckProps();
 
-        StorageProperties nonOssProps = Mockito.mock(StorageProperties.class);
-        Mockito.when(nonOssProps.getType()).thenReturn(StorageProperties.Type.HDFS);
+        StorageAdapter nonOssProps = Mockito.mock(StorageAdapter.class);
+        Mockito.when(nonOssProps.getType()).thenReturn(StorageTypeId.HDFS);
 
-        List<StorageProperties> storageProperties = Collections.singletonList(nonOssProps);
+        List<StorageAdapter> storageProperties = Collections.singletonList(nonOssProps);
 
         IllegalStateException ex = Assertions.assertThrows(
                 IllegalStateException.class,

@@ -19,10 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "io/io_common.h"
@@ -40,9 +42,15 @@ public:
     std::vector<size_t> propagated_batch_sizes;
     std::vector<Status> close_results;
     bool next_eof = false;
+    std::chrono::milliseconds init_delay {0};
+    std::chrono::milliseconds open_delay {0};
+    std::chrono::milliseconds close_delay {0};
 
 protected:
-    std::string connector_class() const override { return "test/FakeJniScanner"; }
+    std::string connector_class() const override {
+        std::this_thread::sleep_for(init_delay);
+        return "test/FakeJniScanner";
+    }
 
     Status build_scanner_params(std::map<std::string, std::string>* params) const override {
         params->clear();
@@ -57,6 +65,7 @@ protected:
     }
 
     Status _close_jni_scanner() override {
+        std::this_thread::sleep_for(close_delay);
         if (!TEST_scanner_opened()) {
             return Status::OK();
         }
@@ -80,6 +89,7 @@ protected:
     }
 
     Status _open_jni_scanner() override {
+        std::this_thread::sleep_for(open_delay);
         open_batch_sizes.push_back(TEST_batch_size());
         TEST_set_split_state(true, false);
         return Status::OK();
@@ -189,6 +199,37 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
 
     EXPECT_EQ(reader.open_batch_sizes, std::vector<size_t>({32}));
     EXPECT_TRUE(reader.TEST_scanner_opened());
+}
+
+TEST(JniTableReaderTest, CommonLifecycleTimersContainJniLifecycleWork) {
+    constexpr auto delay = std::chrono::milliseconds(8);
+    RuntimeProfile profile("JniLifecycleContainment");
+    FakeJniTableReader reader;
+    reader.init_delay = delay;
+    ASSERT_TRUE(init_reader(&reader, nullptr, &profile).ok());
+    ASSERT_GE(profile.get_counter("InitTime")->value(),
+              std::chrono::duration_cast<std::chrono::nanoseconds>(delay).count());
+
+    reader.open_delay = delay;
+    ASSERT_TRUE(reader.prepare_split({
+                                             .partition_values = {},
+                                             .conjuncts = std::nullopt,
+                                             .partition_prune_conjuncts = {},
+                                             .all_runtime_filters_applied = true,
+                                             .condition_cache_digest = std::nullopt,
+                                             .cache = nullptr,
+                                             .current_range = {},
+                                             .current_split_format = FileFormat::JNI,
+                                             .global_rowid_context = std::nullopt,
+                                     })
+                        .ok());
+    ASSERT_GE(profile.get_counter("PrepareSplitTime")->value(),
+              std::chrono::duration_cast<std::chrono::nanoseconds>(delay).count());
+
+    reader.close_delay = delay;
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_GE(profile.get_counter("CloseTime")->value(),
+              std::chrono::duration_cast<std::chrono::nanoseconds>(delay).count());
 }
 
 } // namespace

@@ -74,6 +74,9 @@ bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file);
 std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
                                                     const TIcebergDeleteFileDesc& delete_file);
 
+Status validate_iceberg_deletion_vector_descriptor(const TIcebergDeleteFileDesc& delete_file,
+                                                   size_t& bytes_read);
+
 Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                              DeletionVector* rows_to_delete);
 

@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 
 import org.apache.paimon.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
@@ -75,7 +75,7 @@ public class PaimonCatalogTest {
                 (AbstractPaimonProperties) MetastoreProperties.create(params);
         metaStoreProps.initNormalizeAndCheckProps();
         Assertions.assertNotNull(metaStoreProps.getExecutionAuthenticator());
-        List<StorageProperties> storageProps = StorageProperties.createAll(params);
+        List<StorageAdapter> storageProps = StorageAdapter.ofAll(params);
 
         return metaStoreProps.initializeCatalog("paimon_catalog", storageProps);
     }

@@ -17,10 +17,9 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -44,7 +43,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                               List<StorageProperties> storagePropertiesList) {
+                               List<StorageAdapter> storagePropertiesList) {
         try {
             Configuration configuration = new Configuration();
             toFileIOProperties(storagePropertiesList, catalogProps, configuration);
@@ -58,15 +57,15 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         }
     }
 
-    private void buildExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
-        if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0) instanceof HdfsProperties) {
-            HdfsProperties hdfsProps = (HdfsProperties) storagePropertiesList.get(0);
-            if (hdfsProps.isKerberos()) {
+    private void buildExecutionAuthenticator(List<StorageAdapter> storagePropertiesList) {
+        if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0).getType() == StorageTypeId.HDFS) {
+            StorageAdapter hdfsAdapter = storagePropertiesList.get(0);
+            if (hdfsAdapter.isKerberos()) {
                 // NOTE: Custom FileIO implementation (KerberizedHadoopFileIO) is commented out by default.
                 // Using FileIO for Kerberos authentication may cause serialization issues when accessing
                 // Iceberg system tables (e.g., history, snapshots, manifests).
                 //props.put(CatalogProperties.FILE_IO_IMPL,"org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
-                this.executionAuthenticator = new HadoopExecutionAuthenticator(hdfsProps.getHadoopAuthenticator());
+                this.executionAuthenticator = asLegacyAuthenticator(hdfsAdapter.getExecutionAuthenticator());
             }
         }
     }

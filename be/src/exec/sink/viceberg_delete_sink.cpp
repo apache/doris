@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
 #include "exprs/vexpr.h"
+#include "format/table/deletion_vector.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/transformer/vfile_format_transformer.h"
 #include "io/file_factory.h"
@@ -105,6 +106,20 @@ Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
 }
 
 } // namespace
+
+Status calculate_iceberg_deletion_vector_content_size(size_t bitmap_size, int64_t* content_size) {
+    DORIS_CHECK(content_size != nullptr);
+    constexpr size_t max_bitmap_size = static_cast<size_t>(MAX_ICEBERG_DELETION_VECTOR_BYTES) -
+                                       ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES;
+    if (bitmap_size > max_bitmap_size) {
+        return Status::NotSupported(
+                "Iceberg deletion vector bitmap size exceeds Doris supported limit: {}, "
+                "maximum bitmap size: {}, content size limit: {}",
+                bitmap_size, max_bitmap_size, MAX_ICEBERG_DELETION_VECTOR_BYTES);
+    }
+    *content_size = static_cast<int64_t>(bitmap_size + ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES);
+    return Status::OK();
+}
 
 VIcebergDeleteSink::VIcebergDeleteSink(const TDataSink& t_sink,
                                        const VExprContextSPtrs& output_exprs,
@@ -592,7 +607,8 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
         blob.partition_spec_id = deletion.partition_spec_id;
         blob.partition_data_json = deletion.partition_data_json;
         blob.merged_count = static_cast<int64_t>(merged_rows.cardinality());
-        blob.content_size_in_bytes = static_cast<int64_t>(4 + 4 + bitmap_size + 4);
+        RETURN_IF_ERROR(calculate_iceberg_deletion_vector_content_size(
+                bitmap_size, &blob.content_size_in_bytes));
         blob.blob_data.resize(static_cast<size_t>(blob.content_size_in_bytes));
         merged_rows.write(blob.blob_data.data() + 8);
 
@@ -604,7 +620,7 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
 
         uint32_t crc = static_cast<uint32_t>(
                 ::crc32(0, reinterpret_cast<const Bytef*>(blob.blob_data.data() + 4),
-                        4 + (uInt)bitmap_size));
+                        static_cast<uInt>(4 + bitmap_size)));
         BigEndian::Store32(blob.blob_data.data() + 8 + bitmap_size, crc);
         blobs.emplace_back(std::move(blob));
     }
