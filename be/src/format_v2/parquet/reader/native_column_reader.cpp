@@ -802,8 +802,16 @@ Status NativeColumnReader::select_with_runtime_filter(
     }
 
     if (projected_column != nullptr) {
-        values->filter(*row_filter);
-        *projected_column = std::move(values);
+        const bool target_is_nullable = is_column_nullable(**projected_column);
+        auto filtered_values = IColumn::mutate(values->filter(*row_filter, -1));
+        // A required file field may back a nullable table slot after schema evolution. Preserve
+        // the target wrapper even though reader-local RF evaluation uses the physical file type.
+        if (target_is_nullable && !is_column_nullable(*filtered_values)) {
+            auto null_map = ColumnUInt8::create(filtered_values->size(), 0);
+            filtered_values =
+                    ColumnNullable::create(std::move(filtered_values), std::move(null_map));
+        }
+        *projected_column = std::move(filtered_values);
     }
     advance_selected_span(rows_read);
     if (_profile.reader_select_rows != nullptr) {
