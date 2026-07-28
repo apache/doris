@@ -5,7 +5,71 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-28）：rebase onto `749290cb041` —— 移植 #65984 paimon `@options` 查询级动态选项
+# 🆕🆕🆕 最新一轮（2026-07-28b）：rebase onto `2faf819fa89` —— 上游 #65870 是**行为中性**的 iceberg 测试补强
+
+> `git pull --rebase upstream-apache master`，73 commit onto **`2faf819fa89`**（上游新增 **2** 个 commit）。
+> 备份点 tag `backup-before-rebase-0728b` = rebase 前 HEAD `d55a4fb458c`。**未 push**。
+
+## 上游 2 个 commit
+
+| commit | 内容 | 与本分支 |
+|---|---|---|
+| `0127314e7a5` #65572 | BE `hash_map_context.h` fixed-key packing 的 `restrict` 别名优化 | 纯 BE，0 冲突 0 迁移 |
+| `2faf819fa89` #65870 | `[test](iceberg)` 把 `IcebergScanNode.createScanRangeLocations` 里的 schema 初始化抽成 `@VisibleForTesting initializeIcebergSchemaInfo()`，加一段分区演进注释 + 1 个 FE 单测 | 唯一冲突源 |
+
+## 冲突 1 处 / 2 文件（落在第 11/73 个 commit = P6 iceberg cutover `3560db37ef8`）
+
+`fe/fe-core/.../iceberg/source/IcebergScanNode.java` + `IcebergScanNodeTest.java`，类型是 **content 而非 modify/delete**：
+P6 那一版只是把这两个文件**削薄**（-578 / -518 行），真正 `git rm` 发生在更靠后的 `282f9f6a839`（#65473 hive cutover）。
+所以冲突发生在一个「注定要被删掉」的中间态上。
+
+**解法 = 整体取分支侧**（`git checkout --theirs`），并已逐字节校验 == `3560db37ef8` 的原 blob，即完全复现上一轮 rebase 的结果。
+⚠️ 这里 auto-merge 已经产生了一个**编译不了的缝合怪**（上游新方法签名 `Optional<Map<..>>` + 我们旧的 4 参 `initSchemaInfoForAllColumn` 调用），
+只看冲突标记内的两段会漏掉——必须整文件还原。
+
+**守门证据**：`git diff backup-before-rebase-0728b HEAD` = **只有 `be/src/exec/common/hash_table/hash_map_context.h` 一个文件**，
+即 FE 侧最终树与上一轮逐字节相同（#65870 的 fe-core 改动随文件删除一起蒸发，符合预期）。
+
+## 移植结论：**0 能力需要迁移**（结论有实证，不是"看着像"）
+
+#65870 自己写明 "does not change scan behavior"。它的实质是给一条不变量补文档 + 补测试：
+**reader schema（`history_schema_info`）必须带全部当前表列**，理由从 #65502 的 equality-delete 扩展到**分区演进**
+（新 spec 把某列变成 identity 分区列，但老 spec 写出的文件里该列仍物理存在）。
+
+本分支连接器的字典策略是**按 requested scan slot 裁剪** + 3 个明示超集（时间旅行 pin / Top-N 惰性物化 / equality-delete key），
+与上游的"全列"不同。**但分区演进不需要第 4 个超集**，链路证据：
+
+1. `IcebergPartitionUtils.getIdentityPartitionColumns` 对 `table.specs()`（**所有** spec）取并集 → `path_partition_keys`
+   （与上游 `IcebergUtils.getIdentityPartitionColumns` 逐字节同构）；
+2. `FileQueryScanNode.classifyColumn`（`scan/FileQueryScanNode.java:244`）把命中 `path_partition_keys` 的列判为
+   `TColumnCategory.PARTITION_KEY`；`isFileSlot(PARTITION_KEY) == false`；
+3. BE 只对**要从文件里解码的 slot** 查这本字典 → identity 分区列无论投影与否都不会走字典。
+4. 上游同理：`IcebergScanNode.getPathPartitionKeys()` 就是 `getOrderedPathPartitionKeys()` = 同一个并集。
+   所以上游的"全列字典"对分区演进是**冗余保险**，不是本分支缺失的能力。
+
+已在 `IcebergScanPlanProvider` 字典构造处补上等价注释（对应上游那段新注释），把上面这条推理钉在代码里。
+
+## 测试迁移
+
+上游唯一新增用例 `testPartitionEvolutionKeepsNonFileSlotInReaderSchema` **不能照搬**——它断言的是 fe-core 的"全列字典"，
+而本分支连接器有意裁剪；照搬会写出一个断言错误不变量的测试。
+
+改为把**本分支真正依赖的那条性质**补测（原来只有单 spec 覆盖，多 spec 并集**零覆盖**）：
+`IcebergPartitionUtilsTest.identityPartitionColumnsUnionEverySpecUnderPartitionEvolution` —— 真 `InMemoryCatalog` 表
+`identity(payload)` → `updateSpec().removeField("payload").addField("int_col")`，断言 `path_partition_keys == [payload, int_col]`。
+
+- **变异 RED**：`table.specs()` → `table.spec()` ⇒ 得到 `[int_col]`，**只有新用例挂**（其余 62 例全绿，证明旧单 spec 用例查不出）。复原后全绿。
+- `fe-connector-iceberg` **1152/1152**（上一轮基线 1151，5 skipped 为既有）；`-am install` BUILD SUCCESS。
+- **e2e**：上游本次没加任何 regression suite，本轮**无 e2e 需要你跑**。
+
+## ⏭ 下一个 session
+
+1. `git push` 回 `upstream-apache/branch-catalog-spi`（**上一轮 + 本轮都未 push**），跑 External Regression。
+2. 其余待办见下面 07-28 那一轮的清单（`StoragePropertiesConverter` 注释清理、上游 #66004 `NodeInfo` 双层嵌套回归上报）。
+
+---
+
+# 🆕🆕 上一轮（2026-07-28）：rebase onto `749290cb041` —— 移植 #65984 paimon `@options` 查询级动态选项
 
 > `git pull --rebase upstream-apache master`，72 commit onto **`749290cb041`**（上游新增 4 个 commit）。
 > 备份点 tag `backup-before-rebase-0728` = rebase 前 HEAD `bae5aae719c`。**未 push**。
@@ -132,7 +196,7 @@ nereids 解析链、5 个 e2e suite）。
 
 ---
 
-# 🆕🆕 上一轮（2026-07-27c）：rebase onto `e7b7f1d1359` —— 迎面撞上上游 **#66004 存储门面大重构**
+# 🆕 上上轮（2026-07-27c）：rebase onto `e7b7f1d1359` —— 迎面撞上上游 **#66004 存储门面大重构**
 
 > `git pull --rebase upstream-apache master`，66 commit onto **`e7b7f1d1359`**（上游新增 5 个 commit）。
 > 备份点 tag `backup-before-rebase-0727c` = rebase 前 HEAD `f9c96e1e37a`。**未 push**。
@@ -219,7 +283,7 @@ nereids 解析链、5 个 e2e suite）。
 
 ---
 
-# 🆕 上上轮（2026-07-27b）：rebase onto `042e613b134` —— 移植 #65955 paimon table-option + 修一处**静默失效**
+# 更早（2026-07-27b）：rebase onto `042e613b134` —— 移植 #65955 paimon table-option + 修一处**静默失效**
 
 > `git pull --rebase upstream-apache master`，63 commit onto **`042e613b134`**（上游新增 6 个 commit）。
 > 备份点 tag `backup-before-rebase-0727b` = rebase 前 HEAD `ceb33843d4b`。**未 push**。
