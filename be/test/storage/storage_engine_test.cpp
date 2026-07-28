@@ -117,13 +117,13 @@ public:
         return std::make_shared<Tablet>(*_storage_engine, std::move(tablet_meta), data_dir);
     }
 
-    void reset_shutdown_tablets(const std::vector<TabletSharedPtr>& tablets) {
+    void reset_shutdown_tablets(std::vector<TabletSharedPtr> tablets) {
         auto* tablet_manager = _storage_engine->tablet_manager();
         std::lock_guard<std::shared_mutex> wrlock(tablet_manager->_shutdown_tablets_lock);
         const int64_t old_size = tablet_manager->_shutdown_tablets.size();
         tablet_manager->_shutdown_tablets.clear();
-        for (const auto& tablet : tablets) {
-            tablet_manager->_shutdown_tablets.push_back(tablet);
+        for (auto& tablet : tablets) {
+            tablet_manager->_shutdown_tablets.push_back(std::move(tablet));
         }
         tablet_manager->_adjust_shutdown_tablet_backlog(static_cast<int64_t>(tablets.size()) -
                                                         old_size);
@@ -198,7 +198,7 @@ TEST_F(StorageEngineTest, StopWaitsForCoordinatorBeforeDrainingSweepWorkers) {
     auto* data_dir = attach_data_dir();
     ASSERT_TRUE(_storage_engine->_start_data_dir_sweep_workers().ok());
     auto shutdown_tablet = create_shutdown_tablet(data_dir, 19001);
-    reset_shutdown_tablets({shutdown_tablet});
+    reset_shutdown_tablets({std::move(shutdown_tablet)});
 
     CountDownLatch job_entered(1);
     CountDownLatch release_job(1);
@@ -275,7 +275,7 @@ TEST_F(StorageEngineTest, TrashSweepUsesSynchronousFallbackWhenWorkerDisabled) {
 
     auto* data_dir = attach_data_dir();
     auto shutdown_tablet = create_shutdown_tablet(data_dir, 20001);
-    reset_shutdown_tablets({shutdown_tablet});
+    reset_shutdown_tablets({std::move(shutdown_tablet)});
 
     std::vector<DataDirSweepJobType> executed_jobs;
     std::vector<std::thread::id> execution_threads;
@@ -317,7 +317,7 @@ TEST_F(StorageEngineTest, TrashSweepRequeuesShutdownTabletsWhenWorkerSubmitFails
     _storage_engine->_data_dir_sweep_workers.at(data_dir)->stop_accepting_jobs();
     auto shutdown_tablet = create_shutdown_tablet(data_dir, 21001);
     auto* shutdown_tablet_ptr = shutdown_tablet.get();
-    reset_shutdown_tablets({shutdown_tablet});
+    reset_shutdown_tablets({std::move(shutdown_tablet)});
     const int64_t completed_jobs = data_dir->disks_sweep_worker_completed_jobs->value();
     const int64_t failed_jobs = data_dir->disks_sweep_worker_failed_jobs->value();
 
