@@ -37,15 +37,19 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScala
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -143,7 +147,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
-                if (groupBy.getDataType().isObjectOrVariantType() || groupBy.getDataType().isVarBinaryType()) {
+                if (groupBy.getDataType().isObjectType()
+                        || isLegacyVariant(groupBy.getDataType())
+                        || groupBy.getDataType().isVarBinaryType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -176,6 +182,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
+        } else if (plan instanceof LogicalSetOperation
+                && ((LogicalSetOperation) plan).getQualifier() == Qualifier.DISTINCT) {
+            if (plan.getOutput().stream().anyMatch(output -> isLegacyVariant(output.getDataType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
@@ -195,6 +206,10 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
             }
         }
+    }
+
+    private boolean isLegacyVariant(DataType dataType) {
+        return dataType instanceof VariantType && !((VariantType) dataType).isComputeV2();
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {

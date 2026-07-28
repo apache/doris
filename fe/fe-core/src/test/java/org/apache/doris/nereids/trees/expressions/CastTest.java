@@ -21,6 +21,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -631,6 +633,34 @@ public class CastTest {
             cast = new Cast(child, JsonType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
         }
+    }
+
+    @Test
+    public void testCastFromVariant() {
+        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
+        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
+        Assertions.assertTrue(castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
+
+        Assertions.assertTrue(castNullable(
+                false, VariantType.COMPUTE_V2_INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertTrue(castNullable(
+                false, VariantType.COMPUTE_V2_INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(castNullable(
+                false, VariantType.COMPUTE_V2_INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(castNullable(
+                false, VariantType.COMPUTE_V2_INSTANCE, JsonType.INSTANCE));
+        Assertions.assertTrue(castNullable(
+                false, VariantType.COMPUTE_V2_INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+        Assertions.assertFalse(castNullable(
+                false, VariantType.COMPUTE_V2_INSTANCE, VariantType.COMPUTE_V2_INSTANCE));
+    }
+
+    private boolean castNullable(boolean childNullable, DataType sourceType, DataType targetType) {
+        return new Cast(new SlotReference("slot", sourceType, childNullable), targetType).nullable();
     }
 
     @Test
