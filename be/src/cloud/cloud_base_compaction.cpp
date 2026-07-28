@@ -188,7 +188,7 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
-        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_base_compaction();
+        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_base_compaction_unlocked();
     }
     if (auto st = check_version_continuity(_input_rowsets); !st.ok()) {
         DCHECK(false) << st;
