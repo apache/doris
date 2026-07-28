@@ -55,6 +55,84 @@ static bool is_map_node(const tparquet::SchemaElement& schema) {
            (schema.__isset.logicalType && schema.logicalType.__isset.MAP);
 }
 
+static bool is_variant_node(const tparquet::SchemaElement& schema) {
+    return schema.__isset.logicalType && schema.logicalType.__isset.VARIANT;
+}
+
+class ScopedBoolOverride {
+public:
+    ScopedBoolOverride(bool& target, bool value) : _target(target), _original(target) {
+        _target = value;
+    }
+    ~ScopedBoolOverride() { _target = _original; }
+
+private:
+    bool& _target;
+    bool _original;
+};
+
+static Status validate_variant_layout(const tparquet::SchemaElement& group_schema,
+                                      const NativeFieldSchema& group_field) {
+    const auto& annotation = group_schema.logicalType.VARIANT;
+    if (annotation.__isset.specification_version && annotation.specification_version != 1) {
+        return Status::NotSupported("Parquet Variant specification version {} is not supported",
+                                    annotation.specification_version);
+    }
+    if (group_field.children.size() < 2 || group_field.children.size() > 3) {
+        return Status::Corruption(
+                "Parquet Variant {} must contain metadata, value, and optional typed_value",
+                group_schema.name);
+    }
+
+    const NativeFieldSchema* metadata = nullptr;
+    const NativeFieldSchema* value = nullptr;
+    const NativeFieldSchema* typed_value = nullptr;
+    for (const auto& child : group_field.children) {
+        const NativeFieldSchema** target = nullptr;
+        if (child.name == "metadata") {
+            target = &metadata;
+        } else if (child.name == "value") {
+            target = &value;
+        } else if (child.name == "typed_value") {
+            target = &typed_value;
+        } else {
+            return Status::Corruption("Parquet Variant {} has unexpected child {}",
+                                      group_schema.name, child.name);
+        }
+        if (*target != nullptr) {
+            return Status::Corruption("Parquet Variant {} has duplicate child {}",
+                                      group_schema.name, child.name);
+        }
+        *target = &child;
+    }
+    if (metadata == nullptr || value == nullptr) {
+        return Status::Corruption("Parquet Variant {} requires metadata and value children",
+                                  group_schema.name);
+    }
+    if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
+        metadata->parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+        return Status::Corruption("Parquet Variant {} metadata must be a required BYTE_ARRAY",
+                                  group_schema.name);
+    }
+    const auto expected_value_repetition = typed_value == nullptr
+                                                   ? tparquet::FieldRepetitionType::REQUIRED
+                                                   : tparquet::FieldRepetitionType::OPTIONAL;
+    // SQL nullability belongs to the outer Variant group. Only shredding makes value optional,
+    // because typed_value may carry all or part of the logical value instead.
+    if (!value->children.empty() || value->physical_type != tparquet::Type::BYTE_ARRAY ||
+        value->parquet_schema.repetition_type != expected_value_repetition) {
+        return Status::Corruption("Parquet Variant {} value must be a {} BYTE_ARRAY",
+                                  group_schema.name,
+                                  typed_value == nullptr ? "required" : "optional");
+    }
+    if (typed_value != nullptr &&
+        typed_value->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
+        return Status::Corruption("Parquet Variant {} typed_value must be optional",
+                                  group_schema.name);
+    }
+    return Status::OK();
+}
+
 static bool has_primitive_only_annotation(const tparquet::SchemaElement& schema) {
     if (schema.__isset.logicalType) {
         const auto& logical = schema.logicalType;
@@ -264,6 +342,11 @@ Status NativeFieldDescriptor::parse_node_field(
     if (is_group_node(t_schema)) {
         // nested structure or nullable list
         return parse_group_field(t_schemas, curr_pos, node_field);
+    }
+    if (is_variant_node(t_schema)) {
+        return Status::InvalidArgument(
+                "Parquet Variant logical type requires a group node, got primitive {}",
+                t_schema.name);
     }
     if (is_repeated_node(t_schema)) {
         // repeated <primitive-type> <name> (LIST)
@@ -517,6 +600,21 @@ Status NativeFieldDescriptor::parse_group_field(
         const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
         NativeFieldSchema* group_field) {
     auto& group_schema = t_schemas[curr_pos];
+    group_field->parquet_schema = group_schema;
+    if (is_variant_node(group_schema)) {
+        // UTC-adjusted timestamps inside Variant carry an instant, independent of the catalog's
+        // presentation mapping. Parsing them as DATETIMEV2 would apply the session timezone and
+        // lose that instant when the shredded value is re-encoded into ColumnVariantV2.
+        {
+            ScopedBoolOverride timestamp_tz_mapping(_enable_mapping_timestamp_tz, true);
+            RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
+        }
+        RETURN_IF_ERROR(validate_variant_layout(group_schema, *group_field));
+        group_field->variant_physical_type = group_field->data_type;
+        // Native page readers dispatch groups from data_type, so preserve the physical STRUCT
+        // here. The public Parquet schema maps it to logical Variant without losing this shape.
+        return Status::OK();
+    }
     if ((group_schema.__isset.logicalType && group_schema.logicalType.__isset.ENUM) ||
         (group_schema.__isset.converted_type &&
          group_schema.converted_type == tparquet::ConvertedType::ENUM)) {

@@ -120,6 +120,30 @@ TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
 }
 
+TEST(FileScannerV2Test, IcebergVariantAcceptsOnlyParquetFiles) {
+    const auto parquet = range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET);
+    EXPECT_TRUE(FileScannerV2::TEST_validate_iceberg_variant_file_format(
+                        parquet, TFileFormatType::FORMAT_PARQUET, true)
+                        .ok());
+
+    for (const auto format : {TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_AVRO}) {
+        const auto range = range_with_format("iceberg", format);
+        const auto status =
+                FileScannerV2::TEST_validate_iceberg_variant_file_format(range, format, true);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("Iceberg Variant is supported only for Parquet"),
+                  std::string::npos)
+                << status;
+        EXPECT_TRUE(FileScannerV2::TEST_validate_iceberg_variant_file_format(range, format, false)
+                            .ok());
+    }
+
+    const auto non_iceberg = range_with_format("hive", TFileFormatType::FORMAT_ORC);
+    EXPECT_TRUE(FileScannerV2::TEST_validate_iceberg_variant_file_format(
+                        non_iceberg, TFileFormatType::FORMAT_ORC, true)
+                        .ok());
+}
+
 struct RetryableCloseState {
     int close_calls = 0;
 };

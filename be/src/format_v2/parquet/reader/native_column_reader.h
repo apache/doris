@@ -43,6 +43,7 @@ struct IOContext;
 namespace doris::format::parquet {
 
 class NativeParquetMetadata;
+struct VariantMaterializationNode;
 
 namespace detail {
 inline constexpr int64_t MAX_NATIVE_LAZY_SKIP_ROWS = std::numeric_limits<uint16_t>::max();
@@ -102,7 +103,9 @@ public:
     Result<MutableColumnPtr> dictionary_values() override;
 
 private:
-    NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr projected_type,
+    NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr logical_type,
+                       DataTypePtr native_type,
+                       std::unique_ptr<VariantMaterializationNode> variant_plan,
                        ParquetColumnReaderProfile profile);
 
     Status init(io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
@@ -142,6 +145,9 @@ private:
     const std::unordered_map<int, tparquet::OffsetIndex>* _offset_indexes = nullptr;
     std::shared_ptr<NativeSchemaNode> _schema_node;
     std::unique_ptr<native::ColumnReader> _native_reader;
+    DataTypePtr _native_type;
+    std::unique_ptr<VariantMaterializationNode> _variant_plan;
+    MutableColumnPtr _variant_physical_column;
     std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;
     size_t _selected_range_idx = 0;

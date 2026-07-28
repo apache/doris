@@ -213,6 +213,12 @@ void collect_projected_leaf_column_ids(const ParquetColumnSchema& column_schema,
                                        const format::LocalColumnIndex& projection,
                                        std::unordered_set<int>* leaf_column_ids) {
     DORIS_CHECK(leaf_column_ids != nullptr);
+    if (column_schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        // Variant reconstruction always reads the complete physical wrapper, so page-index
+        // loading must cover the same leaf set even when an access path narrows the SQL projection.
+        collect_all_leaf_column_ids(column_schema, leaf_column_ids);
+        return;
+    }
     if (projection.project_all_children || projection.children.empty()) {
         collect_all_leaf_column_ids(column_schema, leaf_column_ids);
         return;
@@ -475,8 +481,9 @@ Status finalize_native_row_group_read_plan(
     std::vector<RowRange> page_selected_ranges;
     std::map<int, ParquetPageSkipPlan> page_skip_plans;
     RETURN_IF_ERROR(select_row_group_ranges_by_native_page_index(
-            thrift, page_indexes, file_schema, request, row_group_plan->row_group_rows,
-            &page_selected_ranges, &page_skip_plans, pruning_stats, timezone, runtime_state));
+            thrift, thrift.row_groups[row_group_plan->row_group_id], page_indexes, file_schema,
+            request, row_group_plan->row_group_rows, &page_selected_ranges, &page_skip_plans,
+            pruning_stats, timezone, runtime_state));
     row_group_plan->selected_ranges =
             intersect_row_ranges(row_group_plan->selected_ranges, page_selected_ranges);
     row_group_plan->page_skip_plans = std::move(page_skip_plans);

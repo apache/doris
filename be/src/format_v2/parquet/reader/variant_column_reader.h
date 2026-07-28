@@ -1,0 +1,49 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <memory>
+#include <vector>
+
+#include "common/status.h"
+#include "core/column/column.h"
+
+namespace doris::format::parquet {
+
+struct ParquetColumnSchema;
+
+// Projection-aligned view of the file schema. Complex nodes contain only the children decoded by
+// NativeColumnReader; a VARIANT node always owns its complete metadata/value/typed_value subtree.
+struct VariantMaterializationNode {
+    const ParquetColumnSchema* schema = nullptr;
+    std::vector<std::unique_ptr<VariantMaterializationNode>> children;
+    bool contains_variant = false;
+};
+
+// Converts one physical Parquet Variant wrapper column to ColumnVariantV2 and appends it to output.
+// SQL NULL is represented by the wrapper's outer null map; a present wrapper with neither value nor
+// typed_value is the Variant null value.
+Status materialize_variant_rows(const ParquetColumnSchema& schema, const IColumn& physical,
+                                MutableColumnPtr& output);
+
+// Recursively replaces projected VARIANT nodes inside STRUCT/LIST/MAP columns while preserving the
+// surrounding column shape, offsets, and null maps. The destination is unchanged on decode errors.
+Status materialize_variant_columns(const VariantMaterializationNode& plan, const IColumn& physical,
+                                   MutableColumnPtr& output);
+
+} // namespace doris::format::parquet
