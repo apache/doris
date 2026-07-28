@@ -312,7 +312,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // check content length
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    const auto json_max_body_mb = config::streaming_load_json_max_mb;
+    size_t json_max_body_bytes = json_max_body_mb * 1024 * 1024;
     bool read_json_by_line = false;
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
         if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
@@ -330,9 +331,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
             return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
-                    "json body size {} exceed BE's conf `streaming_load_json_max_mb` {}. increase "
-                    "it if you are sure this load is reasonable",
-                    ctx->body_bytes, json_max_body_bytes);
+                    "json body size {} bytes exceeds the limit of {} bytes set by BE config "
+                    "`streaming_load_json_max_mb` (currently {} MB). Increase it if you are sure "
+                    "this load is reasonable",
+                    ctx->body_bytes, json_max_body_bytes, json_max_body_mb);
         }
         // csv max body size
         else if (ctx->body_bytes > csv_max_body_bytes) {

@@ -28,6 +28,7 @@
 #include "event2/http_struct.h"
 #include "evhttp.h"
 #include "load/group_commit/wal/wal_manager.h"
+#include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_channel.h"
@@ -37,6 +38,7 @@
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -122,5 +124,29 @@ TEST_F(StreamLoadTest, TestHeader) {
         evhttp_req->uri_elems = nullptr;
         evhttp_request_free(evhttp_req);
     }
+}
+
+TEST_F(StreamLoadTest, JsonBodySizeLimitErrorIncludesUnits) {
+    const auto original_json_max_mb = config::streaming_load_json_max_mb;
+    Defer restore_json_max_mb {
+            [original_json_max_mb] { config::streaming_load_json_max_mb = original_json_max_mb; }};
+    config::streaming_load_json_max_mb = 100;
+
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    req.set_header(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
+    req.set_header(HTTP_FORMAT_KEY, "json");
+    req.set_header(HttpHeaders::CONTENT_LENGTH, "113403999");
+
+    StreamLoadAction action(nullptr);
+    auto ctx = std::make_shared<StreamLoadContext>(nullptr);
+    auto status = action._on_header(&req, ctx);
+
+    EXPECT_TRUE(status.is<ErrorCode::EXCEEDED_LIMIT>());
+    EXPECT_EQ(status.to_string_no_stack(),
+              "[E-217]json body size 113403999 bytes exceeds the limit of 104857600 bytes set by "
+              "BE config `streaming_load_json_max_mb` (currently 100 MB). Increase it if you are "
+              "sure this load is reasonable");
+    evhttp_request_free(evhttp_req);
 }
 } // namespace doris
