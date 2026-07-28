@@ -853,7 +853,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
         Mockito.doReturn(CloseableIterable.withNoopClose(List.of(applicablePartitionTask)))
-                .when(node).planFileScanTask(tableScan);
+                .when(tableScan).planFiles();
         ConnectContext context = new ConnectContext();
         context.setStatementContext(new StatementContext());
         context.setThreadLocalInfo();
@@ -864,6 +864,7 @@ public class IcebergScanNodeTest {
             ConnectContext.remove();
         }
         Assert.assertEquals(Collections.emptySet(), applicableFieldIds);
+        Mockito.verify(node, Mockito.never()).planFileScanTask(tableScan);
 
         List<Types.NestedField> fields = node.getSchemaFieldsForScan(
                 currentSchema, applicableFieldIds);

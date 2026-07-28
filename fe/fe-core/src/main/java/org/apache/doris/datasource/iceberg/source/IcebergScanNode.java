@@ -984,7 +984,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (rewriteTasks != null) {
             return collectEqualityDeleteFieldIdsFromTasks(rewriteTasks);
         }
-        try (CloseableIterable<FileScanTask> tasks = planFileScanTask(scan)) {
+        // This is a hidden metadata preflight. Using Doris's manifest cache here would populate
+        // the cache before the real scan is planned, making the scan's cache profile report hits
+        // for work performed only by this preflight.
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             return collectEqualityDeleteFieldIdsFromTasks(tasks);
         } catch (IOException e) {
             throw new RuntimeException("Failed to close Iceberg file scan tasks", e);
