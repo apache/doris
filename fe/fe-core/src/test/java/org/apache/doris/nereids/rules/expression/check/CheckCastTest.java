@@ -55,6 +55,16 @@ import java.util.List;
 
 public class CheckCastTest {
     @Test
+    public void testCastBetweenVariantTypes() {
+        VariantType v1Source = new VariantType(100);
+        VariantType v1SameProperties = new VariantType(100);
+        VariantType v1DifferentProperties = new VariantType(200);
+
+        Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
+        Assertions.assertFalse(CheckCast.check(v1Source, v1DifferentProperties, true));
+    }
+
+    @Test
     public void testCastFromBoolean() {
         // Strict mode
         Assertions.assertTrue(CheckCast.check(BooleanType.INSTANCE, BooleanType.INSTANCE, true));
