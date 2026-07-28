@@ -59,7 +59,8 @@ public:
                                                  uint16_t selected_rows, int64_t batch_rows,
                                                  const IColumn::Filter& dictionary_filter,
                                                  IColumn* projected_column,
-                                                 IColumn::Filter* row_filter, bool* used_filter);
+                                                 IColumn::Filter* row_filter,
+                                                 uint16_t* survivor_count, bool* used_filter);
 
     // Consume batch_rows and evaluate eligible fixed-width values without first constructing a
     // complete predicate column. Append survivors when projected_column is non-null. Implementations

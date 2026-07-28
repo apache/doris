@@ -19,7 +19,9 @@
 
 #include <cstring>
 #include <limits>
+#include <type_traits>
 
+#include "core/column/column_decimal.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "util/simd/parquet_kernels.h"
@@ -27,11 +29,11 @@
 namespace doris {
 namespace {
 
-template <PrimitiveType TYPE>
-bool try_gather_vector(IColumn& destination, const IColumn& dictionary, const uint32_t* indices,
-                       size_t num_values) {
-    using ColumnType = ColumnVector<TYPE>;
+template <typename ColumnType>
+bool try_gather_fixed_width(IColumn& destination, const IColumn& dictionary,
+                            const uint32_t* indices, size_t num_values) {
     using ValueType = typename ColumnType::value_type;
+    static_assert(std::is_trivially_copyable_v<ValueType>);
     if constexpr (sizeof(ValueType) != 4 && sizeof(ValueType) != 8) {
         return false;
     } else {
@@ -55,6 +57,12 @@ bool try_gather_vector(IColumn& destination, const IColumn& dictionary, const ui
                                 reinterpret_cast<uint8_t*>(destination_data.data() + old_size));
         return true;
     }
+}
+
+template <PrimitiveType TYPE>
+bool try_gather_vector(IColumn& destination, const IColumn& dictionary, const uint32_t* indices,
+                       size_t num_values) {
+    return try_gather_fixed_width<ColumnVector<TYPE>>(destination, dictionary, indices, num_values);
 }
 
 template <typename Offset>
@@ -108,11 +116,18 @@ bool try_simd_insert_parquet_dictionary_indices(IColumn& destination, const ICol
     TRY_PARQUET_GATHER(TYPE_DATETIME);
     TRY_PARQUET_GATHER(TYPE_DATEV2);
     TRY_PARQUET_GATHER(TYPE_DATETIMEV2);
+    TRY_PARQUET_GATHER(TYPE_TIMESTAMPTZ);
     TRY_PARQUET_GATHER(TYPE_IPV4);
     TRY_PARQUET_GATHER(TYPE_TIMEV2);
     TRY_PARQUET_GATHER(TYPE_UINT32);
     TRY_PARQUET_GATHER(TYPE_UINT64);
 #undef TRY_PARQUET_GATHER
+    // Keep every 4/8-byte POD column on this path: aliases such as TIMESTAMPTZ and decimals do not
+    // participate in the ordinary numeric dispatch and otherwise silently fall back to Field insertion.
+    if (try_gather_fixed_width<ColumnDecimal32>(destination, dictionary, indices, num_values) ||
+        try_gather_fixed_width<ColumnDecimal64>(destination, dictionary, indices, num_values)) {
+        return true;
+    }
     // String survivors have variable widths, so pre-size both buffers and copy each selected
     // dictionary slice exactly once instead of routing every id through generic Field insertion.
     if (try_gather_strings<UInt32>(destination, dictionary, indices, num_values) ||

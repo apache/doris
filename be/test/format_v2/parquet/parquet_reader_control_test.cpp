@@ -177,6 +177,13 @@ TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
               std::vector<uint8_t>({0, 1, 1, 0}));
 }
 
+TEST(SelectionVectorTest, IdentitySelectionDoesNotMaterializeFilter) {
+    SelectionVector selection(4);
+    const uint8_t* filter = reinterpret_cast<const uint8_t*>(1);
+    ASSERT_TRUE(selection.materialize_filter(4, 4, &filter).ok());
+    EXPECT_EQ(filter, nullptr);
+}
+
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
     CursorColumnReader reader;
     SelectionVector selection(3);

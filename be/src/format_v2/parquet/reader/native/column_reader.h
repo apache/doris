@@ -203,14 +203,16 @@ public:
 
     virtual Status read_dictionary_filter(const IColumn::Filter&, FilterMap&, size_t,
                                           const IColumn*, IColumn*, ColumnInt32*,
-                                          IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
-                                          bool* projected_directly, bool* used_filter) {
+                                          IColumn::Filter* row_filter, size_t* survivor_count,
+                                          size_t* read_rows, bool* eof, bool* projected_directly,
+                                          bool* used_filter) {
         DORIS_CHECK(row_filter != nullptr);
+        DORIS_CHECK(survivor_count != nullptr);
         DORIS_CHECK(read_rows != nullptr);
         DORIS_CHECK(eof != nullptr);
         DORIS_CHECK(projected_directly != nullptr);
         DORIS_CHECK(used_filter != nullptr);
-        row_filter->clear();
+        *survivor_count = 0;
         *read_rows = 0;
         *projected_directly = false;
         *used_filter = false;
@@ -308,8 +310,9 @@ public:
     Status read_dictionary_filter(const IColumn::Filter& dictionary_filter, FilterMap& filter_map,
                                   size_t batch_size, const IColumn* typed_dictionary,
                                   IColumn* projected_values, ColumnInt32* matched_dictionary_ids,
-                                  IColumn::Filter* row_filter, size_t* read_rows, bool* eof,
-                                  bool* projected_directly, bool* used_filter) override;
+                                  IColumn::Filter* row_filter, size_t* survivor_count,
+                                  size_t* read_rows, bool* eof, bool* projected_directly,
+                                  bool* used_filter) override;
     Status read_column_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                               bool* eof) override;
     Result<MutableColumnPtr> materialize_dictionary_values(const ColumnInt32* dict_column,
@@ -444,7 +447,8 @@ private:
                                           FilterMap& filter_map, const IColumn* typed_dictionary,
                                           IColumn* projected_values,
                                           ColumnInt32* matched_dictionary_ids,
-                                          IColumn::Filter* row_filter, bool* projected_directly);
+                                          IColumn::Filter* row_filter, size_t* survivor_count,
+                                          bool* projected_directly);
     Status _read_nested_column(ColumnPtr& doris_column, const DataTypePtr& type,
                                FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                bool* eof, bool is_dict_filter);

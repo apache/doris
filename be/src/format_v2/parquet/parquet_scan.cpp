@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_vector.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
@@ -796,11 +797,17 @@ int64_t count_range_rows(const std::vector<RowRange>& ranges) {
 }
 
 void append_intersection(const RowRange& left, const RowRange& right,
-                         std::vector<RowRange>* result) {
+                         std::vector<RowRange>& result) {
     const int64_t start = std::max(left.start, right.start);
     const int64_t end = std::min(left.start + left.length, right.start + right.length);
     if (start < end) {
-        result->push_back(RowRange {.start = start, .length = end - start});
+        // Cache granules are only filter coordinates. Merge adjacent survivors so cache hits
+        // preserve the original read-range batch boundaries, matching V1 RowRanges semantics.
+        if (!result.empty() && result.back().start + result.back().length == start) {
+            result.back().length = end - result.back().start;
+            return;
+        }
+        result.push_back(RowRange {.start = start, .length = end - start});
     }
 }
 
@@ -832,7 +839,7 @@ std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRang
             const int64_t granule_end = granule_start + ConditionCacheContext::GRANULE_SIZE;
             const RowRange file_granule_range {.start = granule_start - row_group_first_row,
                                                .length = granule_end - granule_start};
-            append_intersection(range, file_granule_range, &result);
+            append_intersection(range, file_granule_range, result);
         }
     }
     return result;
@@ -1412,17 +1419,34 @@ bool get_fixed_dictionary_raw_values(const IColumn& dictionary, const uint8_t** 
     return true;
 }
 
-bool get_numeric_dictionary_raw_values(PrimitiveType primitive_type, const IColumn& dictionary,
-                                       const uint8_t** values, size_t* value_width) {
+bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn& dictionary,
+                                     const uint8_t** values, size_t* value_width) {
     switch (primitive_type) {
-    case TYPE_INT:
-        return get_fixed_dictionary_raw_values<ColumnInt32>(dictionary, values, value_width);
-    case TYPE_BIGINT:
-        return get_fixed_dictionary_raw_values<ColumnInt64>(dictionary, values, value_width);
-    case TYPE_FLOAT:
-        return get_fixed_dictionary_raw_values<ColumnFloat32>(dictionary, values, value_width);
-    case TYPE_DOUBLE:
-        return get_fixed_dictionary_raw_values<ColumnFloat64>(dictionary, values, value_width);
+#define GET_TYPED_DICTIONARY_VALUES(TYPE)                                                       \
+    case TYPE:                                                                                  \
+        return get_fixed_dictionary_raw_values<typename PrimitiveTypeTraits<TYPE>::ColumnType>( \
+                dictionary, values, value_width)
+        GET_TYPED_DICTIONARY_VALUES(TYPE_BOOLEAN);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_TINYINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_SMALLINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_INT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_BIGINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_LARGEINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_FLOAT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DOUBLE);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATE);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATETIME);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATEV2);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATETIMEV2);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_TIMESTAMPTZ);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL32);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL64);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMALV2);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL128I);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL256);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_IPV4);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_IPV6);
+#undef GET_TYPED_DICTIONARY_VALUES
     default:
         return false;
     }
@@ -1539,8 +1563,8 @@ Status build_dictionary_entry_filter(size_t block_position,
                                 return conjunct->root()->can_execute_on_raw_fixed_values(
                                         column_schema.type, expression_column_id);
                             }) &&
-        get_numeric_dictionary_raw_values(typed_data_type->get_primitive_type(), dictionary,
-                                          &raw_values, &value_width)) {
+        get_typed_dictionary_raw_values(typed_data_type->get_primitive_type(), dictionary,
+                                        &raw_values, &value_width)) {
         // A dictionary is immutable for the row group, so compare its contiguous typed values once
         // and reuse the resulting id bitmap for every data page.
         for (const auto& conjunct : conjuncts) {
@@ -1832,6 +1856,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         if (dictionary_filter_it != _current_dictionary_filters.end()) {
             const uint16_t selected_rows_before = *selected_rows;
             IColumn::Filter compact_filter;
+            uint16_t new_selected_rows = 0;
             bool used_filter = false;
             const bool predicate_only = request.is_predicate_only(local_id);
             // Dictionary ids are sufficient for predicate-only slots; skipping typed survivor
@@ -1839,13 +1864,15 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             IColumn* projected_column = predicate_only ? nullptr : column.get();
             RETURN_IF_ERROR(column_reader->select_with_dictionary_filter(
                     *selection, *selected_rows, batch_rows, dictionary_filter_it->second,
-                    projected_column, &compact_filter, &used_filter));
+                    projected_column, &compact_filter, &new_selected_rows, &used_filter));
             if (used_filter) {
                 DORIS_CHECK(compact_filter.size() == selected_rows_before);
+                DORIS_CHECK(new_selected_rows <= selected_rows_before);
                 update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_batches, 1);
                 update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_rows,
                                            selected_rows_before);
-                const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                // The decoder already observes every keep bit while producing compact_filter, so
+                // reuse its count instead of adding another full filter scan at this boundary.
                 if (!predicate_only) {
                     update_counter_if_not_null(_scan_profile.dictionary_predicate_projected_rows,
                                                new_selected_rows);
