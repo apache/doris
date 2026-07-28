@@ -96,4 +96,62 @@ TEST_F(HiveTextFieldSplitterTest, RealWorldScenarios) {
     verify_field_split("a|+||+|c", "|+|", {"a", "", "c"});
 }
 
+// Single-char split takes a memchr fast path when escape_char == 0. These cases
+// exercise that path's boundaries: the Hive default \x01 separator, long fields
+// that span SIMD chunks, consecutive/leading/trailing separators, and multi-byte
+// UTF-8 payloads that must not be mistaken for separators.
+TEST_F(HiveTextFieldSplitterTest, SingleCharMemchrFastPath) {
+    const char no_escape = 0;
+    verify_field_split(std::string("a\x01") + "b\x01" + "c", std::string("\x01"), {"a", "b", "c"},
+                       no_escape);
+    std::string long_a(100, 'x');
+    std::string long_b(70, 'y');
+    verify_field_split(long_a + "," + long_b, ",", {long_a, long_b}, no_escape);
+    verify_field_split("a,,,b", ",", {"a", "", "", "b"}, no_escape);
+    verify_field_split(",,,", ",", {"", "", "", ""}, no_escape);
+    verify_field_split("中文,字段,测试", ",", {"中文", "字段", "测试"}, no_escape);
+    verify_field_split("no_delims_here", ",", {"no_delims_here"}, no_escape);
+    verify_field_split("trailing,", ",", {"trailing", ""}, no_escape);
+}
+
+// When escape_char == 0, a backslash is data and must NOT suppress a separator.
+TEST_F(HiveTextFieldSplitterTest, SingleCharNoEscapeTreatsBackslashAsData) {
+    const char no_escape = 0;
+    verify_field_split("a\\,b", ",", {"a\\", "b"}, no_escape);
+    verify_field_split("x\\", ",", {"x\\"}, no_escape);
+}
+
+// Multi-char KMP path: the cached prefix table splits overlapping-prefix separators
+// correctly across many rows (table now built once in ctor and reused per call).
+TEST_F(HiveTextFieldSplitterTest, MultiCharCachedNextTableReuse) {
+    HiveTextFieldSplitter splitter(false, false, "|+|", 3, 0, 0);
+    for (int iter = 0; iter < 3; ++iter) {
+        std::vector<Slice> out;
+        std::string input = "a|+|b|+|c";
+        Slice line(input.data(), input.size());
+        splitter.do_split(line, &out);
+        ASSERT_EQ(3u, out.size()) << "iteration " << iter;
+        EXPECT_EQ("a", std::string(out[0].data, out[0].size));
+        EXPECT_EQ("b", std::string(out[1].data, out[1].size));
+        EXPECT_EQ("c", std::string(out[2].data, out[2].size));
+    }
+}
+
+// Escape counterpart: escape_char != 0 takes the byte-by-byte slow path; a separator
+// preceded by the escape char is data. First two inputs are byte-identical to
+// SingleCharNoEscapeTreatsBackslashAsData but split differently — pins path divergence.
+TEST_F(HiveTextFieldSplitterTest, SingleCharEscapeSuppressesSeparator) {
+    verify_field_split("a\\,b", ",", {"a\\,b"}, '\\');
+    verify_field_split("x\\", ",", {"x\\"}, '\\');
+    verify_field_split("\\,x", ",", {"\\,x"}, '\\');
+    verify_field_split("a\\,\\,b", ",", {"a\\,\\,b"}, '\\');
+}
+
+// Multi-char KMP escape path: escape char before a matched separator suppresses that
+// boundary via the curpos-1 lookback; pins the boundary conditions.
+TEST_F(HiveTextFieldSplitterTest, MultiCharEscapeSuppressesSeparator) {
+    verify_field_split("\\||x||y", "||", {"\\||x", "y"}, '\\');
+    verify_field_split("a\\|+||+|b", "|+|", {"a\\|+|", "b"}, '\\');
+}
+
 } // namespace doris

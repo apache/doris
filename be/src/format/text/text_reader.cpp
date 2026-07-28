@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 
 #include <cstddef>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -57,11 +58,29 @@ void HiveTextFieldSplitter::_split_field_single_char(const Slice& line,
                                                      std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const size_t size = line.size;
+    const char sep = _value_sep[0];
     size_t value_start = 0;
+    if (_escape_char == 0) {
+        // Fast path: no escape handling, use SIMD memchr to locate separators.
+        const char* p = data;
+        const char* end = data + size;
+        while (p < end) {
+            const char* hit = static_cast<const char*>(memchr(p, sep, end - p));
+            if (hit == nullptr) {
+                break;
+            }
+            size_t i = hit - data;
+            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
+            value_start = i + _value_sep_len;
+            p = hit + 1;
+        }
+        process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
+        return;
+    }
     for (size_t i = 0; i < size; ++i) {
-        if (data[i] == _value_sep[0]) {
+        if (data[i] == sep) {
             // hive will escape the field separator in string
-            if (_escape_char != 0 && is_hive_text_separator_escaped(data, i, _escape_char)) {
+            if (is_hive_text_separator_escaped(data, i, _escape_char)) {
                 continue;
             }
             process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
@@ -77,17 +96,7 @@ void HiveTextFieldSplitter::_split_field_multi_char(const Slice& line,
     const size_t size = line.size;
     size_t start = 0;
 
-    std::vector<int> next(_value_sep_len);
-    next[0] = -1;
-    for (int i = 1, j = -1; i < (int)_value_sep_len; i++) {
-        while (j >= 0 && _value_sep[i] != _value_sep[j + 1]) {
-            j = next[j];
-        }
-        if (_value_sep[i] == _value_sep[j + 1]) {
-            j++;
-        }
-        next[i] = j;
-    }
+    const std::vector<int>& next = _kmp_next;
 
     // KMP search
     for (int i = 0, j = -1; i < (int)size; i++) {

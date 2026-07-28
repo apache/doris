@@ -38,7 +38,21 @@ public:
                                    char escape_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
               _value_sep(std::move(value_sep)),
-              _escape_char(escape_char) {}
+              _escape_char(escape_char) {
+        if (_value_sep_len > 1) {
+            _kmp_next.resize(_value_sep_len);
+            _kmp_next[0] = -1;
+            for (int i = 1, j = -1; i < (int)_value_sep_len; i++) {
+                while (j >= 0 && _value_sep[i] != _value_sep[j + 1]) {
+                    j = _kmp_next[j];
+                }
+                if (_value_sep[i] == _value_sep[j + 1]) {
+                    j++;
+                }
+                _kmp_next[i] = j;
+            }
+        }
+    }
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
@@ -48,6 +62,8 @@ private:
 
     std::string _value_sep;
     char _escape_char;
+    // Precomputed KMP prefix table for multi-char separator, built once in ctor.
+    std::vector<int> _kmp_next;
 };
 
 class TextReader : public CsvReader {
