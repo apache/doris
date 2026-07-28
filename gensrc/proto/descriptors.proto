@@ -125,3 +125,4 @@ message POlapTableSchemaParam {
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 17 [default = APPEND];
     repeated POlapTableIndexSchema row_binlog_index_schemas = 18;
 };
+
