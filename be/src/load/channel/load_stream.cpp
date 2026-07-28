@@ -528,8 +528,11 @@ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 void LoadStream::_report_result(StreamId stream, const Status& status,
                                 const std::vector<int64_t>& success_tablet_ids,
                                 const FailedTablets& failed_tablets, bool eos) {
-    LOG(INFO) << "report result " << *this << ", status=" << status << ", success tablet num "
-              << success_tablet_ids.size() << ", failed tablet num " << failed_tablets.size();
+    if (!status.ok()) {
+        LOG(WARNING) << "report result " << *this << ", status=" << status
+                     << ", success tablet num " << success_tablet_ids.size()
+                     << ", failed tablet num " << failed_tablets.size();
+    }
     butil::IOBuf buf;
     PLoadStreamResponse response;
     response.set_eos(eos);
