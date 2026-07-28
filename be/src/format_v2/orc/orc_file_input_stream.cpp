@@ -27,6 +27,7 @@
 #include "io/fs/tracing_file_reader.h"
 #include "io/io_common.h"
 #include "orc/Exceptions.hh"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "util/slice.h"
 
@@ -54,24 +55,28 @@ public:
               _size(_file_reader->size()) {
         _statistics.apply_bytes += _range.end_offset - _range.start_offset;
         if (_profile != nullptr) {
-            const char* profile_name = "MergedSmallIO";
-            ADD_TIMER_WITH_LEVEL(_profile, profile_name, 1);
-            _copy_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CopyTime", profile_name, 1);
-            _read_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadTime", profile_name, 1);
-            _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT,
+            const char* profile_name = "OrcMergedSmallIO";
+            _total_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                    _profile, profile_name,
+                    file_scan_profile::parent_or_root(_profile, file_scan_profile::IO), 1);
+            // RuntimeProfile counter lookup is flat, so every child must be format-qualified;
+            // a unique parent alone cannot prevent aliasing with Parquet's MergeRange reader.
+            _copy_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "OrcMergedCopyTime", profile_name, 1);
+            _read_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "OrcMergedReadTime", profile_name, 1);
+            _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedRequestIO", TUnit::UNIT,
                                                        profile_name, 1);
-            _merged_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedIO", TUnit::UNIT,
+            _merged_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedIO", TUnit::UNIT,
                                                       profile_name, 1);
-            _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
-                                                          profile_name, 1);
-            _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
+            _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedRequestBytes",
+                                                          TUnit::BYTES, profile_name, 1);
+            _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedBytes", TUnit::BYTES,
                                                          profile_name, 1);
-            _apply_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ApplyBytes", TUnit::BYTES,
-                                                        profile_name, 1);
-            _over_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OverReadBytes", TUnit::BYTES,
-                                                            profile_name, 1);
-            _cluster_num = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ClusterNum", TUnit::UNIT,
-                                                        profile_name, 1);
+            _apply_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedApplyBytes",
+                                                        TUnit::BYTES, profile_name, 1);
+            _over_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedOverReadBytes",
+                                                            TUnit::BYTES, profile_name, 1);
+            _cluster_num = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcMergedClusterNum",
+                                                        TUnit::UNIT, profile_name, 1);
         }
     }
 
@@ -113,6 +118,7 @@ protected:
         if (_profile == nullptr) {
             return;
         }
+        COUNTER_UPDATE(_total_time, _statistics.copy_time + _statistics.read_time);
         COUNTER_UPDATE(_copy_time, _statistics.copy_time);
         COUNTER_UPDATE(_read_time, _statistics.read_time);
         COUNTER_UPDATE(_request_io, _statistics.request_io);
@@ -165,6 +171,7 @@ private:
     OrcMergedRangeStatistics _statistics;
 
     RuntimeProfile::Counter* _copy_time = nullptr;
+    RuntimeProfile::Counter* _total_time = nullptr;
     RuntimeProfile::Counter* _read_time = nullptr;
     RuntimeProfile::Counter* _request_io = nullptr;
     RuntimeProfile::Counter* _merged_io = nullptr;

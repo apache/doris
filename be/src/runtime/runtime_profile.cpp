@@ -393,6 +393,23 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     return child;
 }
 
+RuntimeProfile* RuntimeProfile::get_or_create_child(const std::string& name, bool indent,
+                                                    bool prepend) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto it = _child_map.find(name);
+    if (it != _child_map.end()) {
+        return it->second;
+    }
+
+    RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
+    if (this->is_set_metadata()) {
+        child->set_metadata(this->metadata());
+    }
+    auto* location = !_children.empty() && prepend ? _children.front().first : nullptr;
+    add_child_unlock(child, indent, location);
+    return child;
+}
+
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
     DCHECK(child != nullptr);
     _child_map[child->_name] = child;

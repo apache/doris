@@ -126,13 +126,26 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(segment_footer_index_bytes_write_into_cache);
     SUBTRACT_FIELD(remote_only_on_miss_triggered);
     SUBTRACT_FIELD(remote_only_on_miss_threshold_bytes);
+
+    SUBTRACT_FIELD(num_cross_cg_peer_io_total);
+    SUBTRACT_FIELD(bytes_read_from_cross_cg_peer);
+    SUBTRACT_FIELD(cross_cg_peer_io_timer);
+    SUBTRACT_FIELD(num_same_cg_peer_io_total);
+    SUBTRACT_FIELD(bytes_read_from_same_cg_peer);
+    SUBTRACT_FIELD(same_cg_peer_io_timer);
+    SUBTRACT_FIELD(num_peer_race_peer_win);
+    SUBTRACT_FIELD(num_peer_race_s3_win);
+    SUBTRACT_FIELD(num_peer_lazy_fetch);
+    SUBTRACT_FIELD(peer_lazy_fetch_timer);
 #undef SUBTRACT_FIELD
     return diff;
 }
 
-FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _profile(profile) {
+FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
+                                                   const std::string& parent_counter)
+        : _profile(profile) {
     static const char* cache_profile = "FileCache";
-    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
+    total_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, cache_profile, parent_counter.c_str(), 2);
     num_local_io_total =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
     num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
@@ -239,6 +252,12 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
 }
 
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
+    // These are the outer cache-path phases. Their sum keeps the group timer actionable instead of
+    // displaying zero while individual cache IO and coordination timers are non-zero.
+    COUNTER_UPDATE(total_time, statistics->local_io_timer + statistics->remote_io_timer +
+                                       statistics->peer_io_timer + statistics->remote_wait_timer +
+                                       statistics->write_cache_io_timer +
+                                       statistics->cache_get_or_set_timer);
     COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
     COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
     COUNTER_UPDATE(num_peer_io_total, statistics->num_peer_io_total);

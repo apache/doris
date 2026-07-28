@@ -18,7 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
@@ -84,12 +85,12 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageAdapter> storageAdapters) {
         HiveConf hiveConf = buildHiveConf();
         buildCatalogOptions();
-        StorageProperties ossProps = storagePropertiesList.stream()
-                .filter(sp -> sp.getType() == StorageProperties.Type.OSS
-                        || sp.getType() == StorageProperties.Type.OSS_HDFS)
+        StorageAdapter ossProps = storageAdapters.stream()
+                .filter(sp -> sp.getType() == StorageTypeId.OSS
+                        || sp.getType() == StorageTypeId.OSS_HDFS)
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Paimon DLF metastore requires OSS storage properties."));
         ossProps.getHadoopStorageConfig().forEach(entry -> hiveConf.set(entry.getKey(), entry.getValue()));

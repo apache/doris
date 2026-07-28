@@ -19,6 +19,7 @@ name: BE UT (macOS)
 
 on:
   pull_request:
+    types: [opened, synchronize]
   schedule:
     - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
 
@@ -56,7 +57,7 @@ jobs:
           max-size: "5G"
           restore-keys: BE-UT-macOS-
 
-      - name: Run UT ${{ github.ref }}
+      - name: Build BE ${{ github.ref }}
         if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
         run: |
           cellars=(
@@ -80,21 +81,50 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
+          # macos-15 runners are Apple Silicon (arm64), so download the arm64
+          # prebuilt thirdparty. Using the x86_64 archive makes the linker ignore
+          # every thirdparty static library ("found architecture 'x86_64',
+          # required architecture 'arm64'") and the final BE link fails with
+          # thousands of undefined symbols.
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-arm64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
-          ./run-be-ut.sh --run -j "$(nproc)" --clean
+          # macos-15 runners are Apple Silicon (arm64), so the JDK env var is
+          # JAVA_HOME_17_arm64. Fall back to the x64 variable for Intel runners.
+          JAVA_HOME="${JAVA_HOME_17_arm64:-${JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${JAVA_HOME%\/}"
+
+          # AppleClang ships no OpenMP runtime, so CMake's find_package(OpenMP)
+          # (e.g. in contrib/openblas) fails with "Could NOT find OpenMP_C" and
+          # "'omp.h' file not found". Point the compiler/linker at Homebrew's
+          # libomp. be/CMakeLists.txt resets CMAKE_C_FLAGS/CMAKE_CXX_FLAGS, so
+          # EXTRA_CXX_FLAGS is also needed to pass the include path to the BE build.
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
+          export CFLAGS="-I${LIBOMP_PREFIX}/include ${CFLAGS:-}"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
+          export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
+          export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
+          # Only verify that the BE compiles on macOS; do NOT compile be/test.
+          # The unit tests are built and run locally, not in this job. build.sh
+          # configures the BE with -DMAKE_TEST=OFF, so nothing under be/test is
+          # compiled. Skip the Java extensions and cdc client (not relevant to a
+          # macOS C++ build check), and pass -j explicitly because build.sh
+          # otherwise defaults to only ~nproc/4 jobs.
+          DISABLE_BE_JAVA_EXTENSIONS=ON DISABLE_BE_CDC_CLIENT=ON \
+            ./build.sh --be -j "$(nproc)"

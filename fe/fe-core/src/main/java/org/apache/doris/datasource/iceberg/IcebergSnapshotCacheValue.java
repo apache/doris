@@ -17,14 +17,30 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
 public class IcebergSnapshotCacheValue {
 
     private final IcebergPartitionInfo partitionInfo;
     private final IcebergSnapshot snapshot;
+    private final Optional<Map<Integer, List<String>>> nameMapping;
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
+        this(partitionInfo, snapshot, Optional.empty());
+    }
+
+    public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot,
+            Optional<Map<Integer, List<String>>> nameMapping) {
         this.partitionInfo = partitionInfo;
         this.snapshot = snapshot;
+        this.nameMapping = nameMapping.map(mapping -> {
+            Map<Integer, List<String>> copy = new HashMap<>();
+            mapping.forEach((id, names) -> copy.put(id, List.copyOf(names)));
+            return Map.copyOf(copy);
+        });
     }
 
     public IcebergPartitionInfo getPartitionInfo() {
@@ -33,5 +49,9 @@ public class IcebergSnapshotCacheValue {
 
     public IcebergSnapshot getSnapshot() {
         return snapshot;
+    }
+
+    public Optional<Map<Integer, List<String>>> getNameMapping() {
+        return nameMapping;
     }
 }

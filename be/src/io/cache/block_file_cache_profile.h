@@ -71,6 +71,7 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
 
 struct FileCacheProfileReporter {
     RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* total_time = nullptr;
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
     RuntimeProfile::Counter* num_peer_io_total = nullptr;
@@ -129,7 +130,9 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_peer_lazy_fetch = nullptr;
     RuntimeProfile::Counter* peer_lazy_fetch_timer = nullptr;
 
-    FileCacheProfileReporter(RuntimeProfile* profile);
+    explicit FileCacheProfileReporter(
+            RuntimeProfile* profile,
+            const std::string& parent_counter = RuntimeProfile::ROOT_COUNTER);
     void update(const FileCacheStatistics* statistics) const;
 };
 

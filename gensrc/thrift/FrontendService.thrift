@@ -916,7 +916,8 @@ enum TSchemaTableName {
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
   ROLE_MAPPINGS = 17,
-  TSO_STATUS = 18,
+  EXTENSIONS = 18,
+  TSO_STATUS = 19,
 }
 
 struct TMetadataTableRequestParams {

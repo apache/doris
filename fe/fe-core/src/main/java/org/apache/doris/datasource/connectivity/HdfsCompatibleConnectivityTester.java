@@ -17,14 +17,14 @@
 
 package org.apache.doris.datasource.connectivity;
 
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.thrift.TStorageBackendType;
 
 public abstract class HdfsCompatibleConnectivityTester implements StorageConnectivityTester {
-    protected final HdfsCompatibleProperties properties;
+    protected final StorageAdapter adapter;
 
-    public HdfsCompatibleConnectivityTester(HdfsCompatibleProperties properties) {
-        this.properties = properties;
+    public HdfsCompatibleConnectivityTester(StorageAdapter adapter) {
+        this.adapter = adapter;
     }
 
     @Override

@@ -72,6 +72,7 @@ public:
 
 private:
     struct OrcProfile {
+        RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
         RuntimeProfile::Counter* decompression_call = nullptr;          // DecompressionCall

@@ -15,16 +15,12 @@
 
 #pragma once
 
-#include <parquet/types.h>
+#include <gen_cpp/parquet_types.h>
 
 #include <string>
 
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/decoded_column_view.h"
-
-namespace parquet {
-class ColumnDescriptor;
-} // namespace parquet
 
 namespace doris::format::parquet {
 
@@ -53,14 +49,15 @@ enum class ParquetTimeUnit {
 // ============================================================================
 // ============================================================================
 struct ParquetTypeDescriptor {
+    // Keep the V2 semantic tree on generated Thrift enums; using parquet-cpp descriptors here
+    // would reintroduce a second metadata model and make native planning bypassable.
     DataTypePtr doris_type;
     // Physical fallback used only to keep file schema construction alive when the logical type is
     // unsupported. Column reader creation still rejects unsupported_reason before decoding.
     DataTypePtr physical_doris_type;
     ParquetExtraTypeInfo extra_type_info = ParquetExtraTypeInfo::NONE;
     ParquetTimeUnit time_unit = ParquetTimeUnit::UNKNOWN;
-    ::parquet::Type::type physical_type = ::parquet::Type::UNDEFINED;
-    ::parquet::ConvertedType::type converted_type = ::parquet::ConvertedType::UNDEFINED;
+    tparquet::Type::type physical_type = tparquet::Type::INT32;
     int integer_bit_width = -1;                // bit width for INT_8/16/32/64
     int decimal_precision = -1;                // precision for DECIMAL(p,s)
     int decimal_scale = -1;                    // scale for DECIMAL(p,s)
@@ -70,15 +67,8 @@ struct ParquetTypeDescriptor {
     bool is_timestamp = false;                 // whether this is a timestamp type
     bool timestamp_is_adjusted_to_utc = false; // whether the timestamp is UTC-normalized
     bool is_string_like = false;               // binary type that is neither decimal nor FLOAT16
-    bool supports_record_reader = true;        // whether Arrow RecordReader can read this type
     std::string unsupported_reason; // non-empty when this Parquet logical type is unsupported
 };
-
-std::string parquet_column_name(const ::parquet::ColumnDescriptor* column);
-
-ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* column);
-
-bool supports_record_reader(const ParquetTypeDescriptor& type_descriptor);
 
 DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor);
 

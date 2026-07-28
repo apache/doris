@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
@@ -76,7 +76,7 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initializeCatalog(String catalogName, List<StorageAdapter> storageAdapters) {
         buildCatalogOptions();
         CatalogContext catalogContext = CatalogContext.create(catalogOptions);
         return CatalogFactory.createCatalog(catalogContext);

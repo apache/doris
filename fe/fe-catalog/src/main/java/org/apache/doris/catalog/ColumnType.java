@@ -322,11 +322,10 @@ public abstract class ColumnType {
                 existingNames.add(originalField.getName());
             }
 
-            // check new field name is not conflict with old field name
+            // check appended field names do not conflict with existing or earlier appended fields
             for (int i = originalFields.size(); i < otherStructType.getFields().size(); i++) {
-                // to check new field name is not conflict with old field name
                 String newFieldName = otherStructType.getFields().get(i).getName();
-                if (existingNames.contains(newFieldName)) {
+                if (!existingNames.add(newFieldName)) {
                     throw new DdlException("Added struct field '" + newFieldName + "' conflicts with existing field");
                 }
             }
