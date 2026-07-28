@@ -677,6 +677,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     private List<Column> resolvePinnedFullSchema() throws UserException {
         TableIf table = getTargetTable();
+        if (table instanceof PluginDrivenSysExternalTable) {
+            // The same empty-context hole pinMvccSnapshot and buildColumnHandles close, reached through the
+            // POSITION-MAPPING half. A sys table is not an MvccTable and BindRelation returns from
+            // handleMetaTable BEFORE loadSnapshots, so the context lookup below is empty by construction and
+            // this would fall back to the LATEST schema -- while the slots were bound
+            // (LogicalFileScan.computePluginDrivenOutput) and the column handles built (buildColumnHandles)
+            // at the PINNED one. FileQueryScanNode.setColumnPositionMapping then position-maps the pinned
+            // slots against the latest column list: a column renamed after the pin fails outright ("Column
+            // <old> not found in table t$audit_log"), and -- silently, which is worse -- a column merely
+            // REORDERED or retyped maps to the wrong file column. Delegating to the sys table's own
+            // getFullSchemaAt shares its memoized pin, so all three consumers see one schema.
+            return ((PluginDrivenSysExternalTable) table).getFullSchemaAt(
+                    Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
+        }
         Optional<MvccSnapshot> snapshot = table instanceof PluginDrivenExternalTable
                 ? MvccUtil.getSnapshotFromContext(table,
                         Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()))
