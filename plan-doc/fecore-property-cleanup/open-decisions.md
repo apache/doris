@@ -93,23 +93,41 @@ FPC-03 要删掉路 B。问题是：**路 A 的 `pluginSupplier` 为 null 时怎
 `AwsCredentialsProviderFactory` 的 `createV2` / `createDefaultV2` / 单参 `getV2ClassName`
 加起来约 **146 行，零调用者**（我复核过：全仓只有它自己的声明和 javadoc）。
 
-### 唯一的顾虑
+### 🔴 2026-07-28 已查上游：**前置条件不成立，推荐值翻转为 B**
 
-这段代码是从上游 `f499c78c67c`（#66004）**整体带进来**的。如果 apache/doris master 上有、
-或将来加了调用者，下次 rebase 就会撞 modify/delete 冲突。
+原推荐是「先 grep 一次上游 master；**无调用者**就删」。**查了，有调用者**
+（`upstream-apache/master` @ `2faf819fa89`）：
 
-**我没有查上游 master**（`design.md` §8 已如实声明）。
+```
+fe/fe-core/.../datasource/connectivity/AbstractS3CompatibleConnectivityTester.java:71
+        adapter.getAwsCredentialsProvider()          ← 就是 StorageAdapter 的这个方法
+fe/fe-core/.../datasource/property/common/IcebergAwsClientCredentialsProperties.java:84
+        s3Adapter.getAwsCredentialsProvider()        ← 同上
+```
 
-### 选项
+**它在上游是活的，在本分支才是死的** —— 因为本分支的迁移已经把这两个消费者
+（连同整个 `datasource/connectivity/` 包）删光了。
+
+**这就改变了性价比**：`StorageAdapter.java` 本身**两边都在**、会被 rebase 三方合并。
+今天上游对 `getAwsCredentialsProvider()` 或其邻近代码的任何改动都能干净合入；
+一旦我把方法删掉，这些改动就变成**每次 rebase 都要人工处理的冲突 hunk** ——
+而换来的只是 146 行**本来就没人执行**的代码，功能收益为零。
+
+（`AwsCredentialsProviderFactory` 的 `createV2`/`createDefaultV2` 是同一处的下游，
+删了方法才轮得到它们，所以一并搁置。）
+
+### 选项（更新后）
 
 | | 做法 |
 |---|---|
-| **A（推荐）** | 先 grep 一次上游 master；无调用者就删。删了 146 行死代码，且让 `common/` 的存活理由更清晰（剩下的都是真在用的） |
-| **B** | 不做。反正是死代码，留着不碍事，省掉一次潜在的 rebase 冲突 |
+| **B（现推荐）** | **不做 FPC-02。** 死代码留着零成本，避免给一个高频 rebase 的分支平添长期冲突面 |
+| **A** | 仍然删。若判断本分支终局是「不再跟随上游 `StorageAdapter`」（例如该文件本就要整体重写/删除），那冲突面是虚的，删掉更干净 |
 
-**我的推荐：A**，但**低优先级**——它和主线（FPC-03）完全解耦，什么时候做都行。
+**我的推荐：B。** 判据是 memory 里那条「上游定期 rebase + force-push」——
+**为零功能收益长期承担 rebase 摩擦不划算**。
+若你认为 `StorageAdapter` 本来就要在后续阶段整体退役，那 A 更好，请直接说。
 
-> **拍板结果**：（待填）
+> **拍板结果**：（待填 —— 已停在此处，未擅自执行）
 > **日期**：（待填）
 
 ---

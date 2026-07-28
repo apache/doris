@@ -145,3 +145,32 @@ paimon `TcclPinningConnectorContext:49`、`DatasourcePrintableMap:69`
 
 - `metastore/` 目录已不存在；`property/` 下只剩 `common` / `constants` / `fileformat`。
 - 下一步：**FPC-02**（删 AWS 死构造臂）——先按 OD-2 grep 一次上游 master。
+
+---
+
+## 2026-07-28（三）— FPC-02 停手：OD-2 前置条件不成立
+
+按 HANDOFF 的指示，动 FPC-02 前先执行 OD-2 的前置检查「grep 一次上游 master」。
+
+**结果与预设相反。** `upstream-apache/master` @ `2faf819fa89` 上
+`StorageAdapter.getAwsCredentialsProvider()` **有两个活调用者**：
+
+```
+datasource/connectivity/AbstractS3CompatibleConnectivityTester.java:71   adapter.getAwsCredentialsProvider()
+datasource/property/common/IcebergAwsClientCredentialsProperties.java:84 s3Adapter.getAwsCredentialsProvider()
+```
+
+本分支之所以判它「零调用者」，是因为迁移**已经把这两个消费者连同整个
+`datasource/connectivity/` 包删光了** —— 即 **上游活、本分支死**。
+
+**为什么这翻转了结论**：`StorageAdapter.java` 本身两边都在，会走 rebase 三方合并。
+今天上游改动该区域能干净合入；删掉方法后，这些改动就变成**每次 rebase 的人工冲突 hunk**，
+而收益只是 146 行本就不执行的代码 —— 对一个**定期 rebase 到 force-push 上游**的分支，
+这笔账不划算。
+
+⇒ **已停手，未执行 FPC-02**，`open-decisions.md` OD-2 推荐值改为 **B（不做）**，等用户拍板。
+若用户判断 `StorageAdapter` 本身后续要整体退役，则冲突面是虚的，A（删）更好。
+
+**通用教训（补强坑 1）**：判「死代码」必须**声明口径是哪个 ref**。
+「本分支零调用者」和「上游零调用者」是两件事；对**长期 rebase 型分支**，
+删除上游仍在用的代码是在**给自己制造持续的合并债**，不是在清理。

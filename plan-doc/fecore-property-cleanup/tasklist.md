@@ -21,8 +21,9 @@ test -f $R/fe/fe-core/src/main/java/org/apache/doris/datasource/property/Connect
 grep -rIn 'MetastoreProperties\|MetastorePropertiesFactory\|AbstractMetastorePropertiesFactory\|TrinoConnectorPropertiesFactory\|ConnectionProperties\|checkMetaStoreAndStorageProperties\|getMetastoreProperties' \
      $R/fe $R/regression-test $R/tools $R/gensrc --exclude-dir=target        # → 空
 
-# ③ common/ 只剩活代码
-grep -rn 'createV2\|createDefaultV2\|getAwsCredentialsProvider()' $R/fe --exclude-dir=target          # → 空
+# ③ common/ 只剩活代码 —— ⚠️ 仅当 OD-2 拍板为 A（做 FPC-02）时才是判据；
+#    OD-2 现推荐 B（不做），此时本条**不适用**，`common/` 保留死构造臂是有意为之
+grep -rn 'createV2\|createDefaultV2\|getAwsCredentialsProvider()' $R/fe --exclude-dir=target
 
 # ④ 编译 + 门禁全绿（每步都要，不只最后一次）
 mvn -f $R/fe/pom.xml -T 1C clean test-compile -Dcheckstyle.skip=true
@@ -69,7 +70,13 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
 
 ## 阶段 2 — 删死代码（独立，可先做，也可整项丢弃）
 
-- [ ] **FPC-02** ⬜ 删 AWS provider 的死构造臂（**~146 行，零行为变更**）
+- [ ] **FPC-02** ⛔ **BLOCKED on OD-2 —— 现推荐「不做」** 删 AWS provider 的死构造臂（**~146 行，零行为变更**）
+      > 🔴 **2026-07-28 查上游后推荐值翻转**：`upstream-apache/master` @ `2faf819fa89` **有两个活调用者**
+      > （`connectivity/AbstractS3CompatibleConnectivityTester.java:71`、
+      > `property/common/IcebergAwsClientCredentialsProperties.java:84`），只是本分支已把这两个消费者
+      > 连同整个 `datasource/connectivity/` 包删光了 ⇒ **上游活、本分支死**。
+      > 而 `StorageAdapter.java` **两边都在**、会走 rebase 三方合并：删掉方法等于把上游对该区域的
+      > 每次改动都变成人工冲突，换来的只是 146 行本就不执行的代码。**详见 [`open-decisions.md`](./open-decisions.md) OD-2。**
       - **文件**：
         - `fe/fe-core/src/main/java/org/apache/doris/datasource/storage/StorageAdapter.java`
         - `fe/fe-core/src/main/java/org/apache/doris/datasource/property/common/AwsCredentialsProviderFactory.java`
@@ -101,8 +108,7 @@ mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check
             -Dtest='AzureGuessRoutingParityTest,S3ThriftAdapterParityTest,CloudObjectStoreAdapterParityTest,LocationPathTest,DefaultConnectorContextBackendStoragePropsTest,DefaultConnectorContextNormalizeUriTest'
         mvn -f $R/fe/pom.xml -pl fe-core checkstyle:check   # 阻塞项：证明 import 修剪精确
         ```
-      - 🟢 **可整项丢弃**：不影响 FPC-03。落地前 grep 一次上游 master 是否有
-        `getAwsCredentialsProvider()` 调用者（rebase 冲突风险，`design.md` §5）
+      - 🟢 **可整项丢弃**：不影响 FPC-03。~~落地前 grep 一次上游 master~~ **已 grep，见上方红框**。
 
 ---
 

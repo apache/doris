@@ -7,7 +7,7 @@
 
 ---
 
-# 🆕 下一个 session = **FPC-02**（删 AWS 死构造臂），先过 OD-2
+# 🆕 下一个 session = **拿 OD-1 追认 + OD-2 拍板**（都不需要重新论证，直接问）
 
 ## 状态：**主删除 FPC-03 已完成并验证通过。`metastore/` 目录已不存在。**
 
@@ -33,21 +33,20 @@
 
 ---
 
-## 📋 下一步：FPC-02（`tasklist.md` 阶段 2）
+## ⛔ FPC-02 已停手（OD-2 前置条件不成立）
 
-删 `StorageAdapter.getAwsCredentialsProvider()` + 两个私有 helper，
-以及 `AwsCredentialsProviderFactory` 的 `createV2` / `createDefaultV2` / 单参 `getV2ClassName`，
-共 **~146 行零调用者代码，零行为变更**。
+我按指示先跑了 OD-2 的前置检查，**结果与预设相反**：
+`upstream-apache/master` @ `2faf819fa89` 上 `StorageAdapter.getAwsCredentialsProvider()`
+**有两个活调用者**（`connectivity/AbstractS3CompatibleConnectivityTester.java:71`、
+`property/common/IcebergAwsClientCredentialsProperties.java:84`）。
+本分支判它「零调用者」，是因为迁移已把这两个消费者连同整个 `datasource/connectivity/`
+包删光了 ⇒ **上游活、本分支死**。
 
-**动手前先过 OD-2**：grep 一次上游 `apache/doris` master 看有没有
-`getAwsCredentialsProvider()` 的调用者（这段是上游 `f499c78c67c` / #66004 整体带进来的，
-若上游有调用者，下次 rebase 会 modify/delete 冲突）。
+`StorageAdapter.java` 两边都在、走 rebase 三方合并 ⇒ 删掉方法会把上游对该区域的每次改动
+变成人工冲突，换来的只是 146 行本就不执行的代码。**推荐值已翻转为 B（不做）**，
+等用户拍板。若用户判断 `StorageAdapter` 后续要整体退役，则 A（删）更好。
 
-⚠️ `tasklist.md` FPC-02 里的**「必须保留」清单要逐条对**——
-`getAwsCredentialsProviderMode()` 和 `s3CredentialsMode` 字段是**活的**（喂 BE 的
-`AWS_CREDENTIALS_PROVIDER_TYPE`，且被 `AzureGuessRoutingParityTest` 钉着），删了会炸。
-
-🟢 FPC-02 **可以整项丢弃**，不影响已完成的 FPC-03。
+**未执行任何 FPC-02 代码改动。**
 
 ---
 
@@ -79,5 +78,5 @@
 
 - **没跑 e2e**（需要集群）。FPC-03 是纯删除不可达代码 + Gson 回放测试已过，风险低；
   但真正的存储绑定路径（iceberg hadoop `warehouse → fs.defaultFS`）只有单测覆盖。
-- **没查 apache/doris master** 是否有 `getAwsCredentialsProvider()` 调用者 → 这正是 OD-2。
+- ~~没查 apache/doris master 是否有 `getAwsCredentialsProvider()` 调用者~~ **已查，有两个**（见上方 ⛔ 段）。
 - `ExternalCatalog.buildHadoopConfiguration(Map)` 的调用者没枚举 ⇒ FPC-04 明确排除它。
