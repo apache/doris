@@ -21,8 +21,10 @@ import static java.util.concurrent.TimeUnit.SECONDS
 suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
     def commitFailureDebugPoint = "DatabaseTransactionMgr.commitTransaction.failed"
     def rpcFailureDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure"
+    def rpcFailureFilterDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure.filter"
 
     GetDebugPoint().disableDebugPointForAllFEs(commitFailureDebugPoint)
+    GetDebugPoint().disableDebugPointForAllFEs(rpcFailureFilterDebugPoint)
     GetDebugPoint().disableDebugPointForAllFEs(rpcFailureDebugPoint)
     sql """drop materialized view if exists ivm_exec_fail_mv"""
     sql """drop table if exists ivm_exec_fail_t"""
@@ -97,10 +99,13 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
 
     def retryTask
     try {
+        GetDebugPoint().enableDebugPointForAllFEs(
+                rpcFailureFilterDebugPoint, [mv_name: "ivm_exec_fail_mv"])
         GetDebugPoint().enableDebugPointForAllFEs(rpcFailureDebugPoint, [execute: 1])
         sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK"""
         retryTask = latestTask()
     } finally {
+        GetDebugPoint().disableDebugPointForAllFEs(rpcFailureFilterDebugPoint)
         GetDebugPoint().disableDebugPointForAllFEs(rpcFailureDebugPoint)
     }
 

@@ -62,6 +62,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public abstract class AbstractInsertExecutor {
     public static final String DEBUG_POINT_IVM_RPC_FAILURE =
             "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure";
+    public static final String DEBUG_POINT_IVM_RPC_FAILURE_FILTER =
+            "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure.filter";
     protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
 
@@ -273,8 +275,7 @@ public abstract class AbstractInsertExecutor {
             // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
             beforeExec();
             executor.updateProfile(false);
-            if (ctx.getStatementContext().isIvmMTMVRewrite()
-                    && DebugPointUtil.isEnable(DEBUG_POINT_IVM_RPC_FAILURE)) {
+            if (isIvmRpcFailureDebugPointEnabled()) {
                 throw new RpcException("ivm", "debug point: " + DEBUG_POINT_IVM_RPC_FAILURE);
             }
             execImpl(executor);
@@ -310,6 +311,16 @@ public abstract class AbstractInsertExecutor {
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
+    }
+
+    private boolean isIvmRpcFailureDebugPointEnabled() {
+        if (!ctx.getStatementContext().isIvmMTMVRewrite()) {
+            return false;
+        }
+        String mvName = ctx.getStatementContext().getIvmRewriteContext().get().getMtmv().getName();
+        String targetMvName = DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_IVM_RPC_FAILURE_FILTER, "mv_name", "");
+        return mvName.equals(targetMvName) && DebugPointUtil.isEnable(DEBUG_POINT_IVM_RPC_FAILURE);
     }
 
     public boolean isEmptyInsert() {

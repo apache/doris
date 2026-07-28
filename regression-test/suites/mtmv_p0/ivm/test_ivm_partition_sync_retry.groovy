@@ -1,5 +1,7 @@
 suite("test_ivm_partition_sync_retry", "nonConcurrent") {
     def skipPartitionSyncDebugPoint = "MTMVTask.syncPartitionsIfNeeded.skip"
+    def skipPartitionSyncFilterDebugPoint = "MTMVTask.syncPartitionsIfNeeded.skip.filter"
+    GetDebugPoint().disableDebugPointForAllFEs(skipPartitionSyncFilterDebugPoint)
     GetDebugPoint().disableDebugPointForAllFEs(skipPartitionSyncDebugPoint)
 
     sql """drop materialized view if exists ivm_partition_sync_retry_mv"""
@@ -53,6 +55,8 @@ suite("test_ivm_partition_sync_retry", "nonConcurrent") {
         // The first sync is skipped. The IVM insert sees the new binlog row before
         // the corresponding MV partition exists; the internal retry must sync it
         // and rerun IVM instead of falling back to PARTITIONS/COMPLETE.
+        GetDebugPoint().enableDebugPointForAllFEs(
+                skipPartitionSyncFilterDebugPoint, [mv_name: "ivm_partition_sync_retry_mv"])
         GetDebugPoint().enableDebugPointForAllFEs(skipPartitionSyncDebugPoint, [execute: 1])
         sql """REFRESH MATERIALIZED VIEW ivm_partition_sync_retry_mv INCREMENTAL FALLBACK"""
         waitingMTMVTaskFinishedByMvName("ivm_partition_sync_retry_mv")
@@ -64,6 +68,7 @@ suite("test_ivm_partition_sync_retry", "nonConcurrent") {
             ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
         """)[0]
     } finally {
+        GetDebugPoint().disableDebugPointForAllFEs(skipPartitionSyncFilterDebugPoint)
         GetDebugPoint().disableDebugPointForAllFEs(skipPartitionSyncDebugPoint)
     }
 
