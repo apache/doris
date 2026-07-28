@@ -211,6 +211,49 @@ public class CloudGlobalTransactionMgrTest {
 
     @Test
     public void testSkipMakeTmpRsVisibleForIncompleteLazyCommit() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12345L).build())
+                .setIsLazyCommit(true)
+                .setIsLazyCommitIncomplete(true)
+                .build();
+
+        Assert.assertFalse(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    @Test
+    public void testMakeTmpRsVisibleForNonLazyCommitWithIncompleteFlag() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12346L).build())
+                .setIsLazyCommit(false)
+                .setIsLazyCommitIncomplete(true)
+                .build();
+
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    @Test
+    public void testMakeTmpRsVisibleForCompletedLazyCommit() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12347L).build())
+                .setIsLazyCommit(true)
+                .setIsLazyCommitIncomplete(false)
+                .build();
+
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    @Test
+    public void testMakeTmpRsVisibleForNonLazyCommit() throws Exception {
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setTxnInfo(TxnInfoPB.newBuilder().setTxnId(12348L).build())
+                .setIsLazyCommit(false)
+                .setIsLazyCommitIncomplete(false)
+                .build();
+
+        Assert.assertTrue(invokeNotifyBesMakeTmpRsVisible(response));
+    }
+
+    private boolean invokeNotifyBesMakeTmpRsVisible(CommitTxnResponse response) throws Exception {
         boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
         try {
             Config.enable_notify_be_after_load_txn_commit = true;
@@ -227,37 +270,11 @@ public class CloudGlobalTransactionMgrTest {
                     "notifyBesMakeTmpRsVisible", CommitTxnResponse.class, List.class);
             notifyMethod.setAccessible(true);
 
-            TxnInfoPB txnInfo = TxnInfoPB.newBuilder().setTxnId(12345L).build();
-            CommitTxnResponse incompleteLazyCommitResponse = CommitTxnResponse.newBuilder()
-                    .setTxnInfo(txnInfo)
-                    .setIsLazyCommit(true)
-                    .setIsLazyCommitIncomplete(true)
-                    .build();
             List<TabletCommitInfo> tabletCommitInfos =
                     Lists.newArrayList(new TabletCommitInfo(10001L, 10002L));
 
-            notifyMethod.invoke(transactionMgr, incompleteLazyCommitResponse, tabletCommitInfos);
-            Assert.assertFalse(notified.get());
-
-            notifyMethod.invoke(transactionMgr,
-                    incompleteLazyCommitResponse.toBuilder().setIsLazyCommit(false).build(),
-                    tabletCommitInfos);
-            Assert.assertTrue(notified.get());
-
-            notified.set(false);
-            notifyMethod.invoke(transactionMgr,
-                    incompleteLazyCommitResponse.toBuilder().setIsLazyCommitIncomplete(false).build(),
-                    tabletCommitInfos);
-            Assert.assertTrue(notified.get());
-
-            notified.set(false);
-            notifyMethod.invoke(transactionMgr,
-                    incompleteLazyCommitResponse.toBuilder()
-                            .setIsLazyCommit(false)
-                            .setIsLazyCommitIncomplete(false)
-                            .build(),
-                    tabletCommitInfos);
-            Assert.assertTrue(notified.get());
+            notifyMethod.invoke(transactionMgr, response, tabletCommitInfos);
+            return notified.get();
         } finally {
             Config.enable_notify_be_after_load_txn_commit = originalEnableNotify;
         }
