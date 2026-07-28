@@ -21,6 +21,62 @@ mvn -f <repo>/fe/pom.xml -pl fe-core -am test \
 
 结果：**跑了 3 小时 20 分还没结束**，而真正相关的改动只有 135 行纯删除。
 
+### 1.1 对照：官方流水线用的命令
+
+上面是本地手敲的 maven 命令。**官方 CI 走的不是它**，而是仓库自带的 `run-fe-ut.sh`。
+（查自 TeamCity build configuration `Doris_Doris_FeUt`「FE UT」，build 1007861。）
+
+**调用链**：TeamCity Step 1（inline shell）→ docker 容器 → `run-fe-ut.sh`
+
+```bash
+# TeamCity Step 1 内，起容器跑 UT
+docker run -i --rm --network=host \
+    --name doris-fe-ut-%build.vcs.number% \
+    -e TZ=Asia/Shanghai \
+    -v /etc/localtime:/etc/localtime:ro \
+    -v /home/work/.m2:/root/.m2 \
+    -v /home/work/.npm:/root/.npm \
+    ${maven_mount} \
+    -v "${git_storage_path}":/root/git \
+    -v %teamcity.build.checkoutDir%:/root/doris \
+    "${docker_version}" \
+    /bin/bash -c "
+        ...（环境变量若干，此处从略）... \
+        && cd /root/doris \
+        && bash run-fe-ut.sh --coverage | tee '${fe_ut_log}'"
+```
+
+`run-fe-ut.sh`（`--coverage` 分支，`run-fe-ut.sh:197-201`）最终执行：
+
+```bash
+"${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am \
+    -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
+```
+
+其中 `MVN_MODULES` 由 `run-fe-ut.sh:154` 从 `FE_MODULES` 数组拼成。
+
+**与本地命令的差异（据实记录，未评估影响）**：
+- CI 走 `-Pcoverage` + `jacoco:report`，**多做了覆盖率统计**；本地未做
+- CI 用 `-Dmaven.test.failure.ignore=true`，**让 maven 永远不因用例失败而中断**，
+  改由外层 shell `grep 'BUILD SUCCESS'` 判定
+- 外层 shell 另有一段兜底：汇总所有 `Tests run/Failures/Errors/Skipped`，
+  若 `Tests_run>6000 && Failures<=10 && Errors<=10` 则**把 exit_flag 改回 0**
+  （脚本注释说明用途是快速 mute 不稳定用例）
+  ⇒ **FeUt 流水线显示绿，不等价于零失败**，读 CI 结果时需注意
+- CI 跑在固定的 docker 镜像里，`~/.m2` 从宿主机挂载并有预热缓存；本地无
+
+**耗时对照**（TeamCity 最近 8 次 finished 构建）：
+
+```
+1007850  SUCCESS  67分51秒   1007806  SUCCESS  71分22秒
+1007847  FAILURE  59分51秒   1007797  FAILURE  80分41秒
+1007881  UNKNOWN  33分41秒   1007792  FAILURE  81分22秒
+1007807  UNKNOWN  43分21秒   1007791  FAILURE  83分12秒
+```
+
+⇒ CI 侧成功构建约 **67–71 分钟**（且含覆盖率统计）。本地那次 3 小时 20 分仍未结束。
+**两者环境与参数均有差异，本文不就差异原因下结论。**
+
 ---
 
 ## 2. 实测数据
