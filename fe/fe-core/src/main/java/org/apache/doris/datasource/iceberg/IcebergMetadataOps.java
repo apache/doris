@@ -946,9 +946,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         UpdateSchema updateSchema = icebergTable.updateSchema();
-        // In branch-4.1 an omitted top-level comment clears an existing doc but must not create an empty doc.
-        String targetComment = !column.isCommentSpecified() && currentCol.doc() == null
-                ? null : column.getComment();
+        // Preserve the Iceberg doc when MODIFY COLUMN omits COMMENT; only an explicit COMMENT may change it.
+        String targetComment = resolveTargetComment(currentCol, column);
         if (column.getType().isComplexType()) {
             applyComplexTypeChange(updateSchema, resolvedPath.getFullPath(), currentCol.type(),
                     column.getType());
