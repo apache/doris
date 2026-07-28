@@ -20,6 +20,10 @@ on:
         required: false
         type: string
         default: ''
+      deferred_claim_id:
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       pr_number:
@@ -39,11 +43,16 @@ on:
         required: false
         type: string
         default: ''
+      deferred_claim_id:
+        required: false
+        type: string
+        default: ''
 
 permissions:
   pull-requests: write
   contents: read
   issues: write
+  statuses: write
 
 concurrency:
   group: code-review-codex-auth-rotation
@@ -141,11 +150,15 @@ jobs:
               --arg review_focus "$REVIEW_FOCUS" \
               --arg not_before "$retry_at" \
               --arg request_id "$request_id" \
+              --arg lease_id '' \
+              --arg lease_expires_at '' \
               '{pr_number: $pr_number, head_sha: $head_sha, base_sha: $base_sha,
-                review_focus: $review_focus, not_before: $not_before, request_id: $request_id}' > "$request_file"
+                review_focus: $review_focus, not_before: $not_before, request_id: $request_id,
+                lease_id: $lease_id, lease_expires_at: $lease_expires_at}' > "$request_file"
             ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
               "$request_file" "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${request_id}.json"
             rm -f "$request_file"
+            printf 'deferred_review=true\n' >> "$GITHUB_OUTPUT"
           }
 
           codex_review_user=codex-review
@@ -158,6 +171,43 @@ jobs:
           install -m 700 -d "$control_dir"
           printf 'CODEX_HOME=%s\n' "$codex_home" >> "$GITHUB_ENV"
           printf 'CODEX_REVIEW_USER=%s\n' "$codex_review_user" >> "$GITHUB_ENV"
+          printf 'deferred_review=false\n' >> "$GITHUB_OUTPUT"
+
+          if [ -n "$DEFERRED_REQUEST_ID" ]; then
+            if ! [[ "$DEFERRED_REQUEST_ID" =~ ^[0-9]+$ && "$DEFERRED_CLAIM_ID" =~ ^[0-9]+$ ]]; then
+              echo 'Deferred review request identifiers must be GitHub run IDs.' >&2
+              exit 1
+            fi
+            request_file="$(mktemp "$RUNNER_TEMP/codex-review-request.XXXXXX")"
+            request_object=''
+            for candidate_request in \
+              "$OSS_CODEX_REVIEW_CLAIMED_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${DEFERRED_REQUEST_ID}-${DEFERRED_CLAIM_ID}.json" \
+              "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${DEFERRED_REQUEST_ID}.json"; do
+              if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" stat "$candidate_request" >/dev/null 2>&1; then
+                ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate_request" "$request_file"
+                if jq -e \
+                  --arg pr_number "$PR_NUMBER" \
+                  --arg head_sha "$HEAD_SHA" \
+                  --arg base_sha "$BASE_SHA" \
+                  --arg request_id "$DEFERRED_REQUEST_ID" \
+                  --arg claim_id "$DEFERRED_CLAIM_ID" \
+                  --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+                    .pr_number == $pr_number and .head_sha == $head_sha and .base_sha == $base_sha
+                    and .request_id == $request_id and .lease_id == $claim_id
+                    and (.lease_expires_at | type == "string" and . > $now)
+                  ' "$request_file" >/dev/null; then
+                  request_object="$candidate_request"
+                  break
+                fi
+              fi
+            done
+            rm -f "$request_file"
+            if [ -z "$request_object" ]; then
+              echo 'Deferred review request does not hold the expected active lease.' >&2
+              exit 1
+            fi
+            printf 'CODEX_REVIEW_REQUEST_OBJECT=%s\n' "$request_object" >> "$GITHUB_ENV"
+          fi
 
           auth_prefix='oss://doris-community-ci/codex/auth.json.'
           auth_listing="$RUNNER_TEMP/codex-auth-objects.list"
@@ -168,17 +218,15 @@ jobs:
 
           auth_objects_file="$control_dir/auth-objects.txt"
           candidate_auth_file="$(mktemp "$RUNNER_TEMP/codex-auth.XXXXXX")"
+          auth_reconcile_args=()
           trap 'rm -f "$candidate_auth_file"' EXIT
           while IFS= read -r candidate; do
             if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate" "$candidate_auth_file" \
               && test -s "$candidate_auth_file" \
-              && jq -e '
-                .auth_mode == "chatgpt"
-                and (.tokens.access_token | type == "string" and length > 0)
-                and (.tokens.refresh_token | type == "string" and length > 0)
-              ' "$candidate_auth_file" >/dev/null; then
+              && "$CODEX_AUTH_STATE_HELPER" validate --auth "$candidate_auth_file"; then
               candidate_hash="$(sha256sum "$candidate_auth_file" | awk '{print $1}')"
-              printf '%s#%s\n' "$candidate" "$candidate_hash" >> "$auth_objects_file"
+              printf '%s\n' "$candidate" >> "$auth_objects_file"
+              auth_reconcile_args+=(--auth-object "$candidate" --content-digest "$candidate_hash")
             else
               echo "Skipping invalid Codex auth object: ${candidate##*/}"
             fi
@@ -215,6 +263,9 @@ jobs:
             exit 1
           fi
 
+          "$CODEX_AUTH_STATE_HELPER" reconcile \
+            --state "$state_file" \
+            "${auth_reconcile_args[@]}"
           selection_json="$("$CODEX_AUTH_STATE_HELPER" select \
             --state "$state_file" \
             "${auth_object_args[@]}")"
@@ -237,20 +288,12 @@ jobs:
             exit 0
           fi
 
-          request_id="${DEFERRED_REQUEST_ID:-$GITHUB_RUN_ID}"
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f \
-            "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${request_id}.json" || true
-
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           printf 'CODEX_AUTH_STATE_KEY=%s\n' "$auth_state_key" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$candidate_auth_file"
           test -s "$candidate_auth_file"
-          jq -e '
-            .auth_mode == "chatgpt"
-            and (.tokens.access_token | type == "string" and length > 0)
-            and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$candidate_auth_file" >/dev/null
+          "$CODEX_AUTH_STATE_HELPER" validate --auth "$candidate_auth_file"
           sudo install -o "$codex_review_user" -g "$codex_review_user" -m 600 \
             "$candidate_auth_file" "$codex_home/auth.json"
           auth_snapshot="$control_dir/auth-snapshot.json"
@@ -287,11 +330,13 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_AUTH_STATUS_OBJECT: oss://doris-community-ci/codex/auth-status.json
           OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          OSS_CODEX_REVIEW_CLAIMED_PREFIX: oss://doris-community-ci/codex/review-claimed
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ inputs.head_sha }}
           BASE_SHA: ${{ inputs.base_sha }}
           REVIEW_FOCUS: ${{ inputs.review_focus }}
           DEFERRED_REQUEST_ID: ${{ inputs.deferred_request_id }}
+          DEFERRED_CLAIM_ID: ${{ inputs.deferred_claim_id }}
 
       - name: Sync Codex memories from OSS
         run: |
@@ -650,6 +695,7 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_AUTH_STATUS_OBJECT: oss://doris-community-ci/codex/auth-status.json
           OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          OSS_CODEX_REVIEW_CLAIMED_PREFIX: oss://doris-community-ci/codex/review-claimed
           AUTH_UNAVAILABLE: ${{ steps.configure_auth.outputs.auth_unavailable }}
           CONFIGURED_ALL_QUOTA_EXHAUSTED: ${{ steps.configure_auth.outputs.all_quota_exhausted }}
           REPO: ${{ github.repository }}
@@ -658,6 +704,7 @@ jobs:
           BASE_SHA: ${{ inputs.base_sha }}
           REVIEW_FOCUS: ${{ inputs.review_focus }}
           DEFERRED_REQUEST_ID: ${{ inputs.deferred_request_id }}
+          DEFERRED_CLAIM_ID: ${{ inputs.deferred_claim_id }}
         run: |
           write_review_output() {
             local key="$1"
@@ -681,11 +728,15 @@ jobs:
               --arg review_focus "$REVIEW_FOCUS" \
               --arg not_before "$retry_at" \
               --arg request_id "$request_id" \
+              --arg lease_id '' \
+              --arg lease_expires_at '' \
               '{pr_number: $pr_number, head_sha: $head_sha, base_sha: $base_sha,
-                review_focus: $review_focus, not_before: $not_before, request_id: $request_id}' > "$request_file"
+                review_focus: $review_focus, not_before: $not_before, request_id: $request_id,
+                lease_id: $lease_id, lease_expires_at: $lease_expires_at}' > "$request_file"
             ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
               "$request_file" "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${request_id}.json"
             rm -f "$request_file"
+            write_review_output "deferred_review" "true"
           }
 
           auth_object_args=()
@@ -730,11 +781,7 @@ jobs:
             candidate_auth_file="$(mktemp "$RUNNER_TEMP/codex-auth.XXXXXX")"
             ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
               "$CODEX_AUTH_OSS_OBJECT" "$candidate_auth_file"
-            jq -e '
-              .auth_mode == "chatgpt"
-              and (.tokens.access_token | type == "string" and length > 0)
-              and (.tokens.refresh_token | type == "string" and length > 0)
-            ' "$candidate_auth_file" >/dev/null
+            "$CODEX_AUTH_STATE_HELPER" validate --auth "$candidate_auth_file"
             sudo install -o "$CODEX_REVIEW_USER" -g "$CODEX_REVIEW_USER" -m 600 \
               "$candidate_auth_file" "$CODEX_HOME/auth.json"
             install -m 600 "$candidate_auth_file" "$CODEX_AUTH_SNAPSHOT"
@@ -750,20 +797,37 @@ jobs:
               --baseline "$CODEX_AUTH_SNAPSHOT" \
               --candidate "$refreshed_auth_file" \
               --output "$promoted_auth_file"
-            if ! cmp -s "$refreshed_auth_file" "$CODEX_AUTH_SNAPSHOT"; then
+            if ! cmp -s "$promoted_auth_file" "$CODEX_AUTH_SNAPSHOT"; then
               ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
                 "$promoted_auth_file" "$CODEX_AUTH_OSS_OBJECT"
               install -m 600 "$promoted_auth_file" "$CODEX_AUTH_SNAPSHOT"
+              refreshed_digest="$(sha256sum "$promoted_auth_file" | awk '{print $1}')"
+              "$CODEX_AUTH_STATE_HELPER" set-digest \
+                --state "$CODEX_AUTH_STATE_FILE" \
+                --auth-object "$CODEX_AUTH_STATE_KEY" \
+                --content-digest "$refreshed_digest"
+              sync_auth_state
             fi
             rm -f "$refreshed_auth_file" "$promoted_auth_file"
           }
 
+          review_sync_dir="$RUNNER_TEMP/codex-review-sync"
+          review_actor="$(gh api user --jq .login)"
+          install -m 700 -d "$review_sync_dir"
+
+          snapshot_review_artifacts() {
+            gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$review_sync_dir/reviews-before.json" \
+              && gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/comments" > "$review_sync_dir/inline-comments-before.json" \
+              && gh api --paginate --slurp "repos/${REPO}/issues/${PR_NUMBER}/comments" > "$review_sync_dir/issue-comments-before.json"
+            jq 'map(add // []) | add // [] | map(.id) | unique' "$review_sync_dir/reviews-before.json" > "$review_sync_dir/review-ids-before.json"
+            jq 'map(add // []) | add // [] | map(.id) | unique' "$review_sync_dir/inline-comments-before.json" > "$review_sync_dir/inline-comment-ids-before.json"
+            jq 'map(add // []) | add // [] | map(.id) | unique' "$review_sync_dir/issue-comments-before.json" > "$review_sync_dir/issue-comment-ids-before.json"
+          }
+
           review_side_effects_present() {
-            local review_sync_dir="$RUNNER_TEMP/codex-review-sync"
             local reviews_file="$review_sync_dir/reviews.json"
             local inline_comments_file="$review_sync_dir/inline-comments.json"
             local issue_comments_file="$review_sync_dir/issue-comments.json"
-            install -m 700 -d "$review_sync_dir"
 
             for attempt in 1 2 3 4 5 6; do
               if ! gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file" \
@@ -771,11 +835,46 @@ jobs:
                 || ! gh api --paginate --slurp "repos/${REPO}/issues/${PR_NUMBER}/comments" > "$issue_comments_file"; then
                 return 2
               fi
-              if jq -s -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
-                map(add // []) | add // []
-                | any(.[]?; ((.submitted_at // .created_at // "") >= $started_at)
-                  and ((.commit_id // $head_sha) == $head_sha))
-              ' "$reviews_file" "$inline_comments_file" "$issue_comments_file" >/dev/null; then
+              if jq -e \
+                --arg started_at "$review_started_at" \
+                --arg head_sha "$HEAD_SHA" \
+                --arg actor "$review_actor" \
+                --arg marker "$review_attempt_marker" \
+                --slurpfile known "$review_sync_dir/review-ids-before.json" '
+                  (map(add // []) | add // []) as $artifacts
+                  | ($known[0] // []) as $known_ids
+                  | any($artifacts[]?; (.id as $id | ($known_ids | index($id) | not))
+                    and ((.submitted_at // "") >= $started_at)
+                    and (.commit_id == $head_sha)
+                    and (.user.login == $actor)
+                    and ((.body // "") | contains($marker)))
+                ' "$reviews_file" >/dev/null \
+                || jq -e \
+                  --arg started_at "$review_started_at" \
+                  --arg head_sha "$HEAD_SHA" \
+                  --arg actor "$review_actor" \
+                  --arg marker "$review_attempt_marker" \
+                  --slurpfile known "$review_sync_dir/inline-comment-ids-before.json" '
+                    (map(add // []) | add // []) as $artifacts
+                    | ($known[0] // []) as $known_ids
+                    | any($artifacts[]?; (.id as $id | ($known_ids | index($id) | not))
+                      and ((.created_at // "") >= $started_at)
+                      and (.commit_id == $head_sha)
+                      and (.user.login == $actor)
+                      and ((.body // "") | contains($marker)))
+                  ' "$inline_comments_file" >/dev/null \
+                || jq -e \
+                  --arg started_at "$review_started_at" \
+                  --arg actor "$review_actor" \
+                  --arg marker "$review_attempt_marker" \
+                  --slurpfile known "$review_sync_dir/issue-comment-ids-before.json" '
+                    (map(add // []) | add // []) as $artifacts
+                    | ($known[0] // []) as $known_ids
+                    | any($artifacts[]?; (.id as $id | ($known_ids | index($id) | not))
+                      and ((.created_at // "") >= $started_at)
+                      and (.user.login == $actor)
+                      and ((.body // "") | contains($marker)))
+                  ' "$issue_comments_file" >/dev/null; then
                 return 0
               fi
               sleep 5
@@ -807,11 +906,21 @@ jobs:
           transient_attempt=0
           result_dir="$RUNNER_TEMP/codex-review-result"
           install -m 700 -d "$result_dir"
-          printf 'CODEX_REVIEW_EVENTS_FILE=%s\n' "$result_dir/codex-events.jsonl" >> "$GITHUB_ENV"
+          events_file_all_attempts="$result_dir/codex-events.jsonl"
+          : > "$events_file_all_attempts"
+          printf 'CODEX_REVIEW_EVENTS_FILE=%s\n' "$events_file_all_attempts" >> "$GITHUB_ENV"
+          if ! snapshot_review_artifacts; then
+            write_review_output "failure_reason" "Could not snapshot pull request artifacts before running Codex."
+            exit 1
+          fi
+          review_attempt=0
           while :; do
+            review_attempt=$((review_attempt + 1))
             review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            events_file="$result_dir/codex-events.jsonl"
-            stderr_file="$result_dir/codex-stderr.log"
+            review_attempt_marker="<!-- doris-codex-review:${GITHUB_RUN_ID}:${review_attempt} -->"
+            attempt_goal_prompt="${GOAL_PROMPT}"$'\n\n'"Every GitHub review, inline comment, or pull request comment created by this invocation must include this exact ownership marker: ${review_attempt_marker}"
+            events_file="$result_dir/codex-events-attempt-${review_attempt}.jsonl"
+            stderr_file="$result_dir/codex-stderr-attempt-${review_attempt}.log"
 
             set +e
             # GitHub-hosted runners may not support Codex's workspace-write user namespace.
@@ -823,7 +932,7 @@ jobs:
               GIT_CONFIG_COUNT=1 \
               GIT_CONFIG_KEY_0=safe.directory \
               GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
-              codex exec --goal "$GOAL_PROMPT" \
+              codex exec --goal "$attempt_goal_prompt" \
                 --cd "$GITHUB_WORKSPACE" \
                 --model "gpt-5.6-sol" \
                 --config "model_reasoning_effort=xhigh" \
@@ -835,6 +944,14 @@ jobs:
                 2> >(tee "$stderr_file" >&2)
             status=$?
             set -e
+
+            jq -nc \
+              --arg attempt "$review_attempt" \
+              --arg auth_object "${CODEX_AUTH_OSS_OBJECT##*/}" \
+              --arg marker "$review_attempt_marker" \
+              '{type: "review.attempt", metadata: {attempt: $attempt, auth_object: $auth_object, marker: $marker}}' \
+              >> "$events_file_all_attempts"
+            cat "$events_file" >> "$events_file_all_attempts"
 
             if ! sync_refreshed_auth; then
               failure_reason="Could not safely persist refreshed Codex credentials."
@@ -943,9 +1060,19 @@ jobs:
             for attempt in 1 2 3 4 5 6; do
               if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
                 reviews_api_ok=true
-                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                if jq -e \
+                  --arg started_at "$review_started_at" \
+                  --arg head_sha "$HEAD_SHA" \
+                  --arg actor "$review_actor" \
+                  --arg marker "$review_attempt_marker" \
+                  --slurpfile known "$review_sync_dir/review-ids-before.json" '
                   (add // [])
-                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | ($known[0] // []) as $known_ids
+                  | map(select((.id as $id | ($known_ids | index($id) | not))
+                    and (.submitted_at // "") >= $started_at
+                    and (.commit_id // "") == $head_sha
+                    and (.user.login == $actor)
+                    and ((.body // "") | contains($marker))))
                   | length > 0
                 ' "$reviews_file" >/dev/null; then
                   review_verified=true
@@ -1050,8 +1177,61 @@ jobs:
             --verify-sleep-seconds 5 \
             --verify
 
+      - name: Acknowledge terminal deferred review request
+        if: ${{ always() }}
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          OSS_CODEX_REVIEW_CLAIMED_PREFIX: oss://doris-community-ci/codex/review-claimed
+          DEFERRED_REQUEST_ID: ${{ inputs.deferred_request_id }}
+          CONFIGURED_DEFERRED: ${{ steps.configure_auth.outputs.deferred_review }}
+          REVIEW_DEFERRED: ${{ steps.review.outputs.deferred_review }}
+        run: |
+          if [ -z "$DEFERRED_REQUEST_ID" ] || [ -z "${CODEX_REVIEW_REQUEST_OBJECT:-}" ]; then
+            exit 0
+          fi
+          if [[ "$CODEX_REVIEW_REQUEST_OBJECT" == "$OSS_CODEX_REVIEW_CLAIMED_PREFIX/"* ]]; then
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$CODEX_REVIEW_REQUEST_OBJECT"
+            exit 0
+          fi
+          if [ "$CONFIGURED_DEFERRED" = 'true' ] || [ "$REVIEW_DEFERRED" = 'true' ]; then
+            echo 'Deferred review request remains queued for its next lease.'
+            exit 0
+          fi
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$CODEX_REVIEW_REQUEST_OBJECT"
+
+      - name: Publish terminal Code Review status
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          CONFIGURED_DEFERRED: ${{ steps.configure_auth.outputs.deferred_review }}
+          REVIEW_DEFERRED: ${{ steps.review.outputs.deferred_review }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          state='error'
+          description="Automated review failed for ${HEAD_SHA}."
+          if [ "$CONFIGURED_DEFERRED" = 'true' ] || [ "$REVIEW_DEFERRED" = 'true' ]; then
+            state='pending'
+            description="Automated review is durably queued for a later retry."
+          elif [ "$REVIEW_CONTEXT_OUTCOME" = 'success' ] && [ "$REVIEW_OUTCOME" = 'success' ]; then
+            state='success'
+            description="Automated review completed for ${HEAD_SHA}."
+          fi
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state="$state" \
+            -f context='code-review' \
+            -f description="$description" \
+            -f target_url="$RUN_URL"
+
       - name: Comment PR on review failure
-        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
+        if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') && steps.configure_auth.outputs.deferred_review != 'true' && steps.review.outputs.deferred_review != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}

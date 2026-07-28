@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import json
 import re
@@ -37,6 +38,7 @@ USAGE_LIMIT_RETRY_PATTERN = re.compile(
     r"\d{1,2}:\d{2}\s+(?:AM|PM))|(?P<time>\d{1,2}:\d{2}\s+(?:AM|PM)))",
     re.IGNORECASE | re.DOTALL,
 )
+CONTENT_DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,7 @@ def format_timestamp(value: datetime) -> str:
 
 def default_account_state() -> dict[str, Any]:
     return {
+        "content_digest": None,
         "status": AVAILABLE,
         "last_failure_at": None,
         "last_http_status": None,
@@ -107,32 +110,88 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     temporary_path.replace(path)
 
 
-def promote_auth(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
-    if baseline.get("auth_mode") != "chatgpt" or candidate.get("auth_mode") != "chatgpt":
+def parse_id_token(id_token: str) -> dict[str, Any]:
+    parts = id_token.split(".")
+    if len(parts) < 3 or any(not part for part in parts[:3]):
+        raise ValueError("Codex id_token must be a parseable JWT")
+    payload = parts[1]
+    try:
+        decoded = base64.b64decode(payload + "=" * (-len(payload) % 4), altchars=b"-_", validate=True)
+        claims = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("Codex id_token must be a parseable JWT") from exc
+    if not isinstance(claims, dict):
+        raise ValueError("Codex id_token JWT payload must be an object")
+    return claims
+
+
+def string_claim(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Codex id_token {name} claim must be a string")
+    return value
+
+
+def auth_identity(credentials: dict[str, Any]) -> dict[str, Any]:
+    if credentials.get("auth_mode") != "chatgpt":
         raise ValueError("Codex credentials must use ChatGPT authentication")
 
-    baseline_tokens = baseline.get("tokens")
-    candidate_tokens = candidate.get("tokens")
-    if not isinstance(baseline_tokens, dict) or not isinstance(candidate_tokens, dict):
+    tokens = credentials.get("tokens")
+    if not isinstance(tokens, dict):
         raise ValueError("Codex credentials must contain a tokens object")
-    for token_name in ("access_token", "refresh_token"):
-        if not isinstance(baseline_tokens.get(token_name), str) or not baseline_tokens[token_name]:
-            raise ValueError(f"Baseline {token_name} must be a non-empty string")
-        if not isinstance(candidate_tokens.get(token_name), str) or not candidate_tokens[token_name]:
-            raise ValueError(f"Candidate {token_name} must be a non-empty string")
+    for token_name in ("access_token", "refresh_token", "id_token"):
+        if not isinstance(tokens.get(token_name), str) or not tokens[token_name]:
+            raise ValueError(f"Codex {token_name} must be a non-empty string")
 
-    immutable_baseline = copy.deepcopy(baseline)
-    immutable_candidate = copy.deepcopy(candidate)
-    for credentials in (immutable_baseline, immutable_candidate):
-        del credentials["tokens"]["access_token"]
-        del credentials["tokens"]["refresh_token"]
-        credentials.pop("last_refresh", None)
-    if immutable_candidate != immutable_baseline:
-        raise ValueError("Refreshed credentials changed an immutable identity field")
+    claims = parse_id_token(tokens["id_token"])
+    profile = claims.get("https://api.openai.com/profile")
+    if profile is not None and not isinstance(profile, dict):
+        raise ValueError("Codex id_token profile claim must be an object")
+    auth_claims = claims.get("https://api.openai.com/auth")
+    if auth_claims is not None and not isinstance(auth_claims, dict):
+        raise ValueError("Codex id_token auth claim must be an object")
+    profile = profile or {}
+    auth_claims = auth_claims or {}
+    fedramp = auth_claims.get("chatgpt_account_is_fedramp", False)
+    if not isinstance(fedramp, bool):
+        raise ValueError("Codex id_token chatgpt_account_is_fedramp claim must be a boolean")
+
+    email = claims.get("email")
+    if email is None:
+        email = profile.get("email")
+    return {
+        "email": string_claim(email, "email"),
+        "chatgpt_user_id": string_claim(
+            auth_claims.get("chatgpt_user_id", auth_claims.get("user_id")), "chatgpt_user_id"
+        ),
+        "chatgpt_account_id": string_claim(auth_claims.get("chatgpt_account_id"), "chatgpt_account_id"),
+        "chatgpt_account_is_fedramp": fedramp,
+        "account_id": string_claim(tokens.get("account_id"), "account_id"),
+    }
+
+
+def validate_auth(credentials: dict[str, Any]) -> None:
+    auth_identity(credentials)
+    last_refresh = credentials.get("last_refresh")
+    if last_refresh is not None:
+        if not isinstance(last_refresh, str) or not last_refresh:
+            raise ValueError("Codex last_refresh must be a non-empty timestamp")
+        parse_timestamp(last_refresh)
+
+
+def promote_auth(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    validate_auth(baseline)
+    validate_auth(candidate)
+    if auth_identity(baseline) != auth_identity(candidate):
+        raise ValueError("Refreshed credentials changed an immutable account or workspace claim")
+    if not isinstance(candidate.get("last_refresh"), str) or not candidate["last_refresh"]:
+        raise ValueError("Refreshed credentials must include last_refresh")
 
     promoted = copy.deepcopy(baseline)
-    promoted["tokens"]["access_token"] = candidate_tokens["access_token"]
-    promoted["tokens"]["refresh_token"] = candidate_tokens["refresh_token"]
+    for token_name in ("access_token", "refresh_token", "id_token"):
+        promoted["tokens"][token_name] = candidate["tokens"][token_name]
+    promoted["last_refresh"] = candidate["last_refresh"]
     return promoted
 
 
@@ -153,12 +212,40 @@ def account_state(state: dict[str, Any], auth_object: str) -> dict[str, Any]:
     if status not in STATUS_VALUES:
         raise ValueError(f"Unknown authentication status for {auth_object!r}: {status!r}")
     entry.setdefault("status", AVAILABLE)
+    entry.setdefault("content_digest", None)
     entry.setdefault("last_failure_at", None)
     entry.setdefault("last_http_status", None)
     entry.setdefault("last_success_at", None)
     entry.setdefault("last_recovered_at", None)
     entry.setdefault("retry_after", None)
     return entry
+
+
+def validate_content_digest(digest: str) -> None:
+    if CONTENT_DIGEST_PATTERN.fullmatch(digest) is None:
+        raise ValueError("Codex credential content digest must be a SHA-256 hex string")
+
+
+def reconcile_auth_content(
+    state: dict[str, Any], auth_object: str, content_digest: str, now: datetime
+) -> None:
+    validate_content_digest(content_digest)
+    legacy_key = f"{auth_object}#{content_digest}"
+    if auth_object not in state["accounts"] and legacy_key in state["accounts"]:
+        state["accounts"][auth_object] = state["accounts"].pop(legacy_key)
+    entry = account_state(state, auth_object)
+    known_digest = entry["content_digest"]
+    if known_digest is None:
+        entry["content_digest"] = content_digest
+    elif known_digest != content_digest:
+        entry.update(default_account_state())
+        entry["content_digest"] = content_digest
+        entry["last_recovered_at"] = format_timestamp(now)
+
+
+def set_auth_content_digest(state: dict[str, Any], auth_object: str, content_digest: str) -> None:
+    validate_content_digest(content_digest)
+    account_state(state, auth_object)["content_digest"] = content_digest
 
 
 def recover_expired_accounts(state: dict[str, Any], auth_objects: list[str], now: datetime) -> None:
@@ -249,13 +336,16 @@ def record_result(
 
 
 def extract_http_status(text: str) -> int | None:
-    labelled_statuses = re.findall(
-        r"(?:http(?:\s+status)?|status(?:\s+code)?|error\s+code)\s*[:=]?\s*([1-5]\d{2})",
-        text,
-        re.IGNORECASE,
+    matches = list(
+        re.finditer(
+            r"(?:http(?:\s+status)?|status(?:\s+code)?|error\s+code)\s*[:=]?\s*([1-5]\d{2})"
+            r"|failed\s+to\s+refresh\s+token\s*:\s*([1-5]\d{2})\b",
+            text,
+            re.IGNORECASE,
+        )
     )
-    if labelled_statuses:
-        return int(labelled_statuses[-1])
+    if matches:
+        return int(next(group for group in reversed(matches[-1].groups()) if group is not None))
     return None
 
 
@@ -361,6 +451,8 @@ def parse_args() -> argparse.Namespace:
         subcommands.add_parser("initialize"),
         subcommands.add_parser("select"),
         subcommands.add_parser("record"),
+        subcommands.add_parser("reconcile"),
+        subcommands.add_parser("set-digest"),
     )
     for command in commands_with_state:
         command.add_argument("--state", type=Path, required=True)
@@ -383,9 +475,20 @@ def parse_args() -> argparse.Namespace:
     record.add_argument("--retry-after", type=parse_timestamp)
     record.add_argument("--known-auth-object", action="append", required=True)
 
+    reconcile = subcommands.choices["reconcile"]
+    reconcile.add_argument("--auth-object", action="append", required=True)
+    reconcile.add_argument("--content-digest", action="append", required=True)
+
+    set_digest = subcommands.choices["set-digest"]
+    set_digest.add_argument("--auth-object", required=True)
+    set_digest.add_argument("--content-digest", required=True)
+
     classify = subcommands.add_parser("classify")
     classify.add_argument("--events", type=Path, required=True)
     classify.add_argument("--stderr", type=Path, required=True)
+
+    validate = subcommands.add_parser("validate")
+    validate.add_argument("--auth", type=Path, required=True)
 
     promote = subcommands.add_parser("promote")
     promote.add_argument("--baseline", type=Path, required=True)
@@ -413,12 +516,31 @@ def main() -> None:
             )
         )
         return
+    if args.command == "validate":
+        credentials = json.loads(args.auth.read_text())
+        if not isinstance(credentials, dict):
+            raise ValueError("Codex credentials must be a JSON object")
+        validate_auth(credentials)
+        return
 
     now = args.now or utc_now()
     state = load_state(args.state)
     if args.command == "initialize":
         for auth_object in args.auth_object:
             account_state(state, auth_object)
+        save_state(args.state, state)
+        return
+
+    if args.command == "reconcile":
+        if len(args.auth_object) != len(args.content_digest):
+            raise ValueError("Each auth object must have exactly one content digest")
+        for auth_object, content_digest in zip(args.auth_object, args.content_digest):
+            reconcile_auth_content(state, auth_object, content_digest, now)
+        save_state(args.state, state)
+        return
+
+    if args.command == "set-digest":
+        set_auth_content_digest(state, args.auth_object, args.content_digest)
         save_state(args.state, state)
         return
 

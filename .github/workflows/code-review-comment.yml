@@ -68,6 +68,7 @@ jobs:
       base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
       review_focus: ${{ needs.resolve-pr.outputs.review_focus }}
       deferred_request_id: ${{ github.run_id }}
+      deferred_claim_id: ${{ github.run_id }}
 
   enqueue-review:
     needs: resolve-pr
@@ -108,15 +109,21 @@ jobs:
             --arg base_sha "$BASE_SHA" \
             --arg review_focus "$REVIEW_FOCUS" \
             --arg request_id "$GITHUB_RUN_ID" \
+            --arg lease_id "$GITHUB_RUN_ID" \
+            --arg lease_expires_at "$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)" \
             '{pr_number: $pr_number, head_sha: $head_sha, base_sha: $base_sha,
-              review_focus: $review_focus, not_before: "", request_id: $request_id}' > "$request_file"
+              review_focus: $review_focus, not_before: "", request_id: $request_id,
+              lease_id: $lease_id, lease_expires_at: $lease_expires_at}' > "$request_file"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
             "$request_file" "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${GITHUB_RUN_ID}.json"
 
   mark-review-pending:
-    needs: resolve-pr
+    needs:
+      - resolve-pr
+      - enqueue-review
     runs-on: ubuntu-latest
     if: >-
+      always() && needs.resolve-pr.result == 'success' &&
       github.event.issue.pull_request &&
       startsWith(github.event.comment.body, '/review') &&
       (
@@ -131,19 +138,27 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
         run: |
+          state='pending'
+          description="Automated review is running for ${HEAD_SHA}."
+          if [ "${{ needs.enqueue-review.result }}" != 'success' ]; then
+            state='error'
+            description="Automated review request could not be queued durably."
+          fi
           gh api repos/${REPO}/statuses/${HEAD_SHA} \
             -X POST \
-            -f state='pending' \
+            -f state="$state" \
             -f context='code-review' \
-            -f description="Automated review is running for ${HEAD_SHA}." \
+            -f description="$description" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   refresh-required-check:
     needs:
       - resolve-pr
       - code-review
+      - enqueue-review
+      - mark-review-pending
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.resolve-pr.result == 'success' && needs.code-review.result != 'skipped' }}
+    if: ${{ always() && needs.resolve-pr.result == 'success' && needs.code-review.result == 'success' }}
     steps:
       - name: Sync Code Review check for current head
         env:
@@ -152,17 +167,9 @@ jobs:
           PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
           HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
         run: |
-          state="pending"
-          summary="Trigger /review to start automated review for ${HEAD_SHA}."
-
-          if [ "${{ needs.code-review.result }}" = "success" ]; then
-            state="success"
-            summary="Automated review was triggered for ${HEAD_SHA}."
-          fi
-
           gh api repos/${REPO}/statuses/${HEAD_SHA} \
             -X POST \
-            -f state="${state}" \
+            -f state='success' \
             -f context='code-review' \
-            -f description="${summary}" \
+            -f description="Automated review completed for ${HEAD_SHA}." \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

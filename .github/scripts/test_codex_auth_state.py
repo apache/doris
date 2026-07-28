@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -16,6 +18,23 @@ AUTH_2 = "oss://doris-community-ci/codex/auth.json.2"
 AUTH_3 = "oss://doris-community-ci/codex/auth.json.3"
 AUTH_OBJECTS = [AUTH_1, AUTH_2, AUTH_3]
 NOW = datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc)
+
+
+def id_token(payload: dict[str, object]) -> str:
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    return f"header.{encoded}.signature"
+
+
+IDENTITY = {
+    "email": "reviewer@example.com",
+    "https://api.openai.com/auth": {
+        "chatgpt_user_id": "user-1",
+        "chatgpt_account_id": "workspace-1",
+    },
+}
+ID_TOKEN = id_token(IDENTITY)
+REFRESHED_ID_TOKEN = id_token({**IDENTITY, "iat": 2})
+DIFFERENT_ID_TOKEN = id_token({**IDENTITY, "email": "other@example.com"})
 
 
 class CodexAuthStateTest(unittest.TestCase):
@@ -79,7 +98,7 @@ class CodexAuthStateTest(unittest.TestCase):
             "tokens": {
                 "access_token": "old-access",
                 "refresh_token": "old-refresh",
-                "id_token": "stable-identity",
+                "id_token": ID_TOKEN,
             },
         }
         candidate = {
@@ -88,7 +107,7 @@ class CodexAuthStateTest(unittest.TestCase):
             "tokens": {
                 "access_token": "new-access",
                 "refresh_token": "new-refresh",
-                "id_token": "stable-identity",
+                "id_token": REFRESHED_ID_TOKEN,
             },
         }
 
@@ -96,8 +115,8 @@ class CodexAuthStateTest(unittest.TestCase):
 
         self.assertEqual("new-access", promoted["tokens"]["access_token"])
         self.assertEqual("new-refresh", promoted["tokens"]["refresh_token"])
-        self.assertEqual("stable-identity", promoted["tokens"]["id_token"])
-        self.assertEqual("2026-07-27T09:00:00Z", promoted["last_refresh"])
+        self.assertEqual(REFRESHED_ID_TOKEN, promoted["tokens"]["id_token"])
+        self.assertEqual("2026-07-27T10:00:00Z", promoted["last_refresh"])
 
     def test_promote_auth_rejects_identity_changes(self) -> None:
         baseline = {
@@ -105,7 +124,7 @@ class CodexAuthStateTest(unittest.TestCase):
             "tokens": {
                 "access_token": "old-access",
                 "refresh_token": "old-refresh",
-                "id_token": "stable-identity",
+                "id_token": ID_TOKEN,
             },
         }
         candidate = {
@@ -113,25 +132,58 @@ class CodexAuthStateTest(unittest.TestCase):
             "tokens": {
                 "access_token": "new-access",
                 "refresh_token": "new-refresh",
-                "id_token": "different-identity",
+                "id_token": DIFFERENT_ID_TOKEN,
             },
         }
 
-        with self.assertRaisesRegex(ValueError, "immutable identity"):
+        with self.assertRaisesRegex(ValueError, "account or workspace claim"):
             auth_state.promote_auth(baseline, candidate)
 
-    def test_authentication_failure_stays_disabled_until_auth_object_changes(self) -> None:
+    def test_authentication_failure_stays_disabled_until_external_object_replacement(self) -> None:
         state = auth_state.default_state()
-        original_auth = f"{AUTH_1}#old-content"
-        replacement_auth = f"{AUTH_1}#new-content"
-        auth_state.record_result(state, original_auth, auth_state.AUTHENTICATION_FAILED, NOW, 401)
+        auth_state.reconcile_auth_content(state, AUTH_1, "a" * 64, NOW)
+        auth_state.record_result(state, AUTH_1, auth_state.AUTHENTICATION_FAILED, NOW, 401)
 
-        unavailable = auth_state.select_auth_object(state, [original_auth], NOW + timedelta(days=7))
-        replacement = auth_state.select_auth_object(state, [replacement_auth], NOW + timedelta(days=7))
+        unavailable = auth_state.select_auth_object(state, [AUTH_1], NOW + timedelta(days=7))
+        auth_state.reconcile_auth_content(state, AUTH_1, "b" * 64, NOW + timedelta(days=7))
+        replacement = auth_state.select_auth_object(state, [AUTH_1], NOW + timedelta(days=7))
 
         self.assertIsNone(unavailable.auth_object)
-        self.assertIsNone(auth_state.account_state(state, original_auth)["retry_after"])
-        self.assertEqual(replacement_auth, replacement.auth_object)
+        self.assertIsNone(auth_state.account_state(state, AUTH_1)["retry_after"])
+        self.assertEqual(AUTH_1, replacement.auth_object)
+
+    def test_refresh_digest_update_keeps_quota_cooldown(self) -> None:
+        state = auth_state.default_state()
+        auth_state.reconcile_auth_content(state, AUTH_1, "a" * 64, NOW)
+        auth_state.record_result(state, AUTH_1, auth_state.QUOTA_EXHAUSTED, NOW)
+
+        auth_state.set_auth_content_digest(state, AUTH_1, "b" * 64)
+        selection = auth_state.select_auth_object(state, [AUTH_1], NOW + timedelta(hours=1))
+
+        self.assertIsNone(selection.auth_object)
+        self.assertEqual("b" * 64, auth_state.account_state(state, AUTH_1)["content_digest"])
+
+    def test_reconcile_migrates_matching_legacy_content_key(self) -> None:
+        state = auth_state.default_state()
+        legacy_key = f"{AUTH_1}#{'a' * 64}"
+        auth_state.record_result(state, legacy_key, auth_state.AUTHENTICATION_FAILED, NOW, 401)
+
+        auth_state.reconcile_auth_content(state, AUTH_1, "a" * 64, NOW)
+
+        self.assertNotIn(legacy_key, state["accounts"])
+        self.assertEqual(auth_state.AUTHENTICATION_FAILED, auth_state.account_state(state, AUTH_1)["status"])
+
+    def test_validate_auth_requires_a_parseable_id_token(self) -> None:
+        credentials = {
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": "access",
+                "refresh_token": "refresh",
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "id_token"):
+            auth_state.validate_auth(credentials)
 
     def test_initialize_creates_state_file_for_all_accounts(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -165,6 +217,10 @@ class CodexAuthStateTest(unittest.TestCase):
             auth_state.classify_failure("refresh token was already used"),
         )
         self.assertEqual(auth_state.TRANSIENT_FAILURE, auth_state.classify_failure("request failed: HTTP 503"))
+        self.assertEqual(
+            auth_state.TRANSIENT_FAILURE,
+            auth_state.classify_failure("Failed to refresh token: 503 Service Unavailable: temporary"),
+        )
         self.assertEqual(auth_state.TRANSIENT_FAILURE, auth_state.classify_failure("connection reset by peer"))
         self.assertEqual("fatal", auth_state.classify_failure("request failed: HTTP 422"))
         self.assertEqual("fatal", auth_state.classify_failure("reviewed output mentioned 403"))
