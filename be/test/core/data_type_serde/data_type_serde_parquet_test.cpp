@@ -138,6 +138,33 @@ private:
     size_t _dictionary_decode_calls = 0;
 };
 
+class CapturingLogicalValueConsumer final : public ParquetLogicalValueConsumer {
+public:
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width,
+                   const uint8_t* conversion_nulls) override {
+        width = value_width;
+        bytes.assign(values, values + num_values * value_width);
+        nulls.clear();
+        nulls.resize_fill(num_values, 0);
+        if (conversion_nulls != nullptr) {
+            memcpy(nulls.data(), conversion_nulls, num_values);
+        }
+        return Status::OK();
+    }
+
+    template <typename T>
+    std::vector<T> typed_values() const {
+        DORIS_CHECK_EQ(width, sizeof(T));
+        std::vector<T> values(bytes.size() / sizeof(T));
+        memcpy(values.data(), bytes.data(), bytes.size());
+        return values;
+    }
+
+    std::vector<uint8_t> bytes;
+    IColumn::Filter nulls;
+    size_t width = 0;
+};
+
 TEST(DataTypeSerDeParquetTest, MaterializesLogicalUnsignedIntegersDirectly) {
     TestParquetDecodeSource source;
     source.set_fixed_values<int32_t>({-1, 0, 7});
@@ -156,6 +183,62 @@ TEST(DataTypeSerDeParquetTest, MaterializesLogicalUnsignedIntegersDirectly) {
     EXPECT_EQ(data[0], 4294967295LL);
     EXPECT_EQ(data[1], 0);
     EXPECT_EQ(data[2], 7);
+}
+
+TEST(DataTypeSerDeParquetTest, PublishesNarrowIntegerPredicateValuesWithoutColumnMaterialization) {
+    TestParquetDecodeSource source;
+    source.set_fixed_values<int32_t>({1, 127, 128, 255});
+    ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT32,
+                                  .logical_type = ParquetLogicalType::INTEGER,
+                                  .logical_integer_bit_width = 8,
+                                  .logical_integer_is_signed = true};
+    DataTypeInt8 type;
+    CapturingLogicalValueConsumer consumer;
+
+    ASSERT_TRUE(type.get_serde()->supports_parquet_raw_predicate(context));
+    ASSERT_TRUE(
+            type.get_serde()->read_parquet_raw_predicate(source, context, 4, false, consumer).ok());
+    EXPECT_EQ(consumer.typed_values<int8_t>(), (std::vector<int8_t> {1, 127, -128, -1}));
+    EXPECT_EQ(consumer.nulls, IColumn::Filter(4, 0));
+}
+
+TEST(DataTypeSerDeParquetTest, RawPredicateConversionSupportsEveryFixedLogicalFamily) {
+    ParquetDecodeContext integer_context {.physical_type = ParquetPhysicalType::INT32,
+                                          .logical_type = ParquetLogicalType::INTEGER,
+                                          .logical_integer_bit_width = 16};
+    EXPECT_TRUE(DataTypeInt16().get_serde()->supports_parquet_raw_predicate(integer_context));
+
+    ParquetDecodeContext date_context {.physical_type = ParquetPhysicalType::INT32,
+                                       .logical_type = ParquetLogicalType::DATE};
+    EXPECT_TRUE(DataTypeDateV2().get_serde()->supports_parquet_raw_predicate(date_context));
+
+    ParquetDecodeContext timestamp_context {.physical_type = ParquetPhysicalType::INT64,
+                                            .logical_type = ParquetLogicalType::TIMESTAMP,
+                                            .time_unit = ParquetTimeUnit::MICROS};
+    EXPECT_TRUE(
+            DataTypeDateTimeV2(6).get_serde()->supports_parquet_raw_predicate(timestamp_context));
+    EXPECT_TRUE(
+            DataTypeTimeStampTz(6).get_serde()->supports_parquet_raw_predicate(timestamp_context));
+
+    ParquetDecodeContext time_context {.physical_type = ParquetPhysicalType::INT64,
+                                       .logical_type = ParquetLogicalType::TIME,
+                                       .time_unit = ParquetTimeUnit::MICROS};
+    EXPECT_TRUE(DataTypeTimeV2(6).get_serde()->supports_parquet_raw_predicate(time_context));
+
+    ParquetDecodeContext decimal_context {
+            .physical_type = ParquetPhysicalType::FIXED_LEN_BYTE_ARRAY,
+            .logical_type = ParquetLogicalType::DECIMAL,
+            .type_length = 16,
+            .decimal_precision = 38,
+            .decimal_scale = 8};
+    EXPECT_TRUE(
+            DataTypeDecimal32(9, 2).get_serde()->supports_parquet_raw_predicate(decimal_context));
+    EXPECT_TRUE(
+            DataTypeDecimal64(18, 4).get_serde()->supports_parquet_raw_predicate(decimal_context));
+    EXPECT_TRUE(
+            DataTypeDecimal128(38, 8).get_serde()->supports_parquet_raw_predicate(decimal_context));
+    EXPECT_TRUE(
+            DataTypeDecimal256(76, 8).get_serde()->supports_parquet_raw_predicate(decimal_context));
 }
 
 TEST(DataTypeSerDeParquetTest, NonStrictNarrowUnsignedIntegersPreserveBitWidthCompatibility) {

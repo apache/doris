@@ -140,6 +140,15 @@ public:
     }
 };
 
+// SerDes use this sink to publish converted logical POD batches straight to predicate kernels.
+// `conversion_nulls` is optional and marks permissive conversion failures without an IColumn.
+class ParquetLogicalValueConsumer {
+public:
+    virtual ~ParquetLogicalValueConsumer() = default;
+    virtual Status consume(const uint8_t* values, size_t num_values, size_t value_width,
+                           const uint8_t* conversion_nulls) = 0;
+};
+
 // Dictionary decoders publish validated IDs without knowing the destination Doris type. A
 // cache-resident dictionary can therefore fuse RLE decode with target-column gathering, while a
 // large sparse dictionary can still choose a compact ID buffer before random dictionary access.

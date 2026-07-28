@@ -1988,10 +1988,16 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                         &used_filter));
                 if (used_filter) {
                     DORIS_CHECK_EQ(compact_filter.size(), selected_rows_before);
-                    update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_batches,
-                                               1);
-                    update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_rows,
+                    update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_batches, 1);
+                    update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_rows,
                                                selected_rows_before);
+                    if (!is_string_type(
+                                remove_nullable(column_reader->type())->get_primitive_type())) {
+                        update_counter_if_not_null(
+                                _scan_profile.fixed_width_predicate_direct_batches, 1);
+                        update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_rows,
+                                                   selected_rows_before);
+                    }
                     const uint16_t new_selected_rows = count_selected_rows(compact_filter);
                     const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
                                                static_cast<int64_t>(new_selected_rows);

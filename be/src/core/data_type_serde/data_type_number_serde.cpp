@@ -388,9 +388,11 @@ public:
 
     NumberParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
                           ParquetMaterializationState* state = nullptr)
-            : _data(assert_cast<ColumnType&>(column).get_data()),
-              _context(context),
-              _state(state) {}
+            : NumberParquetConsumer(assert_cast<ColumnType&>(column).get_data(), context, state) {}
+
+    NumberParquetConsumer(PaddedPODArray<DorisCppType>& data, const ParquetDecodeContext& context,
+                          ParquetMaterializationState* state = nullptr)
+            : _data(data), _context(context), _state(state) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         return consume_impl(values, num_values, value_width);
@@ -468,6 +470,37 @@ public:
     Status consume(const StringRef* values, size_t num_values) override {
         return Status::NotSupported("Binary Parquet values cannot be materialized as a number");
     }
+};
+
+template <PrimitiveType DorisType>
+class NumberPredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+
+    NumberPredicateParquetConsumer(const ParquetDecodeContext& context, bool enable_strict_mode,
+                                   ParquetLogicalValueConsumer& consumer)
+            : _context(context), _enable_strict_mode(enable_strict_mode), _consumer(consumer) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        NumberParquetConsumer<DorisType> converter(_logical_values, _context, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        DORIS_CHECK_EQ(_logical_values.size(), num_values);
+        return _consumer.consume(reinterpret_cast<const uint8_t*>(_logical_values.data()),
+                                 num_values, sizeof(DorisCppType), _conversion_nulls.data());
+    }
+
+private:
+    const ParquetDecodeContext& _context;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    PaddedPODArray<DorisCppType> _logical_values;
+    IColumn::Filter _conversion_nulls;
 };
 
 } // namespace
@@ -664,6 +697,44 @@ Status DataTypeNumberSerDe<T>::read_column_from_parquet(IColumn& column,
             state.dictionary_generation = source.dictionary_generation();
         }
         return state.materialize_dictionary(column, source, num_values);
+    }
+}
+
+template <PrimitiveType T>
+bool DataTypeNumberSerDe<T>::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    if (context.encoding == ParquetValueEncoding::DICTIONARY) {
+        return false;
+    }
+    if constexpr (T == TYPE_BOOLEAN) {
+        return context.physical_type == ParquetPhysicalType::BOOLEAN;
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                         T == TYPE_BIGINT || T == TYPE_LARGEINT) {
+        return context.physical_type == ParquetPhysicalType::INT32 ||
+               context.physical_type == ParquetPhysicalType::INT64;
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        return context.physical_type == ParquetPhysicalType::FLOAT ||
+               context.physical_type == ParquetPhysicalType::DOUBLE || context.logical_float16;
+    }
+    return false;
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if constexpr (!(T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                    T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT ||
+                    T == TYPE_DOUBLE)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                    get_name());
+    } else {
+        if (!supports_parquet_raw_predicate(context)) {
+            return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
+                                        get_name());
+        }
+        NumberPredicateParquetConsumer<T> predicate_consumer(context, enable_strict_mode, consumer);
+        return source.decode_fixed_values(num_values, predicate_consumer);
     }
 }
 
