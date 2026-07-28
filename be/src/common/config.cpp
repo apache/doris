@@ -400,6 +400,9 @@ DEFINE_mInt32(trash_file_expire_time_sec, "0");
 // [0, 10000]. Values outside these ranges fall back to the historical defaults at the use site.
 DEFINE_mInt32(shutdown_tablet_sweep_round_budget, "200");
 DEFINE_mInt32(shutdown_tablet_sweep_interval_ms, "1000");
+// Create one dedicated garbage sweep worker for each valid OLAP data directory. This is a startup
+// configuration because changing it requires rebuilding the worker ownership and lifecycle.
+DEFINE_Bool(enable_data_dir_sweep_worker, "false");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");

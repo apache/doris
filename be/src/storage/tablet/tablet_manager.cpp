@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <list>
 #include <mutex>
 #include <ostream>
@@ -1201,7 +1202,9 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
     LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
 }
 
-Status TabletManager::start_trash_sweep() {
+Status TabletManager::start_trash_sweep(uint64_t sweep_epoch,
+                                        const ShutdownTabletMoveExecutor& move_executor,
+                                        const std::function<void(int)>& wait_next_round) {
     DBUG_EXECUTE_IF("TabletManager.start_trash_sweep.sleep", DBUG_BLOCK);
     std::unique_lock<std::mutex> lock(_gc_tablets_lock, std::defer_lock);
     if (!lock.try_lock()) {
@@ -1247,16 +1250,50 @@ Status TabletManager::start_trash_sweep() {
                   << ", tablet_id=" << tablet_id_with_max_useless_rowset_version_count;
     }
 
+    ShutdownTabletMoveExecutor effective_move_executor = move_executor;
+    if (!effective_move_executor) {
+        effective_move_executor = _execute_shutdown_tablet_moves_synchronously;
+    }
+
+    std::function<void(int)> effective_wait = wait_next_round;
+    if (!effective_wait) {
+        effective_wait = [](int interval_ms) {
+#ifndef BE_TEST
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+#else
+            static_cast<void>(interval_ms);
+#endif
+        };
+    }
+
     // Execute the shutdown tablet sweep with round-based throttling.
     return _sweep_shutdown_tablets(
+            sweep_epoch, effective_move_executor,
             [this](const TabletSharedPtr& tablet) { return _move_tablet_to_trash(tablet); },
-            [](int interval_ms) {
-#ifndef BE_TEST
-                std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
-#else
-                static_cast<void>(interval_ms);
-#endif
-            });
+            effective_wait);
+}
+
+Status TabletManager::_execute_shutdown_tablet_moves_synchronously(
+        uint64_t sweep_epoch, ShutdownTabletBatches&& batches,
+        const MoveTabletCallback& move_tablet, std::vector<ShutdownTabletMoveResult>* results) {
+    DORIS_CHECK(results != nullptr);
+    results->clear();
+    results->reserve(batches.size());
+    for (auto& [data_dir, tablets] : batches) {
+        ShutdownTabletMoveResult result;
+        result.data_dir = data_dir;
+        for (const auto& tablet : tablets) {
+            if (move_tablet(tablet)) {
+                ++result.resolved_count;
+            } else {
+                ++result.failed_count;
+                result.failed_tablets.push_back(tablet);
+            }
+        }
+        results->push_back(std::move(result));
+    }
+    static_cast<void>(sweep_epoch);
+    return Status::OK();
 }
 
 TabletManager::FetchResult TabletManager::_fetch_shutdown_tablets(ShutdownTabletIter& last_it,
@@ -1280,6 +1317,74 @@ TabletManager::FetchResult TabletManager::_fetch_shutdown_tablets(ShutdownTablet
     }
     result.reached_end = (last_it == _shutdown_tablets.end());
     return result;
+}
+
+TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
+        ShutdownTabletIter& last_it, std::list<TabletSharedPtr>& failed_tablets,
+        uint64_t sweep_epoch, const ShutdownTabletMoveExecutor& move_executor,
+        const MoveTabletCallback& move_tablet, int round_budget, int fetch_chunk, int scan_chunk) {
+    DCHECK_GT(round_budget, 0);
+    DCHECK_GT(fetch_chunk, 0);
+    DCHECK_GT(scan_chunk, 0);
+    DORIS_CHECK(move_executor);
+
+    MonotonicStopWatch round_watch(true);
+    RoundResult result;
+    int remaining_budget = round_budget;
+    for (;;) {
+        const int max_to_fetch = std::min(remaining_budget, fetch_chunk);
+        DCHECK_GT(max_to_fetch, 0);
+        auto fetch_result = _fetch_shutdown_tablets(last_it, max_to_fetch, scan_chunk);
+
+        if (!fetch_result.tablets.empty()) {
+            const int64_t fetched_count = static_cast<int64_t>(fetch_result.tablets.size());
+            ShutdownTabletBatches batches;
+            for (auto& tablet : fetch_result.tablets) {
+                batches[tablet->data_dir()].push_back(std::move(tablet));
+            }
+
+            std::vector<ShutdownTabletMoveResult> move_results;
+            auto execute_status =
+                    move_executor(sweep_epoch, std::move(batches), move_tablet, &move_results);
+            if (result.status.ok() && !execute_status.ok()) {
+                result.status = execute_status;
+            }
+
+            int64_t accounted_count = 0;
+            int64_t wave_resolved = 0;
+            for (auto& move_result : move_results) {
+                DORIS_CHECK_EQ(move_result.failed_count,
+                               static_cast<int64_t>(move_result.failed_tablets.size()));
+                DORIS_CHECK_GE(move_result.resolved_count, 0);
+                DORIS_CHECK_GE(move_result.failed_count, 0);
+                accounted_count += move_result.resolved_count + move_result.failed_count;
+                wave_resolved += move_result.resolved_count;
+                result.failed_count += move_result.failed_count;
+                if (result.status.ok() && !move_result.status.ok()) {
+                    result.status = move_result.status;
+                }
+                failed_tablets.insert(failed_tablets.end(),
+                                      std::make_move_iterator(move_result.failed_tablets.begin()),
+                                      std::make_move_iterator(move_result.failed_tablets.end()));
+            }
+            DORIS_CHECK_EQ(accounted_count, fetched_count);
+            DORIS_CHECK_LE(wave_resolved, remaining_budget);
+
+            remaining_budget -= static_cast<int>(wave_resolved);
+            result.resolved_count += wave_resolved;
+            _adjust_shutdown_tablet_backlog(-wave_resolved);
+        }
+
+        if (fetch_result.reached_end) {
+            result.elapsed_ms = round_watch.elapsed_time_milliseconds();
+            return result;
+        }
+        if (remaining_budget <= 0) {
+            result.need_continue = true;
+            result.elapsed_ms = round_watch.elapsed_time_milliseconds();
+            return result;
+        }
+    }
 }
 
 TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
@@ -1323,9 +1428,52 @@ TabletManager::RoundResult TabletManager::_delete_shutdown_tablets_one_round(
     }
 }
 
-Status TabletManager::_sweep_shutdown_tablets(
-        const std::function<bool(const TabletSharedPtr&)>& move_tablet,
-        const std::function<void(int)>& wait_next_round) {
+Status TabletManager::_sweep_shutdown_tablets(uint64_t sweep_epoch,
+                                              const ShutdownTabletMoveExecutor& move_executor,
+                                              const MoveTabletCallback& move_tablet,
+                                              const std::function<void(int)>& wait_next_round) {
+    MonotonicStopWatch sweep_watch(true);
+    ShutdownTabletIter last_it;
+    {
+        std::shared_lock rdlock(_shutdown_tablets_lock);
+        last_it = _shutdown_tablets.begin();
+        if (last_it == _shutdown_tablets.end()) {
+            g_shutdown_tablet_last_sweep_ms.set_value(0);
+            return Status::OK();
+        }
+    }
+
+    Status result;
+    std::list<TabletSharedPtr> failed_tablets;
+    for (;;) {
+        auto round_result = _delete_shutdown_tablets_one_round(
+                last_it, failed_tablets, sweep_epoch, move_executor, move_tablet,
+                get_effective_shutdown_tablet_sweep_round_budget(), kShutdownTabletFetchChunk,
+                kShutdownTabletScanChunk);
+        g_shutdown_tablet_last_round_resolved.set_value(round_result.resolved_count);
+        g_shutdown_tablet_last_round_move_failed_attempts.set_value(round_result.failed_count);
+        g_shutdown_tablet_last_round_ms.set_value(round_result.elapsed_ms);
+        g_shutdown_tablet_sweep_resolved_total << round_result.resolved_count;
+        g_shutdown_tablet_sweep_move_failed_attempts_total << round_result.failed_count;
+        if (result.ok() && !round_result.status.ok()) {
+            result = round_result.status;
+        }
+        if (!round_result.need_continue) {
+            break;
+        }
+        wait_next_round(get_effective_shutdown_tablet_sweep_interval_ms());
+    }
+
+    if (!failed_tablets.empty()) {
+        std::lock_guard<std::shared_mutex> wrlock(_shutdown_tablets_lock);
+        _shutdown_tablets.splice(_shutdown_tablets.end(), failed_tablets);
+    }
+    g_shutdown_tablet_last_sweep_ms.set_value(sweep_watch.elapsed_time_milliseconds());
+    return result;
+}
+
+Status TabletManager::_sweep_shutdown_tablets(const MoveTabletCallback& move_tablet,
+                                              const std::function<void(int)>& wait_next_round) {
     MonotonicStopWatch sweep_watch(true);
     ShutdownTabletIter last_it;
     {

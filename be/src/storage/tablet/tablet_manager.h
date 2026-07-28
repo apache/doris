@@ -56,6 +56,21 @@ class TTabletInfo;
 // please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
+    using MoveTabletCallback = std::function<bool(const TabletSharedPtr&)>;
+    using ShutdownTabletBatches = std::unordered_map<DataDir*, std::vector<TabletSharedPtr>>;
+
+    struct ShutdownTabletMoveResult {
+        DataDir* data_dir = nullptr;
+        Status status;
+        int64_t resolved_count = 0;
+        int64_t failed_count = 0;
+        std::vector<TabletSharedPtr> failed_tablets;
+    };
+
+    using ShutdownTabletMoveExecutor = std::function<Status(
+            uint64_t sweep_epoch, ShutdownTabletBatches&& batches,
+            const MoveTabletCallback& move_tablet, std::vector<ShutdownTabletMoveResult>* results)>;
+
     TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
 
@@ -146,7 +161,9 @@ public:
 
     void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
-    Status start_trash_sweep();
+    Status start_trash_sweep(uint64_t sweep_epoch = 0,
+                             const ShutdownTabletMoveExecutor& move_executor = {},
+                             const std::function<void(int)>& wait_next_round = {});
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                        SchemaHash schema_hash, const std::string& schema_hash_path,
@@ -196,8 +213,9 @@ private:
     };
 
     struct RoundResult {
-        int resolved_count = 0;
-        int failed_count = 0;
+        Status status;
+        int64_t resolved_count = 0;
+        int64_t failed_count = 0;
         int64_t elapsed_ms = 0;
         bool need_continue = false;
     };
@@ -250,14 +268,32 @@ private:
                                         int scan_chunk);
 
     // Delete one round of shutdown tablets under the configured success budget.
-    RoundResult _delete_shutdown_tablets_one_round(
-            ShutdownTabletIter& last_it, std::list<TabletSharedPtr>& failed_tablets,
-            const std::function<bool(const TabletSharedPtr&)>& move_tablet, int round_budget,
-            int fetch_chunk, int scan_chunk);
+    RoundResult _delete_shutdown_tablets_one_round(ShutdownTabletIter& last_it,
+                                                   std::list<TabletSharedPtr>& failed_tablets,
+                                                   uint64_t sweep_epoch,
+                                                   const ShutdownTabletMoveExecutor& move_executor,
+                                                   const MoveTabletCallback& move_tablet,
+                                                   int round_budget, int fetch_chunk,
+                                                   int scan_chunk);
+
+    RoundResult _delete_shutdown_tablets_one_round(ShutdownTabletIter& last_it,
+                                                   std::list<TabletSharedPtr>& failed_tablets,
+                                                   const MoveTabletCallback& move_tablet,
+                                                   int round_budget, int fetch_chunk,
+                                                   int scan_chunk);
 
     // Sweep shutdown tablets with round-based throttling and retry preservation.
-    Status _sweep_shutdown_tablets(const std::function<bool(const TabletSharedPtr&)>& move_tablet,
+    Status _sweep_shutdown_tablets(uint64_t sweep_epoch,
+                                   const ShutdownTabletMoveExecutor& move_executor,
+                                   const MoveTabletCallback& move_tablet,
                                    const std::function<void(int)>& wait_next_round);
+
+    Status _sweep_shutdown_tablets(const MoveTabletCallback& move_tablet,
+                                   const std::function<void(int)>& wait_next_round);
+
+    static Status _execute_shutdown_tablet_moves_synchronously(
+            uint64_t sweep_epoch, ShutdownTabletBatches&& batches,
+            const MoveTabletCallback& move_tablet, std::vector<ShutdownTabletMoveResult>* results);
 
     // Add a tablet to the shutdown cleanup backlog.
     void _enqueue_shutdown_tablet(const TabletSharedPtr& tablet);

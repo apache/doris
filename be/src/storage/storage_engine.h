@@ -43,6 +43,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "storage/adaptive_thread_pool_controller.h"
 #include "storage/compaction/compaction_permit_limiter.h"
+#include "storage/data_dir_sweep_worker.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
@@ -378,6 +379,8 @@ public:
     int64_t get_compaction_num_per_round() const { return _compaction_num_per_round; }
 
 private:
+    friend class DataDirSweepWorker;
+
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
     Status _open();
@@ -407,6 +410,12 @@ private:
 
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
+
+    Status _start_data_dir_sweep_workers();
+    void _stop_data_dir_sweep_workers();
+    std::vector<DataDirSweepJobResult> _dispatch_data_dir_sweep_jobs(
+            uint64_t sweep_epoch, std::vector<DataDirSweepJob> jobs);
+    DataDirSweepJobResult _execute_data_dir_sweep_job(DataDirSweepJob& job);
 
     // All these xxx_callback() functions are for Background threads
     // unused rowset monitor thread
@@ -496,6 +505,8 @@ private:
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
     std::map<std::string, std::unique_ptr<DataDir>> _store_map;
+    std::unordered_map<DataDir*, std::unique_ptr<DataDirSweepWorker>> _data_dir_sweep_workers;
+    std::atomic<uint64_t> _next_sweep_epoch {0};
     std::set<std::string> _broken_paths;
     std::mutex _broken_paths_mutex;
 

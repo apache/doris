@@ -464,6 +464,9 @@ DECLARE_mInt32(shutdown_tablet_sweep_round_budget);
 // skips the inter-round wait. Values outside the valid range fall back to the historical 1000 ms
 // interval at the use site.
 DECLARE_mInt32(shutdown_tablet_sweep_interval_ms);
+// Startup-only switch for per-DataDir garbage sweep workers. When disabled, the coordinator
+// executes the same typed jobs and phase barriers synchronously.
+DECLARE_Bool(enable_data_dir_sweep_worker);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
