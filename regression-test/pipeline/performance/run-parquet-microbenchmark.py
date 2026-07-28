@@ -21,7 +21,6 @@
 from __future__ import print_function
 
 import argparse
-import gzip
 import io
 import json
 import os
@@ -30,7 +29,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 
 
 try:
@@ -156,43 +154,6 @@ def validate_smoke(path, prefix, expected_count):
                 prefix, ", ".join(failed)
             )
         )
-
-
-def compressed_size(path, temporary_directory):
-    descriptor, compressed_path = tempfile.mkstemp(
-        prefix="benchmark.", suffix=".gz", dir=temporary_directory
-    )
-    os.close(descriptor)
-    started = time.time()
-    try:
-        with open(path, "rb") as source:
-            with gzip.GzipFile(
-                filename=compressed_path, mode="wb", compresslevel=1
-            ) as destination:
-                shutil.copyfileobj(source, destination, 1024 * 1024)
-        return os.path.getsize(compressed_path), time.time() - started
-    finally:
-        if os.path.exists(compressed_path):
-            os.remove(compressed_path)
-
-
-def record_binary_metrics(head_binary, base_binary, result_dir):
-    metrics = {"compression": "gzip-level-1", "binaries": {}}
-    for revision, path in (("head", head_binary), ("base", base_binary)):
-        raw_bytes = os.path.getsize(path)
-        gzip_bytes, seconds = compressed_size(path, result_dir)
-        metrics["binaries"][revision] = {
-            "path": path,
-            "raw_bytes": raw_bytes,
-            "gzip_bytes": gzip_bytes,
-            "gzip_ratio": gzip_bytes / float(raw_bytes),
-            "gzip_seconds": seconds,
-        }
-        print(
-            "INFO: {0} benchmark binary: raw={1} bytes, gzip={2} bytes, "
-            "gzip_time={3:.2f}s".format(revision, raw_bytes, gzip_bytes, seconds)
-        )
-    write_json(os.path.join(result_dir, "binary-metrics.json"), metrics)
 
 
 def compare(
@@ -428,9 +389,6 @@ def main():
                 environment,
             )
 
-        record_binary_metrics(
-            args.head_binary, args.base_binary, args.result_dir
-        )
         if comparison_status == 3:
             print("ERROR: performance comparison remained inconclusive after retry")
             return 3
