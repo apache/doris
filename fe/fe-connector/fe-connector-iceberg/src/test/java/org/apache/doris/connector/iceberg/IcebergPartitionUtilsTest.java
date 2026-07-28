@@ -173,6 +173,31 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals(java.util.Arrays.asList("P", "region"), cols);
     }
 
+    @Test
+    public void identityPartitionColumnsUnionEverySpecUnderPartitionEvolution() {
+        // Partition evolution (#65870): a column classified as an identity partition column by a NEWER spec can
+        // still be stored physically in files written by an OLDER spec, and vice versa. This list is the
+        // path_partition_keys payload, i.e. exactly the names FileQueryScanNode.classifyColumn turns into
+        // TColumnCategory.PARTITION_KEY (non-file slots, filled from the per-file columns_from_path instead of
+        // decoded from the data file). It must therefore be the union over table.specs() (ALL specs) rather than
+        // table.spec() (the current one): a key dropped by the current spec would otherwise be decoded from old
+        // files that also carry it in their partition metadata (the CI #968880 double-fill).
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "payload", Types.StringType.get()),
+                Types.NestedField.required(3, "int_col", Types.LongType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("payload").build());
+        // Evolve the spec: payload stops being a partition column, int_col starts being one.
+        table.updateSpec().removeField("payload").addField("int_col").commit();
+        Assertions.assertEquals(2, table.specs().size());
+
+        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+
+        // Both specs contribute, in first-seen (spec id) order. MUTATION: iterating table.spec() instead of
+        // table.specs() -> ["int_col"] -> red. MUTATION: dropping the LinkedHashSet dedup -> duplicates -> red.
+        Assertions.assertEquals(Arrays.asList("payload", "int_col"), cols);
+    }
+
     // ---- getIdentityPartitionInfoMap ----
 
     @Test

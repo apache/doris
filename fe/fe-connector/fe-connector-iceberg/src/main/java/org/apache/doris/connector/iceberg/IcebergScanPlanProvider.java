@@ -1601,6 +1601,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // iceberg column handles — never carries them. encodeSchemaEvolutionProp(appendRowLineage=true) appends
         // them to the dict root so BE's StructNode children map contains them; else the ParquetReader's
         // unconditional children.at("_row_id") std::out_of_range-SIGABRTs the whole BE.
+        //
+        // Partition evolution (#65870) needs NO further widening here: a column that a newer spec turns into an
+        // identity partition column — and that older files may still store physically — is declared in
+        // path_partition_keys (unioned over ALL specs, see IcebergPartitionUtils.getIdentityPartitionColumns), so
+        // FileQueryScanNode.classifyColumn categorizes it PARTITION_KEY, i.e. a NON-file slot filled from
+        // columns_from_path. BE resolves through this dict only the slots it decodes FROM the file, so such a
+        // column is never looked up in it whether or not the query projects it.
         if (!systemTable) {
             String dict;
             boolean appendRowLineage = getFormatVersion(table) >= 3;
