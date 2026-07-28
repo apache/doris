@@ -106,8 +106,8 @@ constexpr std::string_view kTestDir = "./ut_dir/segment_flusher_format_test";
 constexpr std::string_view kGoldenDir = "./be/test/storage/test_data/segment_flusher_format";
 constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_OUTPUT_DIR";
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 77;
-constexpr size_t kExpectedGoldenSegmentCount = 156;
+constexpr size_t kExpectedGoldenCaseCount = 76;
+constexpr size_t kExpectedGoldenSegmentCount = 154;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -1140,7 +1140,6 @@ Result<Block> create_flexible_partial_update_block(const TabletSchemaSPtr& schem
 struct IntegerTabletBlockOptions {
     bool include_binlog_columns = false;
     bool include_existing_key_delete = false;
-    bool include_missing_key_delete = true;
 };
 
 Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int segment_ordinal,
@@ -1175,8 +1174,8 @@ Result<Block> create_integer_tablet_block(const TabletSchemaSPtr& schema, int se
             } else if (name == COMMIT_TSO_COL) {
                 RETURN_IF_ERROR_RESULT(append_text_value(&block, column_index, "0"));
             } else if (name == DELETE_SIGN) {
-                const bool is_delete = (options.include_missing_key_delete && row == 2) ||
-                                       (options.include_existing_key_delete && row == 1);
+                const bool is_delete =
+                        row == 2 || (options.include_existing_key_delete && row == 1);
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, is_delete ? "1" : "0"));
             } else {
@@ -1215,13 +1214,10 @@ Result<Block> create_binlog_partial_update_block(const TabletSchemaSPtr& schema,
     return block;
 }
 
-Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema,
-                                       bool use_cluster_key_order = false) {
+Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema) {
     constexpr std::array<int, 4> primary_key_order {0, 1, 10, 11};
-    constexpr std::array<int, 4> cluster_key_order {11, 10, 1, 0};
-    const auto& keys = use_cluster_key_order ? cluster_key_order : primary_key_order;
     Block block = schema->create_block();
-    for (const int key : keys) {
+    for (const int key : primary_key_order) {
         for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
             const auto& name = block.get_by_position(column_index).name;
             if (name.starts_with("k_")) {
@@ -1233,9 +1229,8 @@ Result<Block> create_mow_history_block(const TabletSchemaSPtr& schema,
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, std::to_string(3000 + key)));
             } else if (name == "v2") {
-                const auto value = use_cluster_key_order ? 4000 - key : 4000 + key;
                 RETURN_IF_ERROR_RESULT(
-                        append_text_value(&block, column_index, std::to_string(value)));
+                        append_text_value(&block, column_index, std::to_string(4000 + key)));
             } else if (name == SEQUENCE_COL) {
                 RETURN_IF_ERROR_RESULT(
                         append_text_value(&block, column_index, std::to_string(5000 + key)));
@@ -2178,9 +2173,6 @@ Status verify_row_binlog_partial_update_segment(const TabletSharedPtr& tablet,
 
 struct RowBinlogBeforeVerificationOptions {
     std::string_view case_name;
-    bool use_cluster_key_history = false;
-    bool include_existing_key_delete = true;
-    bool include_missing_key_delete = true;
 };
 
 Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t segment_id,
@@ -2198,12 +2190,7 @@ Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t 
     const auto key_base = static_cast<Int32>(segment_id * 10);
     for (size_t row_id = 0; row_id < block.rows(); ++row_id) {
         const auto key = key_base + static_cast<Int32>(row_id);
-        const bool is_delete = (row_id == 1 && options.include_existing_key_delete) ||
-                               (row_id == 2 && options.include_missing_key_delete);
-        auto operation = row_id < 2 ? ROW_BINLOG_UPDATE : ROW_BINLOG_APPEND;
-        if (is_delete) {
-            operation = ROW_BINLOG_DELETE;
-        }
+        const auto operation = row_id == 0 ? ROW_BINLOG_UPDATE : ROW_BINLOG_DELETE;
         RETURN_IF_ERROR(
                 verify_segment_field(block, "k1", row_id, Field::create_field<TYPE_INT>(key)));
         RETURN_IF_ERROR(verify_segment_field(
@@ -2218,10 +2205,9 @@ Status verify_row_binlog_before_segment(const TabletSharedPtr& tablet, uint32_t 
             RETURN_IF_ERROR(verify_segment_field(
                     block, "__BEFORE__v1__", row_id,
                     Field::create_field<TYPE_INT>(static_cast<Int32>(3000 + key))));
-            const auto before_v2 = options.use_cluster_key_history ? 4000 - key : 4000 + key;
             RETURN_IF_ERROR(verify_segment_field(
                     block, "__BEFORE__v2__", row_id,
-                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(before_v2))));
+                    Field::create_field<TYPE_BIGINT>(static_cast<Int64>(4000 + key))));
         } else {
             RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v1__", row_id, Field {}));
             RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v2__", row_id, Field {}));
@@ -2706,8 +2692,7 @@ protected:
 
     Result<RowsetSharedPtr> write_mow_history(const TabletSharedPtr& tablet,
                                               const TabletSchemaSPtr& schema,
-                                              int64_t rowset_numeric_id,
-                                              bool use_cluster_key_order = false) {
+                                              int64_t rowset_numeric_id) {
         RowsetWriterContext context;
         context.rowset_id.init(rowset_numeric_id);
         context.tablet_id = tablet->tablet_id();
@@ -2730,7 +2715,7 @@ protected:
             return unexpected(writer_result.error());
         }
         auto writer = std::move(writer_result).value();
-        auto block_result = create_mow_history_block(schema, use_cluster_key_order);
+        auto block_result = create_mow_history_block(schema);
         if (!block_result.has_value()) {
             return unexpected(block_result.error());
         }
@@ -2744,18 +2729,13 @@ protected:
 
     TabletSharedPtr create_binlog_tablet(int64_t tablet_id, bool enable_mow,
                                          bool include_before_columns = false,
-                                         bool with_sequence = false,
-                                         bool with_cluster_key = false) {
-        DORIS_CHECK(!with_cluster_key || enable_mow);
+                                         bool with_sequence = false) {
         auto request = testutil::create_tablet_request(
                 tablet_id, 270068390, 10001, 1,
                 enable_mow ? TKeysType::UNIQUE_KEYS : TKeysType::DUP_KEYS,
                 {{"k1", TPrimitiveType::INT, true},
                  {"v1", TPrimitiveType::INT, false, true, TAggregationType::NONE},
                  {"v2", TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}});
-        if (with_cluster_key) {
-            request.tablet_schema.cluster_key_uids.push_back(2);
-        }
         if (enable_mow) {
             request.tablet_schema.columns.push_back(testutil::create_tablet_column(
                     {DELETE_SIGN, TPrimitiveType::TINYINT, false, true, TAggregationType::NONE}));
@@ -2801,7 +2781,6 @@ protected:
             request.__set_enable_unique_key_merge_on_write(true);
         }
         testutil::enable_row_binlog(&request);
-        request.row_binlog_schema.cluster_key_uids.clear();
         auto erase_binlog_column = [&](std::string_view name) {
             auto& columns = request.row_binlog_schema.columns;
             const auto it =
@@ -3724,80 +3703,6 @@ TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepThei
     for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
         const auto status = verify_row_binlog_before_segment(
                 before_binlog_tablet, segment_id, {.case_name = "mow_row_binlog_before"});
-        ASSERT_TRUE(status.ok()) << status;
-    }
-
-    auto cluster_binlog_tablet =
-            create_binlog_tablet(22005, /*enable_mow=*/true, /*include_before_columns=*/true,
-                                 /*with_sequence=*/true, /*with_cluster_key=*/true);
-    ASSERT_NE(cluster_binlog_tablet, nullptr);
-    auto cluster_binlog_history_result =
-            write_mow_history(cluster_binlog_tablet, cluster_binlog_tablet->tablet_schema(), 31011,
-                              /*use_cluster_key_order=*/true);
-    ASSERT_TRUE(cluster_binlog_history_result.has_value()) << cluster_binlog_history_result.error();
-    std::vector<RowsetSharedPtr> cluster_binlog_history {cluster_binlog_history_result.value()};
-    auto cluster_upsert_info = std::make_shared<PartialUpdateInfo>();
-    ASSERT_TRUE(cluster_upsert_info
-                        ->init(cluster_binlog_tablet->tablet_id(), 1,
-                               *cluster_binlog_tablet->tablet_schema(),
-                               UniqueKeyUpdateModePB::UPSERT, PartialUpdateNewRowPolicyPB::APPEND,
-                               {}, false, 0, 0, "UTC", "")
-                        .ok());
-    std::vector<Block> cluster_binlog_blocks;
-    for (int segment_id = 0; segment_id < 2; ++segment_id) {
-        auto block_result =
-                create_integer_tablet_block(cluster_binlog_tablet->tablet_schema(), segment_id,
-                                            {.include_missing_key_delete = false});
-        ASSERT_TRUE(block_result.has_value()) << block_result.error();
-        cluster_binlog_blocks.push_back(std::move(block_result).value());
-    }
-    std::vector<std::pair<bool, int>> cluster_lookup_results;
-    {
-        auto* sync_point = SyncPoint::get_instance();
-        const bool sync_point_was_enabled = sync_point->get_enable();
-        sync_point->enable_processing();
-        Defer restore_sync_point {[sync_point, sync_point_was_enabled] {
-            if (!sync_point_was_enabled) {
-                sync_point->disable_processing();
-            }
-        }};
-        SyncPoint::CallbackGuard lookup_guard;
-        sync_point->set_call_back(
-                "BaseTablet::lookup_row_key:found",
-                [cluster_binlog_tablet, cluster_binlog_history,
-                 &cluster_lookup_results](auto&& args) {
-                    auto* tablet = try_any_cast<BaseTablet*>(args[0]);
-                    auto* rowset = try_any_cast<Rowset*>(args[1]);
-                    if (tablet != cluster_binlog_tablet.get() ||
-                        rowset != cluster_binlog_history.front().get()) {
-                        return;
-                    }
-                    cluster_lookup_results.emplace_back(try_any_cast<bool>(args[2]),
-                                                        try_any_cast<int>(args[3]));
-                },
-                &lookup_guard);
-        ASSERT_TRUE(record(flush_twice(
-                "mow_cluster_sequence_row_binlog_before",
-                cluster_binlog_tablet->row_binlog_tablet_schema(), std::move(cluster_binlog_blocks),
-                false, 0, DataWriteType::TYPE_DIRECT, false,
-                [this, cluster_binlog_tablet, cluster_upsert_info,
-                 cluster_binlog_history](RowsetWriterContext& context) {
-                    configure_row_binlog_context(context, cluster_binlog_tablet,
-                                                 cluster_upsert_info, cluster_binlog_history, true);
-                })));
-    }
-    ASSERT_EQ(cluster_lookup_results.size(), 8);
-    for (const auto& [with_sequence, status_code] : cluster_lookup_results) {
-        EXPECT_TRUE(with_sequence);
-        EXPECT_EQ(status_code, ErrorCode::OK);
-    }
-    for (uint32_t segment_id = 0; segment_id < 2; ++segment_id) {
-        const auto status = verify_row_binlog_before_segment(
-                cluster_binlog_tablet, segment_id,
-                {.case_name = "mow_cluster_sequence_row_binlog_before",
-                 .use_cluster_key_history = true,
-                 .include_existing_key_delete = false,
-                 .include_missing_key_delete = false});
         ASSERT_TRUE(status.ok()) << status;
     }
 
