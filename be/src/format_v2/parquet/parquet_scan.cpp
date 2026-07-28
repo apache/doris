@@ -31,7 +31,9 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vectorized_fn_call.h"
@@ -1405,6 +1407,7 @@ enum class DictionaryEntryFilterKernel {
     GENERIC,
     TYPED_FIXED_WIDTH,
     TYPED_STRING,
+    VECTORIZED_RUNTIME_FILTER,
 };
 
 template <typename ColumnType>
@@ -1450,6 +1453,54 @@ bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn
     default:
         return false;
     }
+}
+
+Status try_apply_runtime_filters_to_dictionary(size_t block_position,
+                                               const ParquetColumnSchema& column_schema,
+                                               const VExprContextSPtrs& conjuncts,
+                                               const IColumn& dictionary,
+                                               IColumn::Filter* dictionary_filter, bool* applied) {
+    DORIS_CHECK(dictionary_filter != nullptr);
+    DORIS_CHECK(applied != nullptr);
+    *applied = false;
+    if (!std::ranges::all_of(conjuncts, [](const auto& conjunct) {
+            return conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->is_rf_wrapper() &&
+                   conjunct->root()->can_evaluate_dictionary_filter() &&
+                   conjunct->root()->get_impl() != nullptr;
+        })) {
+        return Status::OK();
+    }
+
+    Block dictionary_block;
+    const size_t dictionary_size = dictionary.size();
+    const auto dummy_type = std::make_shared<DataTypeUInt8>();
+    for (size_t position = 0; position < block_position; ++position) {
+        dictionary_block.insert(
+                {ColumnUInt8::create(dictionary_size, 0), dummy_type, "dictionary_dummy"});
+    }
+    ColumnPtr dictionary_column = dictionary.get_ptr();
+    if (column_schema.type->is_nullable()) {
+        dictionary_column =
+                ColumnNullable::create(dictionary_column, ColumnUInt8::create(dictionary_size, 0));
+    }
+    dictionary_block.insert({std::move(dictionary_column), column_schema.type, "dictionary_value"});
+
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary_size, 1);
+    for (const auto& conjunct : conjuncts) {
+        bool can_filter_all = false;
+        // Execute the wrapped implementation directly. Sampling the tiny dictionary through the
+        // RF wrapper could mark the filter ineffective for the much larger row batches that follow.
+        RETURN_IF_ERROR(conjunct->root()->get_impl()->execute_filter(
+                conjunct.get(), &dictionary_block, dictionary_filter->data(), dictionary_size,
+                false, &can_filter_all));
+        if (can_filter_all) {
+            break;
+        }
+    }
+    *applied = true;
+    return Status::OK();
 }
 
 enum class StringDictionaryCompareOp {
@@ -1585,6 +1636,15 @@ Status build_dictionary_entry_filter(size_t block_position,
         return Status::OK();
     }
 
+    bool applied_runtime_filters = false;
+    RETURN_IF_ERROR(try_apply_runtime_filters_to_dictionary(
+            block_position, column_schema, conjuncts, dictionary, dictionary_filter,
+            &applied_runtime_filters));
+    if (applied_runtime_filters) {
+        *kernel = DictionaryEntryFilterKernel::VECTORIZED_RUNTIME_FILTER;
+        return Status::OK();
+    }
+
     dictionary_filter->clear();
     dictionary_filter->resize_fill(dictionary.size(), 1);
     DictionaryEvalContext ctx;
@@ -1698,6 +1758,9 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
                 update_counter_if_not_null(_scan_profile.dict_filter_typed_compare_columns, 1);
             } else if (filter_kernel == DictionaryEntryFilterKernel::TYPED_STRING) {
                 update_counter_if_not_null(_scan_profile.dict_filter_string_compare_columns, 1);
+            } else if (filter_kernel == DictionaryEntryFilterKernel::VECTORIZED_RUNTIME_FILTER) {
+                update_counter_if_not_null(
+                        _scan_profile.dict_filter_vectorized_runtime_filter_columns, 1);
             }
             residual_conjuncts = build_dictionary_residual_conjuncts(conjunct_it->second);
         }

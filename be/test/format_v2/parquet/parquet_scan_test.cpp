@@ -688,12 +688,40 @@ VExprContextSPtr create_string_runtime_bloom_conjunct(int column_id,
     return wrap_runtime_filter(std::move(impl), node, filter_id);
 }
 
+VExprContextSPtr create_string_runtime_in_conjunct(int column_id,
+                                                   const std::vector<std::string>& values,
+                                                   int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(PrimitiveType::TYPE_STRING, false));
+    for (const auto& value : values) {
+        StringRef value_ref(value.data(), value.size());
+        filter->insert(&value_ref);
+    }
+    auto node = make_runtime_in_node();
+    auto impl = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    impl->add_child(VSlotRef::create_shared(column_id, column_id, -1,
+                                            make_nullable(std::make_shared<DataTypeString>()),
+                                            "runtime_in_key"));
+    return wrap_runtime_filter(std::move(impl), node, filter_id);
+}
+
 VExprContextSPtr create_int32_runtime_comparison_conjunct(int column_id,
                                                           const std::string& function_name,
                                                           TExprOpcode::type opcode, int32_t value,
                                                           int filter_id) {
     auto impl_context =
             create_int32_function_conjunct(column_id, function_name, opcode, value, true);
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_is_nullable(false);
+    return wrap_runtime_filter(impl_context->root(), node, filter_id);
+}
+
+VExprContextSPtr create_string_runtime_comparison_conjunct(int column_id,
+                                                           const std::string& function_name,
+                                                           TExprOpcode::type opcode,
+                                                           const std::string& value,
+                                                           int filter_id) {
+    auto impl_context = create_string_function_conjunct(column_id, function_name, opcode, value);
     TExprNode node;
     node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
     node.__set_is_nullable(false);
@@ -2112,7 +2140,7 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryBloomRuntimeFilterUsesTypedValues
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 6);
 }
 
-TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryBloomRuntimeFilterUsesDictionaryValues) {
+TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryBloomRuntimeFilterUsesVectorizedValues) {
     write_dictionary_string_pair_parquet_file(_file_path);
     RuntimeProfile profile("profile");
     auto reader = create_reader(0, -1, &profile);
@@ -2126,7 +2154,12 @@ TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryBloomRuntimeFilterUsesDicti
     ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
     ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
     request->predicate_only_columns.push_back(format::LocalColumnId(0));
-    request->conjuncts.push_back(create_string_runtime_bloom_conjunct(0, {"bravo", "delta"}, 11));
+    auto conjunct = create_string_runtime_bloom_conjunct(0, {"bravo", "delta"}, 11);
+    conjunct->_prepared = false;
+    conjunct->_opened = false;
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
     ASSERT_TRUE(reader->open(request).ok());
 
     Block block = build_file_block(schema);
@@ -2136,8 +2169,88 @@ TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryBloomRuntimeFilterUsesDicti
     ASSERT_EQ(rows, 2);
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {20, 40}));
+    EXPECT_EQ(counter_value(profile, "DictFilterCandidateColumns"), 1);
     EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
+    auto* vectorized_filter_columns =
+            profile.get_counter("DictFilterVectorizedRuntimeFilterColumns");
+    ASSERT_NE(vectorized_filter_columns, nullptr);
+    EXPECT_EQ(vectorized_filter_columns->value(), 1);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 4);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryInRuntimeFilterUsesVectorizedValues) {
+    write_dictionary_string_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    auto conjunct = create_string_runtime_in_conjunct(0, {"bravo", "delta"}, 12);
+    conjunct->_prepared = false;
+    conjunct->_opened = false;
+    ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(conjunct->open(&state).ok());
+    request->conjuncts.push_back(conjunct);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {20, 40}));
+    EXPECT_EQ(counter_value(profile, "DictFilterVectorizedRuntimeFilterColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 4);
+    conjunct->close();
+}
+
+TEST_F(ParquetScanTest, PredicateOnlyStringDictionaryMinMaxRuntimeFilterUsesVectorizedValues) {
+    write_dictionary_string_pair_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+    request->predicate_only_columns.push_back(format::LocalColumnId(0));
+    auto min_conjunct =
+            create_string_runtime_comparison_conjunct(0, "gt", TExprOpcode::GT, "alpha", 13);
+    auto max_conjunct =
+            create_string_runtime_comparison_conjunct(0, "lt", TExprOpcode::LT, "delta", 14);
+    for (const auto& conjunct : {min_conjunct, max_conjunct}) {
+        conjunct->_prepared = false;
+        conjunct->_opened = false;
+        ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+              (ColumnInt32::Container {20, 30}));
+    EXPECT_EQ(counter_value(profile, "DictFilterVectorizedRuntimeFilterColumns"), 1);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 4);
+    min_conjunct->close();
+    max_conjunct->close();
 }
 
 TEST_F(ParquetScanTest, ProjectedDictionaryRangeGathersOnlySurvivors) {
