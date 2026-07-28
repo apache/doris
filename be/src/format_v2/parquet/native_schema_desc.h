@@ -47,6 +47,10 @@ struct NativeFieldSchema {
 
     // Used to identify whether this field is a nested field.
     DataTypePtr data_type;
+
+    // VARIANT is logically exposed as DataTypeVariantV2, while native page readers still need the
+    // physical STRUCT shape formed by metadata/value/typed_value.
+    DataTypePtr variant_physical_type;
     // Schema construction keeps a physical fallback so unprojected columns and metadata-only
     // queries remain readable, while projection validation reports the original logical failure.
     std::string unsupported_reason;

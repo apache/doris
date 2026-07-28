@@ -69,6 +69,17 @@ Status find_count_leaf(const ParquetColumnSchema& schema,
         // reading a potentially huge value BYTE_ARRAY for COUNT(map_col).
         DORIS_CHECK(!schema.children.empty());
         return find_count_leaf(*schema.children.front(), nullptr, leaf);
+    case ParquetColumnSchemaKind::VARIANT: {
+        // The required metadata leaf is present exactly when the enclosing Variant group is
+        // present, so its levels preserve COUNT(variant_col) SQL-null semantics without decoding
+        // any Variant payload.
+        const auto metadata = std::ranges::find_if(
+                schema.children, [](const auto& child) { return child->name == "metadata"; });
+        if (metadata == schema.children.end()) {
+            return Status::Corruption("Parquet Variant {} has no metadata column", schema.name);
+        }
+        return find_count_leaf(**metadata, nullptr, leaf);
+    }
     }
     return Status::InternalError("Unknown Parquet schema kind for column {}", schema.name);
 }

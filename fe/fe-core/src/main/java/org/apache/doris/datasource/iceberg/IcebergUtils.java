@@ -713,7 +713,11 @@ public class IcebergUtils {
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             case VARIANT:
-                return Type.UNSUPPORTED;
+                // Iceberg Variant uses the Parquet Variant encoding directly. Mark it compute-only
+                // so BE scanners materialize ColumnVariantV2 without changing persisted Doris
+                // table metadata semantics.
+                return new org.apache.doris.catalog.VariantType(
+                        new ArrayList<>(), 0, false, 10000, 0, false, 0L, 64, false, true);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }

@@ -323,6 +323,15 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergVariantUsesComputeV2Representation() {
+        Type type = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+
+        Assert.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
+        Assert.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+    }
+
+    @Test
     public void testParseSchemaPreservesInitialDefault() {
         Schema schema = new Schema(
                 Types.NestedField.optional("added_column")
