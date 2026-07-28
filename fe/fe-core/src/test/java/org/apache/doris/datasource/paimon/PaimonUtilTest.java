@@ -117,6 +117,21 @@ public class PaimonUtilTest {
     }
 
     @Test
+    public void testParseSchemaPreservesNestedFieldMetadata() {
+        DataField eventTime = DataTypes.FIELD(
+                17, "event_time", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3));
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(5, "payload", DataTypes.ROW(eventTime)));
+
+        List<Column> columns = PaimonUtil.parseSchema(rowType, Collections.emptyList(), false, true);
+
+        Assert.assertEquals(5, columns.get(0).getUniqueId());
+        Column nested = columns.get(0).getChildren().get(0);
+        Assert.assertEquals(17, nested.getUniqueId());
+        Assert.assertEquals("WITH_TIMEZONE", nested.getExtraInfo());
+    }
+
+    @Test
     public void testGetPartitionInfoMapPreservesNonLowercaseKeys() {
         DataField mixedCasePartition = DataTypes.FIELD(0, "Dt", DataTypes.STRING());
         Table table = Mockito.mock(Table.class);

@@ -29,6 +29,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Collections;
@@ -73,8 +74,11 @@ public final class PaimonLatestSnapshotProjectionLoader {
         Optional<Snapshot> optionalSnapshot = paimonTable.latestSnapshot();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
-            snapshotTable = paimonTable.copy(
-                    Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(latestSnapshotId)));
+            // A schema-only change can be newer than the latest data snapshot. Preserve the
+            // snapshot pin while exposing the current schema so added columns read as null.
+            snapshotTable = ((FileStoreTable) paimonTable.copy(
+                    Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(latestSnapshotId))))
+                    .copyWithLatestSchema();
         }
         DataTable dataTable = (DataTable) paimonTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);

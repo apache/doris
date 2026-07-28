@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
@@ -31,6 +33,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -63,5 +66,26 @@ public class LogicalFileScanTest {
                 "id",
                 IcebergUtils.ICEBERG_ROW_ID_COL,
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL), outputNames);
+    }
+
+    @Test
+    public void testPaimonOptionsBindRelationScopedSnapshotSchema() {
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("paimon_tbl");
+        Map<String, String> options = Collections.singletonMap("scan.snapshot-id", "1");
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS, options, Collections.emptyList());
+        Mockito.when(table.getFullSchema(scanParams)).thenReturn(Arrays.asList(
+                new Column("id", Type.INT, true),
+                new Column("old_name", Type.STRING, true)));
+
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.of(scanParams), Optional.empty());
+
+        Assertions.assertSame(SelectedPartitions.NOT_PRUNED, scan.getSelectedPartitions());
+        Assertions.assertEquals(Arrays.asList("id", "old_name"),
+                scan.computeOutput().stream().map(slot -> slot.getName()).collect(Collectors.toList()));
+        Mockito.verify(table, Mockito.never()).initSelectedPartitions(Mockito.any());
     }
 }
