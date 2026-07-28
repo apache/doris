@@ -40,14 +40,14 @@ public class PaimonWriteSchemaTest {
     public void testReorderedInputProducesTableSchemaRow() {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType(),
                 new String[] {"region", "score", "name", "id"});
-        Object[][] values = new Object[][] {
-                {BinaryString.fromString("south")},
-                {86.5D},
-                {BinaryString.fromString("erin")},
-                {5}
+        Object[] values = new Object[] {
+                BinaryString.fromString("south"),
+                86.5D,
+                BinaryString.fromString("erin"),
+                5
         };
 
-        InternalRow tableRow = schema.tableRow(values, 0);
+        InternalRow tableRow = schema.tableRow(values);
 
         Assertions.assertEquals(5, tableRow.getInt(0));
         Assertions.assertEquals("erin", tableRow.getString(1).toString());
@@ -59,12 +59,12 @@ public class PaimonWriteSchemaTest {
     public void testPartialInputLeavesMissingTableFieldsNull() {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType(),
                 new String[] {"region", "id"});
-        Object[][] values = new Object[][] {
-                {BinaryString.fromString("east")},
-                {6}
+        Object[] values = new Object[] {
+                BinaryString.fromString("east"),
+                6
         };
 
-        InternalRow tableRow = schema.tableRow(values, 0);
+        InternalRow tableRow = schema.tableRow(values);
 
         Assertions.assertEquals(6, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
@@ -89,7 +89,7 @@ public class PaimonWriteSchemaTest {
                         null, "unknown")));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[][] {{7}}, 0);
+        InternalRow tableRow = schema.tableRow(new Object[] {7});
 
         Assertions.assertEquals(7, tableRow.getInt(0));
         Assertions.assertEquals("unknown", tableRow.getString(1).toString());
@@ -102,7 +102,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "name", DataTypes.STRING().notNull())));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[][] {{7}}, 0);
+        InternalRow tableRow = schema.tableRow(new Object[] {7});
 
         Assertions.assertEquals(7, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
@@ -118,11 +118,11 @@ public class PaimonWriteSchemaTest {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
                 new String[] {"region", "score", "id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[][] {
-                {BinaryString.fromString("south")},
-                {92.5D},
-                {8}
-        }, 0);
+        InternalRow tableRow = schema.tableRow(new Object[] {
+                BinaryString.fromString("south"),
+                92.5D,
+                8
+        });
 
         Assertions.assertEquals(8, tableRow.getInt(0));
         Assertions.assertEquals("unknown", tableRow.getString(1).toString());
@@ -138,10 +138,10 @@ public class PaimonWriteSchemaTest {
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
                 new String[] {"name", "id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[][] {
-                {null},
-                {9}
-        }, 0);
+        InternalRow tableRow = schema.tableRow(new Object[] {
+                null,
+                9
+        });
 
         Assertions.assertEquals(9, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
@@ -158,7 +158,7 @@ public class PaimonWriteSchemaTest {
                 new DataField(3, "nested", nestedType, null, "{42, default-value}")));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
-        InternalRow tableRow = schema.tableRow(new Object[][] {{10}}, 0);
+        InternalRow tableRow = schema.tableRow(new Object[] {10});
 
         InternalArray numbers = tableRow.getArray(1);
         Assertions.assertEquals(3, numbers.size());

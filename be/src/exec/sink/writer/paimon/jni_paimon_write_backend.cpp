@@ -23,23 +23,54 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 
+#include <algorithm>
 #include <map>
+#include <mutex>
 #include <string_view>
 #include <vector>
 
 #include "common/check.h"
 #include "common/logging.h"
+#include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
+#include "util/pretty_printer.h"
 #include "util/string_util.h"
 
 namespace doris {
 
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
+
+/// Retains managers whose Java users could not be confirmed as stopped.
+///
+/// A failed Java close may leave asynchronous Paimon flush or compaction tasks
+/// holding MemorySegments backed by these managers. There is no safe signal
+/// for reclaiming those pages later, so keep the manager alive until process
+/// exit instead of risking a use-after-free. The exceptional leak is bounded
+/// by the per-writer native page limit.
+class PaimonJniMemoryManagerQuarantine {
+public:
+    void retain(std::unique_ptr<PaimonJniMemoryManager> manager) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _managers.emplace_back(std::move(manager));
+    }
+
+    static PaimonJniMemoryManagerQuarantine& instance() {
+        // Intentionally never destroy the quarantine: destructing it during
+        // process shutdown could free pages while JVM shutdown order is
+        // already undefined.
+        static auto* quarantine = new PaimonJniMemoryManagerQuarantine();
+        return *quarantine;
+    }
+
+private:
+    std::mutex _mutex;
+    std::vector<std::unique_ptr<PaimonJniMemoryManager>> _managers;
+};
 } // namespace
 
 // ────────────────────────────────────────────────────────────
@@ -73,14 +104,18 @@ static Status _get_jni_env(JNIEnv** env) {
 
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
     JNIEnv* env = nullptr;
-    if (_get_jni_env(&env).ok()) {
+    bool java_users_stopped = _jni_writer_obj == nullptr;
+    Status env_status = _get_jni_env(&env);
+    if (env_status.ok()) {
         if (_jni_writer_obj != nullptr) {
+            _refresh_memory_profile();
             DCHECK(_close_id != nullptr);
             env->CallVoidMethod(_jni_writer_obj, _close_id);
             Status close_status = _check_jni_exception(env, "close PaimonJniWriter");
             if (!close_status.ok()) {
                 LOG(WARNING) << "Failed to close PaimonJniWriter: " << close_status.to_string();
             }
+            java_users_stopped = close_status.ok();
             env->DeleteGlobalRef(_jni_writer_obj);
             _jni_writer_obj = nullptr;
         }
@@ -88,6 +123,17 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
             env->DeleteGlobalRef(_jni_writer_cls);
             _jni_writer_cls = nullptr;
         }
+    } else if (_jni_writer_obj != nullptr) {
+        LOG(WARNING) << "Cannot close PaimonJniWriter because JNI environment is unavailable: "
+                     << env_status.to_string();
+    }
+    if (java_users_stopped) {
+        _memory_manager.reset();
+    } else if (_memory_manager != nullptr) {
+        LOG(WARNING) << "Retaining Paimon JNI native memory after an unconfirmed Java close: limit="
+                     << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
+                     << PrettyPrinter::print_bytes(_memory_manager->native_peak_allocated_bytes());
+        PaimonJniMemoryManagerQuarantine::instance().retain(std::move(_memory_manager));
     }
     _opened = false;
 }
@@ -142,7 +188,8 @@ static jobject _to_java_options(JNIEnv* env, const std::map<std::string, std::st
     return map_obj;
 }
 
-Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state) {
+Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
+                                   RuntimeProfile* profile) {
     _sink = sink;
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);
@@ -152,6 +199,12 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     DORIS_CHECK(sink.transaction_id > 0);
     DORIS_CHECK(sink.__isset.commit_user);
     DORIS_CHECK(!sink.commit_user.empty());
+    DORIS_CHECK(profile != nullptr);
+
+    RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, &_memory_manager));
+    RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
+    _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
+    _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_get_jni_env(&env));
@@ -162,12 +215,13 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     RETURN_IF_ERROR(_load_writer_class(env, &local_cls));
     _jni_writer_cls = static_cast<jclass>(env->NewGlobalRef(local_cls));
     env->DeleteLocalRef(local_cls);
+    RETURN_IF_ERROR(PaimonJniMemoryManager::register_natives(env, _jni_writer_cls));
 
     // Step 2: Cache JNI method IDs for write, prepareCommit, abort, close.
     jmethodID open_id = env->GetMethodID(
             _jni_writer_cls, "open",
             "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZLjava/lang/"
-            "String;Ljava/lang/String;)V");
+            "String;Ljava/lang/String;JJ)V");
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -208,7 +262,9 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     env->CallVoidMethod(_jni_writer_obj, open_id, j_serialized_table, j_hadoop_config, j_cols,
                         static_cast<jlong>(sink.transaction_id), j_commit_user,
                         static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::OVERWRITE),
-                        j_time_zone, j_spill_directories);
+                        j_time_zone, j_spill_directories,
+                        static_cast<jlong>(_memory_manager->memory_limit()),
+                        reinterpret_cast<jlong>(_memory_manager.get()));
     Status st = _check_jni_exception(env, "open");
 
     env->DeleteLocalRef(j_serialized_table);
@@ -221,6 +277,10 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     if (st.ok()) {
         _opened = true;
+        _refresh_memory_profile();
+        LOG(INFO) << "Paimon JNI writer memory limit: "
+                  << PrettyPrinter::print_bytes(_memory_manager->memory_limit())
+                  << ", local_sink_count=" << std::max(1, state->num_local_sink());
     }
     return st;
 }
@@ -380,6 +440,14 @@ Status JniPaimonWriter::abort() {
     RETURN_IF_ERROR(_get_jni_env(&env));
     env->CallVoidMethod(_jni_writer_obj, _abort_id);
     return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception in abort: ");
+}
+
+void JniPaimonWriteBackend::_refresh_memory_profile() {
+    if (_memory_manager == nullptr) {
+        return;
+    }
+    COUNTER_SET(_native_page_memory_limit, _memory_manager->memory_limit());
+    COUNTER_SET(_native_page_memory_peak, _memory_manager->native_peak_allocated_bytes());
 }
 
 } // namespace doris

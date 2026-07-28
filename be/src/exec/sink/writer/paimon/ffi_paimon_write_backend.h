@@ -26,7 +26,8 @@ namespace doris {
 /// introducing a BE commit contract that the Rust writer will not own.
 class FfiPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
-    Status open(const TPaimonTableSink& sink, RuntimeState* state) override;
+    Status open(const TPaimonTableSink& sink, RuntimeState* state,
+                RuntimeProfile* profile) override;
     Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
     PaimonBackendType type() const override { return PaimonBackendType::FFI; }
 };

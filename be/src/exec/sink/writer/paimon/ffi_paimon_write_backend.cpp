@@ -19,7 +19,7 @@
 
 namespace doris {
 
-Status FfiPaimonWriteBackend::open(const TPaimonTableSink&, RuntimeState*) {
+Status FfiPaimonWriteBackend::open(const TPaimonTableSink&, RuntimeState*, RuntimeProfile*) {
     return Status::NotSupported("Paimon Rust FFI writer is not implemented");
 }
 

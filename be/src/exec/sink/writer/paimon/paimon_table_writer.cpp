@@ -56,7 +56,7 @@ Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
     DCHECK(_backend);
     // Step 2: Open the backend — for JNI this loads the Java class and calls PaimonJniWriter.open().
-    RETURN_IF_ERROR(_backend->open(_t_sink.paimon_table_sink, state));
+    RETURN_IF_ERROR(_backend->open(_t_sink.paimon_table_sink, state, profile));
     // Step 3: Create a lightweight writer adapter that delegates to the opened backend.
     RETURN_IF_ERROR(_backend->create_writer(&_writer));
     DCHECK(_writer);

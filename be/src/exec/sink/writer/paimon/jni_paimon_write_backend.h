@@ -24,8 +24,10 @@
 #include <string>
 
 #include "common/status.h"
+#include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 #include "format/parquet/arrow_memory_pool.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 
@@ -37,18 +39,22 @@ class RuntimeState;
 ///
 /// Each JniPaimonWriteBackend corresponds to one Java PaimonJniWriter
 /// instance; the JniPaimonWriter adapters are thin wrappers that delegate
-/// write/prepare_commit/abort calls through the cached JNI method IDs.
+/// write/prepare_commit/abort calls through the cached JNI method IDs. JNI-only
+/// memory ownership and Profile counters stay here and are not part of the
+/// common backend contract.
 class JniPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
     ~JniPaimonWriteBackend() override;
 
-    Status open(const TPaimonTableSink& sink, RuntimeState* state) override;
+    Status open(const TPaimonTableSink& sink, RuntimeState* state,
+                RuntimeProfile* profile) override;
     Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
     PaimonBackendType type() const override { return PaimonBackendType::JNI; }
 
 private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
     Status _load_writer_class(JNIEnv* env, jclass* writer_class);
+    void _refresh_memory_profile();
 
     // JNI global references — live for the duration of this backend.
     jclass _jni_writer_cls = nullptr;
@@ -61,6 +67,9 @@ private:
     jmethodID _close_id = nullptr;
 
     TPaimonTableSink _sink;
+    std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
+    RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
+    RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
     bool _opened = false;
 };
 

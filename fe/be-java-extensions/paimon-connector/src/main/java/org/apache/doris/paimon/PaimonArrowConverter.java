@@ -72,127 +72,36 @@ final class PaimonArrowConverter {
         this.sessionTimeZone = sessionTimeZone;
     }
 
-    Object[][] convert(VectorSchemaRoot root, DataType[] targetTypes) {
+    RowReader rows(VectorSchemaRoot root, DataType[] targetTypes) {
         List<Field> fields = root.getSchema().getFields();
         List<FieldVector> vectors = root.getFieldVectors();
         if (fields.size() != targetTypes.length) {
             throw new IllegalArgumentException("Arrow column count does not match Paimon write type");
         }
-
-        Object[][] columnValues = new Object[fields.size()][];
-        for (int column = 0; column < fields.size(); column++) {
-            columnValues[column] = extractColumnValues(
-                    vectors.get(column), fields.get(column), targetTypes[column], root.getRowCount());
-        }
-        return columnValues;
+        return new RowReader(fields, vectors, targetTypes);
     }
 
-    private Object[] extractColumnValues(FieldVector vector, Field arrowField,
-                                         DataType targetType, int rowCount) {
-        Object[] values = new Object[rowCount];
+    /** Bound view of one Arrow batch which converts only the requested row. */
+    final class RowReader {
+        private final List<Field> fields;
+        private final List<FieldVector> vectors;
+        private final DataType[] targetTypes;
 
-        if (vector instanceof IntVector) {
-            IntVector intVector = (IntVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = intVector.isNull(i) ? null : intVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof BigIntVector) {
-            BigIntVector bigIntVector = (BigIntVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = bigIntVector.isNull(i) ? null : bigIntVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof SmallIntVector) {
-            SmallIntVector smallIntVector = (SmallIntVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = smallIntVector.isNull(i) ? null : smallIntVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof TinyIntVector) {
-            TinyIntVector tinyIntVector = (TinyIntVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = tinyIntVector.isNull(i) ? null : tinyIntVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof Float4Vector) {
-            Float4Vector floatVector = (Float4Vector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = floatVector.isNull(i) ? null : floatVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof Float8Vector) {
-            Float8Vector doubleVector = (Float8Vector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = doubleVector.isNull(i) ? null : doubleVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof BitVector) {
-            BitVector bitVector = (BitVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = bitVector.isNull(i) ? null : bitVector.get(i) == 1;
-            }
-            return values;
-        }
-        if (vector instanceof DateDayVector) {
-            DateDayVector dateVector = (DateDayVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = dateVector.isNull(i) ? null : dateVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof VarCharVector) {
-            VarCharVector stringVector = (VarCharVector) vector;
-            boolean binary = targetType instanceof BinaryType || targetType instanceof VarBinaryType;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = stringVector.isNull(i) ? null
-                        : binary ? stringVector.get(i) : BinaryString.fromBytes(stringVector.get(i));
-            }
-            return values;
-        }
-        if (vector instanceof VarBinaryVector) {
-            VarBinaryVector binaryVector = (VarBinaryVector) vector;
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = binaryVector.isNull(i) ? null : binaryVector.get(i);
-            }
-            return values;
-        }
-        if (vector instanceof TimeStampVector) {
-            TimeStampVector timestampVector = (TimeStampVector) vector;
-            ArrowType.Timestamp timestampType = (ArrowType.Timestamp) arrowField.getType();
-            for (int i = 0; i < rowCount; i++) {
-                values[i] = timestampVector.isNull(i) ? null : toPaimonTimestamp(
-                        arrowTimestampToMicros(timestampVector.get(i), timestampType),
-                        timestampType, targetType);
-            }
-            return values;
-        }
-        if (vector instanceof DecimalVector) {
-            DecimalVector decimalVector = (DecimalVector) vector;
-            int precision = decimalVector.getPrecision();
-            int scale = decimalVector.getScale();
-            for (int i = 0; i < rowCount; i++) {
-                if (decimalVector.isNull(i)) {
-                    values[i] = null;
-                } else {
-                    BigDecimal decimal = getBigDecimalFromArrowBuf(
-                            decimalVector.getDataBuffer(), i, scale, DecimalVector.TYPE_WIDTH);
-                    values[i] = Decimal.fromBigDecimal(decimal, precision, scale);
-                }
-            }
-            return values;
+        private RowReader(
+                List<Field> fields, List<FieldVector> vectors, DataType[] targetTypes) {
+            this.fields = fields;
+            this.vectors = vectors;
+            this.targetTypes = targetTypes;
         }
 
-        for (int i = 0; i < rowCount; i++) {
-            values[i] = convertVectorValue(vector, i, arrowField, targetType);
+        Object[] values(int rowIndex) {
+            Object[] values = new Object[vectors.size()];
+            for (int column = 0; column < vectors.size(); column++) {
+                values[column] = convertVectorValue(
+                        vectors.get(column), rowIndex, fields.get(column), targetTypes[column]);
+            }
+            return values;
         }
-        return values;
     }
 
     private Object convertVectorValue(

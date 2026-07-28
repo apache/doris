@@ -28,6 +28,14 @@ import java.util.Collections;
 public class PaimonJniWriterTest {
 
     @Test
+    public void testManagedMemoryPoolRequiresAtLeastOnePage() {
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new DorisMemorySegmentPool(32 * 1024, 64 * 1024, 1L));
+        Assertions.assertTrue(exception.getMessage().contains("at least one page"));
+    }
+
+    @Test
     public void testOpenFailureRestoresContextClassLoader() throws Exception {
         Thread thread = Thread.currentThread();
         ClassLoader originalClassLoader = thread.getContextClassLoader();
@@ -37,7 +45,8 @@ public class PaimonJniWriterTest {
         try {
             Assertions.assertThrows(Exception.class, () -> writer.open(
                     "not-a-serialized-table", Collections.emptyMap(), new String[0],
-                    1L, "test-user", false, "UTC", System.getProperty("java.io.tmpdir")));
+                    1L, "test-user", false, "UTC", System.getProperty("java.io.tmpdir"),
+                    64L * 1024 * 1024, 1L));
             Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
         } finally {
             try {

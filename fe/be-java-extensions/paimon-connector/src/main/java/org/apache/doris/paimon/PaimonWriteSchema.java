@@ -111,8 +111,12 @@ final class PaimonWriteSchema {
         return targetTypes;
     }
 
-    /** Expand one Arrow row to the full Paimon table-schema layout. */
-    GenericRow tableRow(Object[][] columnValues, int rowIndex) {
+    /** Expand one input row to the full Paimon table-schema layout. */
+    GenericRow tableRow(Object[] columnValues) {
+        if (columnValues.length != tableFieldIndexes.length) {
+            throw new IllegalArgumentException(
+                    "Paimon input value count does not match write schema");
+        }
         GenericRow row = new GenericRow(tableFieldCount);
         for (int i = 0; i < omittedDefaultFieldIndexes.length; i++) {
             row.setField(omittedDefaultFieldIndexes[i], omittedDefaultValues[i]);
@@ -120,7 +124,7 @@ final class PaimonWriteSchema {
         for (int i = 0; i < tableFieldIndexes.length; i++) {
             // Actual Doris input is applied last so an explicit NULL remains distinct
             // from an omitted field and retains Paimon's writer-side semantics.
-            row.setField(tableFieldIndexes[i], columnValues[i][rowIndex]);
+            row.setField(tableFieldIndexes[i], columnValues[i]);
         }
         return row;
     }

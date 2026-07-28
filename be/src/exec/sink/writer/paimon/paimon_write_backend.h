@@ -28,6 +28,7 @@
 namespace doris {
 
 class RuntimeState;
+class RuntimeProfile;
 
 enum class PaimonBackendType {
     JNI, // Java via JNI (PaimonJniWriter)
@@ -73,7 +74,8 @@ public:
 
     /// Initialize the backend connection. For JNI this loads the writer class,
     /// creates the Java object, and calls PaimonJniWriter.open().
-    virtual Status open(const TPaimonTableSink& sink, RuntimeState* state) = 0;
+    virtual Status open(const TPaimonTableSink& sink, RuntimeState* state,
+                        RuntimeProfile* profile) = 0;
 
     /// Create a lightweight writer adapter that delegates to this backend.
     virtual Status create_writer(std::unique_ptr<IPaimonWriter>* writer) = 0;

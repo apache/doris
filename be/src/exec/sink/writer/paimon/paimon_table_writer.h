@@ -52,12 +52,10 @@ class RuntimeState;
 ///     │  owns IPaimonWriteBackend (JNI or FFI)
 ///     │    └─ create_writer() → IPaimonWriter
 ///     │  write()
-///     │    → Block → Arrow IPC → JNI direct buffer
-///     │    → Java: ArrowStreamReader → PaimonJniWriter
-///     │    → normalize to table-schema row layout
-///     │    → BatchTableWrite.write(row) (SDK-owned routing and buffering)
-///     │    → AppendOnlyWriter / KeyValueFileWriter
-///     │    → CompactManager (auto compaction)
+///     │    → JNI backend: Block → Arrow IPC → Java Paimon SDK
+///     │    → FFI backend: Block → Rust writer (future)
+///     │    → selected SDK owns row normalization, routing, buffering,
+///     │      file writing, and compaction
 ///     ▼
 ///   close() → prepareCommit() → CommitMessage[]
 ///
