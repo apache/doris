@@ -1171,9 +1171,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!(source instanceof MvccTable)) {
             return Optional.empty();
         }
-        return Optional.of(((MvccTable) source).loadSnapshot(
+        // Delegate to the sys table's own memo rather than calling loadSnapshot again: analysis already
+        // resolved this exact selector there to bind the output schema
+        // (LogicalFileScan.computePluginDrivenOutput). Re-resolving would re-open the bind-vs-scan skew for a
+        // MUTABLE selector -- scan.mode=latest, a wall-clock scan.timestamp-millis -- which the connector
+        // evaluates against the LIVE table on every call, so a commit landing between the two would scan a
+        // different version than the one whose schema is bound.
+        return ((PluginDrivenSysExternalTable) getTargetTable()).resolveScanPin(
                 Optional.ofNullable(getQueryTableSnapshot()),
-                Optional.ofNullable(getScanParams())));
+                Optional.ofNullable(getScanParams()));
     }
 
     /**
@@ -2036,6 +2042,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // and the latest 2-arg map is used exactly as before.
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable(),
                 Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
+        if (!snapshot.isPresent()) {
+            // Same empty-context hole pinMvccSnapshot closes, for the PROJECTION half: a sys table is not an
+            // MvccTable, so the lookup above is empty by construction and the handles would be built at the
+            // LATEST schema while the slots were bound at the pinned one -- i.e. exactly the silent
+            // column-drop this method exists to prevent, just reached through the sys path. Shares the sys
+            // table's memoized pin, so no extra resolution.
+            snapshot = resolveSysTableSnapshotPin();
+        }
         SchemaCacheValue pinnedSchema = null;
         ConnectorMvccSnapshot connectorSnapshot = null;
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {

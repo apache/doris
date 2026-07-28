@@ -286,10 +286,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        if (paimonHandle.isSystemTable()) {
+            return systemTableSchemaAt(session, paimonHandle, snapshot);
+        }
         if (snapshot == null || snapshot.getSchemaId() < 0) {
             return getTableSchema(session, handle);
         }
-        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long schemaId = snapshot.getSchemaId();
         // Resolve the table AT the snapshot's identity: applySnapshot routes a @branch read's
         // CoreOptions.BRANCH sentinel to withBranch, so schemaAt reads the branch's OWN schema dir
@@ -313,6 +316,54 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 schema.fields(),
                 schema.partitionKeys(),
                 schema.primaryKeys());
+    }
+
+    /**
+     * The schema of a SYSTEM table AS OF {@code snapshot}.
+     *
+     * <p>A metadata view has no schema-version history, so there is nothing for {@code schemaAt} to read —
+     * its schema IS its own {@code rowType()}. But several views DERIVE that rowType from the base table
+     * ({@code $audit_log} = {@code rowkind} + the base rowType, plus {@code $ro} / {@code $binlog}), so it
+     * follows whichever snapshot the pin selected. Resolve the view with the pin's options applied and map
+     * THAT — the same {@code Table.copy} the scan path performs in
+     * {@code PaimonScanPlanProvider.resolveScanTable}. Going through {@code schemaAt} instead would return
+     * the BASE table's historical fields and drop the view's own columns.
+     *
+     * <p>Without this arm the view's schema was bound from LATEST while the scan read the pinned snapshot:
+     * a column dropped/renamed after the pin failed to bind at all
+     * ({@code $audit_log@options('scan.tag-name'=...)} -> "Unknown column"), and — worse — a column whose
+     * TYPE changed bound silently at the wrong type. A pin-free call ({@code snapshot == null}, or one
+     * carrying no scan options) leaves {@code applySnapshot} a no-op and degrades byte-for-byte to the
+     * 2-arg system-table path.
+     */
+    private ConnectorTableSchema systemTableSchemaAt(ConnectorSession session,
+            PaimonTableHandle paimonHandle, ConnectorMvccSnapshot snapshot) {
+        Table table = resolveSystemTableAt(session, paimonHandle, snapshot);
+        return buildTableSchema(
+                paimonHandle.getTableName(),
+                table,
+                table.rowType().getFields(),
+                paimonHandle.getPartitionKeys(),
+                table.primaryKeys());
+    }
+
+    /**
+     * The SYSTEM table resolved with {@code snapshot}'s scan options layered on — the metadata-side twin of
+     * {@code PaimonScanPlanProvider.resolveScanTable}, so the schema the query binds and the columns the
+     * scan reads come from the SAME view instance. A null snapshot, or one carrying no {@code @options} pin,
+     * leaves the resolution byte-for-byte identical to the un-pinned path.
+     */
+    private Table resolveSystemTableAt(ConnectorSession session,
+            PaimonTableHandle paimonHandle, ConnectorMvccSnapshot snapshot) {
+        PaimonTableHandle pinned = snapshot == null
+                ? paimonHandle
+                : (PaimonTableHandle) applySnapshot(session, paimonHandle, snapshot);
+        Table table = resolveTable(pinned);
+        Map<String, String> scanOptions = pinned.getScanOptions();
+        if (scanOptions != null && !scanOptions.isEmpty() && PaimonScanParams.isOptionsPin(scanOptions)) {
+            return PaimonScanParams.applyOptions(table, scanOptions);
+        }
+        return table;
     }
 
     /**
@@ -1074,10 +1125,19 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     public Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
+        PaimonTableHandle sysCandidate = (PaimonTableHandle) handle;
+        if (sysCandidate.isSystemTable()) {
+            // A metadata view has no schema-version history for schemaAt to read, and going through it would
+            // return the BASE table's historical fields -- dropping the view's own columns (e.g. $audit_log's
+            // leading `rowkind`). Build the handles from the pinned view's own rowType, the same source
+            // systemTableSchemaAt binds the slots from, so the two cannot disagree.
+            return buildColumnHandles(
+                    resolveSystemTableAt(session, sysCandidate, snapshot).rowType().getFields());
+        }
         if (snapshot == null || snapshot.getSchemaId() < 0) {
             return getColumnHandles(session, handle);
         }
-        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        PaimonTableHandle paimonHandle = sysCandidate;
         long schemaId = snapshot.getSchemaId();
         // Resolve the table AT the snapshot's identity BEFORE reading the pinned schema. buildColumnHandles
         // (PluginDrivenScanNode) calls this with the BASE handle -- the branch/MVCC pin is threaded onto
