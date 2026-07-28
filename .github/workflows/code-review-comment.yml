@@ -51,6 +51,7 @@ jobs:
     needs:
       - resolve-pr
       - mark-review-pending
+      - enqueue-review
     if: >-
       github.event.issue.pull_request &&
       startsWith(github.event.comment.body, '/review') &&
@@ -66,6 +67,51 @@ jobs:
       head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
       base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
       review_focus: ${{ needs.resolve-pr.outputs.review_focus }}
+      deferred_request_id: ${{ github.run_id }}
+
+  enqueue-review:
+    needs: resolve-pr
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/review') &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+    steps:
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Persist review request before runner allocation
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+          BASE_SHA: ${{ needs.resolve-pr.outputs.base_sha }}
+          REVIEW_FOCUS: ${{ needs.resolve-pr.outputs.review_focus }}
+        run: |
+          request_file="$(mktemp "$RUNNER_TEMP/codex-review-pending.XXXXXX")"
+          trap 'rm -f "$request_file"' EXIT
+          jq -n \
+            --arg pr_number "$PR_NUMBER" \
+            --arg head_sha "$HEAD_SHA" \
+            --arg base_sha "$BASE_SHA" \
+            --arg review_focus "$REVIEW_FOCUS" \
+            --arg request_id "$GITHUB_RUN_ID" \
+            '{pr_number: $pr_number, head_sha: $head_sha, base_sha: $base_sha,
+              review_focus: $review_focus, not_before: "", request_id: $request_id}' > "$request_file"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+            "$request_file" "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${GITHUB_RUN_ID}.json"
 
   mark-review-pending:
     needs: resolve-pr

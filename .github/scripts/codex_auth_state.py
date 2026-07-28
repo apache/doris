@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import tempfile
@@ -22,10 +23,18 @@ TRANSIENT_FAILURE = "transient_failure"
 STATUS_VALUES = {AVAILABLE, QUOTA_EXHAUSTED, RATE_LIMITED, AUTHENTICATION_FAILED}
 QUOTA_RETRY_DELAY = timedelta(days=1)
 RATE_LIMIT_RETRY_DELAY = timedelta(hours=1)
-AUTHENTICATION_RETRY_DELAY = timedelta(days=1)
+PERMANENT_AUTH_FAILURE_PATTERN = re.compile(
+    r"refresh[\s_-]*token.*(?:revoked|expired|already\s+used)|"
+    r"(?:revoked|expired).*refresh[\s_-]*token",
+    re.IGNORECASE,
+)
+USAGE_LIMIT_MESSAGE_PATTERN = re.compile(
+    r"you(?:'|\u2019)ve hit your usage limit|usage limit",
+    re.IGNORECASE,
+)
 USAGE_LIMIT_RETRY_PATTERN = re.compile(
-    r"(?:you(?:'|\u2019)ve hit your usage limit|usage limit).*?try again at\s+"
-    r"([A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?,\s+\d{4}\s+\d{1,2}:\d{2}\s+(?:AM|PM))",
+    r"try again at\s+(?:(?P<date>[A-Za-z]{3,9}\s+\d{1,2}(?:st|nd|rd|th)?,\s+\d{4}\s+"
+    r"\d{1,2}:\d{2}\s+(?:AM|PM))|(?P<time>\d{1,2}:\d{2}\s+(?:AM|PM)))",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -96,6 +105,43 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
         temporary.write("\n")
         temporary_path = Path(temporary.name)
     temporary_path.replace(path)
+
+
+def promote_auth(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    if baseline.get("auth_mode") != "chatgpt" or candidate.get("auth_mode") != "chatgpt":
+        raise ValueError("Codex credentials must use ChatGPT authentication")
+
+    baseline_tokens = baseline.get("tokens")
+    candidate_tokens = candidate.get("tokens")
+    if not isinstance(baseline_tokens, dict) or not isinstance(candidate_tokens, dict):
+        raise ValueError("Codex credentials must contain a tokens object")
+    for token_name in ("access_token", "refresh_token"):
+        if not isinstance(baseline_tokens.get(token_name), str) or not baseline_tokens[token_name]:
+            raise ValueError(f"Baseline {token_name} must be a non-empty string")
+        if not isinstance(candidate_tokens.get(token_name), str) or not candidate_tokens[token_name]:
+            raise ValueError(f"Candidate {token_name} must be a non-empty string")
+
+    immutable_baseline = copy.deepcopy(baseline)
+    immutable_candidate = copy.deepcopy(candidate)
+    for credentials in (immutable_baseline, immutable_candidate):
+        del credentials["tokens"]["access_token"]
+        del credentials["tokens"]["refresh_token"]
+        credentials.pop("last_refresh", None)
+    if immutable_candidate != immutable_baseline:
+        raise ValueError("Refreshed credentials changed an immutable identity field")
+
+    promoted = copy.deepcopy(baseline)
+    promoted["tokens"]["access_token"] = candidate_tokens["access_token"]
+    promoted["tokens"]["refresh_token"] = candidate_tokens["refresh_token"]
+    return promoted
+
+
+def promote_auth_file(baseline_path: Path, candidate_path: Path, output_path: Path) -> None:
+    baseline = json.loads(baseline_path.read_text())
+    candidate = json.loads(candidate_path.read_text())
+    if not isinstance(baseline, dict) or not isinstance(candidate, dict):
+        raise ValueError("Codex credentials must be JSON objects")
+    save_state(output_path, promote_auth(baseline, candidate))
 
 
 def account_state(state: dict[str, Any], auth_object: str) -> dict[str, Any]:
@@ -183,7 +229,7 @@ def record_result(
         http_status = http_status or 429
     elif result == AUTHENTICATION_FAILED:
         http_status = http_status or 401
-        retry_at = now + AUTHENTICATION_RETRY_DELAY
+        retry_at = None
     elif result == TRANSIENT_FAILURE:
         entry["status"] = AVAILABLE
         entry["last_failure_at"] = timestamp
@@ -199,7 +245,7 @@ def record_result(
     entry["status"] = result
     entry["last_failure_at"] = timestamp
     entry["last_http_status"] = http_status
-    entry["retry_after"] = format_timestamp(retry_at)
+    entry["retry_after"] = format_timestamp(retry_at) if retry_at is not None else None
 
 
 def extract_http_status(text: str) -> int | None:
@@ -213,20 +259,32 @@ def extract_http_status(text: str) -> int | None:
     return None
 
 
-def usage_limit_retry_after(text: str) -> datetime | None:
+def usage_limit_retry_after(text: str, now: datetime | None = None) -> datetime | None:
     match = USAGE_LIMIT_RETRY_PATTERN.search(text)
     if match is None:
         return None
 
-    timestamp = re.sub(r"(\d)(?:st|nd|rd|th)\b", r"\1", match.group(1), flags=re.IGNORECASE)
+    full_timestamp = match.group("date")
+    if full_timestamp is not None:
+        timestamp = re.sub(r"(\d)(?:st|nd|rd|th)\b", r"\1", full_timestamp, flags=re.IGNORECASE)
+        try:
+            return datetime.strptime(timestamp, "%b %d, %Y %I:%M %p").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+    current_time = now or utc_now()
     try:
-        return datetime.strptime(timestamp, "%b %d, %Y %I:%M %p").replace(tzinfo=timezone.utc)
+        retry_time = datetime.strptime(match.group("time"), "%I:%M %p").time()
     except ValueError:
         return None
+    retry_at = datetime.combine(current_time.date(), retry_time, tzinfo=timezone.utc)
+    return retry_at if retry_at > current_time else retry_at + timedelta(days=1)
 
 
 def classify_failure(text: str) -> str:
-    if usage_limit_retry_after(text) is not None:
+    if PERMANENT_AUTH_FAILURE_PATTERN.search(text):
+        return AUTHENTICATION_FAILED
+    if USAGE_LIMIT_MESSAGE_PATTERN.search(text):
         return QUOTA_EXHAUSTED
     http_status = extract_http_status(text)
     if http_status == 429:
@@ -280,9 +338,14 @@ def terminal_stderr_error(stderr: str) -> str | None:
     return next((line for line in reversed(stderr.splitlines()) if line.strip()), None)
 
 
-def classify_terminal_failure(events: str, stderr: str) -> FailureClassification:
+def classify_terminal_failure(
+    events: str, stderr: str, now: datetime | None = None
+) -> FailureClassification:
     message = terminal_event_error(events) or terminal_stderr_error(stderr) or ""
-    retry_after = usage_limit_retry_after(message)
+    current_time = now or utc_now()
+    retry_after = usage_limit_retry_after(message, current_time)
+    if retry_after is None and classify_failure(message) == QUOTA_EXHAUSTED:
+        retry_after = current_time + QUOTA_RETRY_DELAY
     return FailureClassification(
         kind=classify_failure(message),
         http_status=extract_http_status(message),
@@ -323,11 +386,19 @@ def parse_args() -> argparse.Namespace:
     classify = subcommands.add_parser("classify")
     classify.add_argument("--events", type=Path, required=True)
     classify.add_argument("--stderr", type=Path, required=True)
+
+    promote = subcommands.add_parser("promote")
+    promote.add_argument("--baseline", type=Path, required=True)
+    promote.add_argument("--candidate", type=Path, required=True)
+    promote.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.command == "promote":
+        promote_auth_file(args.baseline, args.candidate, args.output)
+        return
     if args.command == "classify":
         classification = classify_terminal_failure(
             args.events.read_text(errors="replace"), args.stderr.read_text(errors="replace")

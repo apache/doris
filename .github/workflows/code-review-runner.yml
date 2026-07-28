@@ -16,6 +16,10 @@ on:
         required: false
         type: string
         default: ''
+      deferred_request_id:
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       pr_number:
@@ -28,6 +32,10 @@ on:
         required: true
         type: string
       review_focus:
+        required: false
+        type: string
+        default: ''
+      deferred_request_id:
         required: false
         type: string
         default: ''
@@ -121,6 +129,25 @@ jobs:
       - name: Configure Codex auth
         id: configure_auth
         run: |
+          defer_review() {
+            local retry_at="$1" request_id
+            request_id="${DEFERRED_REQUEST_ID:-$GITHUB_RUN_ID}"
+            local request_file
+            request_file="$(mktemp "$RUNNER_TEMP/codex-review-pending.XXXXXX")"
+            jq -n \
+              --arg pr_number "$PR_NUMBER" \
+              --arg head_sha "$HEAD_SHA" \
+              --arg base_sha "$BASE_SHA" \
+              --arg review_focus "$REVIEW_FOCUS" \
+              --arg not_before "$retry_at" \
+              --arg request_id "$request_id" \
+              '{pr_number: $pr_number, head_sha: $head_sha, base_sha: $base_sha,
+                review_focus: $review_focus, not_before: $not_before, request_id: $request_id}' > "$request_file"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$request_file" "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${request_id}.json"
+            rm -f "$request_file"
+          }
+
           codex_review_user=codex-review
           sudo useradd --create-home --shell /usr/sbin/nologin "$codex_review_user"
           codex_home="$(mktemp -d /tmp/codex-home.XXXXXX)"
@@ -150,7 +177,8 @@ jobs:
                 and (.tokens.access_token | type == "string" and length > 0)
                 and (.tokens.refresh_token | type == "string" and length > 0)
               ' "$candidate_auth_file" >/dev/null; then
-              printf '%s\n' "$candidate" >> "$auth_objects_file"
+              candidate_hash="$(sha256sum "$candidate_auth_file" | awk '{print $1}')"
+              printf '%s#%s\n' "$candidate" "$candidate_hash" >> "$auth_objects_file"
             else
               echo "Skipping invalid Codex auth object: ${candidate##*/}"
             fi
@@ -195,17 +223,26 @@ jobs:
           printf 'CODEX_AUTH_OBJECTS_FILE=%s\n' "$auth_objects_file" >> "$GITHUB_ENV"
           printf 'CODEX_AUTH_STATE_FILE=%s\n' "$state_file" >> "$GITHUB_ENV"
 
-          auth_object="$(jq -r '.auth_object // empty' <<<"$selection_json")"
+          auth_state_key="$(jq -r '.auth_object // empty' <<<"$selection_json")"
+          auth_object="${auth_state_key%%#*}"
           all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$selection_json")"
           printf 'all_quota_exhausted=%s\n' "$all_quota_exhausted" >> "$GITHUB_OUTPUT"
           if [ -z "$auth_object" ]; then
-            next_retry_at="$(jq -r '.next_retry_at // "unknown"' <<<"$selection_json")"
-            echo "No Codex auth account is currently eligible; next retry: $next_retry_at"
+            next_retry_at="$(jq -r '.next_retry_at // empty' <<<"$selection_json")"
+            if [ -n "$next_retry_at" ]; then
+              defer_review "$next_retry_at"
+            fi
+            echo "No Codex auth account is currently eligible; next retry: ${next_retry_at:-unknown}"
             printf 'auth_unavailable=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          request_id="${DEFERRED_REQUEST_ID:-$GITHUB_RUN_ID}"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f \
+            "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${request_id}.json" || true
+
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
+          printf 'CODEX_AUTH_STATE_KEY=%s\n' "$auth_state_key" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$candidate_auth_file"
           test -s "$candidate_auth_file"
@@ -216,6 +253,9 @@ jobs:
           ' "$candidate_auth_file" >/dev/null
           sudo install -o "$codex_review_user" -g "$codex_review_user" -m 600 \
             "$candidate_auth_file" "$codex_home/auth.json"
+          auth_snapshot="$control_dir/auth-snapshot.json"
+          install -m 600 "$candidate_auth_file" "$auth_snapshot"
+          printf 'CODEX_AUTH_SNAPSHOT=%s\n' "$auth_snapshot" >> "$GITHUB_ENV"
 
           config_file="$control_dir/config.toml"
           cat > "$config_file" <<EOF
@@ -246,6 +286,12 @@ jobs:
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_AUTH_STATUS_OBJECT: oss://doris-community-ci/codex/auth-status.json
+          OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+          DEFERRED_REQUEST_ID: ${{ inputs.deferred_request_id }}
 
       - name: Sync Codex memories from OSS
         run: |
@@ -603,11 +649,15 @@ jobs:
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_CODEX_AUTH_STATUS_OBJECT: oss://doris-community-ci/codex/auth-status.json
+          OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
           AUTH_UNAVAILABLE: ${{ steps.configure_auth.outputs.auth_unavailable }}
           CONFIGURED_ALL_QUOTA_EXHAUSTED: ${{ steps.configure_auth.outputs.all_quota_exhausted }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+          DEFERRED_REQUEST_ID: ${{ inputs.deferred_request_id }}
         run: |
           write_review_output() {
             local key="$1"
@@ -617,6 +667,25 @@ jobs:
               printf '%s\n' "$value"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
+          }
+
+          defer_review() {
+            local retry_at="$1" request_id
+            request_id="${DEFERRED_REQUEST_ID:-$GITHUB_RUN_ID}"
+            local request_file
+            request_file="$(mktemp "$RUNNER_TEMP/codex-review-pending.XXXXXX")"
+            jq -n \
+              --arg pr_number "$PR_NUMBER" \
+              --arg head_sha "$HEAD_SHA" \
+              --arg base_sha "$BASE_SHA" \
+              --arg review_focus "$REVIEW_FOCUS" \
+              --arg not_before "$retry_at" \
+              --arg request_id "$request_id" \
+              '{pr_number: $pr_number, head_sha: $head_sha, base_sha: $base_sha,
+                review_focus: $review_focus, not_before: $not_before, request_id: $request_id}' > "$request_file"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$request_file" "$OSS_CODEX_REVIEW_PENDING_PREFIX/${PR_NUMBER}-${HEAD_SHA}-${request_id}.json"
+            rm -f "$request_file"
           }
 
           auth_object_args=()
@@ -643,7 +712,7 @@ jobs:
             local record_args=(
               record
               --state "$CODEX_AUTH_STATE_FILE"
-              --auth-object "$CODEX_AUTH_OSS_OBJECT"
+              --auth-object "$CODEX_AUTH_STATE_KEY"
               "${known_auth_object_args[@]}"
               --result "$result"
             )
@@ -668,7 +737,25 @@ jobs:
             ' "$candidate_auth_file" >/dev/null
             sudo install -o "$CODEX_REVIEW_USER" -g "$CODEX_REVIEW_USER" -m 600 \
               "$candidate_auth_file" "$CODEX_HOME/auth.json"
+            install -m 600 "$candidate_auth_file" "$CODEX_AUTH_SNAPSHOT"
             rm -f "$candidate_auth_file"
+          }
+
+          sync_refreshed_auth() {
+            local refreshed_auth_file promoted_auth_file
+            refreshed_auth_file="$(mktemp "$RUNNER_TEMP/codex-refreshed-auth.XXXXXX")"
+            promoted_auth_file="$(mktemp "$RUNNER_TEMP/codex-promoted-auth.XXXXXX")"
+            sudo -u "$CODEX_REVIEW_USER" cat "$CODEX_HOME/auth.json" > "$refreshed_auth_file"
+            "$CODEX_AUTH_STATE_HELPER" promote \
+              --baseline "$CODEX_AUTH_SNAPSHOT" \
+              --candidate "$refreshed_auth_file" \
+              --output "$promoted_auth_file"
+            if ! cmp -s "$refreshed_auth_file" "$CODEX_AUTH_SNAPSHOT"; then
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+                "$promoted_auth_file" "$CODEX_AUTH_OSS_OBJECT"
+              install -m 600 "$promoted_auth_file" "$CODEX_AUTH_SNAPSHOT"
+            fi
+            rm -f "$refreshed_auth_file" "$promoted_auth_file"
           }
 
           review_side_effects_present() {
@@ -702,7 +789,8 @@ jobs:
               --state "$CODEX_AUTH_STATE_FILE" \
               "${auth_object_args[@]}")"
             sync_auth_state
-            selected_auth_object="$(jq -r '.auth_object // empty' <<<"$selection_json")"
+            selected_auth_state_key="$(jq -r '.auth_object // empty' <<<"$selection_json")"
+            selected_auth_object="${selected_auth_state_key%%#*}"
             all_quota_exhausted="$(jq -r '.all_quota_exhausted' <<<"$selection_json")"
             next_retry_at="$(jq -r '.next_retry_at // empty' <<<"$selection_json")"
           }
@@ -726,6 +814,7 @@ jobs:
             stderr_file="$result_dir/codex-stderr.log"
 
             set +e
+            # GitHub-hosted runners may not support Codex's workspace-write user namespace.
             sudo -u "$CODEX_REVIEW_USER" env -i \
               HOME="$(getent passwd "$CODEX_REVIEW_USER" | cut -d: -f6)" \
               PATH="$PATH" \
@@ -746,6 +835,11 @@ jobs:
                 2> >(tee "$stderr_file" >&2)
             status=$?
             set -e
+
+            if ! sync_refreshed_auth; then
+              failure_reason="Could not safely persist refreshed Codex credentials."
+              break
+            fi
 
             if [ "$status" -eq 0 ]; then
               state_result="$(record_auth_result available "" "")"
@@ -808,6 +902,9 @@ jobs:
             select_next_auth
             if [ -z "$selected_auth_object" ]; then
               if [ -n "$next_retry_at" ]; then
+                defer_review "$next_retry_at"
+              fi
+              if [ -n "$next_retry_at" ]; then
                 failure_reason="Codex ${failure_kind}; no auth account is eligible before ${next_retry_at}."
               else
                 failure_reason="Codex ${failure_kind}; no auth account is eligible."
@@ -816,7 +913,9 @@ jobs:
             fi
 
             printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$selected_auth_object" >> "$GITHUB_ENV"
+            printf 'CODEX_AUTH_STATE_KEY=%s\n' "$selected_auth_state_key" >> "$GITHUB_ENV"
             CODEX_AUTH_OSS_OBJECT="$selected_auth_object"
+            CODEX_AUTH_STATE_KEY="$selected_auth_state_key"
             echo "Retrying code review with ${CODEX_AUTH_OSS_OBJECT##*/} after ${failure_kind}."
             set +e
             review_side_effects_present

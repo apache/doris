@@ -72,15 +72,66 @@ class CodexAuthStateTest(unittest.TestCase):
         self.assertIsNone(entry["retry_after"])
         self.assertEqual("2026-07-27T10:01:00Z", entry["last_success_at"])
 
-    def test_authentication_failure_switches_accounts_for_one_day(self) -> None:
+    def test_promote_auth_keeps_identity_fields_from_the_baseline(self) -> None:
+        baseline = {
+            "auth_mode": "chatgpt",
+            "last_refresh": "2026-07-27T09:00:00Z",
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh",
+                "id_token": "stable-identity",
+            },
+        }
+        candidate = {
+            "auth_mode": "chatgpt",
+            "last_refresh": "2026-07-27T10:00:00Z",
+            "tokens": {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "id_token": "stable-identity",
+            },
+        }
+
+        promoted = auth_state.promote_auth(baseline, candidate)
+
+        self.assertEqual("new-access", promoted["tokens"]["access_token"])
+        self.assertEqual("new-refresh", promoted["tokens"]["refresh_token"])
+        self.assertEqual("stable-identity", promoted["tokens"]["id_token"])
+        self.assertEqual("2026-07-27T09:00:00Z", promoted["last_refresh"])
+
+    def test_promote_auth_rejects_identity_changes(self) -> None:
+        baseline = {
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh",
+                "id_token": "stable-identity",
+            },
+        }
+        candidate = {
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "id_token": "different-identity",
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "immutable identity"):
+            auth_state.promote_auth(baseline, candidate)
+
+    def test_authentication_failure_stays_disabled_until_auth_object_changes(self) -> None:
         state = auth_state.default_state()
-        auth_state.record_result(state, AUTH_1, auth_state.AUTHENTICATION_FAILED, NOW, 401)
+        original_auth = f"{AUTH_1}#old-content"
+        replacement_auth = f"{AUTH_1}#new-content"
+        auth_state.record_result(state, original_auth, auth_state.AUTHENTICATION_FAILED, NOW, 401)
 
-        during_cooldown = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW + timedelta(hours=23))
-        after_cooldown = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW + timedelta(days=1))
+        unavailable = auth_state.select_auth_object(state, [original_auth], NOW + timedelta(days=7))
+        replacement = auth_state.select_auth_object(state, [replacement_auth], NOW + timedelta(days=7))
 
-        self.assertEqual(AUTH_2, during_cooldown.auth_object)
-        self.assertEqual(AUTH_3, after_cooldown.auth_object)
+        self.assertIsNone(unavailable.auth_object)
+        self.assertIsNone(auth_state.account_state(state, original_auth)["retry_after"])
+        self.assertEqual(replacement_auth, replacement.auth_object)
 
     def test_initialize_creates_state_file_for_all_accounts(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -101,6 +152,18 @@ class CodexAuthStateTest(unittest.TestCase):
             auth_state.classify_failure("HTTP status 403 for request 123"),
         )
         self.assertEqual(auth_state.AUTHENTICATION_FAILED, auth_state.classify_failure("request failed: HTTP 401"))
+        self.assertEqual(
+            auth_state.AUTHENTICATION_FAILED,
+            auth_state.classify_failure("refresh token was revoked"),
+        )
+        self.assertEqual(
+            auth_state.AUTHENTICATION_FAILED,
+            auth_state.classify_failure("refresh token has expired"),
+        )
+        self.assertEqual(
+            auth_state.AUTHENTICATION_FAILED,
+            auth_state.classify_failure("refresh token was already used"),
+        )
         self.assertEqual(auth_state.TRANSIENT_FAILURE, auth_state.classify_failure("request failed: HTTP 503"))
         self.assertEqual(auth_state.TRANSIENT_FAILURE, auth_state.classify_failure("connection reset by peer"))
         self.assertEqual("fatal", auth_state.classify_failure("request failed: HTTP 422"))
@@ -131,7 +194,7 @@ class CodexAuthStateTest(unittest.TestCase):
     def test_usage_limit_message_preserves_its_reset_time(self) -> None:
         message = "You've hit your usage limit for this period; try again at Aug 2nd, 2026 1:27 AM."
         classification = auth_state.classify_terminal_failure(
-            '{"type":"turn.failed","error":{"message":"' + message + '"}}', ""
+            '{"type":"turn.failed","error":{"message":"' + message + '"}}', "", NOW
         )
         state = auth_state.default_state()
 
@@ -147,6 +210,26 @@ class CodexAuthStateTest(unittest.TestCase):
         self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
         self.assertEqual("2026-08-02T01:27:00Z", classification.retry_after)
         self.assertEqual("2026-08-02T01:27:00Z", auth_state.account_state(state, AUTH_1)["retry_after"])
+
+    def test_usage_limit_time_only_uses_the_next_occurrence(self) -> None:
+        message = "You've hit your usage limit for this period; try again at 1:27 AM."
+
+        classification = auth_state.classify_terminal_failure(
+            '{"type":"turn.failed","error":{"message":"' + message + '"}}', "", NOW
+        )
+
+        self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
+        self.assertEqual("2026-07-28T01:27:00Z", classification.retry_after)
+
+    def test_usage_limit_without_timestamp_uses_a_safe_fallback(self) -> None:
+        message = "You've hit your usage limit for this period. Try again later."
+
+        classification = auth_state.classify_terminal_failure(
+            '{"type":"turn.failed","error":{"message":"' + message + '"}}', "", NOW
+        )
+
+        self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
+        self.assertEqual("2026-07-28T10:00:00Z", classification.retry_after)
 
 
 if __name__ == "__main__":

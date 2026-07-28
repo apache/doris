@@ -1,0 +1,96 @@
+name: Retry Deferred Code Reviews
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: code-review-deferred-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch-deferred-reviews:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Dispatch reviews that have reached their retry time
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          REPO: ${{ github.repository }}
+        run: |
+          pending_listing="$RUNNER_TEMP/codex-review-pending.list"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls \
+            "$OSS_CODEX_REVIEW_PENDING_PREFIX/" -s > "$pending_listing"; then
+            echo 'Failed to list deferred Codex review requests.' >&2
+            exit 1
+          fi
+
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          while IFS= read -r pending_object; do
+            pending_file="$(mktemp "$RUNNER_TEMP/codex-review-pending.XXXXXX")"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$pending_object" "$pending_file"
+            if ! jq -e '
+              (.pr_number | type == "string" and test("^[0-9]+$"))
+              and (.head_sha | type == "string" and length > 0)
+              and (.base_sha | type == "string" and length > 0)
+              and (.review_focus | type == "string")
+              and (.not_before | type == "string")
+              and (.request_id | type == "string" and test("^[0-9]+$"))
+            ' "$pending_file" >/dev/null; then
+              echo "Removing malformed deferred review request: ${pending_object##*/}"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$pending_object"
+              rm -f "$pending_file"
+              continue
+            fi
+
+            not_before="$(jq -r '.not_before' "$pending_file")"
+            if [ -n "$not_before" ] && [[ "$not_before" > "$now" ]]; then
+              rm -f "$pending_file"
+              continue
+            fi
+
+            pr_number="$(jq -r '.pr_number' "$pending_file")"
+            head_sha="$(jq -r '.head_sha' "$pending_file")"
+            base_sha="$(jq -r '.base_sha' "$pending_file")"
+            review_focus="$(jq -r '.review_focus' "$pending_file")"
+            request_id="$(jq -r '.request_id' "$pending_file")"
+            pull="$(gh api "repos/${REPO}/pulls/${pr_number}")"
+            if [ "$(jq -r '.state' <<<"$pull")" != 'open' ] \
+              || [ "$(jq -r '.head.sha' <<<"$pull")" != "$head_sha" ] \
+              || [ "$(jq -r '.base.sha' <<<"$pull")" != "$base_sha" ]; then
+              echo "Removing stale deferred review request: ${pending_object##*/}"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$pending_object"
+              rm -f "$pending_file"
+              continue
+            fi
+
+            gh workflow run code-review-runner.yml --ref "$GITHUB_REF_NAME" \
+              -f "pr_number=$pr_number" \
+              -f "head_sha=$head_sha" \
+              -f "base_sha=$base_sha" \
+              -f "review_focus=$review_focus" \
+              -f "deferred_request_id=$request_id"
+            rm -f "$pending_file"
+            break
+          done < <(
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/review-pending\/[0-9]+-[0-9a-f]+-[0-9]+\.json$/ { print }' \
+              "$pending_listing" | sort
+          )
