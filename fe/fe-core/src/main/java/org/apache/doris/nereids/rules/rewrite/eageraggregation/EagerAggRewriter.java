@@ -96,6 +96,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private final StatsDerive derive = new StatsDerive(false);
 
     @Override
+    public Plan visit(Plan plan, PushDownAggContext context) {
+        return plan;
+    }
+
+    @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return join;
