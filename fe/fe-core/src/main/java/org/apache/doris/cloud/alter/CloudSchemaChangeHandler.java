@@ -370,6 +370,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
             // Do nothing.
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            // Retention count only changes FE table properties and scheduler registration below.
         } else if (properties.containsKey(
                 PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
             int verticalCompactionNumColumnsPerGroup = Integer.parseInt(properties.get(
