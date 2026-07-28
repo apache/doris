@@ -438,19 +438,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         fi
         cd -
     fi
-    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
         cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-paimon.patch"
 
-            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
-            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+            # Introducing the parameter that forces writing INT96 timestamps for
+            # compatibility with the Doris Parquet writer.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-force-write-int96-timestamps.patch"
 
             # Add Parquet LZO page decompression support used by file scanner v2.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-lzo.patch"
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -733,11 +733,11 @@ fi
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
-            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
-        else
-            echo "Skip paimon-cpp patch: already applied or not applicable for current source"
-        fi
+        for patch_file in \
+            "${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" \
+            "${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"; do
+            patch -p1 <"${patch_file}"
+        done
         touch "${PATCHED_MARK}"
     fi
     cd -

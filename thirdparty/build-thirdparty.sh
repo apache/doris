@@ -1088,9 +1088,7 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="${ldflags}" \
+    LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
@@ -1125,6 +1123,7 @@ build_arrow() {
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
+        -DLZ4_ROOT="${TP_INSTALL_DIR};${TP_INSTALL_DIR}/include/lz4" \
         -DLZ4_LIB="${TP_INSTALL_DIR}/lib/liblz4.a" -DLZ4_INCLUDE_DIR="${TP_INSTALL_DIR}/include/lz4" \
         -DLz4_SOURCE=SYSTEM \
         -DARROW_ZSTD_USE_SHARED=OFF \
@@ -1147,6 +1146,7 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
+    strip_lib libarrow_compute.a
     strip_lib libparquet.a
     strip_lib libarrow_dataset.a
     strip_lib libarrow_acero.a
@@ -2091,6 +2091,7 @@ build_paimon_cpp() {
         mkdir -p "${paimon_deps_dir}"
         for paimon_arrow_dep in \
             libarrow.a \
+            libarrow_compute.a \
             libarrow_filesystem.a \
             libarrow_dataset.a \
             libarrow_acero.a \
