@@ -1590,7 +1590,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateIncrementalMVAnalyzeSetsNormalizeRewriteContext() throws Exception {
+    public void testCreateIncrementalMVAnalyzeSetsCreateRewriteContext() throws Exception {
         createTable("create table test.ivm_context_base (k1 int, v1 int)\n"
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
@@ -1601,7 +1601,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " AS SELECT k1, v1 FROM ivm_context_base;");
 
         Assertions.assertTrue(info.isEnableIvm());
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
+        Assertions.assertEquals(IvmRewriteContext.Mode.CREATE,
                 connectContext.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
     }
 
@@ -1831,12 +1831,12 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateIncrementalMVRejectsLeftOuterJoinWithOuterJoinOnNullSide() throws Exception {
+    public void testCreateIncrementalMVAllowsLeftOuterJoinWithOuterJoinOnNullSide() throws Exception {
         createIvmMowTable("ivm_loj_null_nested_l");
         createIvmMowTable("ivm_loj_null_nested_r");
         createIvmMowTable("ivm_loj_null_nested_n");
 
-        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_loj_null_nested_mv\n"
+        createMtmv("CREATE MATERIALIZED VIEW ivm_loj_null_nested_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT ivm_loj_null_nested_l.k1, ivm_loj_null_nested_l.v1,"
@@ -1845,12 +1845,11 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " LEFT OUTER JOIN (ivm_loj_null_nested_r\n"
                 + "     LEFT OUTER JOIN ivm_loj_null_nested_n"
                 + " ON ivm_loj_null_nested_r.k1 = ivm_loj_null_nested_n.k1)\n"
-                + " ON ivm_loj_null_nested_l.k1 = ivm_loj_null_nested_r.k1;",
-                "null side must not contain another outer join");
+                + " ON ivm_loj_null_nested_l.k1 = ivm_loj_null_nested_r.k1;");
     }
 
     @Test
-    public void testCreateIncrementalMVRejectsFullOuterJoinWithOuterJoinOnEitherNullSide() throws Exception {
+    public void testCreateIncrementalMVAllowsFullOuterJoinWithOuterJoinOnEitherNullSide() throws Exception {
         createIvmMowTable("ivm_foj_left_null_nested_l");
         createIvmMowTable("ivm_foj_left_null_nested_r");
         createIvmMowTable("ivm_foj_left_null_nested_n");
@@ -1858,7 +1857,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         createIvmMowTable("ivm_foj_right_null_nested_r");
         createIvmMowTable("ivm_foj_right_null_nested_n");
 
-        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_foj_left_null_nested_mv\n"
+        createMtmv("CREATE MATERIALIZED VIEW ivm_foj_left_null_nested_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT ivm_foj_left_null_nested_l.k1, ivm_foj_left_null_nested_l.v1,"
@@ -1867,10 +1866,9 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "     LEFT OUTER JOIN ivm_foj_left_null_nested_r"
                 + " ON ivm_foj_left_null_nested_l.k1 = ivm_foj_left_null_nested_r.k1)\n"
                 + " FULL OUTER JOIN ivm_foj_left_null_nested_n"
-                + " ON ivm_foj_left_null_nested_l.k1 = ivm_foj_left_null_nested_n.k1;",
-                "null side must not contain another outer join");
+                + " ON ivm_foj_left_null_nested_l.k1 = ivm_foj_left_null_nested_n.k1;");
 
-        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_foj_right_null_nested_mv\n"
+        createMtmv("CREATE MATERIALIZED VIEW ivm_foj_right_null_nested_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS SELECT ivm_foj_right_null_nested_l.k1, ivm_foj_right_null_nested_l.v1,"
@@ -1879,8 +1877,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " FULL OUTER JOIN (ivm_foj_right_null_nested_r\n"
                 + "     LEFT OUTER JOIN ivm_foj_right_null_nested_n"
                 + " ON ivm_foj_right_null_nested_r.k1 = ivm_foj_right_null_nested_n.k1)\n"
-                + " ON ivm_foj_right_null_nested_l.k1 = ivm_foj_right_null_nested_r.k1;",
-                "null side must not contain another outer join");
+                + " ON ivm_foj_right_null_nested_l.k1 = ivm_foj_right_null_nested_r.k1;");
     }
 
     @Test
