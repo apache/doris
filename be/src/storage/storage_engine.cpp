@@ -914,7 +914,7 @@ Status StorageEngine::_start_data_dir_sweep_workers() {
         if (paths.size() > 1) {
             LOG(WARNING) << "multiple DataDirs share one physical device; dedicated sweep workers "
                             "may contend for the same device. device="
-                         << device << ", paths=" << fmt::join(paths, ",");
+                         << device << ", paths=" << fmt::format("{}", fmt::join(paths, ","));
         }
     }
     g_garbage_sweep_running_workers.set_value(static_cast<int64_t>(_data_dir_sweep_workers.size()));

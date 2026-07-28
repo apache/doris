@@ -1302,8 +1302,8 @@ Status TabletManager::_execute_shutdown_tablet_moves_synchronously(
         DORIS_CHECK(data_dir != nullptr);
         ShutdownTabletMoveResult result;
         result.data_dir = data_dir;
-        auto fail_remaining_tablets = [&data_dir, &result, &tablets](Status status,
-                                                                     size_t first_failed_index) {
+        auto fail_remaining_tablets = [&result, &tablets](Status status,
+                                                          size_t first_failed_index) {
             result.status = std::move(status);
             result.failed_tablets.insert(result.failed_tablets.end(),
                                          tablets.begin() + first_failed_index, tablets.end());
