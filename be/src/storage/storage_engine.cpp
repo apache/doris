@@ -59,6 +59,7 @@
 #include "common/metrics/metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
@@ -936,6 +937,7 @@ void StorageEngine::_stop_data_dir_sweep_workers() {
 
 DataDirSweepJobResult StorageEngine::_execute_data_dir_sweep_job(DataDirSweepJob& job) {
     DORIS_CHECK(job.data_dir != nullptr);
+    TEST_SYNC_POINT_CALLBACK("StorageEngine::_execute_data_dir_sweep_job", &job);
 
     DataDirSweepJobResult result;
     result.sweep_epoch = job.sweep_epoch;
@@ -1036,7 +1038,7 @@ DataDirSweepJobResult StorageEngine::_execute_data_dir_sweep_job(DataDirSweepJob
     }
 
     result.elapsed_ms = watch.elapsed_time_milliseconds();
-    job.data_dir->_record_sweep_job_result(result);
+    job.data_dir->_record_sweep_job_result(result, true);
     int64_t tablet_count = 0;
     if (const auto* payload = std::get_if<ShutdownTabletMovePayload>(&job.payload);
         payload != nullptr) {
@@ -1087,6 +1089,7 @@ std::vector<DataDirSweepJobResult> StorageEngine::_dispatch_data_dir_sweep_jobs(
                 result.shutdown_failed = static_cast<int64_t>(payload->tablets.size());
                 result.failed_tablets = std::move(payload->tablets);
             }
+            job.data_dir->_record_sweep_job_result(result, false);
             context->results[index] = std::move(result);
             context->completion_latch.count_down();
         }

@@ -228,8 +228,10 @@ void DataDir::_record_sweep_job_start(DataDirSweepJobType type) {
     disks_sweep_worker_current_job->set_value(static_cast<int64_t>(type));
 }
 
-void DataDir::_record_sweep_job_result(const DataDirSweepJobResult& result) {
-    disks_sweep_worker_current_job->set_value(-1);
+void DataDir::_record_sweep_job_result(const DataDirSweepJobResult& result, bool job_started) {
+    if (job_started) {
+        disks_sweep_worker_current_job->set_value(-1);
+    }
     disks_sweep_worker_completed_jobs->increment(1);
     if (!result.status.ok()) {
         disks_sweep_worker_failed_jobs->increment(1);

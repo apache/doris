@@ -182,7 +182,7 @@ private:
     void _set_sweep_worker_running(bool running);
     void _set_sweep_worker_queue_depth(int64_t queue_depth);
     void _record_sweep_job_start(DataDirSweepJobType type);
-    void _record_sweep_job_result(const DataDirSweepJobResult& result);
+    void _record_sweep_job_result(const DataDirSweepJobResult& result, bool job_started);
 
 private:
     std::atomic<bool> _stop_bg_worker = false;

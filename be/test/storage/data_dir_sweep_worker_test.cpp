@@ -395,6 +395,9 @@ TEST_F(DataDirSweepWorkerTest, DispatchReturnsShutdownTabletsWhenSubmitFails) {
     ASSERT_TRUE(worker->start().ok());
     worker->stop_accepting_jobs();
     _engine->_data_dir_sweep_workers.emplace(_data_dir.get(), std::move(worker));
+    const int64_t completed_jobs = _data_dir->disks_sweep_worker_completed_jobs->value();
+    const int64_t failed_jobs = _data_dir->disks_sweep_worker_failed_jobs->value();
+    _data_dir->_record_sweep_job_start(DataDirSweepJobType::REMOTE_GC);
 
     DataDirSweepJob job;
     job.sweep_epoch = 15;
@@ -411,6 +414,11 @@ TEST_F(DataDirSweepWorkerTest, DispatchReturnsShutdownTabletsWhenSubmitFails) {
     EXPECT_EQ(results[0].shutdown_resolved, 0);
     EXPECT_EQ(results[0].shutdown_failed, 2);
     EXPECT_EQ(results[0].failed_tablets.size(), 2);
+    EXPECT_EQ(_data_dir->disks_sweep_worker_completed_jobs->value(), completed_jobs + 1);
+    EXPECT_EQ(_data_dir->disks_sweep_worker_failed_jobs->value(), failed_jobs + 1);
+    EXPECT_EQ(_data_dir->disks_sweep_worker_current_job->value(),
+              static_cast<int64_t>(DataDirSweepJobType::REMOTE_GC));
+    _data_dir->disks_sweep_worker_current_job->set_value(-1);
 }
 
 TEST_F(DataDirSweepWorkerTest, DispatchUsesSynchronousFallbackWhenWorkerDisabled) {
