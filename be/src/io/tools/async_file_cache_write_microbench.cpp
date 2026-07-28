@@ -499,7 +499,7 @@ public:
         config::async_file_cache_write_max_pending_tasks_per_disk =
                 static_cast<int64_t>(std::max(FLAGS_reader_operations, FLAGS_service_operations));
         config::async_file_cache_write_batch_size = 16;
-        config::async_file_cache_write_queue_full_policy = "reject_new";
+        config::async_file_cache_write_queue_full_policy = "drop_oldest";
 
         DORIS_CHECK(ExecEnv::GetInstance()->file_cache_factory() == nullptr);
         ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<FDCache>());

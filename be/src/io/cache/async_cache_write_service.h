@@ -107,7 +107,7 @@ struct AsyncCacheWriteServiceOptions {
     size_t batch_size {1};
     int64_t watchdog_warn_secs {30};
     int64_t watchdog_drop_secs {120};
-    AsyncCacheWriteQueueFullPolicy queue_full_policy {AsyncCacheWriteQueueFullPolicy::REJECT_NEW};
+    AsyncCacheWriteQueueFullPolicy queue_full_policy {AsyncCacheWriteQueueFullPolicy::DROP_OLDEST};
 };
 
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
