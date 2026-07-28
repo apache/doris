@@ -115,6 +115,7 @@ public class TableScanParams {
     public boolean isTag() {
         return TAG.equals(paramType);
     }
+
     public boolean isOptions() {
         return OPTIONS.equals(paramType);
     }

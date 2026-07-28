@@ -110,6 +110,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         }
         return table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table));
     }
+
     public SelectedPartitions getSelectedPartitions() {
         return selectedPartitions;
     }
