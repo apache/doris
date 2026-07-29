@@ -262,8 +262,7 @@ template <int JoinOpType>
 template <typename HashTableType>
 uint32_t ProcessHashTableProbe<JoinOpType>::
         _find_batch_asof_optimized( // NOLINT(readability-function-cognitive-complexity)
-                HashTableType& hash_table_ctx, const uint8_t* null_rejecting_equality_null_map,
-                uint32_t probe_rows) {
+                HashTableType& hash_table_ctx, const uint8_t* null_map, uint32_t probe_rows) {
     auto* shared_state = _parent->_shared_state;
     constexpr bool is_outer_join = is_asof_outer_join_op_v<JoinOpType>;
     auto& probe_index = _parent->_probe_index;
@@ -326,7 +325,7 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
 
         // Temporary arrays for two-phase processing.
         // resolved_group_ids[i]: resolved ASOF group id + 1 for probe row (batch_start+i),
-        //                        0 means no equality group or NULL ASOF value.
+        //                        0 means no match or NULL probe key.
         // We use stack allocation for small batches, heap for large.
         constexpr uint32_t STACK_LIMIT = 4096;
         uint32_t stack_buf[STACK_LIMIT];
@@ -362,7 +361,8 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                     __builtin_prefetch(&next_arr[future_bucket], 0, 1);
                 }
 
-                if ((null_rejecting_equality_null_map && null_rejecting_equality_null_map[pi]) ||
+                // Skip NULL probe keys
+                if ((null_map && null_map[pi]) ||
                     (asof_probe_null_map && asof_probe_null_map[pi])) {
                     resolved_group_ids[i] = 0;
                     continue;
@@ -529,12 +529,7 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
     if constexpr (is_asof_join) {
         SCOPED_TIMER(_search_hashtable_timer);
-        // Null-safe equality retains the reserved null bucket, so its NULL probe keys must
-        // follow the bucket head. Ordinary equality rejects NULL and keeps the fast skip.
-        const auto* null_rejecting_equality_null_map =
-                hash_table_ctx.hash_table->keep_null_key() ? nullptr : null_map;
-        current_offset = _find_batch_asof_optimized(hash_table_ctx,
-                                                    null_rejecting_equality_null_map, probe_rows);
+        current_offset = _find_batch_asof_optimized(hash_table_ctx, null_map, probe_rows);
     } else if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                 JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
                _have_other_join_conjunct) {

@@ -72,8 +72,7 @@ struct ProcessHashTableProbe {
     // ASOF JOIN optimized: use pre-sorted index to find best match in O(log K) per probe row
     // Returns the number of matched rows
     template <typename HashTableType>
-    uint32_t _find_batch_asof_optimized(HashTableType& hash_table_ctx,
-                                        const uint8_t* null_rejecting_equality_null_map,
+    uint32_t _find_batch_asof_optimized(HashTableType& hash_table_ctx, const uint8_t* null_map,
                                         uint32_t probe_rows);
 
     Status finalize_block_with_filter(Block* output_block, size_t filter_column_id,
