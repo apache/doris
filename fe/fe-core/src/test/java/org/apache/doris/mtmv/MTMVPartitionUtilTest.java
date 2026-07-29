@@ -291,8 +291,14 @@ public class MTMVPartitionUtilTest {
         PartitionKeyDesc literalNullDesc = PartitionKeyDesc.createIn(
                 Lists.<List<PartitionValue>>newArrayList(
                         Lists.newArrayList(new PartitionValue("NULL"))));
+        PartitionKeyDesc legacySuffixCollisionDesc = PartitionKeyDesc.createIn(
+                Lists.<List<PartitionValue>>newArrayList(
+                        Lists.newArrayList(new PartitionValue("NULL,literal"))));
         Assert.assertEquals("p_NULL", MTMVPartitionUtil.generatePartitionName(nullDesc));
-        Assert.assertEquals("p_NULL_literal", MTMVPartitionUtil.generatePartitionName(literalNullDesc));
+        String literalNullName = MTMVPartitionUtil.generatePartitionName(literalNullDesc);
+        Assert.assertEquals(literalNullName, MTMVPartitionUtil.generatePartitionName(literalNullDesc));
+        Assert.assertNotEquals(MTMVPartitionUtil.generatePartitionName(nullDesc), literalNullName);
+        Assert.assertNotEquals(MTMVPartitionUtil.generatePartitionName(legacySuffixCollisionDesc), literalNullName);
     }
 
     @Test

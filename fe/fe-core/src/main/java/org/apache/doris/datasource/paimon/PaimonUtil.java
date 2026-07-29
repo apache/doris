@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
@@ -74,6 +75,7 @@ import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.utils.DateTimeUtils;
@@ -358,6 +360,8 @@ public class PaimonUtil {
                         .map(field -> new org.apache.doris.catalog.StructField(field.name(),
                                 paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping)))
                         .collect(Collectors.toCollection(ArrayList::new)));
+            case VARIANT:
+                return Type.VARIANT;
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:
@@ -703,8 +707,13 @@ public class PaimonUtil {
                 if (value == null) {
                     return null;
                 }
-                // Paimon timestamp is stored as Timestamp type in utc
-                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                // Format through Doris' target type instead of translating between Paimon's
+                // timestamp text and Doris' partition-literal syntax by hand.
+                TimestampType timestampType = (TimestampType) type;
+                ScalarType dorisType = ScalarType.createDatetimeV2Type(
+                        Math.min(timestampType.getPrecision(), 6));
+                return new DateLiteral(((Timestamp) value).toLocalDateTime(), dorisType)
+                        .getStringValue();
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 if (value == null) {
                     return null;

@@ -44,6 +44,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -65,6 +66,8 @@ public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
     private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
     private static final String PARTITION_NAME_PREFIX = "p_";
+    private static final int MAX_PARTITION_NAME_LENGTH = 50;
+    private static final int PARTITION_IDENTITY_HASH_LENGTH = 16;
 
     private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
             .of(
@@ -362,16 +365,17 @@ public class MTMVPartitionUtil {
     public static String generatePartitionName(PartitionKeyDesc desc) {
         Matcher matcher = PARTITION_NAME_PATTERN.matcher(desc.toSql());
         String partitionName = PARTITION_NAME_PREFIX + matcher.replaceAll("").replaceAll("\\,", "_");
-        // The legacy readable name removes SQL quotes. Without this marker, a typed NULL and
-        // the string literal "NULL" both become p_NULL even though they are distinct list
-        // partition values. Preserve the existing NULL partition name and disambiguate only
-        // the literal value.
-        if (containsLiteralNull(desc)) {
-            partitionName += "_literal";
-        }
-        if (partitionName.length() > 50) {
-            partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
-                    + "_" + System.currentTimeMillis();
+        // The legacy readable name removes SQL quotes, so typed NULL, the string "NULL", and
+        // strings containing separators can collapse to the same name. Preserve ordinary names,
+        // but attach a stable identity derived from the complete typed descriptor where that
+        // lossy encoding is known to be ambiguous. The same identity also makes long names
+        // deterministic across retries and FE restarts.
+        if (containsLiteralNull(desc) || partitionName.length() > MAX_PARTITION_NAME_LENGTH) {
+            String identitySuffix = "_" + DigestUtils.sha256Hex(desc.toSql())
+                    .substring(0, PARTITION_IDENTITY_HASH_LENGTH);
+            int readableLength = MAX_PARTITION_NAME_LENGTH - identitySuffix.length();
+            partitionName = partitionName.substring(0, Math.min(partitionName.length(), readableLength))
+                    + identitySuffix;
         }
         return partitionName;
     }

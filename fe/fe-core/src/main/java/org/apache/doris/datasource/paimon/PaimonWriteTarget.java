@@ -49,7 +49,8 @@ public final class PaimonWriteTarget {
     private final Map<String, Type> columnTypes;
     private final Set<String> partitionColumnNames;
 
-    private PaimonWriteTarget(PaimonExternalTable dorisTable, FileStoreTable table) {
+    private PaimonWriteTarget(PaimonExternalTable dorisTable, FileStoreTable table)
+            throws AnalysisException {
         this.dorisTable = dorisTable;
         this.table = table;
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) dorisTable.getCatalog();
@@ -58,6 +59,11 @@ public final class PaimonWriteTarget {
         Map<String, Column> columns = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         Map<String, Type> types = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (DataField field : table.rowType().getFields()) {
+            Column conflictingColumn = columns.get(field.name());
+            if (conflictingColumn != null) {
+                throw new AnalysisException("Paimon table contains columns which differ only by case: "
+                        + conflictingColumn.getName() + " and " + field.name());
+            }
             Type type = PaimonUtil.paimonTypeToDorisType(
                     field.type(), catalog.getEnableMappingVarbinary(), false);
             // Doris exposes external-table columns as nullable. The real Paimon nullability and

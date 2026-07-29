@@ -33,6 +33,7 @@ import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryRowWriter;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.manifest.PartitionEntry;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
@@ -47,6 +48,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -112,6 +114,19 @@ public class PaimonUtilTest {
         ArrayType nestedLtz = (ArrayType) writeType.getFields().get(2).getType();
         Assert.assertEquals(PrimitiveType.DATETIMEV2,
                 nestedLtz.getItemType().getPrimitiveType());
+    }
+
+    @Test
+    public void testVariantTypeMappingIncludesNestedTypes() {
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(0, "direct", DataTypes.VARIANT()),
+                DataTypes.FIELD(1, "nested", DataTypes.ARRAY(DataTypes.VARIANT())));
+
+        StructType writeType = (StructType) PaimonUtil.paimonTypeToDorisType(rowType, false, false);
+
+        Assert.assertTrue(writeType.getFields().get(0).getType().isVariantType());
+        Assert.assertTrue(((ArrayType) writeType.getFields().get(1).getType())
+                .getItemType().isVariantType());
     }
 
     @Test
@@ -368,6 +383,56 @@ public class PaimonUtilTest {
                 Collections.singletonList(Mockito.mock(PartitionEntry.class)));
 
         Assert.assertSame(PaimonPartitionInfo.UNPRUNABLE, partitionInfo);
+    }
+
+    @Test
+    public void testGeneratePartitionInfoSupportsTimestampWithoutTimeZone() {
+        List<Column> partitionColumns = Collections.singletonList(
+                new Column("part", org.apache.doris.catalog.ScalarType.createDatetimeV2Type(6)));
+        DataField partitionField = DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP(9));
+        Table table = mockPartitionTable(Collections.emptyMap(), partitionField);
+        BinaryRow partitionRow = new BinaryRow(1);
+        BinaryRowWriter writer = new BinaryRowWriter(partitionRow);
+        writer.writeTimestamp(0, Timestamp.fromLocalDateTime(
+                LocalDateTime.of(2026, 7, 29, 12, 34, 56, 123456789)), 9);
+        writer.complete();
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                table, partitionColumns,
+                Collections.singletonList(partitionEntry(partitionRow, 1L)));
+
+        Assert.assertEquals(PaimonPartitionInfo.PruningStatus.PRUNABLE,
+                partitionInfo.getPruningStatus());
+        PartitionItem partitionItem =
+                partitionInfo.getNameToPartitionItem().values().iterator().next();
+        Assert.assertEquals(Collections.singletonList("2026-07-29 12:34:56.123456"),
+                ((ListPartitionItem) partitionItem).getItems().get(0)
+                        .getPartitionValuesAsStringList());
+    }
+
+    @Test
+    public void testGeneratePartitionInfoSupportsTimestampWithoutFraction() {
+        List<Column> partitionColumns = Collections.singletonList(
+                new Column("part", org.apache.doris.catalog.ScalarType.createDatetimeV2Type(0)));
+        DataField partitionField = DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP(0));
+        Table table = mockPartitionTable(Collections.emptyMap(), partitionField);
+        BinaryRow partitionRow = new BinaryRow(1);
+        BinaryRowWriter writer = new BinaryRowWriter(partitionRow);
+        writer.writeTimestamp(0, Timestamp.fromLocalDateTime(
+                LocalDateTime.of(2026, 7, 29, 12, 34, 56)), 0);
+        writer.complete();
+
+        PaimonPartitionInfo partitionInfo = PaimonUtil.generatePartitionInfo(
+                table, partitionColumns,
+                Collections.singletonList(partitionEntry(partitionRow, 1L)));
+
+        Assert.assertEquals(PaimonPartitionInfo.PruningStatus.PRUNABLE,
+                partitionInfo.getPruningStatus());
+        PartitionItem partitionItem =
+                partitionInfo.getNameToPartitionItem().values().iterator().next();
+        Assert.assertEquals(Collections.singletonList("2026-07-29 12:34:56"),
+                ((ListPartitionItem) partitionItem).getItems().get(0)
+                        .getPartitionValuesAsStringList());
     }
 
     @Test
