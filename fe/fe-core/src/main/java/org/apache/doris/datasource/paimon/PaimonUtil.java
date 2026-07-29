@@ -172,7 +172,7 @@ public class PaimonUtil {
                 .map(Column::getType)
                 .collect(Collectors.toList());
         List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
-        Map<String, Integer> displayNameCounts = Maps.newHashMap();
+        Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
 
         for (PartitionEntry partitionEntry : partitionEntries) {
             Map<String, String> typedSpec = getPartitionInfoMap(
@@ -214,30 +214,34 @@ public class PaimonUtil {
             }
             String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
             String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            Map<String, String> previousTypedSpec = displayNameToTypedSpec.putIfAbsent(
+                    displayName, orderedTypedSpec);
+            if (previousTypedSpec != null) {
+                Preconditions.checkState(!previousTypedSpec.equals(orderedTypedSpec),
+                        "Duplicate typed Paimon partition: " + displayName);
+                // Doris partition metadata and downstream consumers such as MTMV require a
+                // stable one-to-one mapping between a partition name and its typed value.
+                // Paimon may map distinct values (for example null and blank strings) to the
+                // same physical partition name. A private suffix would only make the map key
+                // unique; it would be lost when consumers reconstruct a name from PartitionItem.
+                // Keep the complete mapping all-or-nothing and delegate pruning to Paimon.
+                LOG.warn("Ambiguous Paimon partition display name {}, typed specs: {} and {}; "
+                                + "disable Doris partition pruning",
+                        displayName, previousTypedSpec, orderedTypedSpec);
+                return PaimonPartitionInfo.UNPRUNABLE;
+            }
             candidates.add(new PaimonPartitionCandidate(
                     partitionEntry, orderedTypedSpec, partitionItem, displayName));
-            displayNameCounts.merge(displayName, 1, Integer::sum);
         }
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
         for (PaimonPartitionCandidate candidate : candidates) {
-            String partitionName = candidate.displayName;
-            if (displayNameCounts.get(candidate.displayName) > 1) {
-                // A physical Paimon path is not a logical partition identity: null, blank
-                // strings, and a literal default-name value can share that path. Add a stable
-                // suffix derived from the typed BinaryRow only for such ambiguous display names.
-                partitionName += "#typed=" + BASE64_ENCODER.encodeToString(
-                        candidate.partitionEntry.partition().toBytes());
-            }
-
             PartitionEntry entry = candidate.partitionEntry;
             Partition partition = new Partition(candidate.typedSpec, entry.recordCount(),
                     entry.fileSizeInBytes(), entry.fileCount(), entry.lastFileCreationTime(), false);
-            Preconditions.checkState(nameToPartitionItem.putIfAbsent(partitionName, candidate.partitionItem) == null,
-                    "Duplicate typed Paimon partition: " + partitionName);
-            Preconditions.checkState(nameToPartition.putIfAbsent(partitionName, partition) == null,
-                    "Duplicate typed Paimon partition metadata: " + partitionName);
+            nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
+            nameToPartition.put(candidate.displayName, partition);
         }
         return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
     }

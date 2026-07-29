@@ -371,7 +371,7 @@ public class PaimonUtilTest {
     }
 
     @Test
-    public void testGeneratePartitionInfoPreservesAmbiguousTypedValues() {
+    public void testGeneratePartitionInfoReturnsUnprunableForAmbiguousDisplayNames() {
         String defaultPartitionName = "__CUSTOM_DEFAULT_PARTITION__";
         List<Column> partitionColumns = Collections.singletonList(new Column("region", Type.STRING));
         Table table = mockPartitionTable(
@@ -386,26 +386,9 @@ public class PaimonUtilTest {
         PaimonPartitionInfo partitionInfo =
                 PaimonUtil.generatePartitionInfo(table, partitionColumns, partitions);
 
-        Assert.assertEquals(PaimonPartitionInfo.PruningStatus.PRUNABLE, partitionInfo.getPruningStatus());
-        Assert.assertEquals(4, partitionInfo.getNameToPartition().size());
-        Assert.assertEquals(4, partitionInfo.getNameToPartitionItem().size());
-
-        String nullName = findPartitionName(partitionInfo, "region", null);
-        String emptyName = findPartitionName(partitionInfo, "region", "");
-        String literalNullName = findPartitionName(partitionInfo, "region", "null");
-        String literalDefaultName = findPartitionName(partitionInfo, "region", defaultPartitionName);
-        Assert.assertNotEquals(nullName, emptyName);
-        Assert.assertNotEquals(nullName, literalDefaultName);
-        Assert.assertTrue(nullName.startsWith("region=" + defaultPartitionName + "#typed="));
-        Assert.assertTrue(emptyName.startsWith("region=" + defaultPartitionName + "#typed="));
-        Assert.assertEquals("region=null", literalNullName);
-
-        ListPartitionItem nullItem =
-                (ListPartitionItem) partitionInfo.getNameToPartitionItem().get(nullName);
-        ListPartitionItem emptyItem =
-                (ListPartitionItem) partitionInfo.getNameToPartitionItem().get(emptyName);
-        Assert.assertTrue(nullItem.getItems().get(0).getKeys().get(0).isNullLiteral());
-        Assert.assertEquals("", emptyItem.getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertSame(PaimonPartitionInfo.UNPRUNABLE, partitionInfo);
+        Assert.assertTrue(partitionInfo.getNameToPartition().isEmpty());
+        Assert.assertTrue(partitionInfo.getNameToPartitionItem().isEmpty());
     }
 
     @Test
@@ -428,15 +411,6 @@ public class PaimonUtilTest {
         Assert.assertEquals(PaimonPartitionInfo.PruningStatus.PRUNABLE, partitionInfo.getPruningStatus());
         Assert.assertTrue(partitionInfo.getNameToPartitionItem().containsKey("region=east"));
         Mockito.verify(tableScan).listPartitionEntries();
-    }
-
-    private static String findPartitionName(PaimonPartitionInfo partitionInfo, String key, String value) {
-        return partitionInfo.getNameToPartition().entrySet().stream()
-                .filter(entry -> entry.getValue().spec().containsKey(key))
-                .filter(entry -> java.util.Objects.equals(entry.getValue().spec().get(key), value))
-                .map(Map.Entry::getKey)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Partition not found: " + key + "=" + value));
     }
 
     @Test
