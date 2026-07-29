@@ -267,7 +267,8 @@ public interface PaimonCatalogOps {
          * #65955: overlay the catalog-level {@code paimon.table-option.*} defaults onto the loaded
          * table, exactly where legacy {@code PaimonExternalCatalog.getPaimonTable} did — this is the
          * connector's only {@code Catalog.getTable} call, so branch, time-travel and system tables all
-         * inherit the defaults. Options the table sets itself win (see {@link PaimonTableOptions#forCopy}).
+         * inherit the configured reader policy. Catalog options override physical table values;
+         * relation-scoped options can still override them for one scan.
          */
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
@@ -275,7 +276,7 @@ public interface PaimonCatalogOps {
             if (tableOptions.isEmpty()) {
                 return table;
             }
-            Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions, table.options());
+            Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 

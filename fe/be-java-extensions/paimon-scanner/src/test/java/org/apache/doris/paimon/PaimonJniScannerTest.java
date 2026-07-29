@@ -17,6 +17,13 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.core.config.Property;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
@@ -34,14 +41,18 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PaimonJniScannerTest {
     @Rule
@@ -60,6 +71,70 @@ public class PaimonJniScannerTest {
         params.put("time_zone", "EST");
 
         new PaimonJniScanner(128, params);
+    }
+
+    @Test
+    public void testConstructorDecodesDelimiterSafeProjectionNames() {
+        Map<String, String> params = createBaseParams();
+        params.put("required_fields", "legacy,value,is,ambiguous");
+        params.put("required_fields_base64", encodeFields(
+                "region,code", "hash#name", "地区 名"));
+        params.put("columns_types", "string#string#string");
+
+        PaimonJniScanner scanner = new PaimonJniScanner(128, params);
+
+        Assert.assertArrayEquals(new String[] {"region,code", "hash#name", "地区 名"},
+                PaimonJniScanner.requiredFields(params));
+        Assert.assertEquals("3", scanner.getStatistics().get("gauge:PaimonJniRequiredFieldCount"));
+        Assert.assertEquals(0, PaimonJniScanner.getFieldIndex(
+                Arrays.asList("region,code", "hash#name", "地区 名"), "REGION,CODE"));
+    }
+
+    @Test
+    public void testDebugSummaryNeverIncludesRawScannerParams() {
+        Map<String, String> params = createBaseParams();
+        params.put("hadoop.fs.s3a.secret.key", "FAKE_SECRET_MARKER");
+        params.put("paimon.jdbc.url", "jdbc:test?password=FAKE_PASSWORD_MARKER");
+
+        Logger logger = (Logger) LogManager.getLogger(PaimonJniScanner.class);
+        Level originalLevel = logger.getLevel();
+        CapturingAppender appender = new CapturingAppender();
+        appender.start();
+        logger.addAppender(appender);
+        Configurator.setLevel(PaimonJniScanner.class.getName(), Level.DEBUG);
+        try {
+            new PaimonJniScanner(128, params);
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+            Configurator.setLevel(PaimonJniScanner.class.getName(), originalLevel);
+        }
+
+        String captured = String.join("\n", appender.messages);
+        Assert.assertTrue(captured.contains("batchSize=128, requiredFieldCount=0"));
+        Assert.assertFalse(captured.contains("FAKE_SECRET_MARKER"));
+        Assert.assertFalse(captured.contains("FAKE_PASSWORD_MARKER"));
+        Assert.assertFalse(captured.contains("hadoop.fs.s3a.secret.key"));
+        Assert.assertFalse(captured.contains("paimon.jdbc.url"));
+    }
+
+    @Test
+    public void testThreadCountSampleIsSharedWithinTtl() {
+        AtomicLong ticker = new AtomicLong(1000L);
+        AtomicInteger sampleCalls = new AtomicInteger();
+        PaimonJniScanner.CachedThreadCounter counter = new PaimonJniScanner.CachedThreadCounter(
+                100L, ticker::get, () -> {
+                    sampleCalls.incrementAndGet();
+                    return 7;
+                });
+
+        Assert.assertEquals(7, counter.get());
+        Assert.assertEquals(7, counter.get());
+        Assert.assertEquals(1, sampleCalls.get());
+
+        ticker.addAndGet(100L);
+        Assert.assertEquals(7, counter.get());
+        Assert.assertEquals(2, sampleCalls.get());
     }
 
     @Test
@@ -274,6 +349,12 @@ public class PaimonJniScannerTest {
         return params;
     }
 
+    private String encodeFields(String... fields) {
+        return Arrays.stream(fields)
+                .map(field -> Base64.getEncoder().encodeToString(field.getBytes(StandardCharsets.UTF_8)))
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
     private void setTableOptions(PaimonJniScanner scanner, Map<String, String> options) throws Exception {
         Table table = (Table) Proxy.newProxyInstance(
                 Table.class.getClassLoader(), new Class[] {Table.class}, (proxy, method, args) -> {
@@ -344,6 +425,19 @@ public class PaimonJniScannerTest {
             if (closeCalls.incrementAndGet() == 1) {
                 throw new RuntimeException("injected IO manager close failure");
             }
+        }
+    }
+
+    private static class CapturingAppender extends AbstractAppender {
+        private final CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
+
+        CapturingAppender() {
+            super("paimon-test-capture", null, null, false, Property.EMPTY_ARRAY);
+        }
+
+        @Override
+        public void append(LogEvent event) {
+            messages.add(event.getMessage().getFormattedMessage());
         }
     }
 

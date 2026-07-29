@@ -651,11 +651,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!isReplay) {
                     try {
                         ((ExternalCatalog) catalog).checkProperties();
-                    } catch (DdlException ddlException) {
+                    } catch (Exception validationException) {
+                        // Connector-specific validators may throw unchecked exceptions after the
+                        // tentative mutation; every validation failure must preserve atomic ALTER.
                         if (oldProperties != null) {
                             ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
                         }
-                        throw ddlException;
+                        if (validationException instanceof DdlException) {
+                            throw (DdlException) validationException;
+                        }
+                        throw new DdlException("Invalid catalog properties: "
+                                + validationException.getMessage(), validationException);
                     }
                 }
                 if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {

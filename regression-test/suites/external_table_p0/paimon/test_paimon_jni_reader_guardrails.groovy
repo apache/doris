@@ -1,0 +1,147 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable paimon test")
+        return
+    }
+
+    String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String catalogName = "test_paimon_jni_reader_guardrails"
+    String dbName = "paimon_jni_guardrails_db"
+
+    def catalogDdl = { String name, String extraProperty ->
+        return """
+            create catalog ${name} properties (
+                'type'='paimon',
+                'warehouse'='s3://warehouse/wh',
+                's3.endpoint'='http://${externalEnvIp}:${minioPort}',
+                's3.access_key'='admin',
+                's3.secret_key'='password',
+                's3.path.style.access'='true'
+                ${extraProperty}
+            )
+        """
+    }
+
+    for (def invalid : [
+            ["invalid_batch", ", 'paimon.table-option.read.batch-size'='0'", "read.batch-size"],
+            ["unsafe_branch", ", 'paimon.table-option.branch'='archive'", "branch"]
+    ]) {
+        String invalidCatalog = "${catalogName}_${invalid[0]}"
+        sql "drop catalog if exists ${invalidCatalog}"
+        try {
+            test {
+                sql(catalogDdl(invalidCatalog, invalid[1]))
+                exception invalid[2]
+            }
+        } finally {
+            sql "drop catalog if exists ${invalidCatalog}"
+        }
+    }
+
+    sql "drop catalog if exists ${catalogName}"
+    sql(catalogDdl(catalogName, """
+        , 'paimon.table-option.read.batch-size'='1024'
+        , 'paimon.table-option.file-reader-async-threshold'='16 MB'
+    """))
+
+    try {
+        spark_paimon_multi """
+            create database if not exists paimon.${dbName};
+            drop table if exists paimon.${dbName}.quoted_reader_options;
+            create table paimon.${dbName}.quoted_reader_options (
+                id int,
+                `region,code` string,
+                `hash#name` string,
+                `display name` string,
+                `地区 名` string
+            ) using paimon
+            tblproperties ('file.format'='parquet', 'read.batch-size'='512');
+            insert into paimon.${dbName}.quoted_reader_options values
+                (1, 'east,01', 'hash-one', 'first row', '华东'),
+                (2, 'west,02', 'hash-two', 'second row', '华西');
+        """
+
+        sql "switch ${catalogName}"
+        sql "use ${dbName}"
+        sql "set force_jni_scanner=true"
+
+        test {
+            sql """
+                select `region,code`, `hash#name`, `display name`, `地区 名`
+                from quoted_reader_options
+                where `region,code` in ('east,01', 'west,02')
+                order by id
+            """
+        }
+
+        test {
+            sql """
+                select id from quoted_reader_options@options(
+                    'read.batch-size'='4096',
+                    'file-reader-async-threshold'='32 MB')
+                order by id
+            """
+        }
+        test {
+            sql """
+                select small.id, large.id
+                from quoted_reader_options@options('read.batch-size'='1') small
+                join quoted_reader_options@options('read.batch-size'='8192') large
+                on small.id = large.id
+                order by small.id
+            """
+        }
+
+        for (def invalidOption : [
+                ["read.batch-size", "0"],
+                ["read.batch-size", "65537"],
+                ["file-reader-async-threshold", "512 KB"],
+                ["file-reader-async-threshold", "2 GB"],
+                ["scan.manifest.parallelism", "0"],
+                ["scan.manifest.parallelism", "2147483647"]
+        ]) {
+            test {
+                sql """
+                    select * from quoted_reader_options@options(
+                        '${invalidOption[0]}'='${invalidOption[1]}')
+                """
+                exception invalidOption[0]
+            }
+        }
+
+        test {
+            sql """
+                alter catalog ${catalogName} set properties (
+                    'paimon.table-option.read.batch-size'='0')
+            """
+            exception "read.batch-size"
+        }
+        // A failed ALTER must not leave read.batch-size=0 behind; on the old path this follow-up
+        // JNI scan can stop making progress instead of completing.
+        test {
+            sql "select count(*) from quoted_reader_options"
+        }
+    } finally {
+        sql "set force_jni_scanner=false"
+        sql "drop catalog if exists ${catalogName}"
+    }
+}

@@ -73,6 +73,53 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testValidateRelationScopedReaderOptions() {
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "read.batch-size", "4096",
+                "file-reader-async-threshold", "16 MB"));
+
+        for (Map<String, String> options : new Map[] {
+                ImmutableMap.of("read.batch-size", "0"),
+                ImmutableMap.of("read.batch-size", "-1"),
+                ImmutableMap.of("read.batch-size", "65537"),
+                ImmutableMap.of("file-reader-async-threshold", "512 KB"),
+                ImmutableMap.of("file-reader-async-threshold", "2 GB")
+        }) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(options));
+        }
+    }
+
+    @Test
+    public void testManifestParallelismCannotMutateGlobalPoolCapacity() {
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "scan.manifest.parallelism", String.valueOf(availableProcessors)));
+
+        for (int invalid : new int[] {0, -1, availableProcessors + 1}) {
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                            "scan.manifest.parallelism", String.valueOf(invalid))));
+            Assertions.assertTrue(exception.getMessage().contains("scan.manifest.parallelism"));
+        }
+    }
+
+    @Test
+    public void testRelationReaderOptionsAreAppliedWithoutMutatingBaseTable() {
+        FakePaimonTable table = fakeTable();
+        Table copied = fakeTable();
+        table.copyResult = copied;
+
+        Assertions.assertSame(copied, PaimonScanParams.applyOptions(table, ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB")));
+        Assertions.assertEquals(ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB"), table.lastCopyOptions);
+    }
+
+    @Test
     public void testRejectUnknownAndConflictingOptions() {
         DorisConnectorException typo = Assertions.assertThrows(
                 DorisConnectorException.class,
