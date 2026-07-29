@@ -20,6 +20,7 @@
 #include <ctype.h>
 
 #include <algorithm>
+#include <functional>
 #include <ostream>
 #include <utility>
 
@@ -129,6 +130,102 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
         typed_value->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
         return Status::Corruption("Parquet Variant {} typed_value must be optional",
                                   group_schema.name);
+    }
+
+    std::function<Status(const NativeFieldSchema&)> validate_typed_value;
+    std::function<Status(const NativeFieldSchema&)> validate_wrapper;
+    validate_wrapper = [&](const NativeFieldSchema& wrapper) -> Status {
+        if (!wrapper.parquet_schema.__isset.repetition_type ||
+            wrapper.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
+            return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
+                                      wrapper.name);
+        }
+        const NativeFieldSchema* fallback = nullptr;
+        const NativeFieldSchema* typed = nullptr;
+        for (const auto& child : wrapper.children) {
+            if (child.name == "value") {
+                fallback = &child;
+            } else if (child.name == "typed_value") {
+                typed = &child;
+            } else {
+                return Status::Corruption("Parquet Variant wrapper {} has unexpected child {}",
+                                          wrapper.name, child.name);
+            }
+        }
+        if (fallback == nullptr || typed == nullptr || !fallback->children.empty() ||
+            fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
+            !fallback->parquet_schema.__isset.repetition_type ||
+            fallback->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL ||
+            !typed->parquet_schema.__isset.repetition_type ||
+            typed->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
+            return Status::Corruption(
+                    "Parquet Variant shredded wrapper {} requires optional value and typed_value",
+                    wrapper.name);
+        }
+        return validate_typed_value(*typed);
+    };
+    validate_typed_value = [&](const NativeFieldSchema& typed) -> Status {
+        if (!typed.unsupported_reason.empty()) {
+            return Status::NotSupported("Parquet Variant typed value {} is not supported: {}",
+                                        typed.name, typed.unsupported_reason);
+        }
+        if (typed.children.empty()) {
+            const auto& physical = typed.parquet_schema;
+            if (physical.__isset.logicalType && physical.logicalType.__isset.INTEGER &&
+                !physical.logicalType.INTEGER.isSigned) {
+                return Status::Corruption(
+                        "Parquet Variant unsigned integers are not valid typed values");
+            }
+            if (physical.__isset.converted_type &&
+                (physical.converted_type == tparquet::ConvertedType::UINT_8 ||
+                 physical.converted_type == tparquet::ConvertedType::UINT_16 ||
+                 physical.converted_type == tparquet::ConvertedType::UINT_32 ||
+                 physical.converted_type == tparquet::ConvertedType::UINT_64)) {
+                return Status::Corruption(
+                        "Parquet Variant unsigned integers are not valid typed values");
+            }
+            if (physical.__isset.logicalType && physical.logicalType.__isset.TIME) {
+                const auto& time = physical.logicalType.TIME;
+                // Variant v1 has one canonical TIME representation: local wall-clock MICROS.
+                // Accepting adjusted or lower-precision forms would make projection-dependent
+                // reconstruction disagree with the canonical Variant value.
+                if (time.isAdjustedToUTC) {
+                    return Status::Corruption(
+                            "Parquet Variant TIME must have isAdjustedToUTC=false");
+                }
+                if (!time.unit.__isset.MICROS) {
+                    return Status::Corruption(
+                            "Parquet Variant TIME(MILLIS) is not supported; use TIME(MICROS)");
+                }
+            }
+            if (physical.__isset.converted_type &&
+                physical.converted_type == tparquet::ConvertedType::TIME_MILLIS) {
+                return Status::Corruption(
+                        "Parquet Variant TIME(MILLIS) is not supported; use TIME(MICROS)");
+            }
+            if (physical.__isset.logicalType && physical.logicalType.__isset.TIMESTAMP &&
+                physical.logicalType.TIMESTAMP.unit.__isset.NANOS) {
+                // Reject at schema open so full reconstruction and direct typed-leaf access have
+                // the same precision contract instead of diverging after projection planning.
+                return Status::NotSupported("Parquet Variant TIMESTAMP(NANOS) is not supported");
+            }
+            return Status::OK();
+        }
+
+        const PrimitiveType primitive = remove_nullable(typed.data_type)->get_primitive_type();
+        if (primitive == TYPE_STRUCT) {
+            for (const auto& child : typed.children) {
+                RETURN_IF_ERROR(validate_wrapper(child));
+            }
+            return Status::OK();
+        }
+        if (primitive == TYPE_ARRAY && typed.children.size() == 1) {
+            return validate_wrapper(typed.children[0]);
+        }
+        return Status::Corruption("Invalid Parquet Variant typed_value schema {}", typed.name);
+    };
+    if (typed_value != nullptr) {
+        RETURN_IF_ERROR(validate_typed_value(*typed_value));
     }
     return Status::OK();
 }

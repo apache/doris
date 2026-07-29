@@ -674,6 +674,7 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
     const auto format_type = get_range_format_type(*_params, range);
     const bool projects_variant =
+            !_local_state->is_count_star_pushdown() &&
             std::ranges::any_of(_projected_columns, [](const format::ColumnDefinition& column) {
                 return contains_variant_type(column.type);
             });
@@ -813,6 +814,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     if (table_format_name(_current_range) == "iceberg" &&
         format_type != TFileFormatType::FORMAT_PARQUET) {
         const bool projects_variant =
+                !_local_state->is_count_star_pushdown() &&
                 std::ranges::any_of(_params->required_slots, [&](const auto& slot_info) {
                     const auto it = _slot_id_to_desc.find(slot_info.slot_id);
                     return it != _slot_id_to_desc.end() &&

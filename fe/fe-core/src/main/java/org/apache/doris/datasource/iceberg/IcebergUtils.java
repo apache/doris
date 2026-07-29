@@ -723,6 +723,33 @@ public class IcebergUtils {
         }
     }
 
+    public static boolean containsVariant(Type type) {
+        if (type.isVariantType()) {
+            return true;
+        }
+        if (type.isArrayType()) {
+            return containsVariant(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType map = (MapType) type;
+            return containsVariant(map.getKeyType()) || containsVariant(map.getValueType());
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getType()));
+        }
+        return false;
+    }
+
+    public static void validateWriteSchema(List<Column> columns) {
+        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
+            // Keep this table capability read-only until every Iceberg writer can preserve the
+            // Variant physical identity; rejecting only selected columns would allow data loss.
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Iceberg VARIANT columns are read-only and cannot be written");
+        }
+    }
+
     /**
      * Get partition info map for identity partitions only, considering partition
      * evolution.

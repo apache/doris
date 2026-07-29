@@ -1200,6 +1200,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             return doGetSystemTableSplits();
         }
 
+        boolean projectsVariant = !isTableLevelCountStarPushdown()
+                && desc.getSlots().stream()
+                        .anyMatch(slot -> IcebergUtils.containsVariant(slot.getColumn().getType()));
+        checkVariantBackendCompatibility(projectsVariant, backendPolicy.getBackends());
+
         List<Split> splits = new ArrayList<>();
 
         // Use custom file scan tasks if available (for rewrite operations)
@@ -1332,6 +1337,22 @@ public class IcebergScanNode extends FileQueryScanNode {
         for (Backend backend : backends) {
             if (backend.isSmoothUpgradeSrc()) {
                 throw new UserException("Iceberg position_deletes system table is unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static void checkVariantBackendCompatibility(boolean projectsVariant, Iterable<Backend> backends)
+            throws UserException {
+        if (!projectsVariant) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                // Old backends cannot distinguish the logical Variant from its physical carrier,
+                // so scheduling a semantic projection there could corrupt the result shape.
+                throw new UserException("Iceberg Variant is unavailable while backend "
                         + backend.getId() + " is a smooth upgrade source");
             }
         }

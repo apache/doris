@@ -117,6 +117,16 @@ TEST(FileScannerTest, V1CountPushdownRequiresExplicitCountStarArguments) {
                                                 TPushAggOp::type::MINMAX, std::nullopt));
 }
 
+TEST(FileScannerTest, CountStarPlaceholderIsNotASemanticProjection) {
+    EXPECT_TRUE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                           std::vector<int32_t> {}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT,
+                                                            std::vector<int32_t> {7}));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::COUNT, std::nullopt));
+    EXPECT_FALSE(ScanLocalStateBase::is_count_star_pushdown(TPushAggOp::type::MINMAX,
+                                                            std::vector<int32_t> {}));
+}
+
 TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));

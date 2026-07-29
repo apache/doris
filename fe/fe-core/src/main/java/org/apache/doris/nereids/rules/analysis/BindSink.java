@@ -819,6 +819,7 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<IcebergExternalDatabase, IcebergExternalTable> pair = bind(ctx.cascadesContext, sink);
         IcebergExternalDatabase database = pair.first;
         IcebergExternalTable table = pair.second;
+        IcebergUtils.validateWriteSchema(table.getFullSchema());
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // Get static partition columns if present

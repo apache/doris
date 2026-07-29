@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -29,6 +30,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
@@ -329,6 +331,23 @@ public class IcebergUtilsTest {
 
         Assert.assertTrue(type instanceof org.apache.doris.catalog.VariantType);
         Assert.assertTrue(((org.apache.doris.catalog.VariantType) type).isComputeV2());
+    }
+
+    @Test
+    public void testIcebergWriteRejectsRootAndNestedVariant() {
+        Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
+        for (Column column : List.of(
+                new Column("payload", variant),
+                new Column("nested", new org.apache.doris.catalog.StructType(
+                        new ArrayList<>(List.of(new StructField("payload", variant))))))) {
+            try {
+                IcebergUtils.validateWriteSchema(List.of(column));
+                Assert.fail("Iceberg writes must be rejected until the writer supports Variant");
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("VARIANT"));
+                Assert.assertTrue(e.getMessage().contains("read-only"));
+            }
+        }
     }
 
     @Test
