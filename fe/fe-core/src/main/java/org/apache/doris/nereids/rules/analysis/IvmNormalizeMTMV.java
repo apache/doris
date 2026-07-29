@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.FeNameFormat;
@@ -776,6 +777,11 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
                             + table.getName()
                             + ". Please set 'binlog.enable' = 'true' and 'binlog.format' = 'ROW'.");
+        }
+        if (table instanceof MTMV && !((MTMV) table).isIvm()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "INCREMENTAL materialized view cannot use non-IVM MTMV as a base table: "
+                            + table.getName() + ". The base MTMV is refreshed by partition overwrite.");
         }
     }
 
