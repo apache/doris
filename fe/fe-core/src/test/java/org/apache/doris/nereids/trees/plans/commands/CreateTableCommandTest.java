@@ -94,7 +94,7 @@ class CreateTableCommandTest {
             Mockito.verify(env, Mockito.never()).dropTable(
                     Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
                     Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(),
-                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean());
+                    Mockito.anyBoolean(), Mockito.anyBoolean());
         }
     }
 
@@ -127,7 +127,7 @@ class CreateTableCommandTest {
             Mockito.verify(env, Mockito.never()).dropTable(
                     Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
                     Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(),
-                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean());
+                    Mockito.anyBoolean(), Mockito.anyBoolean());
         }
     }
 }
