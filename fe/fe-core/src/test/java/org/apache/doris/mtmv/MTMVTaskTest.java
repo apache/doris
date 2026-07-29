@@ -239,9 +239,39 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
 
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
-        List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request);
+        List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request, false);
 
         Assert.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), attempts.stream()
+                .map(Object::toString).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testManualIvmWithOneRowRelationWithoutSnapshotUsesComplete() throws JobException {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
+        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request, true);
+
+        Assert.assertEquals(Lists.newArrayList("COMPLETE"), attempts.stream()
+                .map(Object::toString).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testManualIvmWithOneRowRelationWithSnapshotUsesIncremental() throws JobException {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
+        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = Deencapsulation.invoke(task, "buildAttempts", request, true);
+
+        Assert.assertEquals(Lists.newArrayList("IVM"), attempts.stream()
                 .map(Object::toString).collect(Collectors.toList()));
     }
 

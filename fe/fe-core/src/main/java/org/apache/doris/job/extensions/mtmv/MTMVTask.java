@@ -287,10 +287,12 @@ public class MTMVTask extends AbstractTask {
             }
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
-            Pair<Set<TableIf>, Set<TableIf>> tablesInPlan = MTMVPlanUtil.getBaseTableFromQuery(mtmv.getQuerySql(), ctx);
-            this.relation = MTMVPlanUtil.generateMTMVRelation(tablesInPlan.first, tablesInPlan.second);
+            MTMVPlanUtil.QueryAnalysisResult queryAnalysis = MTMVPlanUtil.getBaseTableFromQuery(
+                    mtmv.getQuerySql(), ctx);
+            this.relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
+                    queryAnalysis.getOneLevelTables());
             beforeMTMVRefresh();
-            List<TableIf> tableIfs = Lists.newArrayList(tablesInPlan.first);
+            List<TableIf> tableIfs = Lists.newArrayList(queryAnalysis.getAllLevelTables());
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
             // This checks whether an MV in SCHEMA_CHANGE state still matches
@@ -298,7 +300,7 @@ public class MTMVTask extends AbstractTask {
             // refresh fallback: incompatible MV definitions must fail directly.
             ensureQueryUsableIfNeeded(ctx, tableIfs);
             RefreshRequest request = resolveRefreshRequest();
-            List<RefreshAttemptType> attempts = buildAttempts(request);
+            List<RefreshAttemptType> attempts = buildAttempts(request, queryAnalysis.containsOneRowRelation());
             try {
                 syncPartitionsIfNeeded(ctx, tableIfs);
             } catch (PartitionPlanningException e) {
@@ -426,9 +428,8 @@ public class MTMVTask extends AbstractTask {
                 Lists.newArrayList(), false);
     }
 
-    private List<RefreshAttemptType> buildAttempts(RefreshRequest request) {
-        if (taskContext.getTriggerMode() != MTMVTaskTriggerMode.MANUAL
-                && mtmv.isIvm() && !mtmv.hasRefreshSnapshot()) {
+    private List<RefreshAttemptType> buildAttempts(RefreshRequest request, boolean containsOneRowRelation) {
+        if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
         List<RefreshAttemptType> attempts = Lists.newArrayList();
@@ -462,6 +463,11 @@ public class MTMVTask extends AbstractTask {
                 throw new IllegalStateException("Unsupported refresh mode: " + request.refreshMode);
         }
         return attempts;
+    }
+
+    private boolean shouldUseCompleteForInitialIvmRefresh(boolean containsOneRowRelation) {
+        return mtmv.isIvm() && !mtmv.hasRefreshSnapshot()
+                && (taskContext.getTriggerMode() != MTMVTaskTriggerMode.MANUAL || containsOneRowRelation);
     }
 
     private PartitionRefreshPlan planPartitionRefresh(MTMVRefreshContext context,

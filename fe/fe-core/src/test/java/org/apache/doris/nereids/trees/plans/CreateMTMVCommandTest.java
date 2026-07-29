@@ -1742,6 +1742,32 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIncrementalPartitionedMVRejectsOneRowRelation() throws Exception {
+        createTable("CREATE TABLE test.ivm_partition_one_row_base (\n"
+                + " `k1` INT NOT NULL,\n"
+                + " `dt` DATE NOT NULL,\n"
+                + " `v1` INT\n"
+                + " ) ENGINE=OLAP\n"
+                + " DUPLICATE KEY(`k1`, `dt`)\n"
+                + " PARTITION BY RANGE(`dt`)\n"
+                + " (\n"
+                + " PARTITION `p202401` VALUES [(\"2024-01-01\"), (\"2024-02-01\"))\n"
+                + " )\n"
+                + " DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_partition_one_row_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " PARTITION BY(`dt`)\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT dt, k1, v1 FROM ivm_partition_one_row_base\n"
+                        + " UNION ALL SELECT DATE '2024-01-01', 1, 2;"));
+        Assertions.assertTrue(ex.getMessage().contains("PARTITION BY does not support OneRowRelation"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
     public void testCreateIncrementalMVReusesMowPartitionKeyValidation() throws Exception {
         // Force the analyzed partition column into a value-column shape, then
         // invoke partition validation directly to verify IVM reuses the ordinary
