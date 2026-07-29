@@ -31,6 +31,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * This class represents the olap replica related metadata.
@@ -266,7 +269,20 @@ public class Replica {
         return this.backendId;
     }
 
-    // just for ut
+    public long getBackendIdForProcDisplay() {
+        return getBackendIdWithoutException();
+    }
+
+    public Map<String, Long> getClusterToBackendForProcDisplay(
+            Map<String, List<Backend>> computeGroupBackendCache) {
+        Map<String, Long> result = new HashMap<>();
+        long backendId = getBackendIdForProcDisplay();
+        if (backendId != -1L) {
+            result.put("", backendId);
+        }
+        return result;
+    }
+
     public void setBackendId(long backendId) {
         this.backendId = backendId;
     }
