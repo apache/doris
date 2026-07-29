@@ -126,6 +126,44 @@ bool find_parquet_equality_field_path_by_id(const FieldDescriptor* descriptor, i
     return false;
 }
 
+bool find_parquet_equality_field_prefix_by_id_path(
+        const FieldDescriptor* descriptor,
+        const std::vector<const schema::external::TField*>& table_path,
+        ParquetEqualityFieldPath* result) {
+    DORIS_CHECK(descriptor != nullptr);
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(!table_path.empty());
+    const std::vector<FieldSchema>* candidates = nullptr;
+    for (size_t path_index = 0; path_index < table_path.size(); ++path_index) {
+        const auto* table_field = table_path[path_index];
+        DORIS_CHECK(table_field != nullptr);
+        DORIS_CHECK(table_field->__isset.id);
+        const FieldSchema* match = nullptr;
+        size_t match_index = 0;
+        const size_t candidate_count =
+                candidates == nullptr ? cast_set<size_t>(descriptor->size()) : candidates->size();
+        for (size_t candidate_index = 0; candidate_index < candidate_count; ++candidate_index) {
+            const auto* candidate = candidates == nullptr
+                                            ? descriptor->get_column(cast_set<int>(candidate_index))
+                                            : &(*candidates)[candidate_index];
+            if (candidate != nullptr && candidate->field_id == table_field->id) {
+                match = candidate;
+                match_index = candidate_index;
+                break;
+            }
+        }
+        if (match == nullptr) {
+            return false;
+        }
+        if (!result->fields.empty()) {
+            result->child_indexes.push_back(match_index);
+        }
+        result->fields.push_back(match);
+        candidates = &match->children;
+    }
+    return true;
+}
+
 struct OrcEqualityFieldPath {
     std::vector<const orc::Type*> fields;
     std::vector<std::string> names;
@@ -163,6 +201,41 @@ bool find_orc_equality_field_path_by_id(const orc::Type* root, int32_t field_id,
         }
     }
     return false;
+}
+
+bool find_orc_equality_field_prefix_by_id_path(
+        const orc::Type* root, const std::vector<const schema::external::TField*>& table_path,
+        OrcEqualityFieldPath* result) {
+    DORIS_CHECK(root != nullptr);
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(!table_path.empty());
+    const orc::Type* parent = root;
+    for (const auto* table_field : table_path) {
+        DORIS_CHECK(table_field != nullptr);
+        DORIS_CHECK(table_field->__isset.id);
+        const orc::Type* match = nullptr;
+        size_t match_index = 0;
+        for (size_t candidate_index = 0; candidate_index < parent->getSubtypeCount();
+             ++candidate_index) {
+            const auto* candidate = parent->getSubtype(candidate_index);
+            if (candidate->hasAttributeKey(kIcebergOrcAttribute) &&
+                std::stoi(candidate->getAttributeValue(kIcebergOrcAttribute)) == table_field->id) {
+                match = candidate;
+                match_index = candidate_index;
+                break;
+            }
+        }
+        if (match == nullptr) {
+            return false;
+        }
+        if (!result->fields.empty()) {
+            result->child_indexes.push_back(match_index);
+        }
+        result->fields.push_back(match);
+        result->names.push_back(parent->getFieldName(match_index));
+        parent = match;
+    }
+    return true;
 }
 
 } // namespace
@@ -222,6 +295,8 @@ bool IcebergTableReader::_is_fully_dictionary_encoded(
 // ============================================================================
 // IcebergParquetReader: on_before_init_reader (Parquet-specific schema matching)
 // ============================================================================
+// This format-specific setup mirrors the existing reader initialization sequence.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
@@ -370,8 +445,18 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
         const FieldSchema* file_column = nullptr;
         ParquetEqualityFieldPath file_path;
+        bool complete_file_path = false;
         if (use_field_ids_for_hidden_keys) {
-            if (find_parquet_equality_field_path_by_id(field_desc, field_id, &file_path)) {
+            complete_file_path =
+                    find_parquet_equality_field_path_by_id(field_desc, field_id, &file_path);
+            if (!complete_file_path && supports_iceberg_scan_semantics_v2(&get_scan_params())) {
+                const auto table_path = _find_schema_field_path(field_id);
+                if (!table_path.empty()) {
+                    complete_file_path = find_parquet_equality_field_prefix_by_id_path(
+                            field_desc, table_path, &file_path);
+                }
+            }
+            if (!file_path.fields.empty()) {
                 file_column = file_path.fields.front();
             }
         } else {
@@ -398,6 +483,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                 // authoritative Iceberg name mapping.
                 file_column = find_file_column_by_name(old_name);
             }
+            complete_file_path = file_column != nullptr;
         }
 
         std::string leaf_name = old_name;
@@ -429,12 +515,26 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
         new_expand_col_names.push_back(table_col_name);
 
-        if (!file_path.child_indexes.empty()) {
+        if (!complete_file_path) {
+            ColumnPtr missing_value;
+            RETURN_IF_ERROR(_create_missing_equality_delete_value(
+                    field_id, _expand_columns[i].type, file_path.fields.size(), &missing_value));
             _nested_equality_delete_columns.push_back({
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
                     .child_indexes = file_path.child_indexes,
+                    .missing_value = std::move(missing_value),
+            });
+            _expand_columns[i].type = make_nullable(file_column->data_type);
+            _expand_columns[i].column = _expand_columns[i].type->create_column();
+        } else if (!file_path.child_indexes.empty()) {
+            _nested_equality_delete_columns.push_back({
+                    .field_id = field_id,
+                    .block_name = table_col_name,
+                    .leaf_type = _expand_columns[i].type,
+                    .child_indexes = file_path.child_indexes,
+                    .missing_value = nullptr,
             });
             _expand_columns[i].type = make_nullable(file_column->data_type);
             _expand_columns[i].column = _expand_columns[i].type->create_column();
@@ -471,8 +571,10 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(
 
     std::unordered_map<int, const FieldSchema*> iceberg_id_to_field_schema_map;
     for (int i = 0; i < field_desc->size(); ++i) {
-        auto field_schema = field_desc->get_column(i);
-        if (!field_schema) continue;
+        const auto* field_schema = field_desc->get_column(i);
+        if (!field_schema) {
+            continue;
+        }
         int iceberg_id = field_schema->field_id;
         iceberg_id_to_field_schema_map[iceberg_id] = field_schema;
     }
@@ -604,6 +706,8 @@ Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* de
 // ============================================================================
 // IcebergOrcReader: on_before_init_reader (ORC-specific schema matching)
 // ============================================================================
+// This format-specific setup mirrors the existing reader initialization sequence.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
@@ -738,8 +842,18 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
         const orc::Type* file_column = nullptr;
         OrcEqualityFieldPath file_path;
+        bool complete_file_path = false;
         if (use_field_ids_for_hidden_keys) {
-            if (find_orc_equality_field_path_by_id(orc_type_ptr, field_id, &file_path)) {
+            complete_file_path =
+                    find_orc_equality_field_path_by_id(orc_type_ptr, field_id, &file_path);
+            if (!complete_file_path && supports_iceberg_scan_semantics_v2(&get_scan_params())) {
+                const auto table_path = _find_schema_field_path(field_id);
+                if (!table_path.empty()) {
+                    complete_file_path = find_orc_equality_field_prefix_by_id_path(
+                            orc_type_ptr, table_path, &file_path);
+                }
+            }
+            if (!file_path.fields.empty()) {
                 file_column = file_path.fields.front();
             }
         } else {
@@ -763,6 +877,7 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             if (file_column == nullptr && !authoritative_name_mapping) {
                 file_column = find_file_column_by_name(old_name);
             }
+            complete_file_path = file_column != nullptr;
         }
 
         std::string file_col_name = old_name;
@@ -797,12 +912,26 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
         new_expand_col_names.push_back(table_col_name);
 
-        if (!file_path.child_indexes.empty()) {
+        if (!complete_file_path) {
+            ColumnPtr missing_value;
+            RETURN_IF_ERROR(_create_missing_equality_delete_value(
+                    field_id, _expand_columns[i].type, file_path.fields.size(), &missing_value));
             _nested_equality_delete_columns.push_back({
                     .field_id = field_id,
                     .block_name = table_col_name,
                     .leaf_type = _expand_columns[i].type,
                     .child_indexes = file_path.child_indexes,
+                    .missing_value = std::move(missing_value),
+            });
+            _expand_columns[i].type = make_nullable(convert_to_doris_type(file_column));
+            _expand_columns[i].column = _expand_columns[i].type->create_column();
+        } else if (!file_path.child_indexes.empty()) {
+            _nested_equality_delete_columns.push_back({
+                    .field_id = field_id,
+                    .block_name = table_col_name,
+                    .leaf_type = _expand_columns[i].type,
+                    .child_indexes = file_path.child_indexes,
+                    .missing_value = nullptr,
             });
             _expand_columns[i].type = make_nullable(convert_to_doris_type(file_column));
             _expand_columns[i].column = _expand_columns[i].type->create_column();

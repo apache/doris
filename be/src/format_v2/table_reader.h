@@ -386,6 +386,8 @@ protected:
 
     std::optional<ColumnDefinition> _find_table_column_by_field_id(
             int32_t field_id, DataTypePtr type, bool include_historical_schemas) const;
+    std::optional<std::vector<ColumnDefinition>> _find_table_column_path_by_field_id(
+            int32_t field_id, DataTypePtr leaf_type, bool include_historical_schemas) const;
     std::optional<std::vector<ColumnDefinition>> _find_table_column_identity_path_by_field_id(
             int32_t field_id, bool include_historical_schemas) const;
 

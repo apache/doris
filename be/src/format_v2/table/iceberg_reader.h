@@ -133,8 +133,14 @@ private:
     // params. DeleteVector and position delete files use the common DeleteRows path in TableReader.
     using EqualityDeleteColumnPath = std::vector<const format::ColumnDefinition*>;
     Status _append_equality_delete_predicates(format::FileScanRequest* request);
+    Status _build_missing_equality_delete_key_expr(const EqualityDeleteFilter& filter,
+                                                   size_t key_idx,
+                                                   const EqualityDeleteColumnPath& data_path,
+                                                   format::FileScanRequest* request,
+                                                   VExprSPtr* key_expr);
     Status _find_equality_delete_data_field(const EqualityDeleteFilter& filter, size_t key_idx,
-                                            EqualityDeleteColumnPath* data_path) const;
+                                            EqualityDeleteColumnPath* data_path,
+                                            bool* complete_path) const;
     Status _find_equality_delete_table_field(const EqualityDeleteFilter& filter, size_t key_idx,
                                              format::ColumnDefinition* table_field) const;
     void _append_equality_delete_row_count_carrier(format::FileScanRequest* request);

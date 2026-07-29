@@ -36,6 +36,7 @@
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "format/generic_reader.h"
 #include "format/table/equality_delete.h"
@@ -325,6 +326,10 @@ protected:
                                                 int32_t field_id,
                                                 std::vector<const schema::external::TField*>* path);
     std::vector<const schema::external::TField*> _find_schema_field_path(int32_t field_id) const;
+    Status _create_missing_equality_delete_value(int32_t field_id,
+                                                 const DataTypePtr& delete_key_type,
+                                                 size_t physical_path_size,
+                                                 ColumnPtr* const value) const;
     Status _register_missing_equality_delete_column(int32_t field_id, const std::string& name,
                                                     const DataTypePtr& delete_key_type);
     Status _materialize_missing_equality_delete_column(Block* block, const std::string& name,
@@ -353,6 +358,7 @@ protected:
         std::string block_name;
         DataTypePtr leaf_type;
         std::vector<size_t> child_indexes;
+        ColumnPtr missing_value;
     };
     struct EqualityDeleteReadSpec {
         NestedEqualityDeleteColumn nested_field;
@@ -670,6 +676,7 @@ Status IcebergReaderMixin<BaseReader>::_build_parquet_equality_delete_read_specs
                                 .block_name = leaf->name,
                                 .leaf_type = make_nullable(leaf->data_type),
                                 .child_indexes = std::move(child_indexes),
+                                .missing_value = nullptr,
                         },
                 .leaf_name = leaf->name,
                 .root_name = root->name,
@@ -716,6 +723,7 @@ Status IcebergReaderMixin<BaseReader>::_build_orc_equality_delete_read_specs(
                                 .block_name = names.back(),
                                 .leaf_type = make_nullable(reader->convert_to_doris_type(leaf)),
                                 .child_indexes = std::move(child_indexes),
+                                .missing_value = nullptr,
                         },
                 .leaf_name = names.back(),
                 .root_name = names.front(),
@@ -1080,6 +1088,17 @@ Status IcebergReaderMixin<BaseReader>::_extract_nested_equality_delete_column(
         ancestor_null_maps.push_back(&nullable->get_null_map_data());
         current = &nullable->get_nested_column();
     }
+    ColumnPtr repeated_missing_value;
+    if (static_cast<bool>(nested_field.missing_value)) {
+        repeated_missing_value = iceberg::repeat_initial_default_column(nested_field.missing_value,
+                                                                        root_column->size());
+        current = repeated_missing_value.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*current);
+            nullable != nullptr) {
+            ancestor_null_maps.push_back(&nullable->get_null_map_data());
+            current = &nullable->get_nested_column();
+        }
+    }
 
     auto result = ColumnNullable::create(remove_nullable(nested_field.leaf_type)->create_column(),
                                          ColumnUInt8::create());
@@ -1124,26 +1143,74 @@ Status IcebergReaderMixin<BaseReader>::_materialize_nested_equality_delete_colum
 }
 
 template <typename BaseReader>
-Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
-        int32_t field_id, const std::string& name, const DataTypePtr& delete_key_type) {
+Status IcebergReaderMixin<BaseReader>::_create_missing_equality_delete_value(
+        int32_t field_id, const DataTypePtr& delete_key_type, size_t physical_path_size,
+        ColumnPtr* const value) const {
     DORIS_CHECK(delete_key_type != nullptr);
-    const auto* table_field = _find_schema_field(field_id);
-    if (table_field == nullptr) {
+    DORIS_CHECK(value != nullptr);
+    const auto table_path = _find_schema_field_path(field_id);
+    if (table_path.empty()) {
         // Without field-id-bound current or historical metadata BE cannot distinguish a true NULL
         // initial default from a non-NULL default, so continuing would risk silently keeping or
         // deleting wrong rows.
         return Status::InternalError(
                 "Missing Iceberg schema metadata for equality-delete field id {}", field_id);
     }
+    const size_t missing_index =
+            physical_path_size < table_path.size() ? physical_path_size : table_path.size() - 1;
+    const auto* missing_field = table_path[missing_index];
+    DORIS_CHECK(missing_field != nullptr);
 
-    ColumnPtr default_column;
     if (!supports_iceberg_scan_semantics_v2(&this->get_scan_params()) &&
-        !table_field->__isset.initial_default_value) {
-        default_column = delete_key_type->create_column_const(1, Field());
-    } else {
-        RETURN_IF_ERROR(iceberg::create_initial_default_column(*table_field, delete_key_type,
-                                                               &default_column));
+        !missing_field->__isset.initial_default_value) {
+        *value = delete_key_type->create_column_const(1, Field());
+        return Status::OK();
     }
+
+    DataTypePtr missing_type = delete_key_type;
+    for (size_t index = table_path.size(); index > missing_index + 1; --index) {
+        const auto* parent = table_path[index - 2];
+        const auto* child = table_path[index - 1];
+        DORIS_CHECK(parent != nullptr);
+        DORIS_CHECK(child != nullptr);
+        DORIS_CHECK(child->__isset.name);
+        if (!parent->__isset.nestedField || !parent->nestedField.__isset.struct_field) {
+            return Status::NotSupported(
+                    "Iceberg equality delete field id {} has a non-struct missing ancestor",
+                    field_id);
+        }
+        missing_type = std::make_shared<DataTypeStruct>(DataTypes {std::move(missing_type)},
+                                                        Strings {child->name});
+        if (parent->__isset.is_optional && parent->is_optional) {
+            missing_type = make_nullable(missing_type);
+        }
+    }
+
+    ColumnPtr missing_root_value;
+    RETURN_IF_ERROR(iceberg::create_initial_default_column(*missing_field, missing_type,
+                                                           &missing_root_value));
+    if (missing_index + 1 == table_path.size()) {
+        *value = std::move(missing_root_value);
+        return Status::OK();
+    }
+
+    NestedEqualityDeleteColumn missing_path {
+            .field_id = field_id,
+            .block_name = "",
+            .leaf_type = delete_key_type,
+            .child_indexes = std::vector<size_t>(table_path.size() - missing_index - 1, 0),
+            .missing_value = nullptr,
+    };
+    return _extract_nested_equality_delete_column(missing_root_value, missing_path, value);
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_register_missing_equality_delete_column(
+        int32_t field_id, const std::string& name, const DataTypePtr& delete_key_type) {
+    DORIS_CHECK(delete_key_type != nullptr);
+    ColumnPtr default_column;
+    RETURN_IF_ERROR(
+            _create_missing_equality_delete_value(field_id, delete_key_type, 0, &default_column));
     const bool inserted =
             _missing_equality_delete_values.emplace(name, std::move(default_column)).second;
     DORIS_CHECK(inserted);

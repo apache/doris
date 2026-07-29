@@ -1257,12 +1257,13 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     /**
-     * Load only delete-manifest metadata for batch scans.
+     * Load applicable equality-delete metadata for batch scans.
      *
      * <p>Batch split planning must remain asynchronous, so this preflight cannot consume
      * {@link TableScan#planFiles()}. The target snapshot's equality-delete total avoids manifest
-     * reads for the common no-delete case. Otherwise, partition and row filters prune the delete
-     * manifests conservatively before collecting the field IDs needed by the schema carrier.
+     * reads for the common no-delete case. Otherwise, the preflight reads filtered manifest
+     * metadata and applies the same {@link DeleteFileIndex#forDataFile(long, DataFile)}
+     * delete-to-data contract as final task planning.
      */
     @VisibleForTesting
     Set<Integer> loadEqualityDeleteFieldIdsFromDeleteManifests(TableScan scan) {
@@ -1274,34 +1275,97 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         Expression dataFilter = scan.filter();
-        Set<Integer> equalityDeleteFieldIds = new HashSet<>();
+        boolean caseSensitive = scan.isCaseSensitive();
+        Map<Integer, PartitionSpec> specsById = icebergTable.specs();
+        List<DeleteFile> deleteFiles = new ArrayList<>();
         for (ManifestFile manifest : snapshot.deleteManifests(icebergTable.io())) {
             if (manifest.content() != ManifestContent.DELETES
                     || (!manifest.hasAddedFiles() && !manifest.hasExistingFiles())) {
                 continue;
             }
             PartitionSpec spec = Preconditions.checkNotNull(
-                    icebergTable.specs().get(manifest.partitionSpecId()),
+                    specsById.get(manifest.partitionSpecId()),
                     "Iceberg partition spec %s is absent from table metadata",
                     manifest.partitionSpecId());
             Expression partitionFilter =
-                    Projections.inclusive(spec, true).project(dataFilter);
+                    Projections.inclusive(spec, caseSensitive).project(dataFilter);
             if (!ManifestEvaluator.forPartitionFilter(
-                    partitionFilter, spec, true).eval(manifest)) {
+                    partitionFilter, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
             try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, icebergTable.io(), icebergTable.specs())) {
+                    manifest, icebergTable.io(), specsById)) {
                 ManifestReader<DeleteFile> filteredReader = reader
                         .filterRows(dataFilter)
                         .filterPartitions(partitionFilter)
-                        .caseSensitive(true);
-                equalityDeleteFieldIds.addAll(
-                        collectEqualityDeleteFieldIds(filteredReader));
+                        .caseSensitive(caseSensitive);
+                for (DeleteFile deleteFile : filteredReader) {
+                    if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
+                        deleteFiles.add(deleteFile);
+                    }
+                }
             } catch (IOException e) {
                 throw new RuntimeException(
                         "Failed to close Iceberg delete manifest " + manifest.path(), e);
             }
+        }
+        if (deleteFiles.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                .specsById(specsById)
+                .caseSensitive(caseSensitive)
+                .build();
+        Set<Integer> equalityDeleteFieldIds = new HashSet<>();
+        for (ManifestFile manifest : snapshot.dataManifests(icebergTable.io())) {
+            if (manifest.content() != ManifestContent.DATA
+                    || (!manifest.hasAddedFiles() && !manifest.hasExistingFiles())) {
+                continue;
+            }
+            PartitionSpec spec = Preconditions.checkNotNull(
+                    specsById.get(manifest.partitionSpecId()),
+                    "Iceberg partition spec %s is absent from table metadata",
+                    manifest.partitionSpecId());
+            Expression partitionFilter =
+                    Projections.inclusive(spec, caseSensitive).project(dataFilter);
+            if (!ManifestEvaluator.forPartitionFilter(
+                    partitionFilter, spec, caseSensitive).eval(manifest)) {
+                continue;
+            }
+            try (ManifestReader<DataFile> reader =
+                         ManifestFiles.read(manifest, icebergTable.io())) {
+                ManifestReader<DataFile> filteredReader = reader
+                        .filterRows(dataFilter)
+                        .filterPartitions(partitionFilter)
+                        .caseSensitive(caseSensitive);
+                equalityDeleteFieldIds.addAll(
+                        collectApplicableEqualityDeleteFieldIds(deleteIndex, filteredReader));
+            } catch (IOException e) {
+                throw new RuntimeException(
+                        "Failed to close Iceberg data manifest " + manifest.path(), e);
+            }
+        }
+        return equalityDeleteFieldIds;
+    }
+
+    @VisibleForTesting
+    static Set<Integer> collectApplicableEqualityDeleteFieldIds(
+            Iterable<DeleteFile> deleteFiles, Iterable<DataFile> dataFiles,
+            Map<Integer, PartitionSpec> specsById, boolean caseSensitive) {
+        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                .specsById(specsById)
+                .caseSensitive(caseSensitive)
+                .build();
+        return collectApplicableEqualityDeleteFieldIds(deleteIndex, dataFiles);
+    }
+
+    private static Set<Integer> collectApplicableEqualityDeleteFieldIds(
+            DeleteFileIndex deleteIndex, Iterable<DataFile> dataFiles) {
+        Set<Integer> equalityDeleteFieldIds = new HashSet<>();
+        for (DataFile dataFile : dataFiles) {
+            equalityDeleteFieldIds.addAll(collectEqualityDeleteFieldIds(Arrays.asList(
+                    deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile))));
         }
         return equalityDeleteFieldIds;
     }

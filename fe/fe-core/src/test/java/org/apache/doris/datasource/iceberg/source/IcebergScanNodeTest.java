@@ -508,6 +508,52 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testBatchPreflightUsesDeleteSequenceAndPartitionApplicability() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.required(2, "partition_id", Types.StringType.get()),
+                Types.NestedField.optional(7, "applicable_key", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "old_key", Types.IntegerType.get()),
+                Types.NestedField.optional(10, "other_partition_key", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("partition_id").build();
+        PartitionData partitionA = new PartitionData(spec.partitionType());
+        partitionA.set(0, "a");
+        PartitionData partitionB = new PartitionData(spec.partitionType());
+        partitionB.set(0, "b");
+
+        DataFile dataFile = mockDataFile(spec, partitionA, 30);
+        DeleteFile applicableDelete = mockEqualityDeleteFile(spec, partitionA, 40, 7);
+        DeleteFile olderDelete = mockEqualityDeleteFile(spec, partitionA, 20, 9);
+        DeleteFile otherPartitionDelete =
+                mockEqualityDeleteFile(spec, partitionB, 40, 10);
+
+        Assert.assertEquals(Set.of(7),
+                IcebergScanNode.collectApplicableEqualityDeleteFieldIds(
+                        List.of(applicableDelete, olderDelete, otherPartitionDelete),
+                        List.of(dataFile), Map.of(spec.specId(), spec), true));
+    }
+
+    private static DataFile mockDataFile(
+            PartitionSpec spec, PartitionData partition, long dataSequenceNumber) {
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.specId()).thenReturn(spec.specId());
+        Mockito.when(dataFile.partition()).thenReturn(partition);
+        Mockito.when(dataFile.dataSequenceNumber()).thenReturn(dataSequenceNumber);
+        return dataFile;
+    }
+
+    private static DeleteFile mockEqualityDeleteFile(
+            PartitionSpec spec, PartitionData partition, long dataSequenceNumber, int fieldId) {
+        DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
+        Mockito.when(deleteFile.content()).thenReturn(FileContent.EQUALITY_DELETES);
+        Mockito.when(deleteFile.specId()).thenReturn(spec.specId());
+        Mockito.when(deleteFile.partition()).thenReturn(partition);
+        Mockito.when(deleteFile.dataSequenceNumber()).thenReturn(dataSequenceNumber);
+        Mockito.when(deleteFile.equalityFieldIds()).thenReturn(List.of(fieldId));
+        return deleteFile;
+    }
+
+    @Test
     public void testInitialDefaultMetadataUsesCurrentSchemaForOrdinaryScan() throws Exception {
         Schema snapshotSchema = new Schema(Types.NestedField.optional("historical_binary")
                 .withId(7)
