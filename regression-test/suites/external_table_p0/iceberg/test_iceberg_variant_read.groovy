@@ -41,6 +41,10 @@ suite("test_iceberg_variant_read",
     }
     String catalogName = "test_iceberg_variant_read"
     String dbName = "iceberg_variant_read_db"
+    String mixedOrcSource = "variant_mixed_orc_source_" +
+            UUID.randomUUID().toString().replace("-", "")
+    String mixedOrcLocation =
+            "s3a://warehouse/wh/${dbName}/${mixedOrcSource}/data"
     String fixtureKey = "doris-regression/iceberg-variant/iceberg_variant_shredded.parquet"
     File shreddedFixture = new File(context.dataPath, "iceberg_variant_shredded.parquet")
     File shreddedTableFixture = new File(context.dataPath, "iceberg_variant_shredded_table")
@@ -262,11 +266,15 @@ suite("test_iceberg_variant_read",
         TBLPROPERTIES ('format-version'='3', 'write.format.default'='parquet');
         INSERT INTO demo.${dbName}.variant_mixed_format
             VALUES (1, parse_json('{"format":"parquet"}'));
-        DROP TABLE IF EXISTS spark_catalog.default.variant_mixed_orc_source;
-        CREATE TABLE spark_catalog.default.variant_mixed_orc_source USING orc AS SELECT 2 AS id;
+        -- Keep the source file under the shared object-store warehouse. The Spark session
+        -- catalog otherwise writes a local file: URI that Doris workers cannot open, masking the
+        -- intended mixed-format Variant rejection with an unrelated filesystem error.
+        DROP TABLE IF EXISTS spark_catalog.default.${mixedOrcSource};
+        CREATE TABLE spark_catalog.default.${mixedOrcSource} USING orc
+        LOCATION '${mixedOrcLocation}' AS SELECT 2 AS id;
         CALL demo.system.add_files(
             table => '${dbName}.variant_mixed_format',
-            source_table => 'default.variant_mixed_orc_source');
+            source_table => 'default.${mixedOrcSource}');
     """
     String evolutionReadded = latestSnapshotId("variant_evolution")
 
@@ -318,6 +326,18 @@ suite("test_iceberg_variant_read",
     String pagePruningProfile = getProfileByToken(pagePruningToken).toString()
     assertTrue(counterSum(pagePruningProfile, "FilteredRowsByPage") > 0,
                "Shredded Variant typed_value did not filter any Parquet page")
+    assertEquals(0L, counterSum(pagePruningProfile, "VariantLeafProjections"),
+                 "A query returning the root Variant must retain the complete physical wrapper")
+    String leafProjectionToken =
+            "iceberg_variant_leaf_projection_" + UUID.randomUUID().toString()
+    sql """
+        SELECT '${leafProjectionToken}', COUNT(*)
+        FROM variant_page_pruning
+        WHERE v['n'] > 3000
+    """
+    String leafProjectionProfile = getProfileByToken(leafProjectionToken).toString()
+    assertTrue(counterSum(leafProjectionProfile, "VariantLeafProjections") > 0,
+               "Variant typed predicate did not retain a physical leaf projection")
     qt_variant_page_pruning_result """
         SELECT COUNT(*), MIN(id), MAX(id)
         FROM variant_page_pruning

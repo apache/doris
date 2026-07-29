@@ -1784,15 +1784,97 @@ static bool table_root_is_map(const ColumnMapping& mapping) {
     return remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_MAP;
 }
 
+static const ColumnDefinition* find_file_child_by_name(
+        const std::vector<ColumnDefinition>& children, std::string_view name) {
+    const auto child_it = std::ranges::find_if(
+            children, [name](const ColumnDefinition& child) { return child.name == name; });
+    return child_it == children.end() ? nullptr : &*child_it;
+}
+
+static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
+                                               const std::vector<std::string>& path,
+                                               LocalColumnIndex* root_projection) {
+    DORIS_CHECK(root_projection != nullptr);
+    if (path.empty() || !mapping.file_local_id.has_value()) {
+        return false;
+    }
+    *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
+    const auto* root_typed = find_file_child_by_name(mapping.original_file_children, "typed_value");
+    if (root_typed == nullptr || root_typed->children.empty()) {
+        return false;
+    }
+    root_projection->children.push_back(
+            LocalColumnIndex::partial_local(root_typed->file_local_id()));
+    auto* current_projection = &root_projection->children.back();
+    const auto* typed_children = &root_typed->children;
+    for (size_t position = 0; position < path.size(); ++position) {
+        const auto* wrapper = find_file_child_by_name(*typed_children, path[position]);
+        if (wrapper == nullptr) {
+            return false;
+        }
+        current_projection->children.push_back(
+                LocalColumnIndex::partial_local(wrapper->file_local_id()));
+        current_projection = &current_projection->children.back();
+        const auto* typed = find_file_child_by_name(wrapper->children, "typed_value");
+        if (typed == nullptr) {
+            return false;
+        }
+        auto typed_projection = LocalColumnIndex::partial_local(typed->file_local_id());
+        const bool leaf = position + 1 == path.size();
+        if (leaf) {
+            // Only primitive typed values can be returned as a direct vector. Complex shredded
+            // values still need their wrapper shape and therefore keep the full Variant fallback.
+            if (!typed->children.empty()) {
+                return false;
+            }
+            typed_projection.project_all_children = true;
+        }
+        current_projection->children.push_back(std::move(typed_projection));
+        current_projection = &current_projection->children.back();
+        typed_children = &typed->children;
+    }
+    return true;
+}
+
+static bool build_variant_projection(const ColumnMapping& mapping, LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    if (mapping.table_type == nullptr || mapping.variant_access_paths.empty() ||
+        remove_nullable(mapping.table_type)->get_primitive_type() != TYPE_VARIANT) {
+        return false;
+    }
+    std::optional<LocalColumnIndex> merged;
+    for (const auto& path : mapping.variant_access_paths) {
+        LocalColumnIndex path_projection;
+        if (!build_variant_leaf_path_projection(mapping, path, &path_projection)) {
+            return false;
+        }
+        if (!merged.has_value()) {
+            merged = std::move(path_projection);
+        } else if (!merge_local_column_index(&*merged, path_projection).ok()) {
+            return false;
+        }
+    }
+    if (!merged.has_value()) {
+        return false;
+    }
+    *projection = std::move(*merged);
+    return true;
+}
+
 static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
                               bool is_predicate_column, bool force_full_complex_scan_projection,
+                              bool enable_variant_leaf_projection,
                               const FilterProjectionMap* filter_projections = nullptr) {
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
-    if (!force_full_complex_scan_projection && needs_nested_file_projection(*mapping)) {
+    if (enable_variant_leaf_projection && !force_full_complex_scan_projection &&
+        build_variant_projection(*mapping, &projection)) {
+        // The per-file Parquet reader will validate residual-value statistics before honoring this
+        // physical leaf projection; unsafe files atomically fall back to the complete Variant.
+    } else if (!force_full_complex_scan_projection && needs_nested_file_projection(*mapping)) {
         RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
     }
     if (is_predicate_column && !force_full_complex_scan_projection) {
@@ -2004,6 +2086,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
+    mapping->variant_access_paths = table_column.variant_access_paths;
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
@@ -2197,7 +2280,8 @@ Status TableColumnMapper::create_scan_request(
             }
             if (!used_by_filter || !enable_lazy_materialization()) {
                 RETURN_IF_ERROR(add_scan_column(file_request, mapping, false,
-                                                force_full_complex_scan_projection()));
+                                                force_full_complex_scan_projection(),
+                                                enable_variant_leaf_projection()));
             }
         }
     }
@@ -2284,7 +2368,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             }
             RETURN_IF_ERROR(add_scan_column(file_request, mapping, enable_lazy_materialization(),
                                             force_full_complex_scan_projection(),
-                                            &filter_projections));
+                                            enable_variant_leaf_projection(), &filter_projections));
         }
     }
     // Rebuild the file type for every scan-local mapping before expression rewrite. Predicate-only

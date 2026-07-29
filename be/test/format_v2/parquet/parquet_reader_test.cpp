@@ -48,12 +48,14 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "exprs/vcompound_pred.h"
@@ -1576,6 +1578,140 @@ TEST_F(NewParquetReaderTest, CreatesParquetColumnMapper) {
             reader->create_column_mapper({.mode = format::TableColumnMappingMode::BY_FIELD_ID});
 
     ASSERT_NE(dynamic_cast<format::ParquetColumnMapper*>(mapper.get()), nullptr);
+}
+
+TEST(ParquetVariantProjectionTest, ResidualStatisticsGuardPhysicalLeafProjection) {
+    using format::parquet::ParquetColumnSchema;
+    using format::parquet::ParquetColumnSchemaKind;
+    auto node = [](std::string name, int32_t local_id, ParquetColumnSchemaKind kind,
+                   int leaf_id = -1) {
+        auto result = std::make_unique<ParquetColumnSchema>();
+        result->name = std::move(name);
+        result->local_id = local_id;
+        result->kind = kind;
+        result->leaf_column_id = leaf_id;
+        return result;
+    };
+    auto root = node("v", 0, ParquetColumnSchemaKind::VARIANT);
+    root->children.push_back(node("metadata", 0, ParquetColumnSchemaKind::PRIMITIVE, 0));
+    root->children.push_back(node("value", 1, ParquetColumnSchemaKind::PRIMITIVE, 1));
+    auto root_typed = node("typed_value", 2, ParquetColumnSchemaKind::STRUCT);
+    auto wrapper = node("n", 0, ParquetColumnSchemaKind::STRUCT);
+    wrapper->children.push_back(node("value", 0, ParquetColumnSchemaKind::PRIMITIVE, 2));
+    wrapper->children.push_back(node("typed_value", 1, ParquetColumnSchemaKind::PRIMITIVE, 3));
+    root_typed->children.push_back(std::move(wrapper));
+    root->children.push_back(std::move(root_typed));
+
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(1));
+
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(10);
+    for (int leaf = 0; leaf < 4; ++leaf) {
+        tparquet::Statistics statistics;
+        statistics.__set_null_count(leaf == 1 || leaf == 2 ? 10 : 0);
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_statistics(std::move(statistics));
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(std::move(column_metadata));
+        row_group.columns.push_back(std::move(chunk));
+    }
+    tparquet::FileMetaData metadata;
+    metadata.row_groups.push_back(row_group);
+    EXPECT_TRUE(format::parquet::detail::variant_projection_is_fully_shredded(metadata, *root,
+                                                                              projection));
+
+    metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(9);
+    EXPECT_FALSE(format::parquet::detail::variant_projection_is_fully_shredded(metadata, *root,
+                                                                               projection));
+    metadata.row_groups[0].columns[2].meta_data.__isset.statistics = false;
+    EXPECT_FALSE(format::parquet::detail::variant_projection_is_fully_shredded(metadata, *root,
+                                                                               projection));
+}
+
+TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    _file_path = std::string(source_root) +
+                 "/regression-test/data/external_table_p0/iceberg/"
+                 "iceberg_variant_shredded.parquet";
+    ASSERT_TRUE(std::filesystem::exists(_file_path));
+
+    RuntimeProfile profile("variant_typed_leaf_projection");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    ASSERT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_VARIANT);
+
+    auto find_child = [](const std::vector<format::ColumnDefinition>& children,
+                         std::string_view name) -> const format::ColumnDefinition* {
+        const auto it = std::ranges::find_if(
+                children, [name](const auto& child) { return child.name == name; });
+        return it == children.end() ? nullptr : &*it;
+    };
+    const auto* root_typed = find_child(schema[1].children, "typed_value");
+    ASSERT_NE(root_typed, nullptr);
+    const auto* n_wrapper = find_child(root_typed->children, "n");
+    ASSERT_NE(n_wrapper, nullptr);
+    const auto* n_typed = find_child(n_wrapper->children, "typed_value");
+    ASSERT_NE(n_typed, nullptr);
+
+    auto projection = format::LocalColumnIndex::partial_local(schema[1].local_id);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(root_typed->local_id));
+    projection.children.back().children.push_back(
+            format::LocalColumnIndex::partial_local(n_wrapper->local_id));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(n_typed->local_id));
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(std::move(projection));
+    request->local_positions.emplace(format::LocalColumnId(schema[1].local_id),
+                                     format::LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+    ASSERT_NE(profile.get_counter("VariantLeafProjections"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantLeafProjections")->value(), 1);
+
+    Block block;
+    block.insert({schema[1].type->create_column(), schema[1].type, "v"});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 4096);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const std::array path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("n")}};
+    const auto match = variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(match.has_value());
+    EXPECT_EQ(match->type->get_primitive_type(), TYPE_INT);
+    EXPECT_EQ(match->column->size(), rows);
+    const auto first_value =
+            assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*match->column).get_nested_column())
+                    .get_data()[0];
+
+    IColumn::Filter keep(rows, 0);
+    keep[0] = 1;
+    const ColumnPtr filtered = variants.filter(keep, 1);
+    const auto& filtered_variants = assert_cast<const ColumnVariantV2&>(*filtered);
+    ASSERT_TRUE(filtered_variants.is_shredded());
+    const auto filtered_match = filtered_variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(filtered_match.has_value());
+    EXPECT_EQ(filtered_match->column->size(), 1);
+    EXPECT_EQ(
+            assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*filtered_match->column).get_nested_column())
+                    .get_data()[0],
+            first_value);
+    EXPECT_TRUE(variants.clone_resized(0)->empty());
+    auto mutable_filtered = variants.clone_resized(variants.size());
+    EXPECT_EQ(mutable_filtered->filter(keep), 1);
+    EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(*mutable_filtered).is_shredded());
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {

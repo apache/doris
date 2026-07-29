@@ -56,6 +56,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                        parquet_profile, 1);
     filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "FilteredRowsByPage", TUnit::UNIT,
                                                       parquet_profile, 1);
+    variant_leaf_projections = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "VariantLeafProjections",
+                                                            TUnit::UNIT, parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "PagesSkippedByDataPageFilter", TUnit::UNIT, parquet_profile, 1);
     data_page_filter_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DataPageFilterSkipBytes",

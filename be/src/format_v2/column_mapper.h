@@ -128,6 +128,8 @@ struct ColumnMapping {
     // schema, not table child order. TableReader uses this to map table-output children back to the
     // file-local block layout when projection, predicate-only children, and schema evolution mix.
     std::vector<ColumnDefinition> projected_file_children;
+    // Table-side Variant object-key paths retained until the physical shredding schema is known.
+    std::vector<std::vector<std::string>> variant_access_paths;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
@@ -228,6 +230,9 @@ protected:
     // delimited text field. They must scan the whole complex top-level field and let TableReader
     // rematerialize the requested table child after row-level filters have run.
     virtual bool force_full_complex_scan_projection() const { return false; }
+    // Only Parquet currently has a Variant physical shredding schema and a reader that can
+    // validate residual-value completeness before honoring a typed-leaf projection.
+    virtual bool enable_variant_leaf_projection() const { return false; }
 
     const ColumnDefinition* _find_file_field(
             const ColumnDefinition& table_column,
@@ -273,6 +278,9 @@ protected:
 class ParquetColumnMapper final : public TableColumnMapper {
 public:
     using TableColumnMapper::TableColumnMapper;
+
+protected:
+    bool enable_variant_leaf_projection() const override { return true; }
 };
 
 // Mapper for readers that always materialize every required file column before filtering. The

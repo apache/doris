@@ -66,6 +66,10 @@ public:
     virtual size_t allocated_bytes() const = 0;
     virtual void sanity_check() const = 0;
     virtual void for_each_subcolumn(const IColumn::ColumnCallback& callback) const = 0;
+    // Row selection must remain in the native shredded representation. A scanner may compact a
+    // predicate column before every logical Variant value is available for materialization.
+    virtual std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                         ssize_t result_size_hint) const = 0;
     virtual std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const = 0;
 

@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -91,6 +92,10 @@ DataTypePtr timestamptz(uint32_t scale) {
 
 DataTypePtr u8() {
     return std::make_shared<DataTypeUInt8>();
+}
+
+DataTypePtr variant_v2() {
+    return std::make_shared<DataTypeVariantV2>();
 }
 
 ColumnDefinition field_id_col(const std::string& name, int32_t field_id, DataTypePtr type,
@@ -4535,6 +4540,34 @@ TEST_F(ColumnMapperCastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionCh
     EXPECT_EQ(filter[0], 0);
     EXPECT_EQ(filter[1], 1);
     conjunct->close();
+}
+
+TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"typed_col"}};
+
+    auto field_wrapper = struct_name_col(
+            "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root = request.non_predicate_columns[0];
+    ASSERT_FALSE(root.project_all_children);
+    ASSERT_EQ(root.children.size(), 1);
+    EXPECT_EQ(root.children[0].local_id(), 2);
+    ASSERT_EQ(root.children[0].children.size(), 1);
+    EXPECT_EQ(root.children[0].children[0].local_id(), 0);
+    ASSERT_EQ(root.children[0].children[0].children.size(), 1);
+    EXPECT_EQ(root.children[0].children[0].children[0].local_id(), 1);
+    EXPECT_TRUE(root.children[0].children[0].children[0].project_all_children);
 }
 
 } // namespace
