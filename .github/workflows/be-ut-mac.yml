@@ -99,6 +99,7 @@ jobs:
             'maven'
             'node'
             'llvm@16'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
@@ -148,4 +149,12 @@ jobs:
           popd
 
           export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
+          export CFLAGS="-I${LIBOMP_PREFIX}/include ${CFLAGS:-}"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include ${CXXFLAGS:-}"
+          export LDFLAGS="-L${LIBOMP_PREFIX}/lib ${LDFLAGS:-}"
+          export EXTRA_CXX_FLAGS="-I${LIBOMP_PREFIX}/include ${EXTRA_CXX_FLAGS:-}"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
