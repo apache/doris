@@ -35,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.nereids.CascadesContext;
@@ -99,6 +100,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -144,6 +146,14 @@ public abstract class TestWithFeService {
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "";
 
+    // Env fields that tests routinely swap for a Mockito spy. They are captured once class setup has
+    // finished and restored after every test method, so a spy installed by one test method cannot leak
+    // into the next one. Capturing after runBeforeAll() is deliberate: a class that installs a spy for
+    // the whole class (CheckRowPolicyTest) has that spy as its baseline, making the restore a no-op there.
+    private static final String[] ENV_FIELDS_RESTORED_PER_TEST = new String[] {
+            "accessManager", "systemInfo", "authenticationIntegrationMgr"};
+    private final Map<String, Object> envFieldBaseline = Maps.newHashMap();
+
     @BeforeAll
     public final void beforeAll() throws Exception {
         // this.enableAdvanceNextId may be reset by children classes
@@ -161,6 +171,10 @@ public abstract class TestWithFeService {
         createDorisCluster();
         Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
         runBeforeAll();
+        Env env = Env.getCurrentEnv();
+        for (String field : ENV_FIELDS_RESTORED_PER_TEST) {
+            envFieldBaseline.put(field, Deencapsulation.getField(env, field));
+        }
     }
 
     protected void beforeCluster() {
@@ -179,6 +193,14 @@ public abstract class TestWithFeService {
     @BeforeEach
     public final void beforeEach() throws Exception {
         runBeforeEach();
+    }
+
+    @AfterEach
+    public final void afterEach() {
+        Env env = Env.getCurrentEnv();
+        for (Map.Entry<String, Object> baseline : envFieldBaseline.entrySet()) {
+            Deencapsulation.setField(env, baseline.getKey(), baseline.getValue());
+        }
     }
 
     protected void beforeCreatingConnectContext() throws Exception {
