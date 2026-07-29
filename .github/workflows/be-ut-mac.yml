@@ -102,6 +102,9 @@ jobs:
             'libomp'
           )
           brew install "${cellars[@]}" || true
+          # The Intel runner exposes Homebrew's latest fmt from /usr/local/include,
+          # which can shadow the branch-pinned fmt shipped in the Doris thirdparty bundle.
+          brew unlink fmt || true
 
           # Paimon's bundled dependencies still require pre-CMake-4 policy
           # compatibility. Match the supported version used by the full
