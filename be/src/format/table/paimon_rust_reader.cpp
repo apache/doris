@@ -562,6 +562,31 @@ std::map<std::string, std::string> PaimonRustReader::_build_options() const {
             options[kv.first] = kv.second;
         }
     }
+
+    auto copy_if_missing = [&](const char* from_key, const char* to_key) {
+        if (options.find(to_key) != options.end()) {
+            return;
+        }
+        auto it = options.find(from_key);
+        if (it != options.end() && !it->second.empty()) {
+            options[to_key] = it->second;
+        }
+    };
+
+    // Map common OSS/S3 Hadoop configs to Doris/paimon-native S3 property keys
+    // that the paimon-rust FileIO recognizes.
+    copy_if_missing("fs.oss.accessKeyId", "AWS_ACCESS_KEY");
+    copy_if_missing("fs.oss.accessKeySecret", "AWS_SECRET_KEY");
+    copy_if_missing("fs.oss.sessionToken", "AWS_TOKEN");
+    copy_if_missing("fs.oss.endpoint", "AWS_ENDPOINT");
+    copy_if_missing("fs.oss.region", "AWS_REGION");
+    copy_if_missing("fs.s3a.access.key", "AWS_ACCESS_KEY");
+    copy_if_missing("fs.s3a.secret.key", "AWS_SECRET_KEY");
+    copy_if_missing("fs.s3a.session.token", "AWS_TOKEN");
+    copy_if_missing("fs.s3a.endpoint", "AWS_ENDPOINT");
+    copy_if_missing("fs.s3a.region", "AWS_REGION");
+    copy_if_missing("fs.s3a.path.style.access", "use_path_style");
+
     return options;
 }
 
