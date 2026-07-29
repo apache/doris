@@ -5,7 +5,42 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-30）：rebase onto `794d514479e` —— 移植 #65991 hive 静态分区
+# 🆕🆕🆕 最新一轮（2026-07-30 b）：修 FE UT 1009434 —— 两个 hive shade 模块阶段前移
+
+> commit `20569fb8db9`，**已 push** 到 PR [#66213](https://github.com/apache/doris/pull/66213)
+> 的 head 分支 `origin/master-catalog-spi-413-upgrade-compat-ut`（及同名镜像
+> `origin/catalog-spi-413-upgrade-compat-ut`），已评论 `run buildall`。**待办 = 看流水线结果**。
+
+## 症状与根因
+
+TeamCity **FE UT 1009434 / 1008769** 连续两次 `exit code 255`，TC 面板显示 "Tests passed: 337" 是假象——
+337 个用例只来自 foundation/common/catalog/kerberos，**fe-core 一个测试都没跑**（反应堆在第 43/59 个模块中断）。
+真实失败是编译：`fe-connector-hms` 全部 `org.apache.hadoop.hive.*` import 无法解析。
+
+链条：上一个 commit `95b7435b53e` 给 fe-core 加了 8 个 **test-scope** 连接器依赖（`Legacy413ProviderTypeContractTest`
+需要真实 provider 的 `getType()` 字符串）→ `run-fe-ut.sh` 的 `mvn -pl fe-common,fe-core -am test` 反应堆
+**从 40 个模块涨到 59 个**，首次把 `fe-connector-hms` 及其依赖 `fe-connector-hms-hive-shade` 拉了进来 →
+后者是**纯 shade 模块（无 src/main）**，Hive 类只在 `package` 阶段 shade 后才存在，而 `test` 永远到不了 `package`
+→ reactor 把它空的 `target/classes` 喂给消费者。`fe-connector-paimon`（`HiveConf`）晚一个模块会同样炸。
+
+## 解法与验证
+
+两个 shade 模块的 `jar` + `shade` 执行从 `package` → **`process-classes`**（仍是 test-compile 之前最后一个阶段；
+jar 声明在 shade 之前，原来"并行 reactor 下主 artifact 必须先存在"的保护不变）。
+
+- 改前本地**复现**同一报错；改后全反应堆 59 模块 `test-compile` BUILD SUCCESS（2:55）
+- 两个 shade jar 重建后与基线**字节大小 + 条目清单 md5 全等**（7940 / 55313 条）
+- `package` 路径仍 SUCCESS，shade 每模块只跑一次，hive/paimon/iceberg/hudi 四个插件 zip 各含一份 shade jar
+- 代价：FE UT 每次多 ~21s（paimon shade 17s + hms 4s；这两个模块 build-cache 是 project 级禁用的）
+
+## 顺带发现（尚未处理）
+
+那 8 个 test-scope 依赖让 CI 的 FE UT **首次真正构建并运行连接器模块的单测**（此前反应堆里根本没有它们，
+正是"录制基线红了好几批没人发现"的成因）。这轮 buildall 会是第一次看到那些套件在 CI 里的真实状态。
+
+---
+
+# 上一轮（2026-07-30）：rebase onto `794d514479e` —— 移植 #65991 hive 静态分区
 
 > `git pull --rebase upstream-apache master`，86 commit onto **`794d514479e`**（上游只新增 **1** 个 commit）。
 > 备份点 tag `backup-before-rebase-0730` = rebase 前 HEAD `f672e789674`。rebase 结果 `2670497718b`，

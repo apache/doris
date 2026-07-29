@@ -275,18 +275,26 @@ under the License.
     <build>
         <plugins>
             <!-- Pure-shade module (no src/main): under a parallel reactor (build.sh's default -T 1C)
-                 the package-phase shade goal can start before this module's main jar is created and
-                 attached, failing with "Failed to create shaded artifact, project main artifact does
-                 not exist". Pin maven-jar-plugin's default-jar to the package phase and force it to
-                 always (re)create the jar, so the main artifact is guaranteed present before shade.
-                 Mirrors fe-connector-paimon-hive-shade. -->
+                 the shade goal can start before this module's main jar is created and attached,
+                 failing with "Failed to create shaded artifact, project main artifact does not
+                 exist". Pin maven-jar-plugin's default-jar ahead of shade in the SAME phase (within
+                 one phase the declaration order here decides) and force it to always (re)create the
+                 jar, so the main artifact is guaranteed present before shade.
+
+                 That shared phase is process-classes, NOT package: this module carries no sources,
+                 so its Hive metastore content exists only once shade has run. fe-connector-hms
+                 compiles against that content, and run-fe-ut.sh builds with `mvn test`, which stops
+                 before package — the reactor would then hand fe-connector-hms this module's (empty)
+                 target/classes and every org.apache.hadoop.hive.* import would fail to resolve
+                 (TeamCity FE UT 1009434). process-classes is the last phase still ahead of
+                 test-compile. Mirrors fe-connector-paimon-hive-shade. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
                         <id>default-jar</id>
-                        <phase>package</phase>
+                        <phase>process-classes</phase>
                         <goals>
                             <goal>jar</goal>
                         </goals>
@@ -304,7 +312,7 @@ under the License.
                         <goals>
                             <goal>shade</goal>
                         </goals>
-                        <phase>package</phase>
+                        <phase>process-classes</phase>
                         <configuration>
                             <!-- WHITELIST, not blacklist. The fat hive-catalog-shade used a short
                                  exclude list and tolerated a huge tail of transitive junk (hadoop-yarn,

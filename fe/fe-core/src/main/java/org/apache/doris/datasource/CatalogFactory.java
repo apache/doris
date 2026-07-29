@@ -111,8 +111,26 @@ public class CatalogFactory {
         // takes to make its type usable here. Returns null when nothing claims it — including for a
         // sibling-only connector, whose type must never become a catalog (see ConnectorProvider
         // .isStandaloneCatalogType).
-        Connector spiConnector = ConnectorFactory.createStandaloneCatalogConnector(
-                catalogType, props, new DefaultConnectorContext(name, catalogId));
+        Connector spiConnector;
+        try {
+            spiConnector = ConnectorFactory.createStandaloneCatalogConnector(
+                    catalogType, props, new DefaultConnectorContext(name, catalogId));
+        } catch (RuntimeException | Error e) {
+            if (!isReplay) {
+                // Creating a catalog interactively must still fail loud: the user is waiting for the error.
+                throw e;
+            }
+            // On replay we must not propagate. The edit-log replay fallback turns any exception from a
+            // replayed operation into System.exit(-1), so a connector constructor that rejects a property an
+            // older FE stored without validating — or a half-installed plugin throwing NoClassDefFoundError —
+            // would keep the whole FE from starting instead of making one catalog unusable. Fall through to
+            // the degraded registration below; the failure resurfaces at first access as a query error.
+            // (The image path never had this problem: it builds the connector lazily.)
+            LOG.warn("Connector for catalog type '{}' failed to build while replaying catalog '{}'. "
+                    + "Registering it in degraded mode; accessing it will fail until the cause is fixed.",
+                    catalogType, name, e);
+            spiConnector = null;
+        }
         if (spiConnector != null) {
             LOG.info("Created plugin-driven catalog '{}' via SPI connector for type '{}'",
                     name, catalogType);
