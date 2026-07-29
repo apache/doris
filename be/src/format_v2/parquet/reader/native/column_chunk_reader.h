@@ -35,6 +35,7 @@
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/parquet/native_schema_desc.h"
+#include "format_v2/parquet/reader/direct_predicate.h"
 #include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
@@ -220,9 +221,11 @@ public:
     Status filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
                                      ColumnSelectVector& select_vector, NullMap* selected_nulls,
                                      IColumn::Filter* physical_matches, IColumn* projected_column,
-                                     IColumn::Filter* row_filter, const DataTypeSerDe& serde,
+                                     IColumn::Filter* conversion_nulls, IColumn::Filter* row_filter,
+                                     const DataTypeSerDe& serde,
                                      const ParquetDecodeContext& decode_context,
-                                     bool enable_strict_mode, bool* used_filter);
+                                     bool enable_strict_mode, bool* used_filter,
+                                     DirectPredicateExecutionKind* execution_kind);
     bool can_filter_fixed_width_values(const VExprSPtrs& conjuncts, int column_id,
                                        const DataTypeSerDe* serde,
                                        const ParquetDecodeContext* decode_context) const;
@@ -257,6 +260,12 @@ public:
         if (_selected_dictionary_indices.capacity() * sizeof(uint32_t) > max_retained_bytes) {
             std::vector<uint32_t>().swap(_selected_dictionary_indices);
         }
+        if (_binary_predicate_refs.capacity() * sizeof(StringRef) > max_retained_bytes) {
+            std::vector<StringRef>().swap(_binary_predicate_refs);
+        }
+        if (_binary_projected_refs.capacity() * sizeof(StringRef) > max_retained_bytes) {
+            std::vector<StringRef>().swap(_binary_projected_refs);
+        }
         if (_decompress_buf_size > max_retained_bytes) {
             if (_page_uses_decompress_buf) {
                 // Keep the request until the page boundary because decoders still point into this
@@ -279,7 +288,9 @@ public:
         for (const auto& [encoding, decoder] : _decoders) {
             bytes += decoder->retained_scratch_bytes();
         }
-        return bytes + _selected_dictionary_indices.capacity() * sizeof(uint32_t);
+        return bytes + _selected_dictionary_indices.capacity() * sizeof(uint32_t) +
+               _binary_predicate_refs.capacity() * sizeof(StringRef) +
+               _binary_projected_refs.capacity() * sizeof(StringRef);
     }
 
     size_t active_decoder_scratch_bytes() const {
@@ -289,7 +300,9 @@ public:
                (_page_decoder == nullptr ? 0 : _page_decoder->active_scratch_bytes()) +
                _rep_level_decoder.active_scratch_bytes() +
                _def_level_decoder.active_scratch_bytes() +
-               _selected_dictionary_indices.size() * sizeof(uint32_t);
+               _selected_dictionary_indices.size() * sizeof(uint32_t) +
+               _binary_predicate_refs.size() * sizeof(StringRef) +
+               _binary_projected_refs.size() * sizeof(StringRef);
     }
 
     tparquet::Encoding::type current_encoding() const { return _current_encoding; }
@@ -444,6 +457,8 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     NullMap _nullable_selection_nulls;
     std::vector<uint32_t> _selected_dictionary_indices;
+    std::vector<StringRef> _binary_predicate_refs;
+    std::vector<StringRef> _binary_projected_refs;
     ColumnChunkReaderStatistics _chunk_statistics;
 };
 

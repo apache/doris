@@ -93,6 +93,10 @@ struct ParquetDecodeContext {
     bool logical_float16 = false;
     bool logical_uuid = false;
     bool dictionary_index_only = false;
+    // Legacy UTC/INT96 DATETIMEV2 materialization keeps permissive conversion failures as the
+    // zero default instead of exposing them as SQL NULL. Raw predicates must follow the same
+    // policy so pushdown cannot change comparison or IS NULL results.
+    bool conversion_failure_is_null = true;
 
     const cctz::time_zone* timezone = nullptr;
 };

@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -200,6 +201,59 @@ TEST(DataTypeSerDeParquetTest, PublishesNarrowIntegerPredicateValuesWithoutColum
             type.get_serde()->read_parquet_raw_predicate(source, context, 4, false, consumer).ok());
     EXPECT_EQ(consumer.typed_values<int8_t>(), (std::vector<int8_t> {1, 127, -128, -1}));
     EXPECT_EQ(consumer.nulls, IColumn::Filter(4, 0));
+}
+
+TEST(DataTypeSerDeParquetTest, RawPredicateConversionScratchIsPersistentAndReleasable) {
+    auto verify = [](const DataTypePtr& type, const ParquetDecodeContext& context) {
+        const auto serde = type->get_serde();
+        CapturingLogicalValueConsumer consumer;
+        TestParquetDecodeSource large_source;
+        large_source.set_fixed_values<int32_t>(std::vector<int32_t>(1UL << 16, 1));
+        ASSERT_TRUE(
+                serde->read_parquet_raw_predicate(large_source, context, 1UL << 16, false, consumer)
+                        .ok());
+        const size_t large_capacity = serde->retained_parquet_raw_predicate_scratch_bytes();
+        ASSERT_GT(large_capacity, 0);
+
+        TestParquetDecodeSource small_source;
+        small_source.set_fixed_values<int32_t>({1, 2});
+        ASSERT_TRUE(
+                serde->read_parquet_raw_predicate(small_source, context, 2, false, consumer).ok());
+        EXPECT_EQ(serde->retained_parquet_raw_predicate_scratch_bytes(), large_capacity);
+
+        serde->release_parquet_raw_predicate_scratch(0);
+        EXPECT_EQ(serde->retained_parquet_raw_predicate_scratch_bytes(), 0);
+    };
+
+    verify(std::make_shared<DataTypeDateV2>(),
+           {.physical_type = ParquetPhysicalType::INT32, .logical_type = ParquetLogicalType::DATE});
+    verify(std::make_shared<DataTypeDecimal32>(9, 0), {.physical_type = ParquetPhysicalType::INT32,
+                                                       .logical_type = ParquetLogicalType::DECIMAL,
+                                                       .decimal_precision = 9,
+                                                       .decimal_scale = 0});
+}
+
+TEST(DataTypeSerDeParquetTest, RawUtcTimestampFailureUsesLegacyDefaultPolicy) {
+    DataTypeDateTimeV2 type(6);
+    const auto serde = type.get_serde();
+    const ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
+                                        .logical_type = ParquetLogicalType::TIMESTAMP,
+                                        .time_unit = ParquetTimeUnit::MILLIS,
+                                        .timestamp_is_adjusted_to_utc = true,
+                                        .conversion_failure_is_null = false};
+    CapturingLogicalValueConsumer consumer;
+    TestParquetDecodeSource permissive_source;
+    permissive_source.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max()});
+    ASSERT_TRUE(
+            serde->read_parquet_raw_predicate(permissive_source, context, 1, false, consumer).ok());
+    EXPECT_EQ(consumer.nulls, IColumn::Filter(1, 0));
+    EXPECT_TRUE(std::ranges::all_of(consumer.bytes, [](uint8_t byte) { return byte == 0; }));
+
+    TestParquetDecodeSource strict_source;
+    strict_source.set_fixed_values<int64_t>({std::numeric_limits<int64_t>::max()});
+    const auto status =
+            serde->read_parquet_raw_predicate(strict_source, context, 1, true, consumer);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
 }
 
 TEST(DataTypeSerDeParquetTest, RawPredicateConversionSupportsEveryFixedLogicalFamily) {

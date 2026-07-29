@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
@@ -1347,6 +1348,12 @@ bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
 
 bool can_evaluate_dictionary_exactly(const VExprSPtr& expr) {
     DORIS_CHECK(expr != nullptr);
+    if (expr->is_topn_filter()) {
+        // A row-group bitmap snapshots one bound, while TopN can publish or tighten it between
+        // batches. Keep the row expression as a residual; the cached bitmap remains a safe
+        // monotonic prefilter and the residual observes the current bound on every batch.
+        return false;
+    }
     const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get());
     if (compound_pred == nullptr) {
         return expr->can_evaluate_dictionary_filter();
@@ -1476,8 +1483,10 @@ Status try_apply_runtime_filters_to_dictionary(size_t block_position,
     const size_t dictionary_size = dictionary.size();
     const auto dummy_type = std::make_shared<DataTypeUInt8>();
     for (size_t position = 0; position < block_position; ++position) {
-        dictionary_block.insert(
-                {ColumnUInt8::create(dictionary_size, 0), dummy_type, "dictionary_dummy"});
+        // Slot position is metadata, not a reason to allocate position*rows bytes. Every unused
+        // slot shares the same one-value constant representation while preserving block indexing.
+        dictionary_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), dictionary_size),
+                                 dummy_type, "dictionary_dummy"});
     }
     ColumnPtr dictionary_column = dictionary.get_ptr();
     if (column_schema.type->is_nullable()) {
@@ -1916,12 +1925,27 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         SCOPED_TIMER(_scan_profile.column_read_time);
         const auto dictionary_filter_it = _current_dictionary_filters.find(local_id);
-        if (dictionary_filter_it != _current_dictionary_filters.end()) {
+        const bool dictionary_predicate_accepts_null =
+                single_column_conjuncts != nullptr && !single_column_conjuncts->empty() &&
+                std::ranges::all_of(*single_column_conjuncts, [](const auto& conjunct) {
+                    return conjunct != nullptr && conjunct->root() != nullptr &&
+                           conjunct->root()->raw_predicate_result_for_null();
+                });
+        if (dictionary_filter_it != _current_dictionary_filters.end() &&
+            !dictionary_predicate_accepts_null) {
+            // Dictionary ids have no entry for a physical NULL. Until an unbound TopN publishes
+            // its first bound, keep the materializing residual path so the all-pass invariant can
+            // preserve those rows; later batches can resume dictionary-id pruning safely.
             const uint16_t selected_rows_before = *selected_rows;
             IColumn::Filter compact_filter;
             uint16_t new_selected_rows = 0;
             bool used_filter = false;
-            const bool predicate_only = request.is_predicate_only(local_id);
+            const auto residual_it = _current_dictionary_residual_conjuncts.find(local_id);
+            const bool has_dictionary_residual =
+                    residual_it != _current_dictionary_residual_conjuncts.end() &&
+                    !residual_it->second.empty();
+            const bool predicate_only =
+                    request.is_predicate_only(local_id) && !has_dictionary_residual;
             // Dictionary ids are sufficient for predicate-only slots; skipping typed survivor
             // gathers preserves the block row shape without materializing an unobservable payload.
             IColumn* projected_column = predicate_only ? nullptr : column.get();
@@ -1978,6 +2002,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 const uint16_t selected_rows_before = *selected_rows;
                 IColumn::Filter compact_filter;
                 bool used_filter = false;
+                DirectPredicateExecutionKind execution_kind = DirectPredicateExecutionKind::NONE;
                 const bool predicate_only = request.is_predicate_only(local_id);
                 // The raw decoder cannot rewind after evaluating encoded fixed-width values.
                 // Project survivors in that pass when output still needs the predicate column.
@@ -1985,14 +2010,19 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 RETURN_IF_ERROR(column_reader->select_with_fixed_width_filter(
                         *selection, *selected_rows, batch_rows, direct_conjuncts,
                         cast_set<int>(block_position), projected_column, &compact_filter,
-                        &used_filter));
+                        &used_filter, &execution_kind));
                 if (used_filter) {
                     DORIS_CHECK_EQ(compact_filter.size(), selected_rows_before);
-                    update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_batches, 1);
-                    update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_rows,
-                                               selected_rows_before);
-                    if (!is_string_type(
-                                remove_nullable(column_reader->type())->get_primitive_type())) {
+                    if (execution_kind == DirectPredicateExecutionKind::RAW_FIXED ||
+                        execution_kind == DirectPredicateExecutionKind::RAW_BINARY ||
+                        execution_kind == DirectPredicateExecutionKind::CONVERTED_FIXED) {
+                        update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_batches,
+                                                   1);
+                        update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_rows,
+                                                   selected_rows_before);
+                    }
+                    if (execution_kind == DirectPredicateExecutionKind::RAW_FIXED ||
+                        execution_kind == DirectPredicateExecutionKind::CONVERTED_FIXED) {
                         update_counter_if_not_null(
                                 _scan_profile.fixed_width_predicate_direct_batches, 1);
                         update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_rows,

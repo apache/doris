@@ -209,6 +209,7 @@ TEST(RuntimePredicateTest, TopNPredicateKeepsDirectCapabilityBeforeFirstBound) {
     IColumn::Filter matches(values.size(), 1);
 
     ASSERT_TRUE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+    EXPECT_TRUE(context->root()->raw_predicate_result_for_null());
     ASSERT_TRUE(context->root()
                         ->execute_on_raw_fixed_values(
                                 reinterpret_cast<const uint8_t*>(values.data()), values.size(),
@@ -218,6 +219,7 @@ TEST(RuntimePredicateTest, TopNPredicateKeepsDirectCapabilityBeforeFirstBound) {
 
     auto& predicate = state.get_query_ctx()->get_runtime_predicate(SOURCE_NODE_ID);
     ASSERT_TRUE(predicate.update(Field::create_field<TYPE_INT>(2)).ok());
+    EXPECT_FALSE(context->root()->raw_predicate_result_for_null());
     ASSERT_TRUE(context->root()
                         ->execute_on_raw_fixed_values(
                                 reinterpret_cast<const uint8_t*>(values.data()), values.size(),
@@ -292,13 +294,14 @@ TEST(RuntimePredicateTest, DescTopNPredicateFiltersRawValuesUsingCurrentBound) {
     context->close();
 }
 
-TEST(RuntimePredicateTest, NullableNullsFirstTopNUsesSemanticFallback) {
+TEST(RuntimePredicateTest, NullableNullsFirstTopNSupportsRawNullSemantics) {
     MockRuntimeState state;
     const auto type = make_nullable(std::make_shared<DataTypeInt32>());
     auto context =
             create_prepared_topn_expr(&state, type, Field::create_field<TYPE_INT>(3), true, true);
 
-    EXPECT_FALSE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+    EXPECT_TRUE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+    EXPECT_TRUE(context->root()->raw_predicate_result_for_null());
     EXPECT_FALSE(context->root()->can_evaluate_dictionary_filter());
     context->close();
 }
