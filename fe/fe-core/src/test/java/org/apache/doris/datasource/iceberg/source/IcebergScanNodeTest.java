@@ -358,6 +358,33 @@ public class IcebergScanNodeTest {
         }
     }
 
+    private static class PlanFilesCountingIcebergScanNode extends TestIcebergScanNode {
+        private final boolean batchMode;
+        private final Set<Integer> manifestFieldIds;
+
+        PlanFilesCountingIcebergScanNode(
+                SessionVariable sv, boolean batchMode, Set<Integer> manifestFieldIds) {
+            super(sv);
+            this.batchMode = batchMode;
+            this.manifestFieldIds = manifestFieldIds;
+        }
+
+        @Override
+        public boolean isBatchMode() {
+            return batchMode;
+        }
+
+        @Override
+        CloseableIterable<FileScanTask> planFileScanTaskWithoutReuse(TableScan scan) {
+            return scan.planFiles();
+        }
+
+        @Override
+        Set<Integer> loadEqualityDeleteFieldIdsFromDeleteManifests(TableScan scan) {
+            return manifestFieldIds;
+        }
+    }
+
     @Test
     public void testTableLevelCountSplitPlanningRequiresCountStar() {
         SessionVariable sv = Mockito.mock(SessionVariable.class);
@@ -402,6 +429,82 @@ public class IcebergScanNodeTest {
 
         Assert.assertFalse(node.isBatchMode());
         Assert.assertEquals(1, node.snapshotCountCalls);
+    }
+
+    @Test
+    public void testOrdinaryScanReusesPreplannedFileTasks() throws Exception {
+        DeleteFile equalityDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(equalityDelete.content()).thenReturn(FileContent.EQUALITY_DELETES);
+        Mockito.when(equalityDelete.equalityFieldIds()).thenReturn(List.of(7));
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(fileScanTask.deletes()).thenReturn(List.of(equalityDelete));
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.planFiles())
+                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
+        PlanFilesCountingIcebergScanNode node = new PlanFilesCountingIcebergScanNode(
+                new SessionVariable(), false, Collections.emptySet());
+
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertEquals(Set.of(7), node.loadEqualityDeleteFieldIds(tableScan));
+            try (CloseableIterable<FileScanTask> plannedTasks =
+                         node.planFileScanTask(tableScan)) {
+                List<FileScanTask> actualTasks = new ArrayList<>();
+                plannedTasks.forEach(actualTasks::add);
+                Assert.assertEquals(List.of(fileScanTask), actualTasks);
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+
+        Mockito.verify(tableScan, Mockito.times(1)).planFiles();
+    }
+
+    @Test
+    public void testBatchScanDefersFilePlanningUntilSplitDispatch() throws Exception {
+        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.planFiles())
+                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
+        PlanFilesCountingIcebergScanNode node = new PlanFilesCountingIcebergScanNode(
+                new SessionVariable(), true, Set.of(7));
+
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertEquals(Set.of(7), node.loadEqualityDeleteFieldIds(tableScan));
+            Mockito.verify(tableScan, Mockito.never()).planFiles();
+
+            try (CloseableIterable<FileScanTask> plannedTasks =
+                         node.planFileScanTask(tableScan)) {
+                List<FileScanTask> actualTasks = new ArrayList<>();
+                plannedTasks.forEach(actualTasks::add);
+                Assert.assertEquals(List.of(fileScanTask), actualTasks);
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+
+        Mockito.verify(tableScan, Mockito.times(1)).planFiles();
+    }
+
+    @Test
+    public void testBatchScanSkipsDeleteManifestsWhenSnapshotHasNoEqualityDeletes() {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.summary()).thenReturn(
+                Map.of(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0"));
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+
+        Assert.assertEquals(
+                Collections.emptySet(),
+                node.loadEqualityDeleteFieldIdsFromDeleteManifests(tableScan));
+        Mockito.verify(snapshot, Mockito.never()).deleteManifests(Mockito.any());
+        Mockito.verify(tableScan, Mockito.never()).planFiles();
     }
 
     @Test
@@ -921,7 +1024,7 @@ public class IcebergScanNodeTest {
         setIcebergTable(node, table);
         node.setTableScan(tableScan);
         Mockito.doReturn(CloseableIterable.withNoopClose(List.of(applicablePartitionTask)))
-                .when(tableScan).planFiles();
+                .when(node).planFileScanTaskWithoutReuse(tableScan);
         ConnectContext context = new ConnectContext();
         context.setStatementContext(new StatementContext());
         context.setThreadLocalInfo();
@@ -933,6 +1036,7 @@ public class IcebergScanNodeTest {
         }
         Assert.assertEquals(Collections.emptySet(), applicableFieldIds);
         Mockito.verify(node, Mockito.never()).planFileScanTask(tableScan);
+        Mockito.verify(node, Mockito.times(1)).planFileScanTaskWithoutReuse(tableScan);
 
         List<Types.NestedField> fields = node.getSchemaFieldsForScan(
                 currentSchema, applicableFieldIds);

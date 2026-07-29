@@ -98,6 +98,8 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -116,6 +118,7 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
 import org.apache.iceberg.expressions.ManifestEvaluator;
+import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
@@ -181,6 +184,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long manifestCacheHits;
     private long manifestCacheMisses;
     private long manifestCacheFailures;
+    // The non-batch equality-delete preflight follows the real split path and hands its exact
+    // materialized result to split dispatch instead of planning the same scan a second time.
+    private List<FileScanTask> preplannedFileScanTasks;
 
     // Cached values for LocationPath creation optimization
     // These are lazily initialized on first use to avoid parsing overhead for each file
@@ -1234,14 +1240,70 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (rewriteTasks != null) {
             return collectEqualityDeleteFieldIdsFromTasks(rewriteTasks);
         }
-        // This is a hidden metadata preflight. Using Doris's manifest cache here would populate
-        // the cache before the real scan is planned, making the scan's cache profile report hits
-        // for work performed only by this preflight.
-        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
-            return collectEqualityDeleteFieldIdsFromTasks(tasks);
+        if (isBatchMode()) {
+            return loadEqualityDeleteFieldIdsFromDeleteManifests(scan);
+        }
+
+        List<FileScanTask> tasks = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> plannedTasks = planFileScanTaskWithoutReuse(scan)) {
+            for (FileScanTask task : plannedTasks) {
+                tasks.add(task);
+            }
         } catch (IOException e) {
             throw new RuntimeException("Failed to close Iceberg file scan tasks", e);
         }
+        preplannedFileScanTasks = tasks;
+        return collectEqualityDeleteFieldIdsFromTasks(tasks);
+    }
+
+    /**
+     * Load only delete-manifest metadata for batch scans.
+     *
+     * <p>Batch split planning must remain asynchronous, so this preflight cannot consume
+     * {@link TableScan#planFiles()}. The target snapshot's equality-delete total avoids manifest
+     * reads for the common no-delete case. Otherwise, partition and row filters prune the delete
+     * manifests conservatively before collecting the field IDs needed by the schema carrier.
+     */
+    @VisibleForTesting
+    Set<Integer> loadEqualityDeleteFieldIdsFromDeleteManifests(TableScan scan) {
+        Snapshot snapshot = Preconditions.checkNotNull(scan.snapshot());
+        String totalEqualityDeletes =
+                snapshot.summary().get(SnapshotSummary.TOTAL_EQ_DELETES_PROP);
+        if (totalEqualityDeletes != null && Long.parseLong(totalEqualityDeletes) == 0) {
+            return Collections.emptySet();
+        }
+
+        Expression dataFilter = scan.filter();
+        Set<Integer> equalityDeleteFieldIds = new HashSet<>();
+        for (ManifestFile manifest : snapshot.deleteManifests(icebergTable.io())) {
+            if (manifest.content() != ManifestContent.DELETES
+                    || (!manifest.hasAddedFiles() && !manifest.hasExistingFiles())) {
+                continue;
+            }
+            PartitionSpec spec = Preconditions.checkNotNull(
+                    icebergTable.specs().get(manifest.partitionSpecId()),
+                    "Iceberg partition spec %s is absent from table metadata",
+                    manifest.partitionSpecId());
+            Expression partitionFilter =
+                    Projections.inclusive(spec, true).project(dataFilter);
+            if (!ManifestEvaluator.forPartitionFilter(
+                    partitionFilter, spec, true).eval(manifest)) {
+                continue;
+            }
+            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                    manifest, icebergTable.io(), icebergTable.specs())) {
+                ManifestReader<DeleteFile> filteredReader = reader
+                        .filterRows(dataFilter)
+                        .filterPartitions(partitionFilter)
+                        .caseSensitive(true);
+                equalityDeleteFieldIds.addAll(
+                        collectEqualityDeleteFieldIds(filteredReader));
+            } catch (IOException e) {
+                throw new RuntimeException(
+                        "Failed to close Iceberg delete manifest " + manifest.path(), e);
+            }
+        }
+        return equalityDeleteFieldIds;
     }
 
     @VisibleForTesting
@@ -1564,6 +1626,16 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
+        if (preplannedFileScanTasks != null) {
+            List<FileScanTask> tasks = preplannedFileScanTasks;
+            preplannedFileScanTasks = null;
+            return CloseableIterable.withNoopClose(tasks);
+        }
+        return planFileScanTaskWithoutReuse(scan);
+    }
+
+    @VisibleForTesting
+    CloseableIterable<FileScanTask> planFileScanTaskWithoutReuse(TableScan scan) {
         if (!IcebergUtils.isManifestCacheEnabled(source.getCatalog())) {
             return splitFiles(scan);
         }
