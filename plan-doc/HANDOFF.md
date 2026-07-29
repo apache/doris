@@ -5,7 +5,80 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-29b）：rebase onto `8305fe71867` —— 移植 #66112 的**两条真回归**
+# 🆕🆕🆕 最新一轮（2026-07-30）：rebase onto `794d514479e` —— 移植 #65991 hive 静态分区
+
+> `git pull --rebase upstream-apache master`，86 commit onto **`794d514479e`**（上游只新增 **1** 个 commit）。
+> 备份点 tag `backup-before-rebase-0730` = rebase 前 HEAD `f672e789674`。rebase 结果 `2670497718b`，
+> 其上 1 个移植 commit `32c659744aa`。**未 push**。
+
+## 上游唯一 commit = `794d514479e` #65991 `[feature](hive) Support static partition overwrite`
+
+它改的 5 个 fe-core 文件在本分支**全部已删或已改名**，所以 4 处冲突全落在同一条断层上：
+
+| 冲突处（第 N/86 个 commit） | 解法 |
+|---|---|
+| `InsertUtils`（6/86 maxcompute 移除） | 取分支侧（`UnboundConnectorTableSink` 分支）。**没有**保留上游新增的 hive 分支——`UnboundHiveTableSink` 在 29/86 被删，留着会静默编译失败 |
+| `UnboundTableSinkCreator` + `BindSink`（11/86 iceberg cutover） | creator：保留上游给 hive 新加的 `staticPartitionKeyValues` 实参，删 iceberg 臂。BindSink：**只删 `bindIcebergTableSink`，保留上游新增的 `validateHiveStaticPartition`**（此时 `bindHiveTableSink` 还在，是它的唯一调用者） |
+| 5 文件（29/86 hive cutover #65473） | 取分支侧；`UnboundHiveTableSink` / `HiveDDLAndDMLPlanTest` 用 `git rm`。**额外手工删 `validateHiveStaticPartition`**——git 看不见它变孤儿（上一处刚保留的），留着会引用已删的 `HMSExternalTable` |
+
+## ⚡ 本轮最大的坑：统一 sink 把上游的"硬报错"变成了**静默写错分区**
+
+上游 #65991 之前，hive 走 `INSERT ... PARTITION(dt='x')` 会**报错**（staticPartitionKeyValues 根本没传给
+`UnboundHiveTableSink`，列数对不上）。但本分支 `UnboundTableSinkCreator` 对**所有** `PluginDrivenExternalCatalog`
+一律透传 static spec，于是 hive 进了 `bindConnectorTableSink`：分区列被排除 → 列数对上了 → 被 NULL 填充 →
+**hive BE 从行值推分区目录，NULL 映射成 `__HIVE_DEFAULT_PARTITION__`**
+（`be/src/exec/sink/writer/vhive_table_writer.cpp:441`）。即：上游报错的场景，本分支静默写到错分区。
+
+> 教训：**"能力统一"会把一个连接器的未实现路径变成另一个连接器的已实现路径**。合并 per-connector 类时，
+> 要检查每个能力位（这里是 `requiresMaterializeStaticPartitionValues`）是否对新接入的连接器仍然正确——
+> git 不会冲突，测试当时也全绿。
+
+## 移植 `32c659744aa`：4 处改动，各归各家
+
+1. **`HiveWritePlanProvider.requiresMaterializeStaticPartitionValues() = true`** —— 真正的数据修复。
+   hive 数据文件**不**保留分区列（和 iceberg 不同），但 BE 要从行值推目录，且 `THiveTableSink`
+   **没有** static-partition 字段可走带外通道 → 行是唯一通道。顺带把 SPI javadoc 从"文件保留分区列"
+   改成"写路径从行里取分区值"（两种理由）。
+2. **`HiveConnectorMetadata.validateStaticPartitionColumns`** 从 no-op 变成真校验（未知分区列 / 非分区表），
+   大小写不敏感（`Locale.ROOT`）。⚠️ 文案**必须**用上游 hive 的 `is not a partitioned table`，
+   **不能**复用 iceberg 的 `is not partitioned`——e2e 是子串匹配。
+3. **`BindSink` 用 `table.getColumn()` 归一静态分区列名** + 拒绝重复列 + 拒绝列同时出现在 PARTITION 和插入列表。
+   `ExternalTable.getColumn()` 本来就是 `equalsIgnoreCase`，且 `bindConnectorTableSink` 里紧邻的两处
+   （materialize 块、显式列绑定）已经在用它——**只有排除过滤器是异类**，所以这是消除不一致，不是在
+   fe-core 新造大小写规则。**没有**加 SPI 方法（那要 major version bump）。owner 已签。
+4. **`MaxComputeConnectorMetadata` 加 fail-loud 校验器** —— 纯护栏。maxcompute 用 **raw 用户大小写**做精确
+   `containsKey`（`buildStaticPartitionSpecString`），第 3 条的归一**够不到**它，不加护栏
+   `PARTITION(DS='x')` 会从今天的响亮列数报错退化成静默空 `PartitionSpec`。故意保持**大小写敏感**
+   （没有 ODPS 环境验证其大小写语义）。owner 已签。
+
+## 有意不移植
+
+- 上游 fe-core 的 `validateHiveStaticPartition`（知识下沉进连接器）与它的整体 `toLowerCase` 折叠
+  （换成 schema 解析——盲折叠会毁掉 iceberg 的 partition **field** 名如 `category_bucket`，它不是表列）。
+- 上游 `HiveDDLAndDMLPlanTest` 的 104 行新增：该类已被本分支 hive 迁移删除，fe-core **不依赖**
+  fe-connector-hive，本分支也没有能装配 plugin-driven catalog 的 `TestWithFeService` 夹具。
+  断言改由下面的单测覆盖。**不要为它新建夹具。**
+
+## 守门证据
+
+- 全反应堆 `package`（禁 build-cache、checkstyle 生效）**BUILD SUCCESS**
+- **1409 单测全绿**：fe-core 119 / hive+iceberg 1158 / maxcompute 132
+- **7 处变异各自只打红对应测试类**：materialize→false、hive 校验器改大小写敏感、hive 校验器变 no-op、
+  maxcompute 校验器改大小写不敏感、去掉归一、去掉重复检查、去掉插入列表拒绝
+- **归因守门**：`git diff backup-before-rebase-0730 2670497718b -- fe/ gensrc/ regression-test/` = 4 文件，
+  3 个 fe 文件全部来自上游 #65991，1 个是它新增的 e2e。**未解释 = 0**
+
+## 下一步
+
+- **e2e 需 owner 跑 docker**：`regression-test/suites/external_table_p0/hive/write/test_hive_write_static_partition.groovy`
+  （383 行，与上游逐字节相同，`enableHiveTest` 门控，hive2/hive3 各跑一遍）。
+  6 条错误断言里今天只有 `must be a literal` 能过；其余 5 条 + 全部成功用例都靠本轮 4 处改动。
+- ⚠️ 若 e2e 红：先看是不是 `HiveWriteContext.getStaticPartitionValues()` / `isStaticPartitionOverwrite()`
+  这两个**全仓零调用**的死字段误导了排查——hive 侧静态分区**不走**带外通道，只走行值。
+
+---
+
+# 上一轮（2026-07-29b）：rebase onto `8305fe71867` —— 移植 #66112 的**两条真回归**
 
 > `git pull --rebase upstream-apache master`，83 commit onto **`8305fe71867`**（上游新增 **19** 个 commit）。
 > 备份点 tag `backup-before-rebase-0729` = rebase 前 HEAD `5da0bc9110e`。其上 2 个移植 commit。**未 push**。
