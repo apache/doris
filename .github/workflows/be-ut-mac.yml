@@ -44,6 +44,7 @@ jobs:
         with:
           filters: |
             be_changes:
+              - '.github/workflows/be-ut-mac.yml'
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
