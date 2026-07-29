@@ -574,6 +574,12 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/pzhdfy/paimon-rust/archive/refs/tags/paimon-rust-2fb5e49.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-2fb5e49.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-paimon-rust-2fb5e49"
+PAIMON_RUST_MD5SUM="341aef6bd75743e51cdb960260645d69"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -659,6 +665,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'PAIMON_CPP'
+    'PAIMON_RUST'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
