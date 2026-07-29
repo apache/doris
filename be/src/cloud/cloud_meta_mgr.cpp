@@ -1647,6 +1647,9 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
                         });
 
     if (st.ok()) {
+        VLOG_DEBUG << "commit txn succeeded, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
+                   << ", label: " << ctx.label << ", is_lazy_commit: " << res.is_lazy_commit()
+                   << ", is_lazy_commit_incomplete: " << res.is_lazy_commit_incomplete();
         std::vector<int64_t> tablet_ids;
         for (auto& commit_info : ctx.commit_infos) {
             tablet_ids.emplace_back(commit_info.tabletId);
