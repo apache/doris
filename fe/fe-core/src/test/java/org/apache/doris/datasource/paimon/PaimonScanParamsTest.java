@@ -45,6 +45,53 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testValidateRelationScopedReaderOptions() {
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "read.batch-size", "4096",
+                "file-reader-async-threshold", "16 MB"));
+
+        for (Map<String, String> options : new Map[] {
+                ImmutableMap.of("read.batch-size", "0"),
+                ImmutableMap.of("read.batch-size", "-1"),
+                ImmutableMap.of("read.batch-size", "65537"),
+                ImmutableMap.of("file-reader-async-threshold", "512 KB"),
+                ImmutableMap.of("file-reader-async-threshold", "2 GB")
+        }) {
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(options));
+        }
+    }
+
+    @Test
+    public void testManifestParallelismCannotMutateGlobalPoolCapacity() {
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "scan.manifest.parallelism", String.valueOf(availableProcessors)));
+
+        for (int invalid : new int[] {0, -1, availableProcessors + 1}) {
+            IllegalArgumentException exception = Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                            "scan.manifest.parallelism", String.valueOf(invalid))));
+            Assert.assertTrue(exception.getMessage().contains("scan.manifest.parallelism"));
+        }
+    }
+
+    @Test
+    public void testRelationReaderOptionsAreAppliedWithoutMutatingBaseTable() {
+        Table table = Mockito.mock(Table.class);
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+
+        Assert.assertSame(copied, PaimonScanParams.applyOptions(table, ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB")));
+        Mockito.verify(table).copy(ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB"));
+    }
+
+    @Test
     public void testRejectUnknownAndConflictingOptions() {
         IllegalArgumentException typo = Assert.assertThrows(
                 IllegalArgumentException.class,

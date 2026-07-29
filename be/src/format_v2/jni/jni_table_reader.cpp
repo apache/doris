@@ -27,8 +27,20 @@
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "util/url_coding.h"
 
 namespace doris::format {
+
+std::string encode_jni_required_fields(const std::vector<std::string>& required_fields) {
+    std::vector<std::string> encoded_fields;
+    encoded_fields.reserve(required_fields.size());
+    for (const auto& field : required_fields) {
+        std::string encoded;
+        base64_encode(field, &encoded);
+        encoded_fields.emplace_back(std::move(encoded));
+    }
+    return join(encoded_fields, ",");
+}
 
 Status JniTableReader::init(TableReadOptions&& options) {
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
@@ -517,6 +529,9 @@ void JniTableReader::_prepare_jni_scanner_schema() {
                 {column.transfer_type->create_column(), column.transfer_type, column.java_name});
     }
     _scanner_params["required_fields"] = join(required_fields, ",");
+    // Preserve the legacy field during rolling upgrades, while new scanners use independently
+    // encoded identifiers so commas and other legal identifier characters cannot alter framing.
+    _scanner_params["required_fields_base64"] = encode_jni_required_fields(required_fields);
     _scanner_params["columns_types"] = join(column_types, "#");
     if (has_replace_type) {
         _scanner_params["replace_string"] = join(replace_types, ",");

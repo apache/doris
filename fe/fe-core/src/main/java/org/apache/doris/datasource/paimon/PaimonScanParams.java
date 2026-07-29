@@ -45,18 +45,20 @@ public final class PaimonScanParams {
             "doris.internal.paimon.file-creation-time-millis";
     private static final String PINNED_EMPTY_SCAN = "doris.internal.paimon.empty-scan";
 
-    private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.of(
-            CoreOptions.SCAN_MODE.key(),
-            CoreOptions.SCAN_TIMESTAMP.key(),
-            CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
-            CoreOptions.SCAN_WATERMARK.key(),
-            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(),
-            CoreOptions.SCAN_CREATION_TIME_MILLIS.key(),
-            CoreOptions.SCAN_SNAPSHOT_ID.key(),
-            CoreOptions.SCAN_TAG_NAME.key(),
-            CoreOptions.SCAN_VERSION.key(),
-            CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
-            CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
+    private static final Set<String> QUERY_OPTION_KEYS = ImmutableSet.<String>builder()
+            .add(CoreOptions.SCAN_MODE.key())
+            .add(CoreOptions.SCAN_TIMESTAMP.key())
+            .add(CoreOptions.SCAN_TIMESTAMP_MILLIS.key())
+            .add(CoreOptions.SCAN_WATERMARK.key())
+            .add(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())
+            .add(CoreOptions.SCAN_CREATION_TIME_MILLIS.key())
+            .add(CoreOptions.SCAN_SNAPSHOT_ID.key())
+            .add(CoreOptions.SCAN_TAG_NAME.key())
+            .add(CoreOptions.SCAN_VERSION.key())
+            .add(CoreOptions.SCAN_MANIFEST_PARALLELISM.key())
+            .add(CoreOptions.SCAN_PLAN_SORT_PARTITION.key())
+            .addAll(PaimonReaderOptions.supportedOptions())
+            .build();
 
     private static final Set<String> STARTUP_POSITION_KEYS = ImmutableSet.of(
             CoreOptions.SCAN_TIMESTAMP.key(),
@@ -101,6 +103,11 @@ public final class PaimonScanParams {
             throw new IllegalArgumentException("Unsupported Paimon query option(s): " + unsupported);
         }
 
+        PaimonReaderOptions.supportedOptions().stream()
+                .filter(options::containsKey)
+                .forEach(key -> PaimonReaderOptions.validate(key, options.get(key)));
+        validateManifestParallelism(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
                 && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
@@ -126,6 +133,27 @@ public final class PaimonScanParams {
                 throw new IllegalArgumentException("Paimon scan mode '" + mode
                         + "' is incompatible with startup position '" + position + "'.");
             }
+        }
+    }
+
+    private static void validateManifestParallelism(String value) {
+        if (value == null) {
+            return;
+        }
+        int parallelism;
+        try {
+            parallelism = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid value for Paimon query option '"
+                    + CoreOptions.SCAN_MANIFEST_PARALLELISM.key() + "': " + value, e);
+        }
+        int maximum = Runtime.getRuntime().availableProcessors();
+        // Paimon replaces a JVM-static manifest executor when this value exceeds its CPU-sized
+        // default. Keeping the query value within that capacity prevents cross-query mutation.
+        if (parallelism < 1 || parallelism > maximum) {
+            throw new IllegalArgumentException("Paimon query option '"
+                    + CoreOptions.SCAN_MANIFEST_PARALLELISM.key() + "' must be between 1 and "
+                    + maximum + ", but was " + parallelism);
         }
     }
 

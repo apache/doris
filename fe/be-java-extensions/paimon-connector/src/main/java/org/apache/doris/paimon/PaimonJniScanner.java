@@ -48,9 +48,11 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -58,7 +60,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntSupplier;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
@@ -71,6 +76,11 @@ public class PaimonJniScanner extends JniScanner {
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
     private static final AtomicInteger ACTIVE_SCANNERS = new AtomicInteger();
+    // Scanner profiles are collected per split, but the asynchronous reader pool is JVM-global.
+    // Share one sample so profile collection does not allocate ThreadInfo for every scanner.
+    private static final CachedThreadCounter ASYNC_READER_THREAD_COUNTER = new CachedThreadCounter(
+            TimeUnit.SECONDS.toNanos(1L), System::nanoTime,
+            () -> countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX));
 
     private final Map<String, String> params;
     private final Map<String, String> hadoopOptionParams;
@@ -95,11 +105,8 @@ public class PaimonJniScanner extends JniScanner {
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("params:{}", params);
-        }
         this.params = params;
-        String[] requiredFields = splitParam(params.get("required_fields"), ",");
+        String[] requiredFields = requiredFields(params);
         String[] requiredTypes = splitParam(params.get("columns_types"), "#");
         Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
                 "required_fields size %s does not match columns_types size %s",
@@ -107,6 +114,11 @@ public class PaimonJniScanner extends JniScanner {
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+        }
+        if (LOG.isDebugEnabled()) {
+            // The raw map may carry storage or JDBC credentials; diagnostics must only use
+            // values derived from a fixed non-sensitive whitelist.
+            LOG.debug(buildDebugSummary(batchSize, requiredFields.length));
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
@@ -486,7 +498,27 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private static int currentAsyncReaderThreadCount() {
-        return countThreadsByNamePrefix(ASYNC_READER_THREAD_NAME_PREFIX);
+        return ASYNC_READER_THREAD_COUNTER.get();
+    }
+
+    static String buildDebugSummary(int batchSize, int requiredFieldCount) {
+        return "Paimon JNI scanner configuration: batchSize=" + batchSize
+                + ", requiredFieldCount=" + requiredFieldCount;
+    }
+
+    static String[] requiredFields(Map<String, String> params) {
+        String encodedFields = params.get("required_fields_base64");
+        if (encodedFields == null) {
+            return splitParam(params.get("required_fields"), ",");
+        }
+        if (encodedFields.isEmpty()) {
+            return new String[0];
+        }
+        // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
+        // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
+        return Arrays.stream(encodedFields.split(",", -1))
+                .map(encoded -> new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8))
+                .toArray(String[]::new);
     }
 
     static int countThreadsByNamePrefix(String threadNamePrefix) {
@@ -499,6 +531,36 @@ public class PaimonJniScanner extends JniScanner {
             }
         }
         return count;
+    }
+
+    static final class CachedThreadCounter {
+        private final long ttlNanos;
+        private final LongSupplier ticker;
+        private final IntSupplier sampler;
+        private volatile long lastSampleNanos = Long.MIN_VALUE;
+        private volatile int cachedValue;
+
+        CachedThreadCounter(long ttlNanos, LongSupplier ticker, IntSupplier sampler) {
+            this.ttlNanos = ttlNanos;
+            this.ticker = ticker;
+            this.sampler = sampler;
+        }
+
+        int get() {
+            long now = ticker.getAsLong();
+            long sampledAt = lastSampleNanos;
+            if (sampledAt != Long.MIN_VALUE && now - sampledAt < ttlNanos) {
+                return cachedValue;
+            }
+            synchronized (this) {
+                now = ticker.getAsLong();
+                if (lastSampleNanos == Long.MIN_VALUE || now - lastSampleNanos >= ttlNanos) {
+                    cachedValue = sampler.getAsInt();
+                    lastSampleNanos = now;
+                }
+                return cachedValue;
+            }
+        }
     }
 
     private void markScannerOpenedForMetrics() {

@@ -109,6 +109,11 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
     });
 }
 
+TEST(JniTableReaderTest, RequiredFieldEncodingPreservesQuotedIdentifiers) {
+    EXPECT_EQ(encode_jni_required_fields({"region,code", "hash#name", "地区 名"}),
+              "cmVnaW9uLGNvZGU=,aGFzaCNuYW1l,5Zyw5Yy6IOWQjQ==");
+}
+
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {
     auto io_ctx = std::make_shared<io::IOContext>();
     FakeJniTableReader reader;
