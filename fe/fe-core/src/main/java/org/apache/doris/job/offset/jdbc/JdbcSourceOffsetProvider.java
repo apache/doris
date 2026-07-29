@@ -50,6 +50,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -256,14 +257,42 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } else {
             synchronized (splitsLock) {
                 BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
+                Preconditions.checkArgument(MapUtils.isNotEmpty(binlogSplit.getStartingOffset()),
+                        "Committed binlog offset must not be empty");
                 binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
                 binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                clearSnapshotState();
                 currentOffset = newOffset;
                 hasMoreData = true;
             }
             return;
         }
         this.currentOffset = newOffset;
+    }
+
+    protected void clearSnapshotState() {
+        if (MapUtils.isNotEmpty(chunkHighWatermarkMap)) {
+            chunkHighWatermarkMap = new HashMap<>();
+        }
+        remainingSplits.clear();
+        finishedSplits.clear();
+        if (committedSplitProgress != null) {
+            clearProgress(committedSplitProgress);
+        }
+        if (cdcSplitProgress != null) {
+            clearProgress(cdcSplitProgress);
+        }
+    }
+
+    public boolean shouldPersistOffset(long lastPersistTimeMs, long currentTimeMs) {
+        synchronized (splitsLock) {
+            if (currentOffset == null || !currentOffset.snapshotSplit()) {
+                return true;
+            }
+        }
+        long intervalMs = Math.max(1L,
+                (long) Config.streaming_job_snapshot_offset_persist_interval_sec) * 1000L;
+        return lastPersistTimeMs == 0L || currentTimeMs - lastPersistTimeMs >= intervalMs;
     }
 
     @Override
