@@ -919,6 +919,27 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testConflictingRemoteDatabaseNamesForSameLocalNameAreRejected() {
+        NameMissCatalogProvider.reset();
+        try {
+            NameMissCatalogProvider.putDatabase("RemoteA");
+            NameMissCatalogProvider.putDatabase("RemoteB");
+            ConflictingDatabaseNameCatalog catalog = new ConflictingDatabaseNameCatalog();
+            catalog.setInitializedForTest(true);
+
+            IllegalArgumentException listException = Assertions.assertThrows(
+                    IllegalArgumentException.class, catalog::getDbNames);
+            assertConflictingNameMessage(listException, "LocalX", "RemoteA", "RemoteB");
+
+            IllegalArgumentException lookupException = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> catalog.getDbNullable("LocalX"));
+            assertConflictingNameMessage(lookupException, "LocalX", "RemoteA", "RemoteB");
+        } finally {
+            NameMissCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testCaseInsensitiveIsTableExistUsesRemoteNameLookup() {
         // Mode 2 should resolve the remote table name from the names snapshot before probing the catalog.
         rootCtx.setThreadLocalInfo();
@@ -1508,6 +1529,17 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
     }
 
+    private static class ConflictingDatabaseNameCatalog extends NameMissCatalog {
+        ConflictingDatabaseNameCatalog() {
+            super(0);
+        }
+
+        @Override
+        public String fromRemoteDatabaseName(String remoteDatabaseName) {
+            return "LocalX";
+        }
+    }
+
     // Keep lookup strings explicit so mode-0 and mode-1 tests exercise the intended object-loader branch.
     private String remoteBaseDbNameForMode(int mode) {
         return mode == 0 ? "db_base" : "DbBase";
@@ -1527,6 +1559,14 @@ public class ExternalCatalogTest extends TestWithFeService {
 
     private String missingDbLookupNameForMode(int mode) {
         return mode == 0 ? "db_missing" : "dbmissing";
+    }
+
+    private static void assertConflictingNameMessage(
+            IllegalArgumentException exception, String localName, String firstRemoteName, String secondRemoteName) {
+        Assertions.assertTrue(exception.getMessage().contains(ExternalCatalog.FOUND_CONFLICTING));
+        Assertions.assertTrue(exception.getMessage().contains(localName));
+        Assertions.assertTrue(exception.getMessage().contains(firstRemoteName));
+        Assertions.assertTrue(exception.getMessage().contains(secondRemoteName));
     }
 
     private int extractStripeCount(MetaCacheEntry<?, ?> entry) throws Exception {

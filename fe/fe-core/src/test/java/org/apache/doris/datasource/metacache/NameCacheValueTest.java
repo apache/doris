@@ -80,7 +80,46 @@ public class NameCacheValueTest {
                 Pair.of("RemoteB", "LocalB")));
 
         Assert.assertEquals(ImmutableList.of("LocalA", "LocalB"), names.localNames());
+        Assert.assertSame(names.localNames(), names.localNames());
+        Assert.assertTrue(names.containsLocalName("LocalA"));
         Assert.assertThrows(UnsupportedOperationException.class, () -> names.localNames().add("LocalC"));
+    }
+
+    @Test
+    public void testIdenticalMappingIsIdempotent() {
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(
+                Pair.of("RemoteA", "LocalA"),
+                Pair.of("RemoteA", "LocalA")));
+
+        Assert.assertEquals(ImmutableList.of("LocalA"), names.localNames());
+        Assert.assertEquals(1, names.names().size());
+        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+    }
+
+    @Test
+    public void testRejectsConflictingRemoteNamesForSameLocalName() {
+        IllegalArgumentException exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> NameCacheValue.of(ImmutableList.of(
+                        Pair.of("RemoteA", "LocalX"),
+                        Pair.of("RemoteB", "LocalX"))));
+
+        Assert.assertTrue(exception.getMessage().contains("LocalX"));
+        Assert.assertTrue(exception.getMessage().contains("RemoteA"));
+        Assert.assertTrue(exception.getMessage().contains("RemoteB"));
+    }
+
+    @Test
+    public void testRejectsConflictingLocalNamesForSameRemoteName() {
+        IllegalArgumentException exception = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> NameCacheValue.of(ImmutableList.of(
+                        Pair.of("RemoteA", "LocalX"),
+                        Pair.of("RemoteA", "LocalY"))));
+
+        Assert.assertTrue(exception.getMessage().contains("RemoteA"));
+        Assert.assertTrue(exception.getMessage().contains("LocalX"));
+        Assert.assertTrue(exception.getMessage().contains("LocalY"));
     }
 
     @Test
@@ -102,6 +141,29 @@ public class NameCacheValueTest {
         IllegalArgumentException exception = Assert.assertThrows(
                 IllegalArgumentException.class, () -> names.withName("RemoteA", "LocalB"));
         Assert.assertTrue(exception.getMessage().contains("remote name already maps"));
+    }
+
+    @Test
+    public void testWithSameNameIsIdempotent() {
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(
+                Pair.of("RemoteA", "LocalA"),
+                Pair.of("RemoteB", "LocalB")));
+
+        NameCacheValue updated = names.withName("RemoteA", "LocalA");
+
+        Assert.assertSame(names, updated);
+        Assert.assertEquals(ImmutableList.of("LocalA", "LocalB"), updated.localNames());
+    }
+
+    @Test
+    public void testWithNameReplacesRemoteNameForExistingLocalName() {
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(Pair.of("RemoteA", "LocalA")));
+
+        NameCacheValue updated = names.withName("RemoteB", "LocalA");
+
+        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assert.assertEquals("RemoteB", updated.remoteNameOfLocalName("LocalA"));
+        Assert.assertEquals(ImmutableList.of("LocalA"), updated.localNames());
     }
 
     @Test

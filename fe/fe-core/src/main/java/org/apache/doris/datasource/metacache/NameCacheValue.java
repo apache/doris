@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,29 +35,55 @@ import java.util.stream.Collectors;
  * Immutable snapshot of remote/local names and the case-insensitive remote-name index.
  */
 public final class NameCacheValue {
+    private static final String CONFLICT_PREFIX = "Found conflicting external metadata name mapping: ";
+
     private final ImmutableList<Pair<String, String>> names;
-    private final ImmutableList<String> localNames;
+    private final ImmutableSet<String> localNames;
     private final ImmutableMap<String, String> lowerCaseToRemoteName;
     private final ImmutableMap<String, String> localNameToRemoteName;
-    private final ImmutableSet<String> localNameSet;
 
     private NameCacheValue(List<Pair<String, String>> names) {
-        // Deep-copy each pair so callers cannot mutate the snapshot through reused Pair instances.
-        this.names = ImmutableList.copyOf(copyPairs(names));
+        // One local name must identify exactly one remote object. Normalize identical pairs and reject ambiguous
+        // mappings before publishing the immutable snapshot.
+        Map<String, String> remoteToLocalName = new LinkedHashMap<>();
+        Map<String, String> localToRemoteName = new LinkedHashMap<>();
+        ImmutableList.Builder<Pair<String, String>> namesBuilder = ImmutableList.builder();
+        for (Pair<String, String> pair : names) {
+            String remoteName = Objects.requireNonNull(pair.key(), "remote name can not be null");
+            String localName = Objects.requireNonNull(pair.value(), "local name can not be null");
+            String existingLocalName = remoteToLocalName.get(remoteName);
+            if (existingLocalName != null && !existingLocalName.equals(localName)) {
+                throw new IllegalArgumentException(String.format(
+                        CONFLICT_PREFIX + "remote name '%s' maps to local names '%s' and '%s'",
+                        remoteName, existingLocalName, localName));
+            }
+            String existingRemoteName = localToRemoteName.get(localName);
+            if (existingRemoteName != null) {
+                if (!existingRemoteName.equals(remoteName)) {
+                    throw new IllegalArgumentException(String.format(
+                            CONFLICT_PREFIX + "local name '%s' maps to remote names '%s' and '%s'",
+                            localName, existingRemoteName, remoteName));
+                }
+                // Treat an identical pair as an idempotent duplicate.
+                continue;
+            }
+            remoteToLocalName.put(remoteName, localName);
+            localToRemoteName.put(localName, remoteName);
+            // Deep-copy each pair so callers cannot mutate the snapshot through reused Pair instances.
+            namesBuilder.add(Pair.of(remoteName, localName));
+        }
+        this.names = namesBuilder.build();
         // Build the lower-case index with last-write-wins semantics so the snapshot does not
         // introduce case-conflict validation beyond what the catalog-aware loader already enforces.
         Map<String, String> indexBuilder = new java.util.HashMap<>();
-        Map<String, String> localNameIndexBuilder = new java.util.HashMap<>();
-        ImmutableList.Builder<String> localNamesBuilder = ImmutableList.builder();
+        ImmutableSet.Builder<String> localNamesBuilder = ImmutableSet.builder();
         for (Pair<String, String> pair : this.names) {
             indexBuilder.put(pair.key().toLowerCase(Locale.ROOT), pair.key());
             localNamesBuilder.add(pair.value());
-            localNameIndexBuilder.put(pair.value(), pair.key());
         }
         localNames = localNamesBuilder.build();
         lowerCaseToRemoteName = ImmutableMap.copyOf(indexBuilder);
-        localNameToRemoteName = ImmutableMap.copyOf(localNameIndexBuilder);
-        localNameSet = ImmutableSet.copyOf(localNames);
+        localNameToRemoteName = ImmutableMap.copyOf(localToRemoteName);
     }
 
     public static NameCacheValue of(List<Pair<String, String>> names) {
@@ -74,7 +101,7 @@ public final class NameCacheValue {
     }
 
     public List<String> localNames() {
-        return localNames;
+        return localNames.asList();
     }
 
     public String remoteNameOfLocalName(String localName) {
@@ -82,7 +109,7 @@ public final class NameCacheValue {
     }
 
     public boolean containsLocalName(String localName) {
-        return localNameSet.contains(localName);
+        return localNames.contains(localName);
     }
 
     public String remoteNameForCaseInsensitiveLookup(String name) {
@@ -90,11 +117,18 @@ public final class NameCacheValue {
     }
 
     public NameCacheValue withName(String remoteName, String localName) {
+        boolean existingMapping = false;
         for (Pair<String, String> pair : names) {
-            if (pair.key().equals(remoteName) && !pair.value().equals(localName)) {
-                throw new IllegalArgumentException(
-                        "remote name already maps to another local name: " + remoteName);
+            if (pair.key().equals(remoteName)) {
+                if (!pair.value().equals(localName)) {
+                    throw new IllegalArgumentException(
+                            "remote name already maps to another local name: " + remoteName);
+                }
+                existingMapping = true;
             }
+        }
+        if (existingMapping) {
+            return this;
         }
         // Copy-on-write keeps readers on a stable snapshot while publishing a new value atomically.
         List<Pair<String, String>> copy = Lists.newArrayList(names);

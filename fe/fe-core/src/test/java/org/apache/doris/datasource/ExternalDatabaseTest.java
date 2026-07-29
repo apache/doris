@@ -514,6 +514,28 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testConflictingRemoteTableNamesForSameLocalNameAreRejected() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "RemoteA");
+            NameMissTableCatalogProvider.putTable("db1", "RemoteB");
+            ConflictingMappingCatalog catalog = new ConflictingMappingCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 551L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            IllegalArgumentException listException = Assertions.assertThrows(
+                    IllegalArgumentException.class, db::getTableNamesWithLock);
+            assertConflictingNameMessage(listException, "LocalX", "RemoteA", "RemoteB");
+
+            IllegalArgumentException lookupException = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> db.getTableNullable("LocalX"));
+            assertConflictingNameMessage(lookupException, "LocalX", "RemoteA", "RemoteB");
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testColdTableNameEventsFenceInFlightLoads() throws Exception {
         assertColdTableNameEventFencesInFlightLoad(true);
         assertColdTableNameEventFencesInFlightLoad(false);
@@ -885,6 +907,23 @@ public class ExternalDatabaseTest extends TestWithFeService {
         }
     }
 
+    private static class ConflictingMappingCatalog extends TestExternalCatalog {
+        ConflictingMappingCatalog() {
+            super(1003L, "conflicting_table_mapping_catalog", "", buildProps(), "");
+        }
+
+        @Override
+        public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+            return "LocalX";
+        }
+
+        private static Map<String, String> buildProps() {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("catalog_provider.class", NameMissTableCatalogProvider.class.getName());
+            return props;
+        }
+    }
+
     private static class NameMissTableCatalog extends TestExternalCatalog {
         private final AtomicInteger listTableNamesCount = new AtomicInteger();
 
@@ -964,5 +1003,13 @@ public class ExternalDatabaseTest extends TestWithFeService {
 
     private String missingTableLookupNameForMode(int mode) {
         return mode == 0 ? "tbl_missing" : "tblmissing";
+    }
+
+    private static void assertConflictingNameMessage(
+            IllegalArgumentException exception, String localName, String firstRemoteName, String secondRemoteName) {
+        Assertions.assertTrue(exception.getMessage().contains(ExternalCatalog.FOUND_CONFLICTING));
+        Assertions.assertTrue(exception.getMessage().contains(localName));
+        Assertions.assertTrue(exception.getMessage().contains(firstRemoteName));
+        Assertions.assertTrue(exception.getMessage().contains(secondRemoteName));
     }
 }
