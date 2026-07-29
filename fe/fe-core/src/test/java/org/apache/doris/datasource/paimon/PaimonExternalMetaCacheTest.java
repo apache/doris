@@ -44,7 +44,7 @@ public class PaimonExternalMetaCacheTest {
     @Test
     public void testLatestSnapshotUsesLatestSchemaForPinnedRead() {
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
-                new PaimonPartitionInfoLoader(null),
+                new PaimonPartitionInfoLoader(),
                 (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
@@ -55,11 +55,11 @@ public class PaimonExternalMetaCacheTest {
         SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
         TableSchema latestSchema = Mockito.mock(TableSchema.class);
         Mockito.when(snapshot.id()).thenReturn(12L);
-        Mockito.when(baseTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
-        Mockito.when(baseTable.copy(Collections.singletonMap(
+        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Collections.singletonMap(
                 CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"))).thenReturn(pinnedTable);
-        Mockito.when(pinnedTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
-        Mockito.when(baseTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
         Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
         Mockito.when(latestSchema.id()).thenReturn(4L);
 
@@ -67,8 +67,9 @@ public class PaimonExternalMetaCacheTest {
 
         Assert.assertEquals(12L, value.getSnapshot().getSnapshotId());
         Assert.assertEquals(4L, value.getSnapshot().getSchemaId());
-        Assert.assertSame(latestSchemaTable, value.getSnapshot().getTable());
-        Mockito.verify(pinnedTable).copyWithLatestSchema();
+        Assert.assertSame(pinnedTable, value.getSnapshot().getTable());
+        Mockito.verify(latestSchemaTable).copyWithoutTimeTravel(Collections.singletonMap(
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"));
     }
 
     @Test

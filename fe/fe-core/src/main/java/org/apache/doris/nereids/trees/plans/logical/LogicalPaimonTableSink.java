@@ -49,6 +49,9 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
     private final PaimonWriteTarget writeTarget;
     private final DMLCommandType dmlCommandType;
 
+    /**
+     * Create a logical Paimon sink bound to one immutable write target.
+     */
     public LogicalPaimonTableSink(PaimonExternalDatabase database,
                                    PaimonWriteTarget writeTarget,
                                    List<Column> cols,

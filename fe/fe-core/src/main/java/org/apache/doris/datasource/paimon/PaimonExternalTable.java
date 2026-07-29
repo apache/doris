@@ -130,6 +130,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return PaimonUtil.parseSchema(table,
                 getCatalog().getEnableMappingVarbinary(),
                 getCatalog().getEnableMappingTimestampTz());
+    }
 
     /**
      * Load the current remote table for a write target.
