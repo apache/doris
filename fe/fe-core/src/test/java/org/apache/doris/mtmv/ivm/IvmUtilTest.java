@@ -45,13 +45,16 @@ class IvmUtilTest {
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.DELETE_SIGN));
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.VERSION_COL));
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.SEQUENCE_COL));
+        Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.COMMIT_TSO_COL));
         Assertions.assertFalse(IvmUtil.isCommonHiddenSlot("not_hidden"));
         TinyIntLiteral deleteSign = (TinyIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.DELETE_SIGN);
         BigIntLiteral version = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.VERSION_COL);
         BigIntLiteral sequence = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL);
+        BigIntLiteral commitTso = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.COMMIT_TSO_COL);
         Assertions.assertEquals((byte) 0, deleteSign.getValue());
         Assertions.assertEquals(0L, version.getValue());
         Assertions.assertEquals(0L, sequence.getValue());
+        Assertions.assertEquals(0L, commitTso.getValue());
     }
 
     private SlotReference intSlot(String name, boolean nullable) {

@@ -290,6 +290,28 @@ public class CreateTableInfo {
         return isEnableMergeOnWrite;
     }
 
+    /**
+     * Analyze the unique-key merge-on-write property and keep the derived state in sync with properties.
+     */
+    protected void analyzeUniqueKeyMergeOnWrite() {
+        if (properties != null && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)
+                && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
+                    + " property only support unique key table");
+        }
+
+        isEnableMergeOnWrite = false;
+        if (keysType == KeysType.UNIQUE_KEYS && properties != null) {
+            properties = PropertyAnalyzer.enableUniqueKeyMergeOnWriteIfNotExists(properties);
+            try {
+                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
+                        new HashMap<>(properties));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+    }
+
     public void setIndexes(List<IndexDefinition> indexes) {
         this.indexes = indexes;
     }
@@ -573,28 +595,7 @@ public class CreateTableInfo {
                                 + " set 'true' when create olap table by default.");
             }
 
-            if (properties != null
-                    && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
-                if (!keysType.equals(KeysType.UNIQUE_KEYS)) {
-                    throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
-                            + " property only support unique key table");
-                }
-            }
-
-            if (keysType == KeysType.UNIQUE_KEYS) {
-                isEnableMergeOnWrite = false;
-                if (properties != null) {
-                    properties = PropertyAnalyzer.enableUniqueKeyMergeOnWriteIfNotExists(properties);
-                    // `analyzeXXX` would modify `properties`, which will be used later,
-                    // so we just clone a properties map here.
-                    try {
-                        isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
-                                new HashMap<>(properties));
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage(), e.getCause());
-                    }
-                }
-            }
+            analyzeUniqueKeyMergeOnWrite();
 
             try {
                 if (Config.random_add_order_by_keys_for_mow && isEnableMergeOnWrite && sortOrderFields.isEmpty()

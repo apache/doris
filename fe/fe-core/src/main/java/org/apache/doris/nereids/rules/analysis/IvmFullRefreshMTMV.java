@@ -40,9 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -119,15 +117,10 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
             Expression child;
             if (streamSlot != null) {
                 child = streamSlot;
+            } else if (IvmUtil.isCommonHiddenSlot(oldSlot.getName())) {
+                child = IvmUtil.getCommonHiddenSlotDefault(oldSlot.getName());
             } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
-                if (Column.DELETE_SIGN.equals(oldSlot.getName())) {
-                    child = new TinyIntLiteral((byte) 0);
-                } else if (Column.VERSION_COL.equals(oldSlot.getName())
-                        || Column.COMMIT_TSO_COL.equals(oldSlot.getName())) {
-                    child = new BigIntLiteral(0L);
-                } else {
-                    child = new NullLiteral(oldSlot.getDataType());
-                }
+                child = new NullLiteral(oldSlot.getDataType());
             } else {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM full refresh stream scan missing column "

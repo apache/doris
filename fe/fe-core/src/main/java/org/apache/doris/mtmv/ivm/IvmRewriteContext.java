@@ -53,19 +53,22 @@ public class IvmRewriteContext {
 
     private final Mode mode;
     private final MTMV mtmv;
+    // The MTMV object does not exist yet during CREATE, so keep its name separately for diagnostics.
+    private final String createMtmvName;
     private final boolean includeExhaustedStreams;
     private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
     private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
 
     public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeExhaustedStreams) {
-        this(mode, mtmv, includeExhaustedStreams, Collections.emptyMap(), Optional.empty());
+        this(mode, mtmv, null, includeExhaustedStreams, Collections.emptyMap(), Optional.empty());
     }
 
-    private IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeExhaustedStreams,
+    private IvmRewriteContext(Mode mode, MTMV mtmv, String createMtmvName, boolean includeExhaustedStreams,
             Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
             Optional<StreamReadMode> fullRefreshNonPctReadMode) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
         this.mtmv = mode == Mode.CREATE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
+        this.createMtmvName = createMtmvName;
         this.includeExhaustedStreams = includeExhaustedStreams;
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = new HashMap<>();
         Objects.requireNonNull(fullRefreshResetPartitionIds, "fullRefreshResetPartitionIds can not be null")
@@ -76,8 +79,10 @@ public class IvmRewriteContext {
                 fullRefreshNonPctReadMode, "fullRefreshNonPctReadMode can not be null");
     }
 
-    public static IvmRewriteContext create() {
-        return new IvmRewriteContext(Mode.CREATE, null, false);
+    public static IvmRewriteContext create(String mtmvName) {
+        return new IvmRewriteContext(Mode.CREATE, null,
+                Objects.requireNonNull(mtmvName, "mtmvName can not be null"), false,
+                Collections.emptyMap(), Optional.empty());
     }
 
     public static IvmRewriteContext normalize(MTMV mtmv) {
@@ -95,7 +100,7 @@ public class IvmRewriteContext {
     public static IvmRewriteContext full(MTMV mtmv,
             Map<BaseTableInfo, Set<Long>> resetPartitionIds,
             StreamReadMode nonPctReadMode) {
-        return new IvmRewriteContext(Mode.FULL, mtmv, false, resetPartitionIds,
+        return new IvmRewriteContext(Mode.FULL, mtmv, null, false, resetPartitionIds,
                 Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")));
     }
 
@@ -109,6 +114,10 @@ public class IvmRewriteContext {
 
     public MTMV getMtmv() {
         return mtmv;
+    }
+
+    public String getMtmvName() {
+        return mtmv == null ? createMtmvName : mtmv.getName();
     }
 
     public boolean isIncludeExhaustedStreams() {

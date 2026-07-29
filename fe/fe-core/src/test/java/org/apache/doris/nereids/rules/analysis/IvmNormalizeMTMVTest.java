@@ -952,7 +952,7 @@ class IvmNormalizeMTMVTest {
         statementContext.setExcludedTriggerTables(excludedTriggerTables);
         Optional<IvmRewriteContext> effectiveIvmRewriteContext = ivmRewriteContext.isPresent()
                 ? ivmRewriteContext
-                : enableIvmNormalRewrite ? Optional.of(IvmRewriteContext.create()) : Optional.empty();
+                : enableIvmNormalRewrite ? Optional.of(IvmRewriteContext.create("test_mtmv")) : Optional.empty();
         statementContext.setIvmRewriteContext(effectiveIvmRewriteContext);
         CascadesContext cascadesContext = CascadesContext.initContext(statementContext, root, PhysicalProperties.ANY);
         return new JobContext(cascadesContext, PhysicalProperties.ANY);

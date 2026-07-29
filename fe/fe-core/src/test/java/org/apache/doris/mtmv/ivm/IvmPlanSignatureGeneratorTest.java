@@ -160,6 +160,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
                 .add(new Alias(new IntegerLiteral(0), Column.DELETE_SIGN))
                 .add(new Alias(normalizedProject.getOutput().get(0), Column.IVM_ROW_ID_COL))
                 .add(new Alias(new IntegerLiteral(0), Column.VERSION_COL))
+                .add(new Alias(new IntegerLiteral(0), Column.COMMIT_TSO_COL))
                 .add(new Alias(normalizedProject.getOutput().get(1), normalizedProject.getOutput().get(1).getName()))
                 .add(new Alias(normalizedProject.getOutput().get(2), normalizedProject.getOutput().get(2).getName()))
                 .build(), normalizedProject);
@@ -179,6 +180,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
                 .add(new Alias(new IntegerLiteral(0), Column.DELETE_SIGN))
                 .add(new Alias(normalizedProject.getOutput().get(0), Column.IVM_ROW_ID_COL))
                 .add(new Alias(new IntegerLiteral(0), Column.VERSION_COL))
+                .add(new Alias(new IntegerLiteral(0), Column.COMMIT_TSO_COL))
                 .add(new Alias(normalizedProject.getOutput().get(1), normalizedProject.getOutput().get(1).getName()))
                 .add(new Alias(normalizedProject.getOutput().get(2), normalizedProject.getOutput().get(2).getName()))
                 .build(), normalizedProject);

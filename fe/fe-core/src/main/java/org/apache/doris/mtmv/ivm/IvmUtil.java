@@ -65,7 +65,8 @@ public class IvmUtil {
     public static final Map<String, Literal> COMMON_HIDDEN_SLOTS = ImmutableMap.of(
             Column.DELETE_SIGN, new TinyIntLiteral((byte) 0),
             Column.VERSION_COL, new BigIntLiteral(0L),
-            Column.SEQUENCE_COL, new BigIntLiteral(0L));
+            Column.SEQUENCE_COL, new BigIntLiteral(0L),
+            Column.COMMIT_TSO_COL, new BigIntLiteral(0L));
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);

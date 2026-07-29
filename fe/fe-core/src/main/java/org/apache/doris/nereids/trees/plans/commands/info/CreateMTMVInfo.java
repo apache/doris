@@ -315,7 +315,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
         checkUserSpecifiedKeysForIvm();
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.create()) : Optional.empty());
+                this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.create(tableNameInfo.getTbl()))
+                        : Optional.empty());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
@@ -409,6 +410,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         } else {
             this.setKeysType(KeysType.DUP_KEYS);
         }
+        this.analyzeUniqueKeyMergeOnWrite();
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());
