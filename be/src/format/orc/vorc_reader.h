@@ -677,6 +677,7 @@ private:
                                      const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
+    void _block_dict_filter_for_slots(const VExprSPtr& expr);
     bool _can_filter_by_dict(int slot_id);
 
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -825,7 +826,7 @@ private:
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
-    bool _disable_dict_filter = false;
+    std::unordered_set<int> _dict_filter_blocked_slot_ids;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::unique_ptr<ObjectPool> _obj_pool;

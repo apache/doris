@@ -23,6 +23,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -253,6 +254,7 @@ private:
     Status _filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter);
 
+    void _block_dict_filter_for_slots(const VExprSPtr& expr);
     bool _can_filter_by_dict(int slot_id, const tparquet::ColumnMetaData& column_metadata);
     bool _need_current_batch_row_positions() const;
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
@@ -299,6 +301,7 @@ private:
     VExprContextSPtrs _filter_conjuncts;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
+    std::unordered_set<int> _dict_filter_blocked_slot_ids;
     RuntimeState* _state = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
     const std::set<uint64_t>& _column_ids;
