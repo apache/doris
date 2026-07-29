@@ -207,9 +207,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalIcebergMergeSink(
             PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (!icebergMergeSink.isRequireMergeCardinalityCheck()
+                && connectContext != null
+                && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
+            // SQL MERGE cardinality is mandatory even when optional UPDATE consistency is disabled.
             addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
         }
         return null;
