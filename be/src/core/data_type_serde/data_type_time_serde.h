@@ -74,6 +74,11 @@ public:
                                     ParquetMaterializationState& state) const override;
     Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
                                    const ParquetDecodeContext& context) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
     int get_scale() const override { return _scale; }
 
 protected:

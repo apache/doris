@@ -213,6 +213,27 @@ public:
         }
     }
 
+    virtual void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows,
+                                               size_t value_width, uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values + row * value_width) ? 0 : 1;
+        }
+    }
+
+    virtual void find_batch_raw_binary(const StringRef* values, size_t rows,
+                                       uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values[row].data, values[row].size) ? 1 : 0;
+        }
+    }
+
+    virtual void find_batch_raw_binary_negative(const StringRef* values, size_t rows,
+                                                uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values[row].data, values[row].size) ? 0 : 1;
+        }
+    }
+
     virtual void find_batch(const doris::IColumn& column, size_t rows,
                             doris::ColumnUInt8::Container& results,
                             const uint8_t* __restrict filter = nullptr) = 0;
@@ -313,6 +334,16 @@ public:
             ElementType value;
             std::memcpy(&value, values + row * sizeof(ElementType), sizeof(ElementType));
             matches[row] &= _set.find(value) ? 1 : 0;
+        }
+    }
+
+    void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows, size_t value_width,
+                                       uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(ElementType));
+        for (size_t row = 0; row < rows; ++row) {
+            ElementType value;
+            std::memcpy(&value, values + row * sizeof(ElementType), sizeof(ElementType));
+            matches[row] &= _set.find(value) ? 0 : 1;
         }
     }
 

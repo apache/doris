@@ -65,6 +65,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
+    private final boolean requireMergeCardinalityCheck;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -75,13 +76,15 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
     // Store PropertiesMap, including vended credentials or static credentials
     private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
 
-    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext) {
+    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+                            boolean requireMergeCardinalityCheck) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("UPDATE on iceberg view is not supported");
         }
         this.targetTable = targetTable;
         this.deleteContext = deleteContext;
+        this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
 
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
@@ -133,6 +136,8 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         tSink.setFormatVersion(formatVersion);
         tSink.setSchemaJson(SchemaParser.toJson(schema));
         tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable, schema));
+        // UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
+        tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
 
         // partition spec
         if (icebergTable.spec().isPartitioned()) {

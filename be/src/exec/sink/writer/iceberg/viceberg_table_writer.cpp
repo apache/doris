@@ -33,6 +33,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/table/iceberg/partition_spec_parser.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "io/fs/file_system.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -485,7 +486,34 @@ Status VIcebergTableWriter::close(Status status) {
         COUNTER_SET(_close_timer, _close_ns);
         COUNTER_SET(_write_file_counter, _write_file_count);
     }
+    if (!status.ok() || !result_status.ok()) {
+        _cleanup_closed_files();
+    } else if (!_defer_file_cleanup_until_outer_close) {
+        _closed_files.clear();
+    }
     return result_status;
+}
+
+void VIcebergTableWriter::finish_deferred_file_cleanup(Status outer_status) {
+    // A successful inner close does not publish MERGE files; the sibling delete close still
+    // decides whether these data objects must be removed or released to the transaction.
+    if (!outer_status.ok()) {
+        _cleanup_closed_files();
+    } else {
+        _closed_files.clear();
+    }
+    _defer_file_cleanup_until_outer_close = false;
+}
+
+void VIcebergTableWriter::_cleanup_closed_files() {
+    for (const auto& [fs, path] : _closed_files) {
+        Status delete_status = fs->delete_file(path);
+        if (!delete_status.ok()) {
+            LOG(WARNING) << fmt::format("Delete rolled Iceberg file {} failed, reason: {}", path,
+                                        delete_status.to_string());
+        }
+    }
+    _closed_files.clear();
 }
 
 std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::StructLike& data) {
@@ -611,7 +639,10 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
                 &_t_sink.iceberg_table_sink.schema_json, column_names, write_info,
                 (file_name == nullptr) ? _compute_file_name() : *file_name, file_name_index,
                 iceberg_table_sink.file_format, iceberg_table_sink.compression_type,
-                iceberg_table_sink.hadoop_config);
+                iceberg_table_sink.hadoop_config,
+                [this](std::shared_ptr<io::FileSystem> fs, const std::string& path) {
+                    _closed_files.emplace_back(std::move(fs), path);
+                });
     };
     auto partition_write = create_writer_lambda(file_name, file_name_index);
     if (iceberg_table_sink.__isset.sort_info) {

@@ -29,6 +29,7 @@
 #include <numeric>
 #include <ostream>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -144,9 +145,10 @@ Status RowGroupReader::init(
         _column_readers[read_table_col] = std::move(reader);
     }
 
-    bool disable_dict_filter = false;
     if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
-        disable_dict_filter = true;
+        for (const auto& conjunct : *not_single_slot_filter_conjuncts) {
+            _block_dict_filter_for_slots(conjunct->root());
+        }
         _filter_conjuncts.insert(_filter_conjuncts.end(), not_single_slot_filter_conjuncts->begin(),
                                  not_single_slot_filter_conjuncts->end());
     }
@@ -176,7 +178,7 @@ Status RowGroupReader::init(
             auto predicate_file_col_name =
                     _table_info_node_ptr->children_file_column_name(predicate_col_name);
             auto field = schema.get_column(predicate_file_col_name);
-            if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
+            if (!_lazy_read_ctx.has_complex_type &&
                 _can_filter_by_dict(
                         slot_id, _row_group_meta.columns[field->physical_column_index].meta_data)) {
                 _dict_filter_cols.emplace_back(std::make_pair(predicate_col_name, slot_id));
@@ -215,8 +217,26 @@ Status RowGroupReader::init(
     return Status::OK();
 }
 
+void RowGroupReader::_block_dict_filter_for_slots(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (auto impl = expr->get_impl()) {
+        _block_dict_filter_for_slots(impl);
+        return;
+    }
+    if (expr->is_slot_ref()) {
+        _dict_filter_blocked_slot_ids.insert(static_cast<const VSlotRef*>(expr.get())->slot_id());
+        return;
+    }
+    for (const auto& child : expr->children()) {
+        _block_dict_filter_for_slots(child);
+    }
+}
+
 bool RowGroupReader::_can_filter_by_dict(int slot_id,
                                          const tparquet::ColumnMetaData& column_metadata) {
+    if (_dict_filter_blocked_slot_ids.contains(slot_id)) {
+        return false;
+    }
     SlotDescriptor* slot = nullptr;
     const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
     for (auto each : slots) {

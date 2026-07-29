@@ -241,6 +241,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
                 icebergTable.getBaseSchema(true),
                 outputExprs,
                 deleteCtx,
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 queryPlan);
