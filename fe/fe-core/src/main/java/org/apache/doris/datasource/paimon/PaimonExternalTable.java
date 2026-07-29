@@ -132,6 +132,17 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return PaimonUtil.parseSchema(table,
                 getCatalog().getEnableMappingVarbinary(),
                 getCatalog().getEnableMappingTimestampTz());
+
+    /**
+     * Load the current remote table for a write target.
+     *
+     * <p>A statement MVCC snapshot belongs to a read relation. In a time-travel self-insert the
+     * same Doris table identity can therefore have a historical source snapshot registered in
+     * StatementContext. Write planning must never reuse that snapshot: the writer, target schema
+     * and partition metadata must all come from the latest remote table handle.
+     */
+    public Table getPaimonTableForWrite() {
+        return ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping());
     }
 
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
@@ -274,8 +285,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Set<String> getWritePartitionColumnNames() {
-        return getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)).getPartitionColumns().stream()
-                .map(column -> column.getName().toLowerCase()).collect(Collectors.toSet());
+        return getPaimonTableForWrite().partitionKeys().stream()
+                .map(column -> column.toLowerCase()).collect(Collectors.toSet());
     }
 
     @Override
@@ -320,9 +331,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty()).getPartitionInfo().getNameToPartition()
-                .values().stream()
-                .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
+        // Dictionary loading records getTableSnapshot(), whose version is the Paimon snapshot ID.
+        // Use the same monotonic version here instead of deriving a timestamp from partition
+        // metadata. Partition metadata can intentionally be UNPRUNABLE and contain no Doris map.
+        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty())
+                .getSnapshot().getSnapshotId();
     }
 
     @Override
@@ -366,10 +379,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Map<String, Type> getWriteColumnTypes() {
-        TableSchema tableSchema = getPaimonSchemaCacheValue(
-                MvccUtil.getSnapshotFromContext(this)).getTableSchema();
+        return getWriteColumnTypes(getPaimonTableForWrite());
+    }
+
+    Map<String, Type> getWriteColumnTypes(Table table) {
         Map<String, Type> writeColumnTypes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (DataField field : tableSchema.fields()) {
+        for (DataField field : table.rowType().getFields()) {
             // The Paimon writer transports both NTZ and LTZ values as DATETIMEV2 civil fields.
             // The pinned Paimon target type decides whether Java preserves the fields or converts
             // them to an instant using the Doris session timezone.

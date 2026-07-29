@@ -73,7 +73,8 @@ final class GlobalIndexAssigner implements AutoCloseable {
 
         CoreOptions coreOptions = table.coreOptions();
         this.bucketIndex = IndexBootstrap.bootstrapType(table.schema()).getFieldCount() - 1;
-        this.targetBucketRowNumber = (int) coreOptions.dynamicBucketTargetRowNum();
+        this.targetBucketRowNumber =
+                checkedTargetBucketRowNumber(coreOptions.dynamicBucketTargetRowNum());
         this.extractor = new RowPartitionAllPrimaryKeyExtractor(table.schema());
         this.bootstrapExtractor = new KeyPartPartitionKeyExtractor(table.schema());
         this.partitionMapping = new IDMapping<>(BinaryRow::copy);
@@ -85,6 +86,15 @@ final class GlobalIndexAssigner implements AutoCloseable {
                         bucketAssigner,
                         this::collect);
         this.bootstrapping = true;
+    }
+
+    static int checkedTargetBucketRowNumber(long targetBucketRowNumber) {
+        if (targetBucketRowNumber <= 0 || targetBucketRowNumber > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Paimon dynamic-bucket.target-row-num must be between 1 and "
+                            + Integer.MAX_VALUE + ", actual=" + targetBucketRowNumber);
+        }
+        return (int) targetBucketRowNumber;
     }
 
     void bootstrapKey(InternalRow value) {

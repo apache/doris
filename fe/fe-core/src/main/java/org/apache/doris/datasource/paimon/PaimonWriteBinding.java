@@ -20,7 +20,6 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -74,15 +73,14 @@ public class PaimonWriteBinding {
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) dorisTable.getCatalog();
         FileStoreTable table;
         try {
-            table = catalog.getExecutionAuthenticator().execute(() -> requireFileStoreTable(
-                    dorisTable.getPaimonTable(MvccUtil.getSnapshotFromContext(dorisTable))));
+            table = requireFileStoreTable(dorisTable.getPaimonTableForWrite());
         } catch (Exception e) {
             throw new UserException("Failed to bind Paimon table for write", e);
         }
         Map<String, Expression> typedStaticPartition = context.getStaticPartition();
         Map<String, String> staticPartition = resolveStaticPartition(
                 table,
-                dorisTable.getWriteColumnTypes(),
+                dorisTable.getWriteColumnTypes(table),
                 typedStaticPartition,
                 context.isOverwrite());
         return new PaimonWriteBinding(

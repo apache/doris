@@ -110,6 +110,10 @@ public class PaimonJniWriter {
     private boolean sdkCloseFailed;
 
     public PaimonJniWriter() {
+        // TODO: Charge ArrowStreamReader's decoded vectors to the same native manager budget
+        // used by DorisMemorySegmentPool. A standalone finite RootAllocator would bound Arrow
+        // itself but would still allow Arrow vectors plus Paimon pages to exceed the advertised
+        // per-writer/query limit, so this requires shared reserve/release accounting across JNI.
         this.allocator = new RootAllocator(Long.MAX_VALUE);
         this.classLoader = this.getClass().getClassLoader();
     }

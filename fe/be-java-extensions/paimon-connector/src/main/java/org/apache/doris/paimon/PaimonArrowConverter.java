@@ -229,18 +229,52 @@ final class PaimonArrowConverter {
     private GenericRow convertStructVector(
             StructVector vector, int index, RowType rowType) {
         List<DataField> childFields = rowType.getFields();
+        List<FieldVector> childVectors = vector.getChildrenFromFields();
+        validateStructVectors(childFields, childVectors);
         GenericRow row = new GenericRow(childFields.size());
         for (int i = 0; i < childFields.size(); i++) {
             DataField childField = childFields.get(i);
-            FieldVector childVector = findChildVector(vector, childField.name());
-            if (childVector == null) {
-                throw new IllegalArgumentException(
-                        "Arrow struct does not contain Paimon field " + childField.name());
-            }
+            FieldVector childVector = childVectors.get(i);
             row.setField(i, convertVectorValue(
                     childVector, index, childVector.getField(), childField.type()));
         }
         return row;
+    }
+
+    private static void validateStructVectors(
+            List<DataField> childFields, List<FieldVector> childVectors) {
+        if (childVectors.size() != childFields.size()) {
+            throw structFieldCountMismatch(childVectors.size(), childFields.size());
+        }
+        for (int i = 0; i < childFields.size(); i++) {
+            validateStructField(i, childFields.get(i), childVectors.get(i).getName());
+        }
+    }
+
+    static void validateStructSchema(RowType rowType, List<String> arrowFieldNames) {
+        List<DataField> childFields = rowType.getFields();
+        if (arrowFieldNames.size() != childFields.size()) {
+            throw structFieldCountMismatch(arrowFieldNames.size(), childFields.size());
+        }
+        for (int i = 0; i < childFields.size(); i++) {
+            validateStructField(i, childFields.get(i), arrowFieldNames.get(i));
+        }
+    }
+
+    private static IllegalArgumentException structFieldCountMismatch(
+            int arrowFieldCount, int paimonFieldCount) {
+        return new IllegalArgumentException(
+                "Arrow struct field count does not match Paimon row type: arrow="
+                        + arrowFieldCount + ", paimon=" + paimonFieldCount);
+    }
+
+    private static void validateStructField(
+            int position, DataField paimonField, String arrowFieldName) {
+        if (!arrowFieldName.equalsIgnoreCase(paimonField.name())) {
+            throw new IllegalArgumentException(
+                    "Arrow struct field at position " + position + " does not match Paimon field "
+                            + paimonField.name() + ": " + arrowFieldName);
+        }
     }
 
     private GenericMap convertMapVector(
@@ -278,15 +312,6 @@ final class PaimonArrowConverter {
                     arrayType.getElementType());
         }
         return new GenericArray(converted);
-    }
-
-    private static FieldVector findChildVector(StructVector parent, String name) {
-        for (FieldVector child : parent.getChildrenFromFields()) {
-            if (child.getName().equals(name)) {
-                return child;
-            }
-        }
-        return null;
     }
 
     private static BigDecimal getBigDecimalFromArrowBuf(

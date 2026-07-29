@@ -20,7 +20,9 @@ package org.apache.doris.paimon;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.LocalZonedTimestampType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 
 public class PaimonArrowConverterTest {
 
@@ -78,5 +81,21 @@ public class PaimonArrowConverterTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> converter.toPaimonTimestamp(
                         0, arrowType, new TimestampType(6)));
+    }
+
+    @Test
+    public void testStructSchemaUsesPositionAndAcceptsCaseInsensitiveNames() {
+        RowType rowType = mixedCaseRowType();
+        Assertions.assertDoesNotThrow(() -> PaimonArrowConverter.validateStructSchema(
+                rowType, Arrays.asList("foo", "FOO")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonArrowConverter.validateStructSchema(
+                        rowType, Arrays.asList("foo", "different")));
+    }
+
+    private static RowType mixedCaseRowType() {
+        return DataTypes.ROW(
+                DataTypes.FIELD(0, "Foo", DataTypes.INT()),
+                DataTypes.FIELD(1, "foo", DataTypes.INT()));
     }
 }

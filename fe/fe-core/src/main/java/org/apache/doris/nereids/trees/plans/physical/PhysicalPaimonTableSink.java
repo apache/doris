@@ -110,12 +110,11 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        if (requiresSingleWriter()) {
+        FileStoreTable paimonTable = getWriteTable();
+        if (requiresSingleWriter(paimonTable)) {
             return PhysicalProperties.GATHER;
         }
 
-        PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTable;
-        Table paimonTable = paimonExternalTable.getPaimonTable(Optional.empty());
         List<String> primaryKeys = paimonTable.primaryKeys();
         if (primaryKeys.isEmpty()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
@@ -140,30 +139,44 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
 
     /**
      * Whether this sink must use one writer to preserve Paimon write semantics.
+     *
+     * <p>For dynamic bucket tables, GATHER guarantees one writer only within the current
+     * INSERT. Paimon does not support concurrent write jobs to the same partition, and Doris
+     * does not add a process-local lease which could not coordinate FE failover or external
+     * Flink/Spark writers. Concurrent INSERTs into a dynamic bucket table are therefore
+     * unsupported.
      */
     public boolean requiresSingleWriter() {
-        Table paimonTable = ((PaimonExternalTable) targetTable)
-                .getPaimonTable(Optional.empty());
-        Preconditions.checkState(paimonTable instanceof FileStoreTable,
-                "Paimon write requires a file store table");
-        FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
-        BucketMode bucketMode = fileStoreTable.bucketMode();
+        return requiresSingleWriter(getWriteTable());
+    }
+
+    static boolean requiresSingleWriter(FileStoreTable paimonTable) {
+        BucketMode bucketMode = paimonTable.bucketMode();
+        CoreOptions coreOptions = CoreOptions.fromMap(paimonTable.options());
         if (bucketMode == BucketMode.HASH_DYNAMIC
                 || bucketMode == BucketMode.KEY_DYNAMIC
                 // Until Doris has a Paimon bucket-aware exchange, a fixed-bucket
-                // primary-key table must not let independent writers own the same
-                // partition/bucket. Hashing the complete primary key is insufficient
-                // when bucket-key is a subset and can also split compaction ownership.
+                // primary-key table must not let independent writers own the same bucket.
+                // An append-only writer has the same ownership requirement while automatic
+                // compaction is enabled, because two writers can restore and replace the same
+                // existing files in one Doris transaction.
                 || (bucketMode == BucketMode.HASH_FIXED
-                        && !paimonTable.primaryKeys().isEmpty())) {
+                        && (!paimonTable.primaryKeys().isEmpty() || !coreOptions.writeOnly()))) {
             return true;
         }
 
-        CoreOptions coreOptions = CoreOptions.fromMap(paimonTable.options());
         return !coreOptions.writeOnly()
                 && (coreOptions.needLookup()
                         || coreOptions.changelogProducer()
                                 == CoreOptions.ChangelogProducer.FULL_COMPACTION);
+    }
+
+    private FileStoreTable getWriteTable() {
+        Table paimonTable = ((PaimonExternalTable) targetTable)
+                .getPaimonTableForWrite();
+        Preconditions.checkState(paimonTable instanceof FileStoreTable,
+                "Paimon write requires a file store table");
+        return (FileStoreTable) paimonTable;
     }
 
     @Override
