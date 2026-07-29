@@ -22,6 +22,8 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
  */
 public class BaseExternalTableInsertCommandContext extends InsertCommandContext {
     protected boolean overwrite = false;
+    protected long txnId = -1L;
+    protected String commitUser = "";
 
     public boolean isOverwrite() {
         return overwrite;
@@ -29,5 +31,21 @@ public class BaseExternalTableInsertCommandContext extends InsertCommandContext 
 
     public void setOverwrite(boolean overwrite) {
         this.overwrite = overwrite;
+    }
+
+    public long getTxnId() {
+        return txnId;
+    }
+
+    public void setTxnId(long txnId) {
+        this.txnId = txnId;
+    }
+
+    public String getCommitUser() {
+        return commitUser;
+    }
+
+    public void setCommitUser(String commitUser) {
+        this.commitUser = commitUser;
     }
 }

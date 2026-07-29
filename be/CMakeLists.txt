@@ -163,6 +163,9 @@ endif()
 if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
 endif()
+if (ENABLE_PAIMON_CPP)
+    add_definitions(-DWITH_PAIMON_CPP)
+endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
@@ -578,7 +581,10 @@ set(COMMON_THIRDPARTY
 )
 
 if (ENABLE_PAIMON_CPP)
-    message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        paimon
+    )
 endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
@@ -893,6 +899,12 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+
+add_subdirectory(${SRC_DIR}/exec/sink/writer/paimon/compat)
+if (ENABLE_PAIMON_CPP)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} paimon_rawlog_compat)
+    set(TEST_LINK_LIBS ${TEST_LINK_LIBS} paimon_rawlog_compat)
+endif()
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)

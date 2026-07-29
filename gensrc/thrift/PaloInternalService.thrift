@@ -470,6 +470,16 @@ struct TQueryOptions {
   209: optional i32 spill_repartition_max_depth = 8
 
   184: optional i32 cte_max_recursion_depth;
+  // Options for Paimon write.
+  322: optional bool enable_paimon_adaptive_buffer_size = false;
+  323: optional i64 paimon_target_file_size = 268435456;
+  324: optional i64 paimon_write_buffer_size = 268435456;
+  325: optional bool enable_paimon_jni_spill = false;
+  326: optional i64 paimon_spill_max_disk_size = 53687091200; // 50GB
+  327: optional i64 paimon_spill_sort_buffer_size = 67108864; // 64MB
+  328: optional i32 paimon_spill_sort_threshold = 10;
+  329: optional string paimon_spill_compression = "zstd";
+  330: optional i64 paimon_global_memory_pool_size = 1073741824; // 1GB default
 
 
 

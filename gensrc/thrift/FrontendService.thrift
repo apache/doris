@@ -321,7 +321,6 @@ struct TReportExecStatusParams {
   27: optional TQueryProfile query_profile
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
-
   29: optional i64 txn_id
   30: optional string label
 
@@ -330,6 +329,8 @@ struct TReportExecStatusParams {
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  34: optional list<DataSinks.TPaimonCommitMessage> paimon_commit_messages
 }
 
 struct TFeResult {
