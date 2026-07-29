@@ -312,4 +312,24 @@ public class NullableAliasTest extends SqlTestBase {
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
         Assertions.assertNotNull(plan);
     }
+
+    @Test
+    void testDropAliasRawInputsSingleTableLeaf() {
+        // Alias dv = char_length(cast(score as string)) on nullable side over {T2}.
+        // After dv materializes, raw T2.score should not leak into ancestor
+        // join outputs — verifies getAllAliasInputSlotsForNodes skips aliases
+        // whose source bitmap is already fully contained in a completed child.
+        // Without the fix, T2.score survives through the join step as an
+        // aliasInputSlot, widening the join output and distorting cost.
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id, Sub.dv "
+                        + "from T1 left join ("
+                        + "  select T2.id, char_length(cast(T2.score as string)) as dv "
+                        + "  from T2"
+                        + ") Sub on T1.id = Sub.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
 }

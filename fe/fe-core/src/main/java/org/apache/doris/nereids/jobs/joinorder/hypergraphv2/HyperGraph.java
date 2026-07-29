@@ -185,6 +185,25 @@ public class HyperGraph {
     }
 
     /**
+     * Returns input slots of aliases whose source bitmap is fully contained
+     * in {@code left} or {@code right}. These aliases have already been
+     * materialized by the respective child and their raw input columns no
+     * longer need to be preserved in this join step.
+     */
+    public Set<Slot> getAliasInputSlotsForSubsetNodes(long left, long right) {
+        Set<Slot> result = new HashSet<>();
+        for (Map.Entry<Long, List<NamedExpression>> entry : nodeToProjectedAliases.entrySet()) {
+            long key = entry.getKey();
+            if (LongBitmap.isSubset(key, left) || LongBitmap.isSubset(key, right)) {
+                for (NamedExpression alias : entry.getValue()) {
+                    result.addAll(alias.getInputSlots());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns true if the edge can be safely used as a join predicate between
      * left and right. An edge is unsafe when it references a projected alias
      * whose source bitmap spans both children — the alias layer is emitted by

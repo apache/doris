@@ -345,9 +345,12 @@ public class PlanReceiver extends AbstractReceiver {
                     aliasExprIds.add(a.getExprId());
                 }
                 List<NamedExpression> mergedLayer = new ArrayList<>(aliases);
+                Set<Slot> emittedAliasSlots = hyperGraph.getAliasInputSlotsForSubsetNodes(
+                        left, right);
                 for (Slot childSlot : logicalPlan.getOutputSet()) {
                     if (requireSlots.contains(childSlot)
-                            && !aliasExprIds.contains(childSlot.getExprId())) {
+                            && !aliasExprIds.contains(childSlot.getExprId())
+                            && !emittedAliasSlots.contains(childSlot)) {
                         mergedLayer.add(childSlot);
                     }
                 }
