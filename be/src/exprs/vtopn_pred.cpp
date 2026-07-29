@@ -95,8 +95,7 @@ bool topn_string_matches(int comparison, RawComparisonOp op) {
 } // namespace
 
 bool VTopNPred::can_execute_on_raw_fixed_values(const DataTypePtr& data_type, int column_id) const {
-    if (_predicate == nullptr || data_type == nullptr || _children.size() != 1 ||
-        (_predicate->nulls_first() && data_type->is_nullable())) {
+    if (_predicate == nullptr || data_type == nullptr || _children.size() != 1) {
         return false;
     }
     const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
@@ -180,8 +179,7 @@ Status VTopNPred::execute_on_raw_fixed_values(const uint8_t* values, size_t num_
 
 bool VTopNPred::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
                                                  int column_id) const {
-    if (_predicate == nullptr || data_type == nullptr || _children.size() != 1 ||
-        (_predicate->nulls_first() && data_type->is_nullable())) {
+    if (_predicate == nullptr || data_type == nullptr || _children.size() != 1) {
         return false;
     }
     const auto raw_type = remove_nullable(data_type);

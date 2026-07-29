@@ -154,9 +154,16 @@ public:
                                         const DataTypePtr& data_type, int column_id,
                                         uint8_t* matches) const override;
 
-    // Dictionary capability is restricted to a direct slot and NULLS-LAST semantics because the
-    // row-level dictionary-id reader currently drops NULL rows independently of dictionary ids.
-    // It stays enabled before the first bound so late runtime-predicate publication is supported.
+    bool raw_predicate_result_for_null() const override {
+        // execute_column() is all-pass until publication; afterwards NULLS FIRST keeps NULL while
+        // NULLS LAST rejects it. Sample this state per fragment just like the mutable bound.
+        return _predicate != nullptr && (!_predicate->has_value() || _predicate->nulls_first());
+    }
+
+    // Dictionary capability is restricted to a direct slot and NULLS-LAST semantics. It stays
+    // enabled before the first bound so row-group setup can cache an all-pass bitmap; the scan
+    // scheduler retains a per-batch residual and defers dictionary-id filtering while NULL still
+    // matches, then safely resumes it after bound publication.
     bool can_evaluate_dictionary_filter() const override;
 
     // Evaluates every non-NULL entry in the bound slot dictionary against one current-bound

@@ -70,8 +70,7 @@ public:
     bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
                                          int column_id) const override {
         return !_children.empty() &&
-               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR ||
-                (_op == TExprOpcode::COMPOUND_NOT && _children.size() == 1)) &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
                std::ranges::all_of(_children, [&](const VExprSPtr& child) {
                    return child->can_execute_on_raw_fixed_values(data_type, column_id);
                });
@@ -93,8 +92,7 @@ public:
     bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
                                           int column_id) const override {
         return !_children.empty() &&
-               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR ||
-                (_op == TExprOpcode::COMPOUND_NOT && _children.size() == 1)) &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
                std::ranges::all_of(_children, [&](const VExprSPtr& child) {
                    return child->can_execute_on_raw_binary_values(data_type, column_id);
                });
@@ -111,6 +109,22 @@ public:
                     return child->execute_on_raw_binary_values(values, num_values, data_type,
                                                                column_id, child_matches);
                 });
+    }
+
+    bool raw_predicate_result_for_null() const override {
+        if (_op != TExprOpcode::COMPOUND_AND && _op != TExprOpcode::COMPOUND_OR) {
+            // A Boolean keep bit cannot distinguish FALSE from UNKNOWN, so negating a child's
+            // collapsed result is not SQL-correct. NOT remains residual and rejects NULL here.
+            return false;
+        }
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            return std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->raw_predicate_result_for_null();
+            });
+        }
+        return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+            return child->raw_predicate_result_for_null();
+        });
     }
 
     bool can_evaluate_zonemap_filter() const override {
@@ -540,25 +554,38 @@ private:
             return Status::OK();
         }
 
-        IColumn::Filter combined(num_values, _op == TExprOpcode::COMPOUND_NOT ? 1 : 0);
+        // Each execution context owns its expression tree. Retaining masks on the OR node avoids
+        // N+1 row-sized allocations for every decoder fragment, while nested OR nodes keep
+        // independent buffers and therefore cannot overwrite their parent's in-flight state.
+        _raw_combined_scratch.resize(num_values);
+        std::ranges::fill(_raw_combined_scratch, 0);
         for (const auto& child : _children) {
-            IColumn::Filter child_matches(num_values, 1);
-            RETURN_IF_ERROR(execute_child(child, child_matches.data()));
+            // resize_fill() initializes only newly appended bytes; explicitly reset a reused mask
+            // so matches from an earlier page fragment cannot leak into this OR evaluation.
+            _raw_child_scratch.resize(num_values);
+            std::ranges::fill(_raw_child_scratch, 1);
+            RETURN_IF_ERROR(execute_child(child, _raw_child_scratch.data()));
             for (size_t row = 0; row < num_values; ++row) {
-                if (_op == TExprOpcode::COMPOUND_OR) {
-                    combined[row] |= child_matches[row];
-                } else {
-                    combined[row] = child_matches[row] == 0 ? 1 : 0;
-                }
+                _raw_combined_scratch[row] |= _raw_child_scratch[row];
             }
         }
         // Raw kernels receive an existing selection mask, so composition must preserve rows that
         // an earlier conjunct already rejected instead of replacing the caller's mask.
         for (size_t row = 0; row < num_values; ++row) {
-            matches[row] &= combined[row];
+            matches[row] &= _raw_combined_scratch[row];
+        }
+        constexpr size_t MAX_RETAINED_RAW_MASK_BYTES = 1UL << 20;
+        if (_raw_combined_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_combined_scratch);
+        }
+        if (_raw_child_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_child_scratch);
         }
         return Status::OK();
     }
+
+    mutable IColumn::Filter _raw_combined_scratch;
+    mutable IColumn::Filter _raw_child_scratch;
 
     static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL

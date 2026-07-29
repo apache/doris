@@ -411,13 +411,16 @@ public:
 
     DecimalPredicateParquetConsumer(const ParquetDecodeContext& context, UInt32 target_precision,
                                     int32_t target_scale, bool enable_strict_mode,
-                                    ParquetLogicalValueConsumer& consumer)
+                                    ParquetLogicalValueConsumer& consumer,
+                                    typename ColumnDecimal<T>::Container& logical_values,
+                                    IColumn::Filter& conversion_nulls)
             : _context(context),
               _target_precision(target_precision),
               _target_scale(target_scale),
               _enable_strict_mode(enable_strict_mode),
               _consumer(consumer),
-              _logical_values(0, static_cast<UInt32>(target_scale)) {}
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         return convert_and_publish(num_values, [&](DecimalParquetConsumer<T>& converter) {
@@ -452,8 +455,8 @@ private:
     int32_t _target_scale;
     bool _enable_strict_mode;
     ParquetLogicalValueConsumer& _consumer;
-    typename ColumnDecimal<T>::Container _logical_values;
-    IColumn::Filter _conversion_nulls;
+    typename ColumnDecimal<T>::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -871,8 +874,9 @@ Status DataTypeDecimalSerDe<T>::read_parquet_raw_predicate(
         return Status::NotSupported("Unsupported Parquet raw predicate conversion for {}",
                                     get_name());
     }
-    DecimalPredicateParquetConsumer<T> predicate_consumer(context, static_cast<UInt32>(precision),
-                                                          scale, enable_strict_mode, consumer);
+    DecimalPredicateParquetConsumer<T> predicate_consumer(
+            context, static_cast<UInt32>(precision), scale, enable_strict_mode, consumer,
+            _parquet_predicate_values, _parquet_predicate_nulls);
     if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
         return source.decode_binary_values(num_values, predicate_consumer);
     }

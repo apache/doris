@@ -129,8 +129,14 @@ class TimestampTzPredicateParquetConsumer final : public ParquetFixedValueConsum
 public:
     TimestampTzPredicateParquetConsumer(const ParquetDecodeContext& context,
                                         bool enable_strict_mode,
-                                        ParquetLogicalValueConsumer& consumer)
-            : _context(context), _enable_strict_mode(enable_strict_mode), _consumer(consumer) {}
+                                        ParquetLogicalValueConsumer& consumer,
+                                        ColumnTimeStampTz::Container& logical_values,
+                                        IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         _logical_values.clear();
@@ -149,8 +155,8 @@ private:
     const ParquetDecodeContext& _context;
     bool _enable_strict_mode;
     ParquetLogicalValueConsumer& _consumer;
-    ColumnTimeStampTz::Container _logical_values;
-    IColumn::Filter _conversion_nulls;
+    ColumnTimeStampTz::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
 };
 
 } // namespace
@@ -483,7 +489,9 @@ Status DataTypeTimeStampTzSerDe::read_parquet_raw_predicate(
     if (!supports_parquet_raw_predicate(context)) {
         return Status::NotSupported("Unsupported Parquet raw predicate conversion for TIMESTAMPTZ");
     }
-    TimestampTzPredicateParquetConsumer predicate_consumer(context, enable_strict_mode, consumer);
+    TimestampTzPredicateParquetConsumer predicate_consumer(context, enable_strict_mode, consumer,
+                                                           _parquet_predicate_values,
+                                                           _parquet_predicate_nulls);
     return source.decode_fixed_values(num_values, predicate_consumer);
 }
 

@@ -1188,11 +1188,13 @@ TEST(ParquetV2NativeDecoderTest, RawExprMapsNullableSparseRowsDirectly) {
     decode_context.physical_type = ParquetPhysicalType::INT32;
     decode_context.encoding = ParquetValueEncoding::PLAIN;
     bool used_filter = false;
+    IColumn::Filter conversion_nulls;
+    DirectPredicateExecutionKind execution_kind = DirectPredicateExecutionKind::NONE;
     ASSERT_TRUE(chunk_reader
-                        .filter_fixed_width_values(predicates, 0, select_vector, &selected_nulls,
-                                                   &physical_matches, projected_column.get(),
-                                                   &row_filter, serde, decode_context, false,
-                                                   &used_filter)
+                        .filter_fixed_width_values(
+                                predicates, 0, select_vector, &selected_nulls, &physical_matches,
+                                projected_column.get(), &conversion_nulls, &row_filter, serde,
+                                decode_context, false, &used_filter, &execution_kind)
                         .ok());
 
     EXPECT_TRUE(used_filter);
@@ -3442,9 +3444,10 @@ TEST(ParquetV2NativeDecoderTest, LazyFixedWidthFilterUsesReconciledFirstPageRang
     size_t rows = 0;
     bool eof = false;
     bool used_filter = false;
+    DirectPredicateExecutionKind execution_kind = DirectPredicateExecutionKind::NONE;
     const auto status = reader.read_fixed_width_filter(
             {create_int32_raw_comparison(0, "ge", TExprOpcode::GE, 0)}, 0, filter, 2, nullptr,
-            &row_filter, &rows, &eof, &used_filter);
+            &row_filter, &rows, &eof, &used_filter, &execution_kind);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(used_filter);
     EXPECT_EQ(rows, 2);

@@ -220,6 +220,11 @@ public:
         return Status::NotSupported("{} cannot evaluate raw binary values", expr_name());
     }
 
+    // Returns the Boolean result for a logical NULL whose payload is absent from decoder value
+    // callbacks. Most raw predicates reject NULL; dynamic predicates override this hook when
+    // their current runtime state can admit it.
+    virtual bool raw_predicate_result_for_null() const { return false; }
+
     // Parquet NULLs have no value payload. Level-aware predicates consume the definition-level
     // null map directly instead of forcing the reader to fabricate a nullable Doris column.
     virtual bool can_execute_on_null_map(const DataTypePtr& data_type, int column_id) const {
