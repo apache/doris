@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <new>
 #include "core/data_type/data_type_number.h"
 #include "exec/common/columns_hashing.h"
 #include "exec/common/hash_table/hash.h"
@@ -132,6 +133,27 @@ static AggregateDataPtr make_mapped(size_t val) {
     return reinterpret_cast<AggregateDataPtr>(val);
 }
 
+struct TrackedNullAggregateState {
+    explicit TrackedNullAggregateState(size_t& destroy_count_) : destroy_count(destroy_count_) {}
+    ~TrackedNullAggregateState() { ++destroy_count; }
+
+    size_t& destroy_count;
+};
+
+static void create_null_state_then_fail(AggregateDataPtr& mapped, void* storage,
+                                        size_t& destroy_count) {
+    auto* new_state = new (storage) TrackedNullAggregateState(destroy_count);
+    commit_aggregate_state(
+            mapped, reinterpret_cast<AggregateDataPtr>(new_state),
+            [] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "post-construction null key creation failed");
+            },
+            [](AggregateDataPtr state) {
+                reinterpret_cast<TrackedNullAggregateState*>(state)->~TrackedNullAggregateState();
+            });
+}
+
 TEST(HashTableMethodTest, testNullableNullKeyCreationExceptionSafety) {
     using NullableMethod =
             MethodSingleNullableColumn<MethodOneNumber<UInt32, AggDataNullable<UInt32>>>;
@@ -150,6 +172,20 @@ TEST(HashTableMethodTest, testNullableNullKeyCreationExceptionSafety) {
                          }),
                  Exception);
     EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_TRUE(method.hash_table->empty());
+    EXPECT_FALSE(method.find(state, 0).is_found());
+
+    alignas(TrackedNullAggregateState) char state_storage[sizeof(TrackedNullAggregateState)];
+    size_t destroy_count = 0;
+    EXPECT_THROW(method.lazy_emplace(
+                         state, 0, [](const auto&, auto&, auto&) {},
+                         [&](auto& null_mapped) {
+                             create_null_state_then_fail(null_mapped, state_storage, destroy_count);
+                         }),
+                 Exception);
+    EXPECT_EQ(destroy_count, 1);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->get_null_key_data<AggregateDataPtr>(), nullptr);
     EXPECT_TRUE(method.hash_table->empty());
     EXPECT_FALSE(method.find(state, 0).is_found());
 
@@ -206,6 +242,20 @@ TEST(HashTableMethodTest, testNullableStringBatchNullKeyCreationExceptionSafety)
                          [](uint32_t, auto&) {}),
                  Exception);
     EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_TRUE(method.hash_table->empty());
+
+    alignas(TrackedNullAggregateState) char state_storage[sizeof(TrackedNullAggregateState)];
+    size_t destroy_count = 0;
+    EXPECT_THROW(lazy_emplace_batch(
+                         method, state, 1, [](const auto&, auto&, auto&) {},
+                         [&](auto& null_mapped) {
+                             create_null_state_then_fail(null_mapped, state_storage, destroy_count);
+                         },
+                         [](uint32_t, auto&) {}),
+                 Exception);
+    EXPECT_EQ(destroy_count, 1);
+    EXPECT_FALSE(method.hash_table->has_null_key_data());
+    EXPECT_EQ(method.hash_table->get_null_key_data<AggregateDataPtr>(), nullptr);
     EXPECT_TRUE(method.hash_table->empty());
 
     bool result_handled = false;
