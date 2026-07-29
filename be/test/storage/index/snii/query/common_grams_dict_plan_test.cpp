@@ -123,11 +123,11 @@ CommonGramsSegmentMetadata complete_scoring_metadata(uint32_t doc_count,
 }
 
 CommonGramsPlanCostModel no_hysteresis_cost_model() {
-    return {.position_verify_factor = 0, .common_grams_cost_ratio_percent = 100, .generation = 0};
+    return {.position_verify_factor = 0, .common_grams_cost_ratio_percent = 100};
 }
 
 CommonGramsPlanCostModel verify_cost_model() {
-    return {.position_verify_factor = 7, .common_grams_cost_ratio_percent = 100, .generation = 0};
+    return {.position_verify_factor = 7, .common_grams_cost_ratio_percent = 100};
 }
 
 std::string plain_key(std::string_view term) {

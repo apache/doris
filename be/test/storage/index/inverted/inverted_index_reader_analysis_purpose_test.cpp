@@ -410,7 +410,7 @@ protected:
     void expect_raw_cache_hit_before_analysis(const std::shared_ptr<Reader>& reader,
                                               const std::shared_ptr<IndexFileReader>& file_reader,
                                               const std::shared_ptr<Provider>& provider,
-                                              uint64_t common_grams_cache_generation) {
+                                              bool common_grams_query_plan_enabled) {
         QueryExecutionContext execution(/*scoring=*/false);
         InvertedIndexAnalyzerCtx analyzer_ctx;
         analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
@@ -424,7 +424,7 @@ protected:
                 .ordered = false,
                 .max_expansions =
                         execution.runtime_state.query_options().inverted_index_max_expansions,
-                .common_grams_cache_generation = common_grams_cache_generation};
+                .common_grams_query_plan_enabled = common_grams_query_plan_enabled};
         const InvertedIndexQueryCache::CacheKey key {
                 file_reader->get_index_file_cache_key(&_meta), "content",
                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic.encode()};
@@ -468,11 +468,11 @@ TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutD
                                         .ordered = true,
                                         .max_expansions = 50,
                                         .cache_semantics_version = 3,
-                                        .common_grams_cache_generation = 7};
+                                        .common_grams_query_plan_enabled = true};
     const std::string encoded = base.encode();
     constexpr size_t kFixedEncodedBytes = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint32_t) +
                                           sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t) +
-                                          sizeof(uint64_t);
+                                          sizeof(uint8_t);
     EXPECT_EQ(encoded.size(), kFixedEncodedBytes + raw_query.size());
 
     auto changed = base;
@@ -494,7 +494,7 @@ TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutD
     changed.cache_semantics_version = 4;
     EXPECT_NE(changed.encode(), encoded);
     changed = base;
-    changed.common_grams_cache_generation = 8;
+    changed.common_grams_query_plan_enabled = false;
     EXPECT_NE(changed.encode(), encoded);
 }
 
@@ -512,32 +512,11 @@ TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundar
     EXPECT_NE(nul_left.encode(), nul_right.encode());
 }
 
-TEST(InvertedIndexRawQuerySemanticTest, KillSwitchTransitionsAdvanceCacheGeneration) {
-    const bool original = config::enable_common_grams_query_plan;
-    const auto before = config::common_grams_query_plan_config_snapshot();
-
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", original ? "false" : "true",
-                                   /*need_persist=*/false)
-                        .ok());
-    const auto disabled_or_enabled = config::common_grams_query_plan_config_snapshot();
-    ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", original ? "true" : "false",
-                                   /*need_persist=*/false)
-                        .ok());
-    const auto restored = config::common_grams_query_plan_config_snapshot();
-
-    EXPECT_EQ(before.enabled, original);
-    EXPECT_EQ(disabled_or_enabled.enabled, !original);
-    EXPECT_GT(disabled_or_enabled.cache_generation, before.cache_generation);
-    EXPECT_EQ(restored.enabled, original);
-    EXPECT_GT(restored.cache_generation, disabled_or_enabled.cache_generation);
-}
-
 TEST(InvertedIndexRawQuerySemanticTest, CommonGramsQueryPlanIsDisabledByDefault) {
     EXPECT_FALSE(config::enable_common_grams_query_plan);
-    EXPECT_FALSE(config::common_grams_query_plan_config_snapshot().enabled);
 }
 
-TEST(InvertedIndexRawQuerySemanticTest, CostModelSnapshotTracksDynamicConfigAsOneVersion) {
+TEST(InvertedIndexRawQuerySemanticTest, CostModelConfigUpdatesValues) {
     const int32_t original_ratio = config::common_grams_plan_cost_ratio_percent;
     const int32_t original_factor = config::common_grams_position_verify_factor;
     const int32_t changed_ratio = original_ratio == 84 ? 85 : 84;
@@ -549,12 +528,8 @@ TEST(InvertedIndexRawQuerySemanticTest, CostModelSnapshotTracksDynamicConfigAsOn
     ASSERT_TRUE(config::set_config("common_grams_position_verify_factor",
                                    std::to_string(changed_factor))
                         .ok());
-    const auto changed = config::common_grams_query_plan_config_snapshot();
-    EXPECT_EQ(changed.plan_cost_ratio_percent, changed_ratio);
-    EXPECT_EQ(changed.position_verify_factor, changed_factor);
-    EXPECT_EQ(changed.cost_model_generation,
-              (static_cast<uint64_t>(static_cast<uint32_t>(changed_factor)) << 32) |
-                      static_cast<uint32_t>(changed_ratio));
+    EXPECT_EQ(config::common_grams_plan_cost_ratio_percent, changed_ratio);
+    EXPECT_EQ(config::common_grams_position_verify_factor, changed_factor);
 
     ASSERT_TRUE(config::set_config("common_grams_plan_cost_ratio_percent",
                                    std::to_string(original_ratio))
@@ -564,18 +539,17 @@ TEST(InvertedIndexRawQuerySemanticTest, CostModelSnapshotTracksDynamicConfigAsOn
                         .ok());
 }
 
-TEST(InvertedIndexRawQuerySemanticTest, InvalidCostModelConfigDoesNotMutatePublishedState) {
-    const auto before = config::common_grams_query_plan_config_snapshot();
+TEST(InvertedIndexRawQuerySemanticTest, InvalidCostModelConfigDoesNotMutateValues) {
+    const int32_t before_ratio = config::common_grams_plan_cost_ratio_percent;
+    const int32_t before_factor = config::common_grams_position_verify_factor;
 
     for (const auto& [field, value] : std::vector<std::pair<std::string, std::string>> {
                  {"common_grams_plan_cost_ratio_percent", "-1"},
                  {"common_grams_plan_cost_ratio_percent", "101"},
                  {"common_grams_position_verify_factor", "-1"}}) {
         EXPECT_FALSE(config::set_config(field, value).ok());
-        const auto after = config::common_grams_query_plan_config_snapshot();
-        EXPECT_EQ(after.plan_cost_ratio_percent, before.plan_cost_ratio_percent);
-        EXPECT_EQ(after.position_verify_factor, before.position_verify_factor);
-        EXPECT_EQ(after.cost_model_generation, before.cost_model_generation);
+        EXPECT_EQ(config::common_grams_plan_cost_ratio_percent, before_ratio);
+        EXPECT_EQ(config::common_grams_position_verify_factor, before_factor);
     }
 }
 
@@ -597,7 +571,6 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest,
     ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "true",
                                    /*need_persist=*/false)
                         .ok());
-    const auto safety = config::common_grams_query_plan_config_snapshot();
     const inverted_index::CommonGramsQueryIdentity complete_identity {
             .common_grams_dictionary_identity = "dictionary:complete",
             .base_analyzer_fingerprint = "base:complete",
@@ -607,11 +580,11 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest,
         expect_raw_cache_hit_before_analysis(
                 _snii_reader, _snii_file_reader,
                 std::make_shared<IdentityFailingAnalyzerProvider>(identity),
-                safety.cache_generation);
+                config::enable_common_grams_query_plan);
     }
     expect_raw_cache_hit_before_analysis(_snii_reader, _snii_file_reader,
                                          std::make_shared<RecordingFailingAnalyzerProvider>(),
-                                         safety.cache_generation);
+                                         config::enable_common_grams_query_plan);
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupCountOrInsert) {

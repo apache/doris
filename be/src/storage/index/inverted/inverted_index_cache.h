@@ -210,7 +210,7 @@ struct InvertedIndexRawQuerySemantic {
     bool ordered = false;
     int32_t max_expansions = 0;
     uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
-    uint64_t common_grams_cache_generation = 0;
+    bool common_grams_query_plan_enabled = false;
 
     std::string encode() const;
 };

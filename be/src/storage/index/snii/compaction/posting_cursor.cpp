@@ -805,11 +805,8 @@ Status SniiPostingCursor::load_next_chunk(bool* loaded) {
     DCHECK(loaded != nullptr);
     DCHECK(workspace_ != nullptr);
     *loaded = false;
-    // docids/positions_flat/position_offsets are intentionally NOT cleared here:
-    // both decode paths size them exactly (resize_uninitialized + post-decode
-    // shape checks), and clearing first would turn every warm re-decode into a
-    // cold 0->n grow whose std::vector tail value-initialization memsets the
-    // whole chunk. On the not-loaded path the stale contents are never read.
+    // Both decode paths resize and validate these buffers. Clearing them first would force a cold
+    // grow and zero-fill on every warm re-decode. Stale contents are never read when not loaded.
 
     if (shape_ == Shape::kFlat) {
         if (flat_loaded_) {

@@ -31,7 +31,6 @@ struct CommonGramsPlanRawCost {
 struct CommonGramsPlanCostModel {
     uint32_t position_verify_factor = 0;
     uint32_t common_grams_cost_ratio_percent = 85;
-    uint64_t generation = 0;
 };
 
 inline uint64_t estimate_common_grams_plan_cost(const CommonGramsPlanRawCost& input,

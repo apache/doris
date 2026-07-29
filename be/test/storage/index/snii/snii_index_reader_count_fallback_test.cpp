@@ -1058,12 +1058,9 @@ TEST_F(SniiIndexReaderCountFallback,
     EXPECT_EQ(enabled_hit.stats.inverted_index_query_cache_hit, 1);
     EXPECT_EQ(enabled_hit.stats.snii_stats.common_grams_candidate_queries, 0);
 
-    const auto enabled_snapshot = config::common_grams_query_plan_config_snapshot();
     ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "false",
                                    /*need_persist=*/false)
                         .ok());
-    const auto disabled_snapshot = config::common_grams_query_plan_config_snapshot();
-    EXPECT_GT(disabled_snapshot.cache_generation, enabled_snapshot.cache_generation);
     QueryExecutionContext disabled(/*enable_query_cache=*/true);
     std::shared_ptr<roaring::Roaring> plain_bitmap;
     assert_ok(opened.index_reader->query(disabled.context, "authoritative_content", query_value,
@@ -1125,13 +1122,10 @@ TEST_F(SniiIndexReaderCountFallback, KillSwitchBypassesCachedGramResultBeforeSeg
     ASSERT_FALSE(plain_provider->uses_common_grams());
     InvertedIndexAnalyzerCtx plain_analyzer_ctx = analyzer_ctx;
     plain_analyzer_ctx.analyzer_provider = plain_provider;
-    // Disabling the BE switch is the only forced-plain path now; the flip itself advances the
-    // local cache generation, so gram-plan cache entries become unreachable.
-    const auto before_disable = config::common_grams_query_plan_config_snapshot().cache_generation;
+    // Disabling the BE switch selects a distinct cache-key mode and forces the plain path.
     ASSERT_TRUE(config::set_config("enable_common_grams_query_plan", "false",
                                    /*need_persist=*/false)
                         .ok());
-    EXPECT_GT(config::common_grams_query_plan_config_snapshot().cache_generation, before_disable);
 
     QueryExecutionContext analyzer_mismatch_disabled(/*enable_query_cache=*/true);
     std::shared_ptr<roaring::Roaring> analyzer_mismatch_bitmap;
@@ -1167,10 +1161,10 @@ TEST_F(SniiIndexReaderCountFallback, KillSwitchBypassesCachedGramResultBeforeSeg
     ASSERT_NE(readmitted_bitmap, nullptr);
     EXPECT_TRUE(readmitted_bitmap->isEmpty());
     EXPECT_EQ(readmitted.stats.inverted_index_query_cache_lookup, 1);
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_hit, 0);
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_miss, 1);
-    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_insert, 1);
-    EXPECT_EQ(single_flight_leader_calls.load(std::memory_order_relaxed), 2);
+    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_hit, 1);
+    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_miss, 0);
+    EXPECT_EQ(readmitted.stats.inverted_index_query_cache_insert, 0);
+    EXPECT_EQ(single_flight_leader_calls.load(std::memory_order_relaxed), 1);
     opened.index_reader->set_single_flight_leader_before_compute_observer_for_test(nullptr,
                                                                                    nullptr);
 }

@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "storage/index/snii/common/slice.h"
-#include "storage/index/snii/common/uninitialized_buffer.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/pfor.h"
@@ -219,9 +218,7 @@ void encode_pfor_runs(std::span<const uint32_t> values, ByteSink* out) {
 
 // Decode n uint32 values (multiple PFOR runs of kFrqBaseUnit each) into out.
 Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
-    // Sized then fully overwritten by pfor_decode below (every [0, n) slot is
-    // written); no zero-fill needed beyond what std::vector mandates.
-    resize_uninitialized(*out, n);
+    out->resize(n);
     for (size_t off = 0; off < n; off += kFrqBaseUnit) {
         const size_t run = (n - off < kFrqBaseUnit) ? (n - off) : kFrqBaseUnit;
         RETURN_IF_ERROR(pfor_decode(src, run, out->data() + off));
@@ -645,8 +642,8 @@ Status decode_pfor_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
     if (sum != total_pos)
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: pos_count sum mismatch");
-    // pos_flat is sized to total_pos by decode_pfor_runs (resize_uninitialized);
-    // a separate reserve is redundant. pos_off keeps its reserve (push_back below).
+    // decode_pfor_runs sizes pos_flat to total_pos, so a separate reserve is redundant. pos_off
+    // keeps its reserve for the push_back loop below.
     RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, pos_flat));
     size_t off = 0;
     uint32_t next_off = 0;

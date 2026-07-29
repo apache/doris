@@ -37,7 +37,6 @@
 
 using namespace doris::snii;
 using namespace doris::snii::format;
-using doris::snii::snii_test::ScopedEnv;
 
 namespace {
 
@@ -180,35 +179,6 @@ TEST(SniiMetadataBlob, KeepsSmallRawFrameByteIdentical) {
                                           &materialized)
                         .ok());
     EXPECT_TRUE(scratch.empty());
-    ExpectBytesEq(materialized, Slice(raw));
-}
-
-TEST(SniiMetadataBlob, ThresholdGateControlsCompression) {
-    const auto raw = BuildSampled(300);
-    ASSERT_LT(raw.size(), kMetaSectionCompressMinBytes);
-
-    ByteSink default_stored;
-    ASSERT_TRUE(encode_metadata_blob(Slice(raw), SectionType::kSampledTermIndex,
-                                     SectionType::kSampledTermIndexZstd, &default_stored)
-                        .ok());
-    EXPECT_EQ(default_stored.buffer(), raw);
-
-    ByteSink forced_stored;
-    {
-        ScopedEnv force("SNII_META_COMPRESS_MIN", "1");
-        ASSERT_TRUE(encode_metadata_blob(Slice(raw), SectionType::kSampledTermIndex,
-                                         SectionType::kSampledTermIndexZstd, &forced_stored)
-                            .ok());
-    }
-    EXPECT_EQ(StoredType(forced_stored.view()), SectionType::kSampledTermIndexZstd);
-    EXPECT_LT(forced_stored.size(), raw.size());
-
-    std::vector<uint8_t> scratch;
-    Slice materialized;
-    ASSERT_TRUE(materialize_metadata_blob(forced_stored.view(), SectionType::kSampledTermIndex,
-                                          SectionType::kSampledTermIndexZstd, &scratch,
-                                          &materialized)
-                        .ok());
     ExpectBytesEq(materialized, Slice(raw));
 }
 

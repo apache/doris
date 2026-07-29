@@ -26,7 +26,6 @@
 #include <utility>
 
 #include "storage/index/snii/common/slice.h"
-#include "storage/index/snii/common/uninitialized_buffer.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/pfor.h"
@@ -72,8 +71,7 @@ void encode_pfor_runs(std::span<const uint32_t> values, ByteSink* out) {
 
 // Decode n uint32 values from source (multiple PFOR runs of 256 each).
 Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
-    // Sized then fully overwritten by pfor_decode below; no zero-fill needed.
-    resize_uninitialized(*out, n);
+    out->resize(n);
     for (size_t off = 0; off < n; off += kFrqBaseUnit) {
         size_t run = (n - off < kFrqBaseUnit) ? (n - off) : kFrqBaseUnit;
         RETURN_IF_ERROR(pfor_decode(src, run, out->data() + off));

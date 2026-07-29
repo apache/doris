@@ -28,7 +28,6 @@
 #include "cpp/sync_point.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
-#include "storage/index/snii/common/uninitialized_buffer.h"
 #include "util/countdown_latch.h"
 #include "util/threadpool.h"
 
@@ -245,7 +244,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         const Seg& seg = segs[s];
         std::vector<uint8_t>* target =
                 seg.single ? &(*outs)[sorted[seg.begin].index] : &tmp_bufs[s];
-        ::doris::snii::resize_uninitialized(*target, seg.len);
+        target->resize(seg.len);
         targets[s] = target;
         seg_io_ctx[s] = *base_io_ctx;
         seg_io_ctx[s].file_cache_stats =

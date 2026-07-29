@@ -111,13 +111,11 @@ CommonGramsQueryIdentity complete_query_identity() {
 }
 
 CommonGramsPlanCostModel no_hysteresis_cost_model() {
-    return {.position_verify_factor = 0, .common_grams_cost_ratio_percent = 100, .generation = 0};
+    return {.position_verify_factor = 0, .common_grams_cost_ratio_percent = 100};
 }
 
 CommonGramsPlanCostModel verification_dominated_cost_model() {
-    return {.position_verify_factor = 100000,
-            .common_grams_cost_ratio_percent = 100,
-            .generation = 0};
+    return {.position_verify_factor = 100000, .common_grams_cost_ratio_percent = 100};
 }
 
 Status build_fixture(

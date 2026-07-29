@@ -17,8 +17,6 @@
 
 #include "storage/index/snii/format/metadata_blob.h"
 
-#include <cstdlib>
-
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/section_framer.h"
 #include "storage/index/snii/encoding/zstd_codec.h"
@@ -29,18 +27,6 @@ namespace {
 
 constexpr int kMetaSectionZstdLevel = 3;
 constexpr uint64_t kMaxMetaSectionUncompBytes = 256ULL * 1024 * 1024;
-
-size_t meta_compress_min_bytes() {
-    const char* s = std::getenv("SNII_META_COMPRESS_MIN");
-    if (s != nullptr) {
-        char* end = nullptr;
-        const unsigned long long v = std::strtoull(s, &end, 10);
-        if (end != s) {
-            return v;
-        }
-    }
-    return kMetaSectionCompressMinBytes;
-}
 
 } // namespace
 
@@ -58,7 +44,7 @@ Status encode_metadata_blob(Slice raw_frame, SectionType raw_type, SectionType c
                 "metadata_blob: raw input is not exactly one frame of the expected type");
     }
 
-    if (raw_frame.size() >= meta_compress_min_bytes()) {
+    if (raw_frame.size() >= kMetaSectionCompressMinBytes) {
         std::vector<uint8_t> compressed;
         if (zstd_compress(raw_frame, kMetaSectionZstdLevel, &compressed).ok()) {
             ByteSink payload;

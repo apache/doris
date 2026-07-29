@@ -21,8 +21,6 @@
 
 #include <string>
 
-#include "storage/index/snii/common/uninitialized_buffer.h"
-
 namespace doris::snii {
 
 Status zstd_compress(Slice input, int level, std::vector<uint8_t>* out) {
@@ -38,8 +36,7 @@ Status zstd_compress(Slice input, int level, std::vector<uint8_t>* out) {
 }
 
 Status zstd_decompress(Slice input, size_t expected_uncomp_len, std::vector<uint8_t>* out) {
-    // Sized then fully overwritten by ZSTD_decompress (length-checked below).
-    resize_uninitialized(*out, expected_uncomp_len);
+    out->resize(expected_uncomp_len);
     size_t n = ZSTD_decompress(out->data(), expected_uncomp_len, input.data(), input.size());
     if (ZSTD_isError(n)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(

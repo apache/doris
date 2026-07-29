@@ -45,14 +45,14 @@ std::string InvertedIndexRawQuerySemantic::encode() const {
     std::string output;
     output.reserve(sizeof(cache_semantics_version) + sizeof(uint64_t) + raw_query_bytes.size() +
                    sizeof(query_type) + sizeof(slop) + sizeof(ordered) + sizeof(max_expansions) +
-                   sizeof(common_grams_cache_generation) + sizeof(uint64_t));
+                   sizeof(common_grams_query_plan_enabled));
     put_fixed32_le(&output, cache_semantics_version);
     append_length_prefixed(raw_query_bytes, &output);
     put_fixed32_le(&output, static_cast<uint32_t>(query_type));
     put_fixed32_le(&output, static_cast<uint32_t>(slop));
     output.push_back(static_cast<char>(ordered));
     put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
-    put_fixed64_le(&output, common_grams_cache_generation);
+    output.push_back(static_cast<char>(common_grams_query_plan_enabled));
     return output;
 }
 

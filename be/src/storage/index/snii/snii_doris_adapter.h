@@ -62,8 +62,8 @@ public:
     };
 
     // `direct_remote_io` marks a reader whose byte ranges are served straight from
-    // remote storage with no CachedRemoteFileReader in between (the NO_CACHE
-    // diagnostic bypass on a non-local filesystem). Only that layer would normally
+    // remote storage with no CachedRemoteFileReader in between (NO_CACHE on a
+    // non-local filesystem). Only that layer would normally
     // account physical remote bytes, so this reader then counts its own reads as
     // physical remote IO. Never set it for cached or local readers: the former
     // double-counts, the latter reports local disk as remote fetch volume.

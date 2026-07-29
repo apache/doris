@@ -199,8 +199,7 @@ Status checked_memory_mul(uint64_t lhs, uint64_t rhs, const char* message, uint6
     return Status::OK();
 }
 
-// Decompresses a zstd dict block from its on-disk bytes into *out. The decode
-// buffer in zstd_decompress is resize_uninitialized'd (T19) then fully written.
+// Decompresses a zstd dict block from its on-disk bytes into *out.
 Status zstd_decompress_dict_block(Slice on_disk, const BlockRef& ref, std::vector<uint8_t>* out) {
     uint64_t memory_bytes = 0;
     RETURN_IF_ERROR(dict_block_memory_bytes(ref, &memory_bytes));

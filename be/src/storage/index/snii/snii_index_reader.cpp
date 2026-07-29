@@ -636,21 +636,20 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
                                    query_type == InvertedIndexQueryType::WILDCARD_QUERY;
-    // Lucene-style CommonGrams: the plan decision is purely local -- the segment's own analyzer
-    // identity says whether gram terms can exist, and the mutable BE config
-    // enable_common_grams_query_plan is the only runtime switch (its cache generation bumps on
-    // every flip, keeping result-cache entries from crossing plan modes).
-    const auto common_grams_safety = config::common_grams_query_plan_config_snapshot();
+    // Lucene-style CommonGrams: the plan decision is local to the segment and query. Snapshot the
+    // switch once so this query's plan and cache identity use the same mode.
+    const bool common_grams_query_plan_enabled = config::enable_common_grams_query_plan;
     const inverted_index::CommonGramsPlanCostModel common_grams_cost_model {
-            .position_verify_factor = common_grams_safety.position_verify_factor,
-            .common_grams_cost_ratio_percent = common_grams_safety.plan_cost_ratio_percent,
-            .generation = common_grams_safety.cost_model_generation};
+            .position_verify_factor =
+                    static_cast<uint32_t>(config::common_grams_position_verify_factor),
+            .common_grams_cost_ratio_percent =
+                    static_cast<uint32_t>(config::common_grams_plan_cost_ratio_percent)};
     const auto has_common_grams_analyzer = [](const InvertedIndexAnalyzerCtx* ctx) {
         return ctx != nullptr && ctx->analyzer_provider != nullptr &&
                ctx->analyzer_provider->uses_common_grams() &&
                ctx->has_complete_common_grams_identity();
     };
-    const bool safety_requires_plain = !common_grams_safety.enabled;
+    const bool safety_requires_plain = !common_grams_query_plan_enabled;
     // The raw cache key cannot prove whether the immutable segment analyzer has CommonGrams until
     // its metadata is open. Delay every eligible forced-plain lookup, then restore ordinary cache
     // access below only for a segment that cannot contain gram terms.
@@ -663,7 +662,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             .slop = query_info.slop,
             .ordered = query_info.ordered,
             .max_expansions = max_expansions,
-            .common_grams_cache_generation = common_grams_safety.cache_generation};
+            .common_grams_query_plan_enabled = common_grams_query_plan_enabled};
     const auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                  raw_semantic.encode()};
