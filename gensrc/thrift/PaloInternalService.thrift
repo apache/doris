@@ -508,6 +508,22 @@ struct TQueryOptions {
 
   226: optional bool enable_prune_nested_column = false;
   227: optional bool new_version_bitmap_op_count = false;
+
+  // Whether orc/parquet readers reorder filter conjuncts by a structural cost estimate so
+  // cheap, highly selective predicates run first. Reordering only changes execution order,
+  // never the result set. Default off; opt-in.
+  228: optional bool enable_scan_conjunct_reorder = false;
+
+  // Whether orc/parquet readers evaluate filters with a selection vector, so a later
+  // predicate is evaluated only on rows surviving the earlier ones instead of every
+  // predicate over all rows. Changes execution only, never the result set. Default off; opt-in.
+  229: optional bool enable_scan_selective_filter = false;
+
+  // Whether orc/parquet readers reorder filter conjuncts at runtime by measured cost (time
+  // per row eliminated), overriding the static estimate once enough rows are measured.
+  // Relies on enable_scan_selective_filter to collect stats. Default off; opt-in.
+  230: optional bool enable_scan_adaptive_reorder = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

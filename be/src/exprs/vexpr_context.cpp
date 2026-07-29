@@ -32,6 +32,7 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "exec/common/util.hpp"
 #include "exprs/function_context.h"
 #include "exprs/lambda_function/lambda_execution_context.h"
@@ -41,6 +42,7 @@
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
 #include "util/simd/bits.h"
+#include "util/time.h"
 
 namespace doris {
 class RowDescriptor;
@@ -317,6 +319,225 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
         }
     }
     return Status::OK();
+}
+
+Status VExprContext::execute_conjuncts_selective(const VExprContextSPtrs& ctxs,
+                                                 const std::vector<IColumn::Filter*>* filters,
+                                                 const Block* block, IColumn::Filter* result_filter,
+                                                 bool* can_filter_all) {
+    size_t rows = block->rows();
+    DCHECK_EQ(result_filter->size(), rows);
+    *can_filter_all = false;
+    auto* __restrict result_filter_data = result_filter->data();
+
+    // Fold any pre-existing masks (delete / position-delete filters) into result_filter first,
+    // so the surviving set starts from rows those masks already keep.
+    size_t surviving = rows;
+    if (filters != nullptr) {
+        for (auto* filter : *filters) {
+            const auto* __restrict fdata = filter->data();
+            for (size_t i = 0; i < rows; ++i) {
+                result_filter_data[i] &= fdata[i];
+            }
+        }
+        surviving = rows -
+                    simd::count_zero_num(reinterpret_cast<const int8_t*>(result_filter_data), rows);
+        if (surviving == 0) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    }
+
+    // Below this surviving fraction, gathering the surviving rows for a conjunct's inputs is
+    // worth its memcpy cost; above it, evaluate the conjunct full-width (like the original
+    // execute_conjuncts) so we do not gather nearly the whole block. Mirrors PrestoDB selecting
+    // only once a batch has meaningfully shrunk.
+    constexpr double kSelectiveGatherThreshold = 0.5;
+
+    // `selection` holds the original row indices still alive. It is (re)built from
+    // result_filter lazily, only when a conjunct is about to be evaluated selectively.
+    IColumn::Selector selection;
+    bool selection_valid = false;
+
+    auto rebuild_selection = [&]() {
+        selection.clear();
+        selection.reserve(surviving);
+        for (size_t i = 0; i < rows; ++i) {
+            if (result_filter_data[i]) {
+                selection.push_back(static_cast<IColumn::Selector::value_type>(i));
+            }
+        }
+        selection_valid = true;
+    };
+
+    for (const auto& ctx : ctxs) {
+        if (ctx == nullptr) {
+            continue;
+        }
+        // Runtime-filter wrappers carry selectivity tracking and counter side effects in their
+        // execute_filter override, so they must run full-width; they are also cheap (bloom /
+        // min-max) and belong up front. A high surviving fraction also stays on the full-width
+        // path, where gathering would copy almost the whole block for no benefit.
+        const bool use_selective = !ctx->root()->is_rf_wrapper() &&
+                                   surviving < static_cast<size_t>(static_cast<double>(rows) *
+                                                                   kSelectiveGatherThreshold);
+        if (!use_selective) {
+            // Full-width path: input is every row still alive (result_filter carries them).
+            const size_t input_rows = surviving;
+            // Sample every kTimingSampleEvery-th batch. RF wrappers are skipped: their
+            // execute_filter includes their own selectivity/counter side effects and
+            // wrapping it in another clock read is noise. The static cost stays as the
+            // cold-start estimate; timed rows accumulate on the non-RF conjuncts we care
+            // about reordering.
+            const bool sample =
+                    !ctx->root()->is_rf_wrapper() && ctx->filter_runtime_stats().should_sample();
+            const int64_t t0 = sample ? MonotonicNanos() : 0;
+            RETURN_IF_ERROR(
+                    ctx->execute_filter(block, result_filter_data, rows, false, can_filter_all));
+            const int64_t elapsed_ns = sample ? MonotonicNanos() - t0 : 0;
+            if (*can_filter_all) {
+                ctx->filter_runtime_stats().update(static_cast<int64_t>(input_rows), 0, elapsed_ns);
+                return Status::OK();
+            }
+            surviving = rows - simd::count_zero_num(
+                                       reinterpret_cast<const int8_t*>(result_filter_data), rows);
+            ctx->filter_runtime_stats().update(static_cast<int64_t>(input_rows),
+                                               static_cast<int64_t>(surviving), elapsed_ns);
+            if (surviving == 0) {
+                *can_filter_all = true;
+                return Status::OK();
+            }
+            selection_valid = false;
+            continue;
+        }
+
+        if (!selection_valid) {
+            rebuild_selection();
+        }
+        // Evaluate this conjunct only on the surviving rows. execute_column with a selector
+        // gathers the inputs down to `selection.size()` rows, so a heavy function runs once
+        // per surviving row rather than once per block row.
+        const size_t count = selection.size();
+        ColumnPtr result_column;
+        const bool sample = ctx->filter_runtime_stats().should_sample();
+        const int64_t t0 = sample ? MonotonicNanos() : 0;
+        RETURN_IF_ERROR(
+                ctx->root()->execute_column(ctx.get(), block, &selection, count, result_column));
+        const int64_t elapsed_ns = sample ? MonotonicNanos() - t0 : 0;
+        auto [filter_column, is_const] = unpack_if_const(result_column);
+
+        if (is_const) {
+            // Const predicate over the surviving rows: keep all or drop all of them.
+            const bool keep = !filter_column->is_null_at(0) && filter_column->get_bool(0);
+            ctx->filter_runtime_stats().update(static_cast<int64_t>(count),
+                                               keep ? static_cast<int64_t>(count) : 0, elapsed_ns);
+            if (!keep) {
+                memset(result_filter_data, 0, rows);
+                *can_filter_all = true;
+                return Status::OK();
+            }
+            // keep == true: result_filter and selection unchanged.
+            continue;
+        }
+
+        // Narrow the surviving set: keep selection[j] only where the predicate is true and not
+        // NULL at position j (accept_null == false, matching execute_filter's scan semantics).
+        IColumn::Selector next;
+        next.reserve(count);
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*filter_column)) {
+            const auto* __restrict fdata =
+                    assert_cast<const ColumnUInt8&>(nullable->get_nested_column())
+                            .get_data()
+                            .data();
+            const auto* __restrict nmap = nullable->get_null_map_data().data();
+            for (size_t j = 0; j < count; ++j) {
+                if (!nmap[j] && fdata[j]) {
+                    next.push_back(selection[j]);
+                } else {
+                    result_filter_data[selection[j]] = 0;
+                }
+            }
+        } else {
+            const auto* __restrict fdata =
+                    assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
+            for (size_t j = 0; j < count; ++j) {
+                if (fdata[j]) {
+                    next.push_back(selection[j]);
+                } else {
+                    result_filter_data[selection[j]] = 0;
+                }
+            }
+        }
+        selection.swap(next);
+        ctx->filter_runtime_stats().update(static_cast<int64_t>(count),
+                                           static_cast<int64_t>(selection.size()), elapsed_ns);
+        surviving = selection.size();
+        selection_valid = true;
+        if (surviving == 0) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+bool VExprContext::adaptive_reorder_conjuncts(VExprContextSPtrs& conjuncts, int64_t min_rows,
+                                              double min_cost) {
+    if (conjuncts.size() < 2) {
+        return false;
+    }
+    // Adaptive reorder only pays off when some conjunct is expensive: shuffling cheap-only
+    // predicates saves less than the reorder itself costs. "Expensive" is either
+    //   (a) the static structural estimate scored high (cost >= min_cost), or
+    //   (b) the measured per-row cost scored high (per_row_ns >= min_per_row_ns).
+    // Case (b) catches two failure modes of the static score: a FUNCTION_CALL underestimate
+    // (length(col) is nowhere near 100ns/row) and inability to distinguish two calls that
+    // score the same but run 10-100x apart. Also gate on every measurable conjunct having
+    // seen enough rows so an early noisy selectivity does not churn the order. RF wrappers
+    // run full-width and stay in front, so they are exempt from both checks.
+    constexpr double kMinPerRowNs = kAdaptiveReorderMinPerRowNs;
+    bool has_expensive = false;
+    for (const auto& ctx : conjuncts) {
+        if (ctx == nullptr || ctx->root()->is_rf_wrapper()) {
+            continue;
+        }
+        const auto& stats = ctx->filter_runtime_stats();
+        if (stats.input_rows < min_rows) {
+            return false;
+        }
+        if (VExpr::compute_conjunct_cost(ctx->root()) >= min_cost ||
+            stats.per_row_ns() >= kMinPerRowNs) {
+            has_expensive = true;
+        }
+    }
+    if (!has_expensive) {
+        return false;
+    }
+    // Sort key: per-row cost divided by measured drop fraction -- cheap predicates that
+    // eliminate many rows sort first, an expensive predicate that turns out unselective sinks.
+    // Cost prefers the measured per_row_ns once enough sampled rows have accrued, and falls
+    // back on the static structural estimate otherwise. Selectivity stays the (free)
+    // measurement. eps floors the divisor so a conjunct that drops nothing sorts last instead
+    // of dividing by zero. RF wrappers score 0 to stay in front. The two cost sources are on
+    // different units (ns vs structural score) but this only affects the absolute magnitude
+    // of the key -- ordering is preserved because either every conjunct we care about has a
+    // measurement (comparable among themselves) or none does (all fall back to structural),
+    // and RF wrappers pin at 0 either way.
+    constexpr double kEps = 1e-6;
+    auto sort_key = [kEps](const VExprContextSPtr& c) -> double {
+        if (c == nullptr || c->root()->is_rf_wrapper()) {
+            return 0.0;
+        }
+        const auto& stats = c->filter_runtime_stats();
+        const double per_row = stats.per_row_ns();
+        const double cost = per_row > 0.0 ? per_row : VExpr::compute_conjunct_cost(c->root());
+        return cost / std::max(stats.dropped_fraction(), kEps);
+    };
+    std::stable_sort(conjuncts.begin(), conjuncts.end(),
+                     [&sort_key](const VExprContextSPtr& a, const VExprContextSPtr& b) {
+                         return sort_key(a) < sort_key(b);
+                     });
+    return true;
 }
 
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, const Block* block,

@@ -2708,14 +2708,26 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 for (auto& conjunct : _non_dict_filter_conjuncts) {
                     filter_conjuncts.emplace_back(conjunct);
                 }
+                if (_state != nullptr && _state->query_options().enable_scan_conjunct_reorder) {
+                    VExpr::reorder_conjuncts_by_cost(filter_conjuncts);
+                }
+                if (_state != nullptr && _state->query_options().enable_scan_adaptive_reorder) {
+                    VExprContext::adaptive_reorder_conjuncts(filter_conjuncts,
+                                                             _state->batch_size());
+                }
                 std::vector<IColumn::Filter*> filters;
                 if (_delete_rows_filter_ptr) {
                     filters.push_back(_delete_rows_filter_ptr.get());
                 }
                 IColumn::Filter result_filter(block->rows(), 1);
                 bool can_filter_all = false;
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
-                        filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+                if (_state != nullptr && _state->query_options().enable_scan_selective_filter) {
+                    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts_selective(
+                            filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+                } else {
+                    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
+                            filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+                }
 
                 // Condition cache MISS: mark granules with surviving rows (non-lazy path)
                 if (_condition_cache_ctx && !_condition_cache_ctx->is_hit) {
@@ -2928,12 +2940,28 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     for (auto& conjunct : _non_dict_filter_conjuncts) {
         filter_conjuncts.emplace_back(conjunct);
     }
+    // Run cheap, highly selective predicates first so an expensive one (e.g. a string
+    // function) is skipped once a cheap one filters the whole block, and so it only evaluates
+    // on surviving rows under selective execution below. Dict-rewritten conjuncts are already
+    // int dict-code comparisons, so cost ordering keeps them near the front naturally.
+    if (_state != nullptr && _state->query_options().enable_scan_conjunct_reorder) {
+        VExpr::reorder_conjuncts_by_cost(filter_conjuncts);
+    }
+    // Once conjuncts have measured enough rows, let runtime cost override the static order.
+    if (_state != nullptr && _state->query_options().enable_scan_adaptive_reorder) {
+        VExprContext::adaptive_reorder_conjuncts(filter_conjuncts, _state->batch_size());
+    }
     std::vector<IColumn::Filter*> filters;
     if (_delete_rows_filter_ptr) {
         filters.push_back(_delete_rows_filter_ptr.get());
     }
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
-            filter_conjuncts, &filters, block, _filter.get(), &can_filter_all));
+    if (_state != nullptr && _state->query_options().enable_scan_selective_filter) {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts_selective(
+                filter_conjuncts, &filters, block, _filter.get(), &can_filter_all));
+    } else {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
+                filter_conjuncts, &filters, block, _filter.get(), &can_filter_all));
+    }
 
     if (_lazy_read_ctx.resize_first_column) {
         // We have to clean the first column to insert right data.

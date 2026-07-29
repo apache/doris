@@ -357,6 +357,95 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
 
 namespace doris {
 
+namespace {
+
+// Per-node structural cost, summed over the expression tree by conjunct_tree_cost.
+// The absolute numbers only matter relative to each other (ordering is all we use them
+// for); they mirror PrestoDB scoreFilter's spirit -- leaves and simple comparisons are
+// cheap, function calls are expensive.
+double conjunct_node_cost(const VExpr& expr) {
+    switch (expr.node_type()) {
+    // Leaves: reading a column or a literal is nearly free.
+    case TExprNodeType::SLOT_REF:
+    case TExprNodeType::VIRTUAL_SLOT_REF:
+    case TExprNodeType::COLUMN_REF:
+    case TExprNodeType::BOOL_LITERAL:
+    case TExprNodeType::INT_LITERAL:
+    case TExprNodeType::LARGE_INT_LITERAL:
+    case TExprNodeType::FLOAT_LITERAL:
+    case TExprNodeType::DECIMAL_LITERAL:
+    case TExprNodeType::DATE_LITERAL:
+    case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::NULL_LITERAL:
+        return 1.0;
+    // Simple comparisons / boolean glue: a handful of instructions per row.
+    case TExprNodeType::BINARY_PRED:
+    case TExprNodeType::NULL_AWARE_BINARY_PRED:
+    case TExprNodeType::IN_PRED:
+    case TExprNodeType::NULL_AWARE_IN_PRED:
+    case TExprNodeType::ARITHMETIC_EXPR:
+    case TExprNodeType::CAST_EXPR:
+        return 2.0;
+    // CASE and match are branchy / heavier than a plain comparison.
+    case TExprNodeType::CASE_EXPR:
+        return 10.0;
+    case TExprNodeType::MATCH_PRED:
+        return 50.0;
+    // Any function call is the expensive case we are trying to sort last: string / regexp /
+    // json / split all land here. Give it a high base; the tree sum then scales with how
+    // deeply nested the call is.
+    case TExprNodeType::FUNCTION_CALL:
+    case TExprNodeType::COMPUTE_FUNCTION_CALL:
+    case TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR:
+        return 100.0;
+    // Unknown / complex node: sort it last, like scoreFilter's 1000 for subfield/complex.
+    default:
+        return 100.0;
+    }
+}
+
+// Sum conjunct_node_cost over the whole tree so a nested call (split(substr(col))) costs
+// more than a shallow one, matching the intuition that deeper expression trees do more
+// work per row. Constant subtrees are skipped: they are folded / evaluated once, not per
+// row, so `col IN (1000 literals)` stays a cheap hash lookup rather than scoring ~1000.
+double conjunct_tree_cost(const VExpr& expr) {
+    if (expr.is_constant()) {
+        return 0.0;
+    }
+    double cost = conjunct_node_cost(expr);
+    for (const auto& child : expr.children()) {
+        cost += conjunct_tree_cost(*child);
+    }
+    return cost;
+}
+
+} // namespace
+
+double VExpr::compute_conjunct_cost(const VExprSPtr& root) {
+    if (root == nullptr) {
+        return 0.0;
+    }
+    return conjunct_tree_cost(*root);
+}
+
+void VExpr::reorder_conjuncts_by_cost(VExprContextSPtrs& conjuncts) {
+    if (conjuncts.size() < 2) {
+        return;
+    }
+    // Cache each conjunct's cost so the comparator does not re-walk the tree O(n log n)
+    // times. Pair (cost, ctx) and stable_sort so equal-cost conjuncts keep planner order.
+    std::vector<std::pair<double, VExprContextSPtr>> scored;
+    scored.reserve(conjuncts.size());
+    for (const auto& ctx : conjuncts) {
+        scored.emplace_back(ctx == nullptr ? 0.0 : compute_conjunct_cost(ctx->root()), ctx);
+    }
+    std::stable_sort(scored.begin(), scored.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (size_t i = 0; i < conjuncts.size(); ++i) {
+        conjuncts[i] = scored[i].second;
+    }
+}
+
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {

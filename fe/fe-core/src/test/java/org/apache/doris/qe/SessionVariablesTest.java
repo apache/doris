@@ -401,4 +401,49 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
+
+    @Test
+    public void testScanFilterSelectivityVariables() {
+        SessionVariable sv = new SessionVariable();
+
+        // All three scan-filter optimizations default off (opt-in).
+        Assertions.assertFalse(sv.isEnableScanConjunctReorder());
+        Assertions.assertFalse(sv.isEnableScanSelectiveFilter());
+        Assertions.assertFalse(sv.isEnableScanAdaptiveReorder());
+
+        // Setters flip the values.
+        sv.setEnableScanConjunctReorder(true);
+        sv.setEnableScanSelectiveFilter(true);
+        sv.setEnableScanAdaptiveReorder(true);
+        Assertions.assertTrue(sv.isEnableScanConjunctReorder());
+        Assertions.assertTrue(sv.isEnableScanSelectiveFilter());
+        Assertions.assertTrue(sv.isEnableScanAdaptiveReorder());
+
+        // toThrift carries the current values to the BE.
+        TQueryOptions on = sv.toThrift();
+        Assertions.assertTrue(on.isEnableScanConjunctReorder());
+        Assertions.assertTrue(on.isEnableScanSelectiveFilter());
+        Assertions.assertTrue(on.isEnableScanAdaptiveReorder());
+
+        sv.setEnableScanConjunctReorder(false);
+        sv.setEnableScanSelectiveFilter(false);
+        sv.setEnableScanAdaptiveReorder(false);
+        TQueryOptions off = sv.toThrift();
+        Assertions.assertFalse(off.isEnableScanConjunctReorder());
+        Assertions.assertFalse(off.isEnableScanSelectiveFilter());
+        Assertions.assertFalse(off.isEnableScanAdaptiveReorder());
+    }
+
+    @Test
+    public void testScanFilterSelectivityVariablesForward() {
+        SessionVariable sv = new SessionVariable();
+        Map<String, String> forwardVars = sv.getForwardVariables();
+        Assertions.assertTrue(forwardVars.containsKey(SessionVariable.ENABLE_SCAN_CONJUNCT_REORDER));
+        Assertions.assertTrue(forwardVars.containsKey(SessionVariable.ENABLE_SCAN_SELECTIVE_FILTER));
+        Assertions.assertTrue(forwardVars.containsKey(SessionVariable.ENABLE_SCAN_ADAPTIVE_REORDER));
+
+        forwardVars.put(SessionVariable.ENABLE_SCAN_CONJUNCT_REORDER, "false");
+        sv.setForwardedSessionVariables(forwardVars);
+        Assertions.assertFalse(sv.isEnableScanConjunctReorder());
+    }
 }
