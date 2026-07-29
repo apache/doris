@@ -102,11 +102,6 @@ private:
     // the object was constructed with the test constructor (no background thread).
     void refresh_for_test() { _refresh_once(); }
 
-    void _clear_negative_cache_for_test() {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        _negative_cache.clear();
-    }
-
     // Backdate all negative-cache entries to epoch so they appear expired
     // without removing them.  Use this to simulate TTL expiry in tests that
     // need the re-arm path in get() to trigger.
@@ -125,8 +120,8 @@ private:
     std::unordered_map<std::string, std::string> cache;
     // hostname -> consecutive resolution failure count
     std::unordered_map<std::string, uint32_t> failure_count;
-    // hostname -> earliest time to retry; populated on eviction, prevents
-    // blocking DNS resolves for recently-dropped backends.
+    // hostname -> eviction timestamp; effective deadline is computed as
+    // eviction_time + dns_cache_negative_ttl_seconds to honor live config changes.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> _negative_cache;
     mutable std::shared_mutex mutex;
     std::thread refresh_thread;

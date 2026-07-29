@@ -323,9 +323,9 @@ TEST_F(DNSCacheTest, negative_cache_retries_after_ttl_expiry) {
     EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
     int calls_while_blocked = resolver_calls;
 
-    // Simulate TTL expiry.
-    cache._clear_negative_cache_for_test();
-    EXPECT_EQ(0u, cache.negative_cache_size_for_test());
+    // Simulate TTL expiry by backdating the entry.
+    cache._expire_negative_cache_for_test();
+    EXPECT_EQ(1u, cache.negative_cache_size_for_test()); // entry exists but expired
 
     // DNS recovers.
     should_fail = false;
@@ -439,6 +439,152 @@ TEST_F(DNSCacheTest, negative_cache_rearms_on_continued_failure_after_ttl_expiry
     calls_before = resolver_calls;
     EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
     EXPECT_EQ(calls_before, resolver_calls) << "resolver NOT called while re-armed";
+}
+
+// ── Finding 1: mutable TTL is honored by existing tombstones ─────────────────
+
+// Setting dns_cache_negative_ttl_seconds to 0 after eviction must immediately
+// disable the negative cache for existing entries.
+TEST_F(DNSCacheTest, negative_cache_disabled_when_ttl_set_to_zero) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+
+    int resolver_calls = 0;
+    bool should_fail = false;
+    DNSCache cache([&](const std::string&, std::string& out, bool) -> Status {
+        ++resolver_calls;
+        if (should_fail) return Status::InternalError("mock failure");
+        out = "1.2.3.4";
+        return Status::OK();
+    });
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+
+    // Evict with TTL=3600.
+    should_fail = true;
+    cache.refresh_for_test();
+    ASSERT_EQ(0u, cache.size_for_test());
+    ASSERT_EQ(1u, cache.negative_cache_size_for_test());
+
+    // Negative cache blocks.
+    int calls_at_eviction = resolver_calls;
+    EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_EQ(calls_at_eviction, resolver_calls);
+
+    // Now disable negative cache by setting TTL to 0 — simulates config change.
+    config::dns_cache_negative_ttl_seconds = 0;
+    should_fail = false;
+
+    // get() must now retry immediately (TTL disabled) and succeed.
+    EXPECT_TRUE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_GT(resolver_calls, calls_at_eviction) << "resolver must be called when TTL is disabled";
+    EXPECT_EQ(1u, cache.size_for_test());
+}
+
+// Decreasing dns_cache_negative_ttl_seconds applies to existing tombstones:
+// a tombstone created with TTL=3600 must honor the new smaller TTL.
+TEST_F(DNSCacheTest, negative_cache_honors_decreased_ttl) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+
+    bool should_fail = false;
+    DNSCache cache(make_resolver(&should_fail));
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+
+    // Evict — tombstone stores eviction_time = now.
+    should_fail = true;
+    cache.refresh_for_test();
+    ASSERT_EQ(1u, cache.negative_cache_size_for_test());
+
+    // Decrease TTL to 1 second and backdate the entry to make it look older.
+    config::dns_cache_negative_ttl_seconds = 1;
+    cache._expire_negative_cache_for_test(); // backdate to epoch → past any 1s deadline
+
+    should_fail = false;
+    EXPECT_TRUE(cache.get("fake-host.test", &ip).ok())
+            << "reduced TTL must be honored for existing tombstones";
+}
+
+// ── Finding 2: single-flight retry ──────────────────────────────────────────
+
+// Only one thread claims the expired negative-cache retry; a second concurrent
+// caller sees the re-armed entry and gets the cheap error.
+TEST_F(DNSCacheTest, single_flight_retry_after_negative_ttl_expiry) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+
+    int resolver_calls = 0;
+    bool should_fail = false;
+    DNSCache cache([&](const std::string&, std::string& out, bool) -> Status {
+        ++resolver_calls;
+        if (should_fail) return Status::InternalError("mock failure");
+        out = "1.2.3.4";
+        return Status::OK();
+    });
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+
+    // Evict and expire the tombstone.
+    should_fail = true;
+    cache.refresh_for_test();
+    cache._expire_negative_cache_for_test();
+
+    // First get() claims the retry — DNS still fails, re-arm happens.
+    int calls_before = resolver_calls;
+    EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_EQ(calls_before + 1, resolver_calls) << "first caller invokes DNS";
+
+    // Second get() must NOT invoke DNS — the entry was re-armed by the first call.
+    calls_before = resolver_calls;
+    EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_EQ(calls_before, resolver_calls)
+            << "second caller must be blocked by the re-armed entry";
+}
+
+// ── Finding 4: refresh cleanup doesn't break re-arm ─────────────────────────
+
+// After _refresh_once() runs, the negative-cache tombstone must still be present
+// so that get() can recognize the host as evicted and bound retry rate.
+TEST_F(DNSCacheTest, refresh_does_not_erase_negative_cache_tombstone) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+
+    int resolver_calls = 0;
+    bool should_fail = false;
+    DNSCache cache([&](const std::string&, std::string& out, bool) -> Status {
+        ++resolver_calls;
+        if (should_fail) return Status::InternalError("mock failure");
+        out = "1.2.3.4";
+        return Status::OK();
+    });
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+
+    // Evict and expire the tombstone to simulate passage of time.
+    should_fail = true;
+    cache.refresh_for_test();
+    ASSERT_EQ(1u, cache.negative_cache_size_for_test());
+    cache._expire_negative_cache_for_test();
+
+    // Run another refresh cycle — must NOT erase the expired tombstone.
+    cache.refresh_for_test();
+    EXPECT_EQ(1u, cache.negative_cache_size_for_test())
+            << "refresh must not erase negative-cache tombstones";
+
+    // get() still recognizes this as an evicted host: one retry then re-arm.
+    int calls_before = resolver_calls;
+    EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_EQ(calls_before + 1, resolver_calls) << "one retry after expiry";
+
+    // Subsequent call is blocked.
+    calls_before = resolver_calls;
+    EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    EXPECT_EQ(calls_before, resolver_calls) << "blocked after re-arm";
 }
 
 } // end of namespace doris
