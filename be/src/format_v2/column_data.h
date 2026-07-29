@@ -261,6 +261,10 @@ struct ColumnDefinition {
     // Full table-schema identity subtree before access-path pruning. ID-less physical complex
     // wrappers must be discovered from this view without adding unrequested children to output.
     std::vector<ColumnDefinition> identity_children {};
+    // Logical object-key paths requested from a Variant column. An empty collection means the
+    // whole Variant is required; non-empty paths may be resolved to format-specific shredded
+    // physical children after the per-file schema is known.
+    std::vector<std::vector<std::string>> variant_access_paths {};
     // Expression used to materialize missing/default/generated values when the column is not read
     // directly from the file.
     VExprContextSPtr default_expr = nullptr;

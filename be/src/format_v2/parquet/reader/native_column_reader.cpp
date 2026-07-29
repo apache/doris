@@ -57,7 +57,28 @@ DataTypePtr projected_type(const ParquetColumnSchema& schema,
         return schema.type;
     case ParquetColumnSchemaKind::VARIANT:
         DORIS_CHECK(schema.variant_physical_type != nullptr);
-        return physical_variant ? schema.variant_physical_type : schema.type;
+        if (!physical_variant || !format::is_partial_projection(projection)) {
+            return physical_variant ? schema.variant_physical_type : schema.type;
+        }
+        {
+            DataTypes child_types;
+            Strings child_names;
+            child_types.reserve(projection->children.size());
+            child_names.reserve(projection->children.size());
+            for (const auto& child_projection : projection->children) {
+                const auto child_it = std::ranges::find_if(schema.children, [&](const auto& child) {
+                    return child->local_id == child_projection.local_id();
+                });
+                DORIS_CHECK(child_it != schema.children.end());
+                child_types.push_back(make_nullable(
+                        projected_type(**child_it, &child_projection, physical_variant)));
+                child_names.push_back((*child_it)->name);
+            }
+            DataTypePtr type = std::make_shared<DataTypeStruct>(std::move(child_types),
+                                                                std::move(child_names));
+            return schema.variant_physical_type->is_nullable() ? make_nullable(std::move(type))
+                                                               : std::move(type);
+        }
     case ParquetColumnSchemaKind::STRUCT: {
         DataTypes child_types;
         Strings child_names;
@@ -120,6 +141,9 @@ std::unique_ptr<VariantMaterializationNode> build_variant_plan(
     plan->schema = &schema;
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
         plan->contains_variant = true;
+        if (projection != nullptr) {
+            plan->variant_projection = *projection;
+        }
         return plan;
     }
     if (schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
@@ -189,12 +213,6 @@ void collect_projected_ids(const ParquetColumnSchema& schema,
                            const format::LocalColumnIndex* projection,
                            const NativeFieldSchema& native_field, std::set<uint64_t>* ids) {
     DORIS_CHECK(ids != nullptr);
-    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
-        // Variant materialization needs the complete per-file shredding schema even when the SQL
-        // expression accesses only one logical path.
-        collect_physical_subtree_ids(native_field, ids);
-        return;
-    }
     if (!format::is_partial_projection(projection)) {
         return;
     }

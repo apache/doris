@@ -470,6 +470,44 @@ Status AccessPathParser::build_nested_children(format::ColumnDefinition* column,
     if (is_scanner_materialized_virtual_column(column->name)) {
         return Status::OK();
     }
+    if (remove_nullable(column->type)->get_primitive_type() == TYPE_VARIANT) {
+        column->variant_access_paths.clear();
+        for (const auto& access_path : access_paths) {
+            if (access_path.type != TAccessPathType::DATA ||
+                !access_path.__isset.data_access_path) {
+                return Status::NotSupported(
+                        "AccessPathParser only supports DATA access paths for Variant slot {}",
+                        column->name);
+            }
+            const auto& path = access_path.data_access_path.path;
+            if (path.empty()) {
+                // Match the generic access-path tree: an empty DATA path denotes the whole slot
+                // and dominates every narrower Variant path in the same request.
+                column->variant_access_paths.clear();
+                return Status::OK();
+            }
+            int32_t top_level_id = -1;
+            if (to_lower(path.front()) != to_lower(column->name) &&
+                (!parse_non_negative_int(path.front(), &top_level_id) ||
+                 !column->has_identifier_field_id() ||
+                 top_level_id != column->get_identifier_field_id())) {
+                return Status::NotSupported(
+                        "AccessPathParser access path {} does not match Variant slot {}",
+                        access_path_to_string(path), column->name);
+            }
+            if (path.size() == 1) {
+                // A whole-root access covers every subpath and must disable physical leaf pruning.
+                column->variant_access_paths.clear();
+                return Status::OK();
+            }
+            column->variant_access_paths.emplace_back(path.begin() + 1, path.end());
+        }
+        std::ranges::sort(column->variant_access_paths);
+        column->variant_access_paths.erase(std::unique(column->variant_access_paths.begin(),
+                                                       column->variant_access_paths.end()),
+                                           column->variant_access_paths.end());
+        return Status::OK();
+    }
     if (!is_complex_type(remove_nullable(column->type)->get_primitive_type())) {
         return Status::OK();
     }

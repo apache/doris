@@ -81,7 +81,11 @@ std::vector<tparquet::SchemaElement> struct_with_variant_schema() {
     label.__set_name("label");
     label.__set_type(tparquet::Type::BYTE_ARRAY);
     label.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
-    return {root, variant_fields[0], label, variant_fields[1], variant_fields[2],
+    return {root,
+            variant_fields[0],
+            label,
+            variant_fields[1],
+            variant_fields[2],
             variant_fields[3]};
 }
 
@@ -126,7 +130,8 @@ TEST(ParquetSchemaTest, NestedVariantPropagatesIntoParentLogicalType) {
     const auto status = build_parquet_column_schema(descriptor, &fields);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(fields.size(), 1);
-    const auto* info_type = assert_cast<const DataTypeStruct*>(remove_nullable(fields[0]->type).get());
+    const auto* info_type =
+            assert_cast<const DataTypeStruct*>(remove_nullable(fields[0]->type).get());
     ASSERT_EQ(info_type->get_elements().size(), 2);
     EXPECT_EQ(remove_nullable(info_type->get_elements()[1])->get_primitive_type(), TYPE_VARIANT);
 }

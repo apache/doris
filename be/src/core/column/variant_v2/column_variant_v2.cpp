@@ -1269,7 +1269,7 @@ void ColumnVariantV2::replace_column_null_data(const uint8_t* __restrict null_ma
 ColumnPtr ColumnVariantV2::filter(const Filter& filter, ssize_t result_size_hint) const {
     column_match_filter_size(size(), filter.size());
     if (_shredded) {
-        return _shredded->materialized_column().filter(filter, result_size_hint);
+        return ColumnVariantV2::create_shredded(_shredded->filter(filter, result_size_hint));
     }
     if (_typed) {
         ColumnPtr filtered = _typed->filter(filter, result_size_hint);
@@ -1297,7 +1297,11 @@ ColumnPtr ColumnVariantV2::filter(const Filter& filter, ssize_t result_size_hint
 size_t ColumnVariantV2::filter(const Filter& filter) {
     column_match_filter_size(size(), filter.size());
     if (_shredded) {
-        ensure_encoded();
+        // Scanner-side compaction is a row-selection operation, not a request for canonical
+        // Variant bytes. Keep partial Parquet projections in their physical representation.
+        _shredded = _shredded->filter(filter, -1);
+        _check_invariants();
+        return size();
     }
     if (_typed) {
         ColumnPtr filtered = static_cast<const IColumn::Ptr&>(_typed)->filter(filter, -1);
@@ -1360,6 +1364,11 @@ MutableColumnPtr ColumnVariantV2::permute(const Permutation& permutation, size_t
 
 MutableColumnPtr ColumnVariantV2::clone_resized(size_t new_size) const {
     if (_shredded) {
+        if (new_size == 0) {
+            // Empty scanner placeholders carry no rows and therefore need no physical shredded
+            // state. Avoid forcing a partial leaf projection through full materialization.
+            return ColumnVariantV2::create();
+        }
         if (new_size == size()) {
             auto result = ColumnVariantV2::create();
             result->_shredded = _shredded;

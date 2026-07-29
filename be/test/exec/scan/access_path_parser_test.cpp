@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 
 namespace doris {
@@ -125,6 +126,31 @@ TEST(AccessPathParserTest, IgnoresPrimitiveColumnsAndScannerVirtualColumns) {
             &rowid, std::vector<TColumnAccessPath> {data_access_path({"-1"})}, nullptr);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(rowid.children.empty());
+}
+
+TEST(AccessPathParserTest, PreservesVariantObjectKeysForPhysicalShreddingProjection) {
+    auto variant = root_column(100, "v", std::make_shared<DataTypeVariantV2>());
+    auto status = AccessPathParser::build_nested_children(
+            &variant,
+            std::vector<TColumnAccessPath> {data_access_path({"100", "typed_col"}),
+                                            data_access_path({"100", "nested", "leaf"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(variant.variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"nested", "leaf"}, {"typed_col"}}));
+
+    status = AccessPathParser::build_nested_children(
+            &variant, std::vector<TColumnAccessPath> {data_access_path({"100"})}, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
+
+    status = AccessPathParser::build_nested_children(
+            &variant,
+            std::vector<TColumnAccessPath> {data_access_path({"100", "typed_col"}),
+                                            data_access_path({})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(variant.variant_access_paths.empty());
 }
 
 // Scenario: reject unsupported top-level inputs before recursive type parsing, including META

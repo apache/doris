@@ -458,7 +458,8 @@ ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& sch
     return variants;
 }
 
-std::unique_ptr<ParquetColumnSchema> clone_schema(const ParquetColumnSchema& source) {
+std::unique_ptr<ParquetColumnSchema> clone_schema(
+        const ParquetColumnSchema& source, const format::LocalColumnIndex* projection = nullptr) {
     auto result = std::make_unique<ParquetColumnSchema>();
     result->local_id = source.local_id;
     result->parquet_field_id = source.parquet_field_id;
@@ -475,9 +476,17 @@ std::unique_ptr<ParquetColumnSchema> clone_schema(const ParquetColumnSchema& sou
     result->repetition_level = source.repetition_level;
     result->repeated_ancestor_definition_level = source.repeated_ancestor_definition_level;
     result->repeated_repetition_level = source.repeated_repetition_level;
-    result->children.reserve(source.children.size());
+    const bool partial = format::is_partial_projection(projection);
+    result->children.reserve(partial ? projection->children.size() : source.children.size());
     for (const auto& child : source.children) {
-        result->children.push_back(clone_schema(*child));
+        const format::LocalColumnIndex* child_projection = nullptr;
+        if (partial) {
+            child_projection = format::find_child_projection(projection, child->local_id);
+            if (child_projection == nullptr) {
+                continue;
+            }
+        }
+        result->children.push_back(clone_schema(*child, child_projection));
     }
     return result;
 }
@@ -517,8 +526,11 @@ bool has_present_value(const ColumnPtr& column) {
 
 class ParquetVariantShreddedState final : public VariantShreddedState {
 public:
-    ParquetVariantShreddedState(const ParquetColumnSchema& schema, ColumnPtr physical)
-            : _schema(clone_schema(schema)), _physical(std::move(physical)) {
+    ParquetVariantShreddedState(const ParquetColumnSchema& schema, ColumnPtr physical,
+                                const format::LocalColumnIndex* projection)
+            : _schema(clone_schema(schema, projection)),
+              _physical(std::move(physical)),
+              _complete(!format::is_partial_projection(projection)) {
         DORIS_CHECK(static_cast<bool>(_physical));
         const ColumnPtr wrapper = unwrap_nullable(_physical);
         const auto* structure = check_and_get_column<ColumnStruct>(*wrapper);
@@ -528,6 +540,12 @@ public:
         }
     }
 
+    ParquetVariantShreddedState(std::unique_ptr<ParquetColumnSchema> schema, ColumnPtr physical,
+                                bool complete)
+            : _schema(std::move(schema)), _physical(std::move(physical)), _complete(complete) {
+        DORIS_CHECK(_schema != nullptr && static_cast<bool>(_physical));
+    }
+
     size_t size() const override { return _physical->size(); }
     size_t byte_size() const override { return _physical->byte_size(); }
     size_t allocated_bytes() const override { return _physical->allocated_bytes(); }
@@ -535,6 +553,14 @@ public:
 
     void for_each_subcolumn(const IColumn::ColumnCallback& callback) const override {
         callback(*_physical);
+    }
+
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
+                                                 ssize_t result_size_hint) const override {
+        // Compact the decoded physical tree directly. In particular, a leaf-only projection has
+        // no metadata/value columns from which a canonical Variant could be reconstructed.
+        return std::make_shared<ParquetVariantShreddedState>(
+                clone_schema(*_schema), _physical->filter(filter, result_size_hint), _complete);
     }
 
     std::optional<VariantShreddedTypedValue> find_typed_value(
@@ -589,6 +615,11 @@ public:
 
     const ColumnVariantV2& materialized_column() const override {
         std::lock_guard lock(_materialization_lock);
+        if (!_complete) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "A projected Parquet Variant can only serve its validated shredded leaves");
+        }
         if (!_materialized) {
             _materialized = encode_variant_column(*_schema, *_physical);
         }
@@ -598,11 +629,13 @@ public:
 private:
     std::unique_ptr<ParquetColumnSchema> _schema;
     ColumnPtr _physical;
+    bool _complete = true;
     mutable std::mutex _materialization_lock;
     mutable ColumnVariantV2::MutablePtr _materialized;
 };
 
-MutableColumnPtr build_variant_column(const ParquetColumnSchema& schema, ColumnPtr physical) {
+MutableColumnPtr build_variant_column(const ParquetColumnSchema& schema, ColumnPtr physical,
+                                      const format::LocalColumnIndex* projection = nullptr) {
     if (schema.kind != ParquetColumnSchemaKind::VARIANT) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Parquet column {} is not Variant",
                         schema.name);
@@ -610,7 +643,7 @@ MutableColumnPtr build_variant_column(const ParquetColumnSchema& schema, ColumnP
 
     const auto* outer_nullable = check_and_get_column<ColumnNullable>(*physical);
     MutableColumnPtr variants = ColumnVariantV2::create_shredded(
-            std::make_shared<ParquetVariantShreddedState>(schema, physical));
+            std::make_shared<ParquetVariantShreddedState>(schema, physical, projection));
     if (outer_nullable == nullptr) {
         return variants;
     }
@@ -627,7 +660,8 @@ MutableColumnPtr transform_non_nullable(const VariantMaterializationNode& plan,
     case ParquetColumnSchemaKind::PRIMITIVE:
         return physical->clone_resized(physical->size());
     case ParquetColumnSchemaKind::VARIANT:
-        return build_variant_column(schema, std::move(physical));
+        return build_variant_column(schema, std::move(physical),
+                                    plan.variant_projection ? &*plan.variant_projection : nullptr);
     case ParquetColumnSchemaKind::STRUCT: {
         const auto& structure = assert_cast<const ColumnStruct&>(*physical);
         if (structure.tuple_size() != plan.children.size()) {
@@ -669,7 +703,8 @@ MutableColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPt
         throw Exception(ErrorCode::INTERNAL_ERROR, "Parquet Variant materialization plan is null");
     }
     if (plan.schema->kind == ParquetColumnSchemaKind::VARIANT) {
-        return build_variant_column(*plan.schema, std::move(physical));
+        return build_variant_column(*plan.schema, std::move(physical),
+                                    plan.variant_projection ? &*plan.variant_projection : nullptr);
     }
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*physical)) {
         auto nested = transform_non_nullable(plan, nullable->get_nested_column_ptr());

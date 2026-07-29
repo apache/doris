@@ -18,21 +18,24 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "format_v2/column_data.h"
 
 namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
 
 // Projection-aligned view of the file schema. Complex nodes contain only the children decoded by
-// NativeColumnReader; a VARIANT node always owns its complete metadata/value/typed_value subtree.
+// NativeColumnReader. A VARIANT node may own a validated fully-shredded physical leaf projection.
 struct VariantMaterializationNode {
     const ParquetColumnSchema* schema = nullptr;
     std::vector<std::unique_ptr<VariantMaterializationNode>> children;
     bool contains_variant = false;
+    std::optional<format::LocalColumnIndex> variant_projection;
 };
 
 // Converts one physical Parquet Variant wrapper column to ColumnVariantV2 and appends it to output.
