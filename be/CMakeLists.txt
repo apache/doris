@@ -906,7 +906,7 @@ if (ENABLE_PCH)
         endif()
     endif()
     if (COMPILER_CLANG)
-        target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
+        target_compile_options(pch PRIVATE "SHELL:-Xclang -fno-pch-timestamp")
     endif()
 endif()
 
