@@ -28,7 +28,9 @@ import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
@@ -70,6 +72,8 @@ import org.apache.doris.nereids.types.LargeIntType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -146,6 +150,8 @@ import java.util.stream.Collectors;
  */
 public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.NormalizeContext>
         implements CustomRewriter {
+    private static final Logger LOG = LogManager.getLogger(IvmNormalizeMTMV.class);
+
     static final class NormalizeContext {
         private static final NormalizeContext ROOT = new NormalizeContext(true, false);
 
@@ -193,7 +199,15 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         statementContext = jobContext.getCascadesContext().getStatementContext();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         rewriteResult.setNormalizedPlan(result);
-        rewriteResult.setPlanSignature(new IvmPlanSignatureGenerator().generate(result));
+        IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
+        rewriteResult.setPlanSignature(planSignature);
+        IvmRewriteContext.Mode mode = statementContext.getIvmRewriteContext().get().getMode();
+        if (mode == IvmRewriteContext.Mode.CREATE) {
+            LOG.info("IVM normalized plan, mtmvName={}, mode={}, inputRoot={}, plan={}, canonicalString={}, signature={}",
+                    statementContext.getIvmRewriteContext().get().getMtmvName(), mode,
+                    plan.getClass().getSimpleName(), result.treeString(), planSignature.getCanonicalString(),
+                    planSignature.getSha256());
+        }
         return result;
     }
 

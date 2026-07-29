@@ -232,7 +232,7 @@ public class IvmDeltaRewriteHelper {
             Alias alias = (Alias) project;
             Slot childSlot = childOutputByName.get(alias.getName());
             if (childSlot == null) {
-                if (Column.VERSION_COL.equals(alias.getName())) {
+                if (IvmUtil.isCommonHiddenSlot(alias.getName())) {
                     rewrittenAdapterProjects.add(alias);
                     continue;
                 }
