@@ -166,6 +166,51 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
                 "the data column must be published in the fragment output exprs");
     }
 
+    // #66112: SQL MERGE INTO must reject a target row matched by more than one source row; UPDATE shares the
+    // same sink dialect and has no such rule. Only BE can see the duplicates, so the engine's job is to ship
+    // the statement's requirement onto the write handle. A regression that hardcoded it (either polarity)
+    // would either silently accept a duplicate-source MERGE (wrong-result write) or reject legal UPDATEs, so
+    // both polarities are pinned.
+    @Test
+    public void mergePluginArmThreadsTheSqlMergeCardinalityRequirementOntoTheWriteHandle() {
+        PluginDrivenTableSink pluginSink = translateMergeWithCardinalityRequirement(true);
+        Assertions.assertEquals(true,
+                Deencapsulation.getField(pluginSink, "requireMergeCardinalityCheck"),
+                "a SQL MERGE must thread requireMergeCardinalityCheck=true so the connector stamps it onto"
+                        + " TIcebergMergeSink and BE validates duplicate matches");
+    }
+
+    @Test
+    public void updatePluginArmThreadsNoCardinalityRequirementOntoTheWriteHandle() {
+        PluginDrivenTableSink pluginSink = translateMergeWithCardinalityRequirement(false);
+        Assertions.assertEquals(false,
+                Deencapsulation.getField(pluginSink, "requireMergeCardinalityCheck"),
+                "an UPDATE reaches the same sink dialect but carries no SQL cardinality rule");
+    }
+
+    private PluginDrivenTableSink translateMergeWithCardinalityRequirement(boolean require) {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        TupleDescriptor tuple = context.generateTupleDesc();
+        SlotReference dataSlot = registerSlot(context, tuple, "data");
+        SlotReference opSlot = registerSlot(context, tuple, MergeOperation.OPERATION_COLUMN);
+        SlotReference rowidSlot = registerSlot(context, tuple, Column.ICEBERG_ROWID_COL);
+
+        PlanFragment childFragment = Mockito.mock(PlanFragment.class);
+        Plugin plugin = pluginTable();
+
+        @SuppressWarnings("unchecked")
+        PhysicalExternalRowLevelMergeSink<Plan> sink = Mockito.mock(PhysicalExternalRowLevelMergeSink.class);
+        Mockito.doReturn(mockChild(childFragment)).when(sink).child();
+        Mockito.doReturn(plugin.table).when(sink).getTargetTable();
+        Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn(ImmutableList.<Slot>of(dataSlot, opSlot, rowidSlot)).when(sink).getOutput();
+        Mockito.doReturn(require).when(sink).isRequireMergeCardinalityCheck();
+
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
+        translator.visitPhysicalExternalRowLevelMergeSink(sink, context);
+        return capturePluginSink(childFragment);
+    }
+
     @Test
     public void mergePluginArmRunsMaterializedNameLoopSoBeResolvesOperationColumn() {
         // The materialized-name loop is lifted above the native/plugin branch. If it were left only in the

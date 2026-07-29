@@ -85,6 +85,22 @@ public interface ConnectorWriteHandle {
     }
 
     /**
+     * Whether the statement behind this write is a SQL {@code MERGE INTO} whose cardinality rule the sink
+     * must enforce: a target row matched by more than one source row is an error, and the connector's BE
+     * sink is the only place that can see the duplicates. {@code false} for {@code UPDATE} — which shares
+     * the same {@link WriteOperation#MERGE} sink dialect but has no cardinality rule — and for every
+     * non-row-level write.
+     *
+     * <p>Kept separate from {@link #getWriteOperation()} because it is a statement-level SQL requirement,
+     * not a sink dialect: the engine also uses it to keep the merge distribution when the optional
+     * {@code enable_strict_consistency_dml} session variable is off. Defaults to {@code false} so every
+     * connector that never sees a MERGE keeps its byte-identical sink.</p>
+     */
+    default boolean isRequireMergeCardinalityCheck() {
+        return false;
+    }
+
+    /**
      * The named table branch this write targets ({@code INSERT INTO t@branch(name)}), or
      * {@link Optional#empty()} when the write goes to the table's default ref. Threaded from the
      * generic insert command context onto this handle; a versioned-table connector (iceberg / paimon)

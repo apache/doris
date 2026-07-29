@@ -398,6 +398,7 @@ public class ExternalRowLevelMergePlanBuilder {
                 icebergTable,
                 icebergTable.getBaseSchema(true),
                 outputExprs,
+                true,
                 Optional.empty(),
                 Optional.empty(),
                 projectPlan);

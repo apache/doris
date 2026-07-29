@@ -39,6 +39,7 @@ public class LogicalExternalRowLevelMergeSinkToPhysicalExternalRowLevelMergeSink
                     sink.getTargetTable(),
                     sink.getCols(),
                     sink.getOutputExprs(),
+                    sink.isRequireMergeCardinalityCheck(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,

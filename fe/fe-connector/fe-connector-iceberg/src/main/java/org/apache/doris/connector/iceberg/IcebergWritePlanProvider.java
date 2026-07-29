@@ -211,7 +211,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             case UPDATE:
             case MERGE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
-                dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes));
+                dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes,
+                        handle.isRequireMergeCardinalityCheck()));
                 return new ConnectorSinkPlan(dataSink);
             }
             case REWRITE: {
@@ -505,7 +506,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * {@code formatVersion>=3 && !empty} gate.
      */
     private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle,
-            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes) {
+            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
+            boolean requireMergeCardinalityCheck) {
         TIcebergMergeSink tSink = new TIcebergMergeSink();
         tSink.setDbName(tableHandle.getDbName());
         tSink.setTbName(tableHandle.getTableName());
@@ -517,6 +519,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setSchemaJson(SchemaParser.toJson(schema));
         // #65782: gate BE-side column-stats collection on the table's iceberg metrics policy (v3-appended schema).
         tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, schema));
+        // #66112: UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
+        tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
 
         if (table.spec().isPartitioned()) {
             tSink.setPartitionSpecsJson(Maps.transformValues(table.specs(), PartitionSpecParser::toJson));

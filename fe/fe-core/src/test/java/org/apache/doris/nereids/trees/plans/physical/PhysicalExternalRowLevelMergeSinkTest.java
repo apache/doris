@@ -30,7 +30,6 @@ import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
-import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecMerge.MergePartitionField;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -233,9 +232,13 @@ public class PhysicalExternalRowLevelMergeSinkTest {
     }
 
     @Test
-    public void mergePartitioningGateOffDoesNotConsultConnector() {
-        // PARITY-3 (sink gate): with enableIcebergMergePartitioning off, the row-id hash path is taken
-        // and the connector is never consulted (no getCatalog() -> getWritePartitioning()).
+    public void mergePartitioningGateOffRoutesOnlyDeleteImagesAndDoesNotConsultConnector() {
+        // PARITY-3 (sink gate): with enableIcebergMergePartitioning off, the connector is never consulted
+        // (no getCatalog() -> getWritePartitioning()).
+        // Upstream #66112 changed WHAT the gate-off arm requests: it used to hash EVERY row by the row id,
+        // which collapses all unmatched-insert rows (row id IS NULL) onto one exchange channel -- one BE
+        // instance writing the whole insert side. It now asks for a merge distribution that routes only the
+        // DELETE images by row id and leaves the insert images distributable.
         connectContext.getSessionVariable().enableIcebergMergePartitioning = false;
         Column id = new Column("id", PrimitiveType.INT);
         SlotReference idSlot = new SlotReference("id", IntegerType.INSTANCE);
@@ -248,11 +251,19 @@ public class PhysicalExternalRowLevelMergeSinkTest {
 
         PhysicalProperties props = sink.getRequirePhysicalProperties();
 
-        Assertions.assertTrue(props.getDistributionSpec() instanceof DistributionSpecHash,
-                "gate off with a row id present must hash by the row id, not merge-distribute");
-        DistributionSpecHash hash = (DistributionSpecHash) props.getDistributionSpec();
-        Assertions.assertEquals(ImmutableList.of(rowidSlot.getExprId()), hash.getOrderedShuffledColumns(),
-                "the row-id hash path must shuffle by the row-id slot");
+        Assertions.assertTrue(props.getDistributionSpec() instanceof DistributionSpecMerge,
+                "gate off must still split the merge stream by operation, not hash every row by the row id");
+        DistributionSpecMerge dist = (DistributionSpecMerge) props.getDistributionSpec();
+        Assertions.assertEquals(opSlot.getExprId(), dist.getOperationExprId(),
+                "the operation column is what tells delete images from insert images");
+        Assertions.assertEquals(ImmutableList.of(rowidSlot.getExprId()), dist.getDeletePartitionExprIds(),
+                "delete images must be routed by the row id so one target row's deletes meet on one instance");
+        Assertions.assertTrue(dist.isInsertRandom(),
+                "insert images have a NULL row id: routing them by it would serialize the whole insert side");
+        Assertions.assertTrue(dist.getInsertPartitionFields().isEmpty(),
+                "the gate is off, so no connector partitioning may be requested for the insert side");
+        Assertions.assertNull(dist.getPartitionSpecId(),
+                "the gate is off, so no connector partition spec may be carried");
         Mockito.verify(table, Mockito.never()).getCatalog();
     }
 

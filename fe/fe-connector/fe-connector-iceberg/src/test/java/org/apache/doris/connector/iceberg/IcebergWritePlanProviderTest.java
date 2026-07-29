@@ -986,6 +986,39 @@ public class IcebergWritePlanProviderTest {
         return plan.getDataSink().getIcebergMergeSink();
     }
 
+    // #66112: UPDATE and SQL MERGE share the TIcebergMergeSink dialect, but only SQL MERGE carries the
+    // one-source-row cardinality rule. The engine decides (statement kind) and the connector must ship the
+    // decision verbatim: BE gates its duplicate-match validation on this field, so a connector that dropped
+    // it would silently accept a MERGE whose source matches a target row twice — a wrong-result write, not
+    // an error. Both polarities are pinned so neither a hardcoded true nor a dropped setter survives.
+    @Test
+    public void planWriteMergeSinkShipsTheEngineSqlMergeCardinalityRequirement() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.MERGE)
+                        .requireMergeCardinalityCheck(true));
+
+        Assertions.assertTrue(sink.isSetRequireMergeCardinalityCheck(),
+                "the field must always be set so BE never has to guess from an unset field");
+        Assertions.assertTrue(sink.isRequireMergeCardinalityCheck(),
+                "a SQL MERGE must ship require_merge_cardinality_check=true so BE validates duplicate matches");
+    }
+
+    @Test
+    public void planWriteMergeSinkDoesNotRequireCardinalityCheckForUpdate() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertTrue(sink.isSetRequireMergeCardinalityCheck(),
+                "the field must always be set so BE never has to guess from an unset field");
+        Assertions.assertFalse(sink.isRequireMergeCardinalityCheck(),
+                "UPDATE shares this sink dialect but has no SQL cardinality rule; validating it would reject"
+                        + " legal UPDATEs whose predicate matches a row through several source rows");
+    }
+
     @Test
     public void planWriteBuildsMergeSinkWithTableDerivedFields() {
         Table table = partitionedSortedTable(freshCatalog());
@@ -1095,6 +1128,7 @@ public class IcebergWritePlanProviderTest {
         private TSortInfo sortInfo;
         private WriteOperation writeOperation = WriteOperation.INSERT;
         private Optional<String> branchName = Optional.empty();
+        private boolean requireMergeCardinalityCheck;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -1123,6 +1157,16 @@ public class IcebergWritePlanProviderTest {
         @Override
         public WriteOperation getWriteOperation() {
             return writeOperation;
+        }
+
+        WriteHandle requireMergeCardinalityCheck(boolean v) {
+            this.requireMergeCardinalityCheck = v;
+            return this;
+        }
+
+        @Override
+        public boolean isRequireMergeCardinalityCheck() {
+            return requireMergeCardinalityCheck;
         }
 
         WriteHandle writeContext(Map<String, String> v) {

@@ -555,7 +555,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
         // resolves it by block-name, not by output-expr name.
-        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE));
+        rootFragment.setSink(buildPluginRowLevelDmlSink(deleteSink, WriteOperation.DELETE, false));
         return rootFragment;
     }
 
@@ -589,7 +589,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // The MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
         // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
         // TIcebergMergeSink dialect (which threads its own sort_fields).
-        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE));
+        // SQL MERGE INTO carries the cardinality requirement onto the write handle; UPDATE shares this
+        // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
+        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
+                mergeSink.isRequireMergeCardinalityCheck()));
         return rootFragment;
     }
 
@@ -605,7 +608,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * re-derives its deletes from the same snapshot the scan read.
      */
     private PluginDrivenTableSink buildPluginRowLevelDmlSink(
-            PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation) {
+            PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation,
+            boolean requireMergeCardinalityCheck) {
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
 
@@ -648,7 +652,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
         return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
-                providerTableHandle, connectorColumns, null, writeOperation);
+                providerTableHandle, connectorColumns, null, writeOperation, requireMergeCardinalityCheck);
     }
 
     @Override

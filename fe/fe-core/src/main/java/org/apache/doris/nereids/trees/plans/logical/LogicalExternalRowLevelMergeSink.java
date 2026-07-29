@@ -45,6 +45,11 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
         implements Sink, PropagateFuncDeps {
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
+    // True for SQL MERGE INTO, false for UPDATE. MERGE must reject a target row matched by more than one
+    // source row (SQL cardinality rule), which the BE sink can only do when the plan keeps the merge
+    // distribution; UPDATE has no such rule. Read by RequestPropertyDeriver (which otherwise drops the
+    // distribution when enable_strict_consistency_dml is off) and threaded onto the connector write handle.
+    private final boolean requireMergeCardinalityCheck;
 
     /**
      * Constructor.
@@ -58,6 +63,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                                    ExternalTable targetTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
+                                   boolean requireMergeCardinalityCheck,
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
@@ -67,6 +73,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 "database != null in LogicalExternalRowLevelMergeSink");
         this.targetTable = Objects.requireNonNull(targetTable,
                 "targetTable != null in LogicalExternalRowLevelMergeSink");
+        this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
@@ -74,19 +81,19 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, output,
-                Optional.empty(), Optional.empty(), child);
+                requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalExternalRowLevelMergeSink only accepts one child");
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                Optional.empty(), Optional.empty(), children.get(0));
+                requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalExternalRowLevelMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                Optional.empty(), Optional.empty(), child());
+                requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), child());
     }
 
     public ExternalDatabase getDatabase() {
@@ -95,6 +102,10 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
 
     public ExternalTable getTargetTable() {
         return targetTable;
+    }
+
+    public boolean isRequireMergeCardinalityCheck() {
+        return requireMergeCardinalityCheck;
     }
 
     @Override
@@ -111,12 +122,13 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
         LogicalExternalRowLevelMergeSink<?> that = (LogicalExternalRowLevelMergeSink<?>) o;
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
-                && Objects.equals(cols, that.cols);
+                && Objects.equals(cols, that.cols)
+                && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, requireMergeCardinalityCheck);
     }
 
     @Override
@@ -125,7 +137,8 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
-                "cols", cols);
+                "cols", cols,
+                "requireMergeCardinalityCheck", requireMergeCardinalityCheck);
     }
 
     @Override
@@ -136,13 +149,13 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                requireMergeCardinalityCheck, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, cols, outputExprs,
-                groupExpression, logicalProperties, children.get(0));
+                requireMergeCardinalityCheck, groupExpression, logicalProperties, children.get(0));
     }
 }

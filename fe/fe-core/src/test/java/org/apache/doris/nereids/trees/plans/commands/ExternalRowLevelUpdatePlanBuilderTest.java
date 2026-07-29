@@ -21,12 +21,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -37,6 +40,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
@@ -94,6 +98,32 @@ public class ExternalRowLevelUpdatePlanBuilderTest {
         Assertions.assertTrue(hasOperation);
         Assertions.assertTrue(hasRowId);
         Assertions.assertTrue(hasC1);
+    }
+
+    @Test
+    public void updateSinkCarriesNoSqlMergeCardinalityRequirement() {
+        // #66112: UPDATE and SQL MERGE INTO synthesize the SAME sink, so the statement kind has to be
+        // stamped onto the sink here -- it is the last place that knows it. UPDATE must stamp false: it has
+        // no one-source-row rule, and stamping true would both reject legal UPDATEs at the BE and force the
+        // merge distribution even when enable_strict_consistency_dml is off.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        LogicalPlan basePlan = new LogicalOneRowRelation(new RelationId(0),
+                ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy")));
+        ExternalRowLevelUpdatePlanBuilder builder = new ExternalRowLevelUpdatePlanBuilder(
+                ImmutableList.of("test_catalog", "test_db", "test_table"), null, ImmutableList.of(), basePlan);
+
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("test_table");
+        Mockito.doReturn(Mockito.mock(ExternalDatabase.class)).when(table).getDatabase();
+        Mockito.doReturn(ImmutableList.of(new Column("c1", ScalarType.createType(PrimitiveType.INT))))
+                .when(table).getBaseSchema(true);
+
+        LogicalPlan plan = builder.buildMergePlan(ctx, basePlan, ImmutableList.of(), table);
+
+        Assertions.assertTrue(plan instanceof LogicalExternalRowLevelMergeSink);
+        Assertions.assertFalse(((LogicalExternalRowLevelMergeSink<?>) plan).isRequireMergeCardinalityCheck(),
+                "UPDATE must not request the SQL MERGE cardinality validation");
     }
 
     @Test

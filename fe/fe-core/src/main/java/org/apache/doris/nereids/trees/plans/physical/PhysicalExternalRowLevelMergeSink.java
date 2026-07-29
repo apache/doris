@@ -49,6 +49,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 
@@ -58,6 +59,9 @@ import java.util.TreeMap;
  */
 public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+    // True for SQL MERGE INTO, false for UPDATE; see LogicalExternalRowLevelMergeSink.
+    private final boolean requireMergeCardinalityCheck;
+
     /**
      * Constructor
      */
@@ -65,11 +69,12 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
+                                    boolean requireMergeCardinalityCheck,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+        this(database, targetTable, cols, outputExprs, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
     /**
@@ -79,6 +84,7 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
+                                    boolean requireMergeCardinalityCheck,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     PhysicalProperties physicalProperties,
@@ -86,13 +92,18 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     CHILD_TYPE child) {
         super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_MERGE_SINK, database, targetTable, cols, outputExprs,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
+    }
+
+    public boolean isRequireMergeCardinalityCheck() {
+        return requireMergeCardinalityCheck;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable,
-                cols, outputExprs, groupExpression,
+                cols, outputExprs, requireMergeCardinalityCheck, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -105,7 +116,7 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child());
+                requireMergeCardinalityCheck, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -113,13 +124,13 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0));
+                requireMergeCardinalityCheck, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExternalRowLevelMergeSink<>(
-                database, targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs, requireMergeCardinalityCheck,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -131,12 +142,16 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return super.equals(o);
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalExternalRowLevelMergeSink<?> that = (PhysicalExternalRowLevelMergeSink<?>) o;
+        return requireMergeCardinalityCheck == that.requireMergeCardinalityCheck;
     }
 
     @Override
     public int hashCode() {
-        return super.hashCode();
+        return Objects.hash(super.hashCode(), requireMergeCardinalityCheck);
     }
 
     /**

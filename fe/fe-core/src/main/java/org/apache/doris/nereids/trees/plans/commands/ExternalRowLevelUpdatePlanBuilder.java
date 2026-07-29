@@ -130,6 +130,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
                 icebergTable,
                 icebergTable.getBaseSchema(true),
                 outputExprs,
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 queryPlan);
