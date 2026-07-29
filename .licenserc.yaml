@@ -52,6 +52,13 @@ header:
     # Recorded method-surface baseline; ConnectorMetadataSurfaceTest reads every
     # non-blank line as a method signature, so a header would break the test.
     - "fe/fe-connector/fe-connector-api/src/test/resources/connector-metadata-methods.txt"
+    # Recorded plugin API surface baselines, one per plugin family. Same reason as
+    # above: each *PluginSurfaceTest.readBaseline() adds every non-blank line to the
+    # expected signature set, so a header would be read back as phantom signatures.
+    - "fe/fe-connector/fe-connector-spi/src/test/resources/connector-plugin-surface.txt"
+    - "fe/fe-filesystem/fe-filesystem-spi/src/test/resources/filesystem-plugin-surface.txt"
+    - "fe/fe-authentication/fe-authentication-spi/src/test/resources/authentication-plugin-surface.txt"
+    - "fe/fe-core/src/test/resources/lineage-plugin-surface.txt"
     - "fe/fe-core/src/main/java/software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaParser.g4"

@@ -28,7 +28,8 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 /**
- * Reads plugin release versions from jar MANIFEST Implementation-Version.
+ * Reads MANIFEST data from plugin jars: the release version (Implementation-Version) and arbitrary main
+ * attributes such as a family's plugin API version.
  *
  * <p>Always resolves the jar that actually defined the class (its code
  * source) instead of {@link Package#getImplementationVersion()}: Package
@@ -67,6 +68,20 @@ final class ManifestVersions {
             }
         }
         return manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION);
+    }
+
+    /**
+     * A main-attribute of one jar's manifest, or null when the manifest or the attribute is absent.
+     *
+     * <p>Unlike {@link #fromManifest}, package sections are deliberately not consulted: the plugin API
+     * version describes the jar as a whole, and {@code <manifestEntries>} writes main attributes.
+     */
+    static String mainAttribute(JarFile jarFile, String attributeName) throws IOException {
+        Manifest manifest = jarFile.getManifest();
+        if (manifest == null) {
+            return null;
+        }
+        return manifest.getMainAttributes().getValue(attributeName);
     }
 
     /** Manifest section name for the class's package ("com/acme/plugin/"), or null. */

@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
@@ -65,8 +66,14 @@ public class ConnectorPluginManager {
 
     private static final Logger LOG = LogManager.getLogger(ConnectorPluginManager.class);
 
-    /** The API version that this FE build supports. Increment on breaking SPI changes. */
-    static final int CURRENT_API_VERSION = 1;
+    /**
+     * The connector plugin API contract this FE serves. Built from the version filtered into
+     * fe-connector-spi at build time, and anchored on {@link ConnectorProvider} so that it is read from the
+     * very artifact carrying the SPI. A missing or malformed resource is a build defect and fails class
+     * initialization loudly rather than degrading into a check that admits everything.
+     */
+    private static final ApiVersionGate API_VERSION_GATE =
+            ApiVersionGate.forFamily("connector", ConnectorProvider.class);
 
     // Connector SPI and filesystem SPI classes must be parent-first so that all
     // instances of shared interfaces/classes are loaded by a single ClassLoader.
@@ -202,7 +209,8 @@ public class ConnectorPluginManager {
                 pluginRoots,
                 ConnectorPluginManager.class.getClassLoader(),
                 ConnectorProvider.class,
-                classLoadingPolicy);
+                classLoadingPolicy,
+                API_VERSION_GATE);
 
         LOG.info("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
                         + "successCount={}, failureCount={}",
@@ -294,12 +302,6 @@ public class ConnectorPluginManager {
                             + "it can only be built as an embedded sibling.", provider.getType(), catalogType);
                     continue;
                 }
-                int providerVersion = provider.apiVersion();
-                if (providerVersion != CURRENT_API_VERSION) {
-                    LOG.warn("Skipping connector provider '{}': apiVersion={} (expected {})",
-                            provider.getType(), providerVersion, CURRENT_API_VERSION);
-                    continue;
-                }
                 LOG.info("Creating connector via provider '{}' for catalogType='{}'",
                         provider.getType(), catalogType);
                 return provider.create(properties, context);
@@ -314,16 +316,13 @@ public class ConnectorPluginManager {
      * Finds the provider that would back a catalog of this type, without creating a connector. For engine
      * decisions that must be answered for a catalog that may not be initialized yet — asking the connector
      * would force-initialize it. Same selection as {@link #createConnector}: first provider that supports the
-     * type with a compatible API version.
+     * type.
      *
      * @return the matching provider, or empty if none matches
      */
     public Optional<ConnectorProvider> findProvider(String catalogType, Map<String, String> properties) {
         for (ConnectorProvider provider : providers) {
             if (provider.supports(catalogType, properties)) {
-                if (provider.apiVersion() != CURRENT_API_VERSION) {
-                    continue;
-                }
                 return Optional.of(provider);
             }
         }
@@ -363,12 +362,6 @@ public class ConnectorPluginManager {
     public void validateProperties(String catalogType, Map<String, String> properties) {
         for (ConnectorProvider provider : providers) {
             if (provider.supports(catalogType, properties)) {
-                if (provider.apiVersion() != CURRENT_API_VERSION) {
-                    throw new IllegalArgumentException(
-                            "Connector provider '" + provider.getType()
-                                    + "' has incompatible API version " + provider.apiVersion()
-                                    + " (expected " + CURRENT_API_VERSION + ")");
-                }
                 provider.validateProperties(properties);
                 return;
             }

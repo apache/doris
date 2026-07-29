@@ -92,7 +92,13 @@
 
 ### 2.3 SPI 改动的版本号管理
 
-`ConnectorProvider.apiVersion()` 当前固定返回 1。每次 SPI **新增** default 方法不动版本号；每次 SPI **改签名 / 删方法**版本号 +1，`ConnectorPluginManager` 中 `CURRENT_API_VERSION` 同步 +1。本计划过程中只新增 default 方法，因此版本号保持 1。
+> ⚠️ **已被取代（2026-07-29）**：`ConnectorProvider.apiVersion()` 与 `ConnectorPluginManager.CURRENT_API_VERSION` **已删除**。
+> 那套检查恒真、拦不住任何插件（SPI 接口永远由内核 classloader 加载，插件不 override 时 default 方法说话的是内核自己）。
+> 现行规则见 [`designs/2026-07-29-plugin-api-version-check-design.md`](./designs/2026-07-29-plugin-api-version-check-design.md)：
+> 四族各有一个 maven property，同时流向 SPI 模块的 filtered resource 与插件 jar 的 MANIFEST，加载期比 major；
+> 判据也换了——**SPI 表面任何变化（含新增）都是 major**，不再是"只有改签名/删方法才 +1"。
+
+~~`ConnectorProvider.apiVersion()` 当前固定返回 1。每次 SPI **新增** default 方法不动版本号；每次 SPI **改签名 / 删方法**版本号 +1，`ConnectorPluginManager` 中 `CURRENT_API_VERSION` 同步 +1。本计划过程中只新增 default 方法，因此版本号保持 1。~~
 
 ---
 

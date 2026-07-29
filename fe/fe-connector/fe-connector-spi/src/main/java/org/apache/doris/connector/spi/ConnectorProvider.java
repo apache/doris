@@ -177,11 +177,6 @@ public interface ConnectorProvider extends PluginFactory {
         return getType();
     }
 
-    /** API version for compatibility checking. Major version change = incompatible. */
-    default int apiVersion() {
-        return 1;
-    }
-
     @Override
     default String name() {
         return getType();
