@@ -5,7 +5,64 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-29）：四族插件 API 版本门禁 —— **已实现、已验证、已提交**
+# 🆕🆕🆕 最新一轮（2026-07-29b）：rebase onto `8305fe71867` —— 移植 #66112 的**两条真回归**
+
+> `git pull --rebase upstream-apache master`，83 commit onto **`8305fe71867`**（上游新增 **19** 个 commit）。
+> 备份点 tag `backup-before-rebase-0729` = rebase 前 HEAD `5da0bc9110e`。其上 2 个移植 commit。**未 push**。
+
+## 冲突：4 处 / 12 文件，全部落在「fe-core 外表代码已迁走」这一条断层上
+
+上游 19 个 commit 里只有 **`8305fe71867` #66112 `[fix](iceberg) Enforce external write correctness`** 碰到本分支。
+它改的 5 个 fe-core 文件在本分支**已被删除或改名**，所以 git 报的是 modify/delete 与 content 冲突：
+
+| 冲突处 | 本分支状态 | 解法 |
+|---|---|---|
+| `PaimonMetadataOpsTest`（第 8/83 个 commit） | 2 个 commit 后整体删除 | 只删掉变成未使用的 `CatalogFactory` import，保留上游新增用例（中间态可编译） |
+| `PaimonMetadataOps(+Test)`（第 9/83） | 本 commit 删除 | `git rm`；能力另行移植 |
+| `PhysicalPlanTranslator` / `PhysicalIcebergMergeSink` / 4 个 iceberg 文件（第 11/83） | 削薄的中间态，稍后删除 | translator 取分支侧；`PhysicalIcebergMergeSink` **两侧合并**（我们的泛型化 + 上游新参数），否则中间态编译不过 |
+| 6 文件（第 44/83 = #65893 改名 commit） | `Iceberg*` → `ExternalRowLevel*` | 取分支侧，能力在 rebase 结束后用独立 commit 移植 |
+
+## 移植：**2 条真回归**（不是"看着像"，都有 e2e 兜底）
+
+- **`8876656911f`** SQL MERGE 基数校验。上游把 thrift 字段 `TIcebergMergeSink.require_merge_cardinality_check`
+  + BE 校验一起带进来了，但 FE 生产者在本分支不存在 → BE 永远读到 false，重复匹配**静默写坏**。
+  链路：plan builder(true/false) → Logical/Physical sink → RequestPropertyDeriver → translator →
+  `PluginDrivenTableSink` → **新 SPI 默认方法 `ConnectorWriteHandle#isRequireMergeCardinalityCheck()`** →
+  `IcebergWritePlanProvider` 打 thrift。**没有**复用 `WriteOperation.UPDATE`：那会同时改 explain 文案、
+  能力声明与 SDK op 映射，爆炸半径远大于上游改动。
+- **`728f7bbb9c3`** CTAS 原子性 + IF NOT EXISTS 名字缓存。三条子修复在本分支**全部是连接器无关的**：
+  ① CTAS 目标不支持写时必须在建表**之前**拒绝（否则回退按名字 drop，可能删掉别人同名表）——
+  落在 `UnboundTableSinkCreator` 的 CTAS 重载，用连接器级 write provider 判定，网关连接器不误伤；
+  ② `PluginDrivenExternalCatalog#createTable` 的 IF NOT EXISTS 短路缺 `resetMetaCacheNames()`；
+  ③ paimon 连接器把 `isIfNotExists()` 当 `ignoreIfExists` 传下去，会**吞掉并发赢家**。
+
+## 顺手修好的一处 rebase 静默红灯
+
+`PhysicalExternalRowLevelMergeSinkTest` 断言 gate-off 走 `DistributionSpecHash`，但 #66112 那段
+**干净 auto-merge** 的改动已把它换成 `DistributionSpecMerge`（只按 row id 路由 delete 镜像，insert 镜像
+row id 为 NULL 不能全压到一个 channel）。auto-merge 不冲突 ≠ 不破坏，测试是确定性红。
+
+## 守门证据
+
+- 全反应堆 `package`（禁 build-cache）**BUILD SUCCESS**；4 个改动模块 checkstyle 各 **0 violation**。
+- 定向 UT **173 例全绿**（11 个类，含 3 个新建测试类）。
+- **4 处变异**（MERGE 侧 true→false / thrift 常量化 / 删 resetMetaCacheNames / 关 CTAS 准入）
+  各自打红对应测试类，且互不串味。
+- **归因守门**：`git diff backup-before-rebase-0729 HEAD -- fe/ gensrc/` = 80 文件，
+  60 个来自上游 19 commit，22 个来自我这 2 个移植 commit，**未解释 = 0**。
+
+## 下一步
+
+- e2e 需 owner 跑 docker：`test_iceberg_write_merge_duplicate_source_negative`、
+  `test_iceberg_write_merge_truncate_negative`、`test_iceberg_write_nullable_truncate_negative`、
+  `test_paimon_ctas_atomicity_negative`（#66112 把这 4 个的 opt-in 开关全去掉了，本轮首次真跑）。
+- ⚠️ 维护陷阱：`test_paimon_ctas_atomicity_negative.groovy` 是**唯一**与上游永久分叉的回归文件
+  （`exception "PaimonExternalCatalog"` → `"does not support INSERT operations"`）。
+  以后 rebase 若"取上游"会立刻打红。
+
+---
+
+# 上一轮（2026-07-29）：四族插件 API 版本门禁 —— **已实现、已验证、已提交**
 
 > 分支 `catalog-spi-review-22`，**基于 `upstream-apache/branch-catalog-spi`**（tip `688c8b7025e`）。
 > 其上 5 个 commit：4 个设计文档 commit + 1 个实现 commit（48 文件）。**未 push**。
