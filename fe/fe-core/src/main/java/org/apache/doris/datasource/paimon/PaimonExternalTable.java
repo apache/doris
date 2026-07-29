@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CacheException;
@@ -70,7 +69,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
@@ -284,11 +282,6 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
-    public Set<String> getWritePartitionColumnNames() {
-        return getPaimonTableForWrite().partitionKeys().stream()
-                .map(column -> column.toLowerCase()).collect(Collectors.toSet());
-    }
-
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         PaimonPartitionInfo partitionInfo = getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo();
@@ -376,22 +369,6 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public List<Column> getFullSchema() {
         return getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)).getSchema();
-    }
-
-    public Map<String, Type> getWriteColumnTypes() {
-        return getWriteColumnTypes(getPaimonTableForWrite());
-    }
-
-    Map<String, Type> getWriteColumnTypes(Table table) {
-        Map<String, Type> writeColumnTypes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (DataField field : table.rowType().getFields()) {
-            // The Paimon writer transports both NTZ and LTZ values as DATETIMEV2 civil fields.
-            // The pinned Paimon target type decides whether Java preserves the fields or converts
-            // them to an instant using the Doris session timezone.
-            writeColumnTypes.put(field.name(), PaimonUtil.paimonTypeToDorisType(
-                    field.type(), getCatalog().getEnableMappingVarbinary(), false));
-        }
-        return writeColumnTypes;
     }
 
     @Override

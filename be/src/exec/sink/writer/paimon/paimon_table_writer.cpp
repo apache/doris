@@ -99,8 +99,8 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
 Status PaimonTableWriter::close(Status status) {
     SCOPED_TIMER(_close_timer);
 
-    // On success: prepare commit messages via the SDK writer.
-    // On failure: abort the writer to discard any written data files.
+    // Prepare messages first, but do not publish them until the backend confirms
+    // that every SDK user has stopped and its native backing memory is safe to release.
     std::vector<TPaimonCommitMessage> messages;
     if (status.ok()) {
         DCHECK(_writer);
@@ -109,23 +109,6 @@ Status PaimonTableWriter::close(Status status) {
             Status prep_st = _writer->prepare_commit(messages);
             if (!prep_st.ok()) {
                 status = prep_st;
-            }
-        }
-
-        if (status.ok()) {
-            COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
-            for (const auto& msg : messages) {
-                DORIS_CHECK(msg.__isset.payload);
-                COUNTER_UPDATE(_commit_payload_bytes_counter,
-                               static_cast<int64_t>(msg.payload.size()));
-            }
-
-            // Forward commit messages to RuntimeState; they are collected by the
-            // FE Coordinator via RPC and committed through PaimonTransaction.
-            if (!messages.empty()) {
-                _state->add_paimon_commit_messages(messages);
-                LOG(INFO) << "Paimon writer closed: " << messages.size()
-                          << " commit messages, total rows=" << _written_rows;
             }
         }
     }
@@ -142,8 +125,37 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // Release writer first (may hold SDK resources), then the backend (JNI refs).
+    // The adapter only owns Arrow conversion resources. Release it before closing
+    // the backend, whose Java close is the authoritative SDK shutdown boundary.
     _writer.reset();
+
+    if (_backend) {
+        Status close_st = _backend->close();
+        if (!close_st.ok()) {
+            if (status.ok()) {
+                status = close_st;
+            } else {
+                LOG(WARNING) << "Paimon backend close also failed: " << close_st.to_string();
+            }
+        }
+    }
+
+    // Only a fully prepared and cleanly stopped writer may contribute payloads
+    // to the FE transaction. A Java close failure therefore aborts the Doris
+    // transaction instead of allowing it to commit potentially unsafe output.
+    if (status.ok()) {
+        COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
+        for (const auto& msg : messages) {
+            DORIS_CHECK(msg.__isset.payload);
+            COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
+        }
+        if (!messages.empty()) {
+            _state->add_paimon_commit_messages(messages);
+            LOG(INFO) << "Paimon writer closed: " << messages.size()
+                      << " commit messages, total rows=" << _written_rows;
+        }
+    }
+
     _backend.reset();
     return status;
 }

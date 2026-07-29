@@ -24,7 +24,9 @@
 #include <arrow/type.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
+#include <mutex>
 #include <string_view>
 #include <vector>
 
@@ -43,6 +45,30 @@ namespace doris {
 
 namespace {
 constexpr std::string_view PAIMON_JNI_WRITER_IO_TMP_DIR = "paimon_jni_writer_io_tmp";
+
+std::atomic<bool>& paimon_jni_close_failed() {
+    static auto* failed = new std::atomic<bool>(false);
+    return *failed;
+}
+
+std::mutex& retained_memory_managers_mutex() {
+    static auto* mutex = new std::mutex();
+    return *mutex;
+}
+
+std::vector<std::unique_ptr<PaimonJniMemoryManager>>& retained_memory_managers() {
+    static auto* managers = new std::vector<std::unique_ptr<PaimonJniMemoryManager>>();
+    return *managers;
+}
+
+void retain_memory_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> manager) {
+    paimon_jni_close_failed().store(true, std::memory_order_release);
+    if (manager == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(retained_memory_managers_mutex());
+    retained_memory_managers().emplace_back(std::move(manager));
+}
 } // namespace
 
 // ────────────────────────────────────────────────────────────
@@ -75,44 +101,70 @@ static Status _get_jni_env(JNIEnv** env) {
 }
 
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
-    JNIEnv* env = nullptr;
-    bool java_users_stopped = _jni_writer_obj == nullptr;
-    Status env_status = _get_jni_env(&env);
-    if (env_status.ok()) {
-        if (_jni_writer_obj != nullptr) {
-            _refresh_memory_profile();
-            DCHECK(_close_id != nullptr);
-            env->CallVoidMethod(_jni_writer_obj, _close_id);
-            Status close_status = _check_jni_exception(env, "close PaimonJniWriter");
-            if (!close_status.ok()) {
-                LOG(WARNING) << "Failed to close PaimonJniWriter: " << close_status.to_string();
-            }
-            java_users_stopped = close_status.ok();
-            env->DeleteGlobalRef(_jni_writer_obj);
-            _jni_writer_obj = nullptr;
-        }
-        if (_jni_writer_cls != nullptr) {
-            env->DeleteGlobalRef(_jni_writer_cls);
-            _jni_writer_cls = nullptr;
-        }
-    } else if (_jni_writer_obj != nullptr) {
-        LOG(WARNING) << "Cannot close PaimonJniWriter because JNI environment is unavailable: "
-                     << env_status.to_string();
+    Status st = close();
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to close Paimon JNI backend during destruction: " << st.to_string();
     }
-    if (java_users_stopped) {
+}
+
+Status JniPaimonWriteBackend::close() {
+    if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
         _memory_manager.reset();
-    } else if (_memory_manager != nullptr) {
-        LOG(WARNING) << "Retaining Paimon JNI native memory after an unconfirmed Java close: limit="
-                     << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
-                     << PrettyPrinter::print_bytes(_memory_manager->native_peak_allocated_bytes());
+        _opened = false;
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    Status env_status = _get_jni_env(&env);
+    if (!env_status.ok()) {
+        bool java_users_may_exist = _jni_writer_obj != nullptr;
+        // JNI global references cannot be released without an environment.
+        // Deliberately abandon the handles so the Java writer remains alive.
+        _jni_writer_obj = nullptr;
+        _jni_writer_cls = nullptr;
+        if (java_users_may_exist) {
+            retain_memory_after_failed_close(std::move(_memory_manager));
+        } else {
+            _memory_manager.reset();
+        }
+        _opened = false;
+        return env_status;
+    }
+
+    Status close_status = Status::OK();
+    if (_jni_writer_obj != nullptr) {
+        _refresh_memory_profile();
+        if (_close_id == nullptr) {
+            close_status = Status::InternalError("PaimonJniWriter.close method is unavailable");
+        } else {
+            env->CallVoidMethod(_jni_writer_obj, _close_id);
+            close_status = _check_jni_exception(env, "close PaimonJniWriter");
+        }
+        env->DeleteGlobalRef(_jni_writer_obj);
+        _jni_writer_obj = nullptr;
+    }
+    if (_jni_writer_cls != nullptr) {
+        env->DeleteGlobalRef(_jni_writer_cls);
+        _jni_writer_cls = nullptr;
+    }
+
+    if (close_status.ok()) {
+        _memory_manager.reset();
+    } else {
+        if (_memory_manager != nullptr) {
+            LOG(WARNING)
+                    << "Retaining Paimon JNI native memory after an unconfirmed Java close: limit="
+                    << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
+                    << PrettyPrinter::print_bytes(_memory_manager->native_peak_allocated_bytes());
+        }
         // Paimon may still have asynchronous flush or compaction tasks using
-        // MemorySegments backed by these pages. Its close API provides no
-        // reliable completion signal after an exception, so deliberately
-        // abandon ownership and let the OS reclaim the memory at process exit
-        // instead of risking a use-after-free.
-        static_cast<void>(_memory_manager.release());
+        // MemorySegments backed by these pages. Retain ownership until process
+        // exit and reject new writers below. Retention is therefore limited to
+        // writers which were already open when the first close failure occurred.
+        retain_memory_after_failed_close(std::move(_memory_manager));
     }
     _opened = false;
+    return close_status;
 }
 
 Status JniPaimonWriteBackend::_check_jni_exception(JNIEnv* env, const std::string& method_name) {
@@ -167,6 +219,11 @@ static jobject _to_java_options(JNIEnv* env, const std::map<std::string, std::st
 
 Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* state,
                                    RuntimeProfile* profile) {
+    if (paimon_jni_close_failed().load(std::memory_order_acquire)) {
+        return Status::InternalError(
+                "Paimon JNI writes are disabled on this BE because a previous Java writer close "
+                "failed; restart the BE to reclaim retained native memory safely");
+    }
     _sink = sink;
     DORIS_CHECK(sink.__isset.column_names);
     DORIS_CHECK(sink.__isset.write_mode);

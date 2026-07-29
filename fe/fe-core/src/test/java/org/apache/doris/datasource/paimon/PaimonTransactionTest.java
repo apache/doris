@@ -159,6 +159,16 @@ public class PaimonTransactionTest {
         Assert.assertEquals(2, transaction.getPayloadCount());
     }
 
+    @Test
+    public void testCommitUserIsNamespacedByDorisCluster() {
+        Assert.assertEquals(
+                PaimonTransaction.commitUser(10001, TRANSACTION_ID),
+                PaimonTransaction.commitUser(10001, TRANSACTION_ID));
+        Assert.assertNotEquals(
+                PaimonTransaction.commitUser(10001, TRANSACTION_ID),
+                PaimonTransaction.commitUser(10002, TRANSACTION_ID));
+    }
+
     private PaimonTransaction createBoundTransaction() {
         PaimonTransaction transaction = new PaimonTransaction(ops, TRANSACTION_ID);
         transaction.bind(binding);

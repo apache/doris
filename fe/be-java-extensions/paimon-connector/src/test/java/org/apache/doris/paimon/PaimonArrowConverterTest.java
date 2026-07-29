@@ -20,13 +20,16 @@ package org.apache.doris.paimon;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VariantType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -81,6 +84,21 @@ public class PaimonArrowConverterTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> converter.toPaimonTimestamp(
                         0, arrowType, new TimestampType(6)));
+    }
+
+    @Test
+    public void testVariantJsonKindsUsePaimonVariant() {
+        String[] jsonValues = {
+                "\"scalar\"",
+                "[1,true,null]",
+                "{\"id\":1,\"name\":\"doris\"}"
+        };
+        for (String json : jsonValues) {
+            Object value = PaimonArrowConverter.convertText(
+                    json.getBytes(StandardCharsets.UTF_8), new VariantType());
+            Assertions.assertInstanceOf(GenericVariant.class, value);
+            Assertions.assertEquals(json, ((GenericVariant) value).toJson());
+        }
     }
 
     @Test

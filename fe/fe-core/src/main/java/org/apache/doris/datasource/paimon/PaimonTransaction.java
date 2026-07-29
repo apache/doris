@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.transaction.Transaction;
@@ -193,8 +194,19 @@ public class PaimonTransaction implements Transaction {
     // Transaction identity
     // ────────────────────────────────────────────────────────────
 
+    /**
+     * Build the stable Paimon commit identity for one Doris transaction.
+     *
+     * <p>Paimon identifiers are ordered within one commit user. Doris transactions can finish
+     * out of order, so each transaction remains a separate user; the persisted Doris cluster ID
+     * prevents another cluster with the same local transaction ID from being treated as a retry.
+     */
     public static String commitUser(long transactionId) {
-        return "doris_txn_" + transactionId;
+        return commitUser(Env.getCurrentEnv().getClusterId(), transactionId);
+    }
+
+    static String commitUser(int clusterId, long transactionId) {
+        return "doris_cluster_" + clusterId + "_txn_" + transactionId;
     }
 
     public String getCommitUser() {

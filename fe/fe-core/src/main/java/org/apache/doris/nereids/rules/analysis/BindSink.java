@@ -43,6 +43,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -878,6 +879,12 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<PaimonExternalDatabase, PaimonExternalTable> pair = bind(ctx.cascadesContext, sink);
         PaimonExternalDatabase database = pair.first;
         PaimonExternalTable table = pair.second;
+        PaimonWriteTarget writeTarget;
+        try {
+            writeTarget = PaimonWriteTarget.create(table);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         Map<String, Expression> staticPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -885,7 +892,7 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> staticPartitionColNames = staticPartitions.keySet();
         if (!staticPartitionColNames.isEmpty()) {
             Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            partitionColumnNames.addAll(table.getWritePartitionColumnNames());
+            partitionColumnNames.addAll(writeTarget.getPartitionColumnNames());
             for (String columnName : staticPartitionColNames) {
                 if (!partitionColumnNames.contains(columnName)) {
                     throw new AnalysisException(String.format(
@@ -903,7 +910,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream()
+            bindColumns = writeTarget.getSchema().stream()
                     .filter(Column::isVisible)
                     .filter(column -> !staticPartitionColNames.contains(column.getName()))
                     .collect(ImmutableList.toImmutableList());
@@ -920,7 +927,7 @@ public class BindSink implements AnalysisRuleFactory {
                     throw new AnalysisException(String.format(
                             "Static partition column '%s' must not appear in the insert column list", cn));
                 }
-                Column column = table.getColumn(cn);
+                Column column = writeTarget.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format(
                             "column %s is not found in table %s", cn, table.getName()));
@@ -935,7 +942,7 @@ public class BindSink implements AnalysisRuleFactory {
         Map<String, NamedExpression> columnToOutput = getJdbcColumnToOutput(bindColumns, child);
         List<Column> writeColumns = new ArrayList<>(bindColumns);
         if (!staticPartitionColNames.isEmpty()) {
-            for (Column column : table.getBaseSchema(true)) {
+            for (Column column : writeTarget.getSchema()) {
                 Expression staticValue = staticPartitions.get(column.getName());
                 if (staticValue != null) {
                     Expression castExpr = TypeCoercionUtils.castIfNotSameType(
@@ -946,13 +953,14 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
 
-        LogicalPaimonTableSink<?> boundSink = new LogicalPaimonTableSink<>(database, table, writeColumns,
+        LogicalPaimonTableSink<?> boundSink = new LogicalPaimonTableSink<>(
+                database, writeTarget, writeColumns,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
-                writeColumns, child, columnToOutput, table.getWriteColumnTypes());
+                writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
         return boundSink.withChildAndUpdateOutput(outputProject);
     }
 

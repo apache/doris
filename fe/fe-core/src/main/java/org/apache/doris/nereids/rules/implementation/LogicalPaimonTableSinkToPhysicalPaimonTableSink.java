@@ -35,7 +35,7 @@ public class LogicalPaimonTableSinkToPhysicalPaimonTableSink extends OneImplemen
             LogicalPaimonTableSink<? extends Plan> sink = ctx.root;
             return new PhysicalPaimonTableSink<>(
                     sink.getDatabase(),
-                    sink.getTargetTable(),
+                    sink.getWriteTarget(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     Optional.empty(),

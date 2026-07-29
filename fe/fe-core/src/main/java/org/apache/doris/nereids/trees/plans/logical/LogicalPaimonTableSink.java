@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -45,10 +46,11 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
 
     private final PaimonExternalDatabase database;
     private final PaimonExternalTable targetTable;
+    private final PaimonWriteTarget writeTarget;
     private final DMLCommandType dmlCommandType;
 
     public LogicalPaimonTableSink(PaimonExternalDatabase database,
-                                   PaimonExternalTable targetTable,
+                                   PaimonWriteTarget writeTarget,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
                                    DMLCommandType dmlCommandType,
@@ -58,7 +60,8 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
         super(PlanType.LOGICAL_PAIMON_TABLE_SINK, outputExprs, groupExpression, logicalProperties,
                 cols, child);
         this.database = Objects.requireNonNull(database, "database != null");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null");
+        this.writeTarget = Objects.requireNonNull(writeTarget, "writeTarget != null");
+        this.targetTable = writeTarget.getDorisTable();
         this.dmlCommandType = dmlCommandType;
     }
 
@@ -67,7 +70,7 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalPaimonTableSink<>(database, targetTable, cols, output,
+        return new LogicalPaimonTableSink<>(database, writeTarget, cols, output,
                 dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
@@ -75,12 +78,12 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalPaimonTableSink only accepts one child");
-        return new LogicalPaimonTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalPaimonTableSink<>(database, writeTarget, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalPaimonTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalPaimonTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalPaimonTableSink<>(database, writeTarget, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), child());
     }
 
@@ -90,6 +93,10 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
 
     public PaimonExternalTable getTargetTable() {
         return targetTable;
+    }
+
+    public PaimonWriteTarget getWriteTarget() {
+        return writeTarget;
     }
 
     public DMLCommandType getDmlCommandType() {
@@ -111,12 +118,13 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
         return dmlCommandType == that.dmlCommandType
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
+                && Objects.equals(writeTarget, that.writeTarget)
                 && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType);
+        return Objects.hash(super.hashCode(), database, targetTable, writeTarget, cols, dmlCommandType);
     }
 
     @Override
@@ -136,7 +144,7 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalPaimonTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalPaimonTableSink<>(database, writeTarget, cols, outputExprs,
                 dmlCommandType, groupExpression,
                 Optional.of(getLogicalProperties()), child());
     }
@@ -144,7 +152,7 @@ public class LogicalPaimonTableSink<CHILD_TYPE extends Plan> extends LogicalTabl
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalPaimonTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalPaimonTableSink<>(database, writeTarget, cols, outputExprs,
                 dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }

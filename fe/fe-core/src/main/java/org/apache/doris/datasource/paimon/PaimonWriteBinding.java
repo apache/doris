@@ -43,11 +43,11 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Transaction-scoped binding between one Doris insert and one concrete Paimon table handle.
+ * Transaction-scoped binding between one Doris insert and one pinned Paimon write target.
  *
- * <p>The table and writer configuration are captured exactly once while the sink is finalized.
- * BE preparation, FE commit, abort and outcome reconciliation therefore all refer to the same
- * Paimon table handle.
+ * <p>Schema analysis and writer distribution have already used the target's table handle.
+ * Finalizing the transaction adds statement-specific overwrite and authentication state without
+ * reloading remote metadata.
  */
 public class PaimonWriteBinding {
     private final PaimonExternalTable dorisTable;
@@ -68,19 +68,15 @@ public class PaimonWriteBinding {
         this.staticPartition = Collections.unmodifiableMap(new LinkedHashMap<>(staticPartition));
     }
 
-    public static PaimonWriteBinding create(PaimonExternalTable dorisTable,
+    public static PaimonWriteBinding create(PaimonWriteTarget writeTarget,
             PaimonInsertCommandContext context) throws UserException {
+        PaimonExternalTable dorisTable = writeTarget.getDorisTable();
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) dorisTable.getCatalog();
-        FileStoreTable table;
-        try {
-            table = requireFileStoreTable(dorisTable.getPaimonTableForWrite());
-        } catch (Exception e) {
-            throw new UserException("Failed to bind Paimon table for write", e);
-        }
+        FileStoreTable table = writeTarget.getTable();
         Map<String, Expression> typedStaticPartition = context.getStaticPartition();
         Map<String, String> staticPartition = resolveStaticPartition(
                 table,
-                dorisTable.getWriteColumnTypes(table),
+                writeTarget.getColumnTypes(),
                 typedStaticPartition,
                 context.isOverwrite());
         return new PaimonWriteBinding(
@@ -113,12 +109,6 @@ public class PaimonWriteBinding {
 
     public String tableName() {
         return dorisTable.getDbName() + "." + dorisTable.getName();
-    }
-
-    private static FileStoreTable requireFileStoreTable(org.apache.paimon.table.Table table) {
-        Preconditions.checkState(table instanceof FileStoreTable,
-                "Paimon write requires a file store table");
-        return (FileStoreTable) table;
     }
 
     static Map<String, String> resolveStaticPartition(FileStoreTable table,

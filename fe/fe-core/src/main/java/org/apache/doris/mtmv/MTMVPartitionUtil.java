@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -361,11 +362,38 @@ public class MTMVPartitionUtil {
     public static String generatePartitionName(PartitionKeyDesc desc) {
         Matcher matcher = PARTITION_NAME_PATTERN.matcher(desc.toSql());
         String partitionName = PARTITION_NAME_PREFIX + matcher.replaceAll("").replaceAll("\\,", "_");
+        // The legacy readable name removes SQL quotes. Without this marker, a typed NULL and
+        // the string literal "NULL" both become p_NULL even though they are distinct list
+        // partition values. Preserve the existing NULL partition name and disambiguate only
+        // the literal value.
+        if (containsLiteralNull(desc)) {
+            partitionName += "_literal";
+        }
         if (partitionName.length() > 50) {
             partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
                     + "_" + System.currentTimeMillis();
         }
         return partitionName;
+    }
+
+    private static boolean containsLiteralNull(PartitionKeyDesc desc) {
+        if (desc.hasInValues()) {
+            for (List<PartitionValue> values : desc.getInValues()) {
+                if (containsLiteralNull(values)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return containsLiteralNull(desc.getLowerValues()) || containsLiteralNull(desc.getUpperValues());
+    }
+
+    private static boolean containsLiteralNull(List<PartitionValue> values) {
+        if (values == null) {
+            return false;
+        }
+        return values.stream().anyMatch(value -> !value.isNullPartition()
+                && "NULL".equals(value.getStringValue()));
     }
 
     /**

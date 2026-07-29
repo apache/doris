@@ -42,6 +42,7 @@ import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.DataField;
@@ -51,6 +52,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarBinaryType;
+import org.apache.paimon.types.VariantType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -144,8 +146,7 @@ final class PaimonArrowConverter {
         }
         if (vector instanceof VarCharVector) {
             byte[] value = ((VarCharVector) vector).get(index);
-            return targetType instanceof BinaryType || targetType instanceof VarBinaryType
-                    ? value : BinaryString.fromBytes(value);
+            return convertText(value, targetType);
         }
         if (vector instanceof VarBinaryVector) {
             return ((VarBinaryVector) vector).get(index);
@@ -170,6 +171,27 @@ final class PaimonArrowConverter {
     private Object convertToPaimonType(Object value, Field arrowField, DataType targetType) {
         if (value == null) {
             return null;
+        }
+        if (targetType instanceof VariantType) {
+            if (value instanceof byte[]) {
+                return toVariant((byte[]) value);
+            }
+            if (value instanceof BinaryString) {
+                return toVariant(((BinaryString) value).toBytes());
+            }
+            if (value instanceof org.apache.arrow.vector.util.Text) {
+                return toVariant(((org.apache.arrow.vector.util.Text) value).copyBytes());
+            }
+            if (value instanceof org.apache.hadoop.io.Text) {
+                org.apache.hadoop.io.Text text = (org.apache.hadoop.io.Text) value;
+                return GenericVariant.fromJson(text.toString());
+            }
+            if (value instanceof CharSequence) {
+                return GenericVariant.fromJson(value.toString());
+            }
+            throw new IllegalArgumentException(
+                    "Paimon VARIANT requires Arrow UTF-8 JSON, but got "
+                            + value.getClass().getName());
         }
         if (targetType instanceof BinaryType || targetType instanceof VarBinaryType) {
             if (value instanceof byte[]) {
@@ -224,6 +246,20 @@ final class PaimonArrowConverter {
             return Decimal.fromBigDecimal(decimal, decimal.precision(), decimal.scale());
         }
         return value;
+    }
+
+    static Object convertText(byte[] value, DataType targetType) {
+        if (targetType instanceof VariantType) {
+            return toVariant(value);
+        }
+        if (targetType instanceof BinaryType || targetType instanceof VarBinaryType) {
+            return value;
+        }
+        return BinaryString.fromBytes(value);
+    }
+
+    private static GenericVariant toVariant(byte[] json) {
+        return GenericVariant.fromJson(new String(json, StandardCharsets.UTF_8));
     }
 
     private GenericRow convertStructVector(

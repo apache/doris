@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -36,7 +36,6 @@ import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
-import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,20 +48,21 @@ import java.util.TreeMap;
  */
 public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+    private final PaimonWriteTarget writeTarget;
 
     public PhysicalPaimonTableSink(PaimonExternalDatabase database,
-                                    PaimonExternalTable targetTable,
+                                    PaimonWriteTarget writeTarget,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, writeTarget, cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.SINK_RANDOM_PARTITIONED, null, child);
     }
 
     public PhysicalPaimonTableSink(PaimonExternalDatabase database,
-                                    PaimonExternalTable targetTable,
+                                    PaimonWriteTarget writeTarget,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
@@ -70,23 +70,22 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PAIMON_TABLE_SINK, database, targetTable, cols, outputExprs,
+        super(PlanType.PHYSICAL_PAIMON_TABLE_SINK, database, writeTarget.getDorisTable(), cols, outputExprs,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.writeTarget = writeTarget;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, (PaimonExternalTable) targetTable,
-                cols, outputExprs, groupExpression,
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, (PaimonExternalTable) targetTable,
-                cols, outputExprs, groupExpression,
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -94,8 +93,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, (PaimonExternalTable) targetTable,
-                cols, outputExprs, groupExpression,
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
                 logicalProperties.get(), physicalProperties, statistics, children.get(0));
     }
 
@@ -103,14 +101,13 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
     public PhysicalPaimonTableSink<Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics stats) {
         return new PhysicalPaimonTableSink<>(
-                (PaimonExternalDatabase) database, (PaimonExternalTable) targetTable,
-                cols, outputExprs, groupExpression,
+                (PaimonExternalDatabase) database, writeTarget, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, stats, child());
     }
 
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        FileStoreTable paimonTable = getWriteTable();
+        FileStoreTable paimonTable = writeTarget.getTable();
         if (requiresSingleWriter(paimonTable)) {
             return PhysicalProperties.GATHER;
         }
@@ -147,7 +144,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
      * unsupported.
      */
     public boolean requiresSingleWriter() {
-        return requiresSingleWriter(getWriteTable());
+        return requiresSingleWriter(writeTarget.getTable());
     }
 
     static boolean requiresSingleWriter(FileStoreTable paimonTable) {
@@ -171,12 +168,8 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                                 == CoreOptions.ChangelogProducer.FULL_COMPACTION);
     }
 
-    private FileStoreTable getWriteTable() {
-        Table paimonTable = ((PaimonExternalTable) targetTable)
-                .getPaimonTableForWrite();
-        Preconditions.checkState(paimonTable instanceof FileStoreTable,
-                "Paimon write requires a file store table");
-        return (FileStoreTable) paimonTable;
+    public PaimonWriteTarget getWriteTarget() {
+        return writeTarget;
     }
 
     @Override

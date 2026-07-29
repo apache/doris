@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.datasource.paimon.PaimonWriteBinding;
+import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.PaimonInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -53,6 +54,7 @@ import java.util.Set;
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
     private final PaimonExternalTable targetTable;
+    private final PaimonWriteTarget writeTarget;
     private List<Expr> outputExprs;
     private List<Column> cols;
 
@@ -61,9 +63,10 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             add(TFileFormatType.FORMAT_PARQUET);
         }};
 
-    public PaimonTableSink(PaimonExternalTable targetTable) {
+    public PaimonTableSink(PaimonWriteTarget writeTarget) {
         super();
-        this.targetTable = targetTable;
+        this.writeTarget = writeTarget;
+        this.targetTable = writeTarget.getDorisTable();
     }
 
     public void setCols(List<Column> cols) {
@@ -102,7 +105,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         try {
             transaction = (PaimonTransaction) targetTable.getCatalog()
                     .getTransactionManager().getTransaction(ctx.getTxnId());
-            binding = PaimonWriteBinding.create(targetTable, ctx);
+            binding = PaimonWriteBinding.create(writeTarget, ctx);
         } catch (AnalysisException e) {
             throw e;
         } catch (UserException e) {

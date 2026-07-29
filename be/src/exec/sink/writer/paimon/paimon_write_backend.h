@@ -80,6 +80,13 @@ public:
     /// Create a lightweight writer adapter that delegates to this backend.
     virtual Status create_writer(std::unique_ptr<IPaimonWriter>* writer) = 0;
 
+    /// Stop all SDK users and release backend resources.
+    ///
+    /// A successful return is the ownership boundary after which native memory
+    /// backing SDK buffers can be reclaimed safely. Callers must not publish
+    /// prepared commit messages until this succeeds.
+    virtual Status close() = 0;
+
     virtual PaimonBackendType type() const = 0;
 };
 
