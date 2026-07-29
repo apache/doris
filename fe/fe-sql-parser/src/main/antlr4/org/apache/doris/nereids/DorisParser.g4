@@ -1668,7 +1668,8 @@ optScanParams
     ;
 
 relationPrimary
-    : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
+    : multipartIdentifier optScanParams? materializedViewName? tableSnapshot?
+       (specifiedPartition | maxVisiblePartition)?
        tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
@@ -2022,6 +2023,10 @@ qualifiedName
 specifiedPartition
     : TEMPORARY? PARTITION (identifier | identifierList)
     | TEMPORARY? PARTITIONS identifierList
+    ;
+
+maxVisiblePartition
+    : MAX_VISIBLE_PARTITION LEFT_PAREN RIGHT_PAREN
     ;
 
 constant
@@ -2411,6 +2416,7 @@ nonReserved
     | MATCH_NAME_GLOB
     | MATERIALIZED
     | MAX
+    | MAX_VISIBLE_PARTITION
     | MEMO
     | MERGE
     | MID

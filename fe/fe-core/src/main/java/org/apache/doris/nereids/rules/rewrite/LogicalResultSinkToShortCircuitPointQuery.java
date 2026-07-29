@@ -73,6 +73,9 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                 || !olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
             return false;
         }
+        if (ConnectContext.get().getStatementContext().hasMaxVisiblePartition()) {
+            return false;
+        }
         OlapTable olapTable = olapScan.getTable();
         // Remote Doris metadata refresh replaces the RemoteOlapTable instance. A prepared context retains the old
         // instance, so its table-local topology version cannot observe remote partition changes.

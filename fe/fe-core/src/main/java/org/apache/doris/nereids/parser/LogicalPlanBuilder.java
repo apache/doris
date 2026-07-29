@@ -2767,6 +2767,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
         List<String> partitionNames = new ArrayList<>();
         boolean isTempPart = false;
+        boolean isMaxVisiblePartition = ctx.maxVisiblePartition() != null;
         if (ctx.specifiedPartition() != null) {
             isTempPart = ctx.specifiedPartition().TEMPORARY() != null;
             if (ctx.specifiedPartition().identifier() != null) {
@@ -2819,7 +2820,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         UnboundRelation relation = new UnboundRelation(
                 StatementScopeIdGenerator.newRelationId(),
-                nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
+                nameParts, partitionNames, isTempPart, isMaxVisiblePartition, tabletIdLists, relationHints,
                 Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
 
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
