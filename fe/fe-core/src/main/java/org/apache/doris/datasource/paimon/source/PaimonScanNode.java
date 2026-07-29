@@ -411,11 +411,33 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
+            // use jni reader / paimon-cpp reader / paimon-rust reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
-            // until the C++ path has a split-aware V2 adapter.
-            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
-            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
+            // which only supports DataSplit. Any other split type falls back to JNI.
+            boolean nativeSplit = split instanceof DataSplit;
+            if (sessionVariable.isEnablePaimonRustReader() && nativeSplit) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
+            } else if (sessionVariable.isEnablePaimonCppReader() && nativeSplit) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_CPP);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
+            } else {
+                // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
+                // until the C++ path has a split-aware V2 adapter.
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            }
+            // Set table location for paimon-cpp / paimon-rust reader
+            String tableLocation = source.getTableLocation();
+            if (tableLocation != null) {
+                fileDesc.setPaimonTable(tableLocation);
+            }
+            // paimon-rust reader needs db/table to open the table through the catalog.
+            if (sessionVariable.isEnablePaimonRustReader()) {
+                fileDesc.setDbName(source.getExternalTable().getDbName());
+                fileDesc.setTableName(source.getExternalTable().getName());
+            }
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader

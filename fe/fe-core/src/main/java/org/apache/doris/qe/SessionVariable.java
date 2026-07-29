@@ -809,6 +809,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
 
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -3056,6 +3058,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
     private boolean enablePaimonCppReader = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_RUST_READER,
+            fuzzy = true,
+            description = {"Paimon 非原生文件读取使用 paimon-rust,优先级高于 paimon-cpp",
+                    "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
+    private boolean enablePaimonRustReader = false;
+
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -3972,6 +3980,7 @@ public class SessionVariable implements Serializable, Writable {
         // jni
         this.forceJniScanner = random.nextBoolean();
         this.enablePaimonCppReader = random.nextBoolean();
+        this.enablePaimonRustReader = random.nextBoolean();
 
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
@@ -5715,6 +5724,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -6514,6 +6524,10 @@ public class SessionVariable implements Serializable, Writable {
         return enablePaimonCppReader;
     }
 
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
+    }
+
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6539,6 +6553,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnablePaimonCppReader(boolean enable) {
         enablePaimonCppReader = enable;
+    }
+
+    public void setEnablePaimonRustReader(boolean enable) {
+        enablePaimonRustReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {
