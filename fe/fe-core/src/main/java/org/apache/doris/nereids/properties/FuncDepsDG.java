@@ -219,6 +219,25 @@ public class FuncDepsDG {
             }
         }
 
+        /**
+         * Add FD edges from the nullable side of an outer join. Only keep edges whose
+         * determinant slots are all NOT NULL in the original child: matched rows always
+         * carry a non-null determinant, while unmatched rows contribute (NULL, NULL),
+         * so they cannot collide. Edges with a nullable determinant are dropped because
+         * a matched row with determinant=NULL could conflict with an unmatched (NULL, NULL).
+         */
+        public void addDepsForOuterJoinNullableSide(FuncDepsDG funcDepsDG) {
+            for (DGItem dgItem : funcDepsDG.dgItems) {
+                boolean allNotNull = dgItem.slots.stream().allMatch(slot -> !slot.nullable());
+                if (!allNotNull) {
+                    continue;
+                }
+                for (int childIdx : dgItem.children) {
+                    addDeps(dgItem.slots, funcDepsDG.dgItems.get(childIdx).slots);
+                }
+            }
+        }
+
         public void replace(Map<Slot, Slot> replaceSlotMap) {
             for (DGItem item : dgItems) {
                 item.replace(replaceSlotMap);

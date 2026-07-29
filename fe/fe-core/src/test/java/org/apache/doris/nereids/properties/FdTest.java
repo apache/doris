@@ -46,6 +46,13 @@ class FdTest extends TestWithFeService {
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
+        createTable("create table test.nullable_uni (\n"
+                + "id int,\n"
+                + "id2 int not null,\n"
+                + "name varchar(128) not null)\n"
+                + "UNIQUE KEY(id)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -147,37 +154,69 @@ class FdTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(1)), ImmutableSet.of(plan.getOutput().get(2))));
 
-        // foj: both sides nullable, FDs from neither side propagate
+        // foj: both sides nullable — keep FDs with NOT NULL determinants
         plan = PlanChecker.from(connectContext)
                 .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
                         + "from uni as t1 full outer join uni as t2 on t1.id2 = t2.id2")
                 .rewrite()
                 .getPlan();
-        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+        // t1.id is NOT NULL, so {t1.id} -> {t1.id2} survives null extension
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
-        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+        // t2.id is NOT NULL, so {t2.id} -> {t2.id2} survives null extension
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
 
-        // loj: left side preserved, right side nullable — only left FDs propagate
+        // loj: left side preserved, right side nullable — only NOT NULL-determinant FDs from right propagate
         plan = PlanChecker.from(connectContext)
                 .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
                         + "from uni as t1 left outer join uni as t2 on t1.id2 = t2.id2")
                 .rewrite()
                 .getPlan();
+        // t1.id is NOT NULL, left side always preserved
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
-        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+        // t2.id is NOT NULL, so {t2.id} -> {t2.id2} survives null extension
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
 
-        // roj: right side preserved, left side nullable — only right FDs propagate
+        // roj: right side preserved, left side nullable — only NOT NULL-determinant FDs from left propagate
         plan = PlanChecker.from(connectContext)
                 .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
                         + "from uni as t1 right outer join uni as t2 on t1.id2 = t2.id2")
                 .rewrite()
                 .getPlan();
-        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
-                .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
+        // t1.id is NOT NULL, so {t1.id} -> {t1.id2} survives null extension
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
+        // t2.id is NOT NULL, right side always preserved
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
+
+        // loj with nullable determinant: FD should be dropped
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
+                        + "from uni as t1 left outer join nullable_uni as t2 on t1.id2 = t2.id2")
+                .rewrite()
+                .getPlan();
+        // t1 side preserved
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
+        // t2.id is nullable, so {t2.id} -> {t2.id2} should be dropped
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
+                .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
+
+        // foj with nullable determinant on one side
+        plan = PlanChecker.from(connectContext)
+                .analyze("select t1.id, t1.id2, t2.id, t2.id2 "
+                        + "from uni as t1 full outer join nullable_uni as t2 on t1.id2 = t2.id2")
+                .rewrite()
+                .getPlan();
+        // t1.id is NOT NULL, so {t1.id} -> {t1.id2} survives
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+                .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
+        // t2.id is nullable, so {t2.id} -> {t2.id2} should be dropped
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(2)), ImmutableSet.of(plan.getOutput().get(3))));
     }
 

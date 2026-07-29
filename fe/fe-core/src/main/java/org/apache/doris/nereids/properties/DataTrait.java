@@ -237,6 +237,15 @@ public class DataTrait {
             fdDgBuilder.addDeps(fd.fdDg);
         }
 
+        /**
+         * Add FDs from the nullable side of an outer join, filtering out edges whose
+         * determinant may be NULL in the original child — those would be invalidated
+         * by null-extension of unmatched rows.
+         */
+        public void addFuncDepsDGForOuterJoinNullableSide(DataTrait fd) {
+            fdDgBuilder.addDepsForOuterJoinNullableSide(fd.fdDg);
+        }
+
         /**add Dependency relation for dominate and dependency*/
         public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
             if (dominate.isEmpty() || dependency.isEmpty()) {
