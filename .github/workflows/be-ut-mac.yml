@@ -113,14 +113,18 @@ jobs:
           "${CUSTOM_CMAKE}" --version
           pushd thirdparty
           branch="${{ github.base_ref }}"
+          asset="doris-thirdparty-prebuilt-darwin-x86_64.tar.xz"
+          common_url="https://github.com/apache/doris-thirdparty/releases/download/automation/${asset}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -fL "${common_url}" -o "${asset}"
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            branch_url="https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/${asset}"
+            if ! curl -fL "${branch_url}" -o "${asset}"; then
+              echo "::warning::No branch-specific macOS thirdparty asset for ${branch}; using automation"
+              curl -fL "${common_url}" -o "${asset}"
+            fi
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf "${asset}"
 
           # Rebuild the Arrow/Paimon stack when its inputs change or the shared
           # prebuilt predates the selected Arrow version/component closure.
