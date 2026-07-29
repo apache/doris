@@ -47,6 +47,7 @@
 #include <mutex>
 #include <orc/Exceptions.hh>
 #include <ostream>
+#include <unordered_map>
 
 #include "absl/strings/substitute.h"
 #include "common/config.h"
@@ -580,6 +581,8 @@ public:
         static Lz4HCBlockCompression s_instance;
         return &s_instance;
     }
+    Lz4HCBlockCompression() = default;
+    explicit Lz4HCBlockCompression(int level) : _compression_level(level) {}
     ~Lz4HCBlockCompression() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
@@ -659,10 +662,20 @@ private:
             if (localCtx.get() == nullptr) {
                 return Status::InvalidArgument("new LZ4HC context error");
             }
-            localCtx->ctx = LZ4_createStreamHC();
+            // Allocate the native stream under the compression tracker so its
+            // creation and the destructor's LZ4_freeStreamHC() hit the same tracker.
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->block_compression_mem_tracker());
+                localCtx->ctx = LZ4_createStreamHC();
+            }
             if (localCtx->ctx == nullptr) {
                 return Status::InvalidArgument("LZ4_createStreamHC error");
             }
+            // A newly created stream defaults to the library's default level, so
+            // apply the requested level here; otherwise the first page compressed
+            // by this context would ignore the configured level.
+            LZ4_resetStreamHC_fast(localCtx->ctx, static_cast<int>(_compression_level));
             out = std::move(localCtx);
             return Status::OK();
         }
@@ -1077,6 +1090,8 @@ public:
         static ZstdBlockCompression s_instance;
         return &s_instance;
     }
+    ZstdBlockCompression() = default;
+    explicit ZstdBlockCompression(int level) : _compression_level(level) {}
     ~ZstdBlockCompression() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
@@ -1123,9 +1138,8 @@ public:
                 compressed_buf.size = max_len;
             }
 
-            // set compression level to default 3
             auto ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel,
-                                              ZSTD_CLEVEL_DEFAULT);
+                                              _compression_level);
             if (ZSTD_isError(ret)) {
                 return Status::InvalidArgument("ZSTD_CCtx_setParameter compression level error: {}",
                                                ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
@@ -1215,7 +1229,13 @@ private:
                 return Status::InvalidArgument("failed to new ZSTD CContext");
             }
             //typedef LZ4F_cctx* LZ4F_compressionContext_t;
-            localCtx->ctx = ZSTD_createCCtx();
+            // Allocate the native context under the compression tracker so its
+            // creation and the destructor's ZSTD_freeCCtx() hit the same tracker.
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->block_compression_mem_tracker());
+                localCtx->ctx = ZSTD_createCCtx();
+            }
             if (localCtx->ctx == nullptr) {
                 return Status::InvalidArgument("Failed to create ZSTD compress ctx");
             }
@@ -1262,6 +1282,7 @@ private:
     }
 
 private:
+    int _compression_level = ZSTD_CLEVEL_DEFAULT;
     mutable std::mutex _ctx_c_mutex;
     mutable std::vector<std::unique_ptr<CContext>> _ctx_c_pool;
 
@@ -1613,6 +1634,84 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
     }
 
     return Status::OK();
+}
+
+// Process-wide registry of level-aware codecs, keyed by (type, level). All
+// column writers that request the same codec+level share one instance, so its
+// internal context pool is reused according to actual write concurrency rather
+// than allocated once per column. Instances live for the process lifetime (like
+// the type-only singletons above), so their native contexts are never torn down
+// per segment.
+namespace {
+class LeveledCompressionCodecPool {
+public:
+    static LeveledCompressionCodecPool& instance() {
+        static LeveledCompressionCodecPool s_instance;
+        return s_instance;
+    }
+
+    Status get(segment_v2::CompressionTypePB type, int level, BlockCompressionCodec** codec) {
+        const int64_t key = (static_cast<int64_t>(type) << 32) | static_cast<uint32_t>(level);
+        {
+            std::lock_guard<std::mutex> l(_mutex);
+            auto it = _codecs.find(key);
+            if (it != _codecs.end()) {
+                *codec = it->second.get();
+                return Status::OK();
+            }
+        }
+
+        // Build the instance outside the lock; init() may allocate native state.
+        std::unique_ptr<BlockCompressionCodec> instance;
+        switch (type) {
+        case segment_v2::CompressionTypePB::ZSTD:
+            instance = std::make_unique<ZstdBlockCompression>(level);
+            break;
+        case segment_v2::CompressionTypePB::LZ4HC:
+            instance = std::make_unique<Lz4HCBlockCompression>(level);
+            break;
+        default:
+            return Status::InternalError("compression type({}) is not level-aware", type);
+        }
+        RETURN_IF_ERROR(instance->init());
+
+        std::lock_guard<std::mutex> l(_mutex);
+        // Another thread may have inserted the same key while we were building.
+        auto [it, inserted] = _codecs.try_emplace(key, std::move(instance));
+        *codec = it->second.get();
+        return Status::OK();
+    }
+
+    // Test hook: drop all pooled instances so a fresh test observes a clean pool.
+    void clear() {
+        std::lock_guard<std::mutex> l(_mutex);
+        _codecs.clear();
+    }
+
+private:
+    std::mutex _mutex;
+    std::unordered_map<int64_t, std::unique_ptr<BlockCompressionCodec>> _codecs;
+};
+} // namespace
+
+Status get_block_compression_codec(segment_v2::CompressionTypePB type, int level,
+                                   BlockCompressionCodec** codec) {
+    // level <= 0 means "use codec default" -> fall back to the stateless singleton path.
+    if (level <= 0) {
+        return get_block_compression_codec(type, codec);
+    }
+    switch (type) {
+    case segment_v2::CompressionTypePB::ZSTD:
+    case segment_v2::CompressionTypePB::LZ4HC:
+        return LeveledCompressionCodecPool::instance().get(type, level, codec);
+    default:
+        // types without a tunable level ignore it and use the singleton
+        return get_block_compression_codec(type, codec);
+    }
+}
+
+void clear_leveled_compression_codec_pool_for_test() {
+    LeveledCompressionCodecPool::instance().clear();
 }
 
 // this can only be used in hive text write

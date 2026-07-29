@@ -1552,6 +1552,7 @@ columnDef
            | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
+        (COMPRESSION compression=STRING_LITERAL)?
     ;
 
 columnDefWithPath
@@ -2065,6 +2066,7 @@ nonReserved
     | COMMITTED
     | COMPACT
     | COMPLETE
+    | COMPRESSION
     | COMPRESS_TYPE
     | COMPUTE
     | CONDITIONS

@@ -1022,6 +1022,12 @@ public class SchemaChangeHandler extends AlterHandler {
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
+                    // compression-only change: the per-column codec is per-segment metadata,
+                    // old segments stay readable with their original codec and the new codec
+                    // applies to new data, so no data rewrite is needed.
+                    if (columnPos == null && col.equalsIgnoreCompression(modColumn)) {
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
                     }
@@ -1933,8 +1939,11 @@ public class SchemaChangeHandler extends AlterHandler {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(partitionCol.getName(), true)) {
-                            // 2.1 partition column cannot be modified
-                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
+                            // 2.1 partition column cannot be modified.
+                            // A compression-only delta is per-segment metadata and does not affect
+                            // partitioning, so it is allowed; use equalsIgnoreCompression here.
+                            if (needAlterColumns.contains(alterColumn)
+                                    && !alterColumn.equalsIgnoreCompression(partitionCol)) {
                                 throw new DdlException(
                                         "Can not modify partition column[" + partitionCol.getName() + "]. index["
                                                 + olapTable.getIndexNameById(alterIndexId) + "]");
@@ -1963,8 +1972,11 @@ public class SchemaChangeHandler extends AlterHandler {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(distributionCol.getName(), true)) {
-                            // 3.1 distribution column cannot be modified
-                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(distributionCol)) {
+                            // 3.1 distribution column cannot be modified.
+                            // A compression-only delta does not affect hash distribution/routing,
+                            // so it is allowed; use equalsIgnoreCompression here.
+                            if (needAlterColumns.contains(alterColumn)
+                                    && !alterColumn.equalsIgnoreCompression(distributionCol)) {
                                 throw new DdlException(
                                         "Can not modify distribution column[" + distributionCol.getName() + "]. index["
                                                 + olapTable.getIndexNameById(alterIndexId) + "]");

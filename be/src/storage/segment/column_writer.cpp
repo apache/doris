@@ -486,7 +486,10 @@ ScalarColumnWriter::~ScalarColumnWriter() {
 }
 
 Status ScalarColumnWriter::init() {
-    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
+    RETURN_IF_ERROR(get_block_compression_codec(
+            _opts.meta->compression(),
+            _opts.meta->has_compression_level() ? _opts.meta->compression_level() : 0,
+            &_compress_codec));
 
     PageBuilder* page_builder = nullptr;
 

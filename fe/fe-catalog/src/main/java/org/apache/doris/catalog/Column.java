@@ -24,6 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -183,6 +184,11 @@ public class Column implements GsonPostProcessable {
 
     @SerializedName(value = "clusterKeyId")
     private int clusterKeyId = -1;
+
+    @SerializedName(value = "compressionType")
+    private TCompressionType compressionType = null;
+    @SerializedName(value = "compressionLevel")
+    private int compressionLevel = -1;
 
     private boolean isCompoundKey = false;
 
@@ -389,6 +395,8 @@ public class Column implements GsonPostProcessable {
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
         this.sessionVariables = column.sessionVariables;
+        this.compressionType = column.compressionType;
+        this.compressionLevel = column.compressionLevel;
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -828,6 +836,23 @@ public class Column implements GsonPostProcessable {
         return clusterKeyId;
     }
 
+    public void setCompression(TCompressionType compressionType, int compressionLevel) {
+        this.compressionType = compressionType;
+        this.compressionLevel = compressionLevel;
+    }
+
+    public TCompressionType getCompressionType() {
+        return compressionType;
+    }
+
+    public int getCompressionLevel() {
+        return compressionLevel;
+    }
+
+    public boolean hasCompressionOverride() {
+        return compressionType != null;
+    }
+
     public String toSql() {
         return toSql(false, false);
     }
@@ -880,6 +905,14 @@ public class Column implements GsonPostProcessable {
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
+        if (compressionType != null) {
+            String algo = compressionType.name().toLowerCase();
+            if (compressionLevel > 0) {
+                sb.append(" COMPRESSION \"").append(algo).append(":").append(compressionLevel).append("\"");
+            } else {
+                sb.append(" COMPRESSION \"").append(algo).append("\"");
+            }
+        }
         return sb.toString();
     }
 
@@ -892,7 +925,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
-                realDefaultValue, clusterKeyId);
+                realDefaultValue, clusterKeyId, compressionType, compressionLevel);
     }
 
     @Override
@@ -906,6 +939,23 @@ public class Column implements GsonPostProcessable {
 
         Column other = (Column) obj;
 
+        return equalsIgnoreCompression(other)
+                && Objects.equals(compressionType, other.compressionType)
+                && compressionLevel == other.compressionLevel;
+    }
+
+    // Compare all attributes except the per-column compression codec/level. The codec is
+    // per-segment metadata that only affects how bytes are packed on disk; it does not change a
+    // column's logical shape, routing, or partitioning. Guards that only care about "did the
+    // column change in a way that requires a data rewrite or is illegal on a key column" should
+    // use this and treat a compression-only delta separately.
+    public boolean equalsIgnoreCompression(Column other) {
+        if (other == this) {
+            return true;
+        }
+        if (other == null) {
+            return false;
+        }
         return name.equalsIgnoreCase(other.name)
                 && Objects.equals(getDefaultValue(), other.getDefaultValue())
                 && Objects.equals(aggregationType, other.aggregationType)

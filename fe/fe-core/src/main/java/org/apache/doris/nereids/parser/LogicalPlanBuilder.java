@@ -4250,8 +4250,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<GeneratedColumnDesc> desc = ctx.generatedExpr != null
                 ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
                 : Optional.empty();
-        return new ColumnDefinition(colName, colType, isKey, aggType, nullableType, autoIncInitValue, defaultValue,
-                onUpdateDefaultValue, comment, ctx.comment != null, true, desc);
+        ColumnDefinition columnDef = new ColumnDefinition(colName, colType, isKey, aggType, nullableType,
+                autoIncInitValue, defaultValue, onUpdateDefaultValue, comment, ctx.comment != null, true, desc);
+        if (ctx.compression != null) {
+            String rawCompression = ctx.compression.getText();
+            // strip surrounding quotes from the string literal
+            String compressionSpec = rawCompression.substring(1, rawCompression.length() - 1);
+            try {
+                columnDef.setCompressionSpec(compressionSpec);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
+        return columnDef;
     }
 
     @Override

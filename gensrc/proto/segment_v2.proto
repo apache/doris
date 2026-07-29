@@ -232,6 +232,8 @@ message ColumnMetaPB {
     optional uint64 uncompressed_data_bytes = 25;
     optional uint64 raw_data_bytes = 26;
     optional bool variant_enable_doc_mode = 27 [default = false];
+    // per-column generic compression level (e.g. ZSTD/LZ4HC). Absent => codec default level.
+    optional int32 compression_level = 28;
 }
 
 // External column meta entry describing one top-level column's externalized

@@ -93,6 +93,12 @@ public class ColumnToThrift {
         // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
         // If we need to use `defineExpr` and call defineExpr.treeToThrift(),
         // make sure it is analyzed, or NPE will thrown.
+        if (column.hasCompressionOverride()) {
+            tColumn.setCompressionType(column.getCompressionType().getValue());
+            if (column.getCompressionLevel() > 0) {
+                tColumn.setCompressionLevel(column.getCompressionLevel());
+            }
+        }
         return tColumn;
     }
 
