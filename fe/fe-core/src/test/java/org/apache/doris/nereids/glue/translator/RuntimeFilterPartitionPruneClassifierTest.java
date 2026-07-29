@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TTargetExprMonotonicity;
 
@@ -210,6 +212,20 @@ class RuntimeFilterPartitionPruneClassifierTest {
     }
 
     @Test
+    void testDerivedRollupRejectsInheritedAggregateMvDefinition() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(1);
+        Column inheritedMvColumn = createSyncMvColumn("sum_part_col", 1, partitionColumn);
+
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.MIN_MAX, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
+                partitionColumn, inheritedMvColumn, 2L, false);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("not a partition column"));
+    }
+
+    @Test
     void testOrdinaryRollupRejectsCrossIndexUniqueIdCollision() {
         Column partitionColumn = new Column("part_col", PrimitiveType.INT);
         partitionColumn.setUniqueId(1);
@@ -281,7 +297,16 @@ class RuntimeFilterPartitionPruneClassifierTest {
             TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
             Column partitionColumn, Column targetColumn, long selectedIndexId) {
         return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
-                selectedIndexId, targetSlot -> targetSlot, targetSlot -> targetSlot);
+                selectedIndexId, true);
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
+            Column partitionColumn, Column targetColumn, long selectedIndexId,
+            boolean selectedIndexHasDefineStmt) {
+        return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
+                selectedIndexId, selectedIndexHasDefineStmt,
+                targetSlot -> targetSlot, targetSlot -> targetSlot);
     }
 
     private RuntimeFilterPartitionPruneClassifier.Classification classify(
@@ -290,12 +315,13 @@ class RuntimeFilterPartitionPruneClassifierTest {
             Function<SlotRef, Expr> legacyTargetFactory,
             Function<SlotReference, Expression> nereidsTargetFactory) {
         return classify(filterType, partitionType, partitionItem, partitionColumn, targetColumn,
-                1L, legacyTargetFactory, nereidsTargetFactory);
+                1L, false, legacyTargetFactory, nereidsTargetFactory);
     }
 
     private RuntimeFilterPartitionPruneClassifier.Classification classify(
             TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
             Column partitionColumn, Column targetColumn, long selectedIndexId,
+            boolean selectedIndexHasDefineStmt,
             Function<SlotRef, Expr> legacyTargetFactory,
             Function<SlotReference, Expression> nereidsTargetFactory) {
         SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(1), new TupleId(1));
@@ -312,6 +338,12 @@ class RuntimeFilterPartitionPruneClassifierTest {
         Mockito.when(scanNode.getSelectedPartitionIds()).thenReturn(ImmutableList.of(1L, 2L));
         Mockito.when(table.getBaseIndexId()).thenReturn(1L);
         Mockito.when(table.getPartitionInfo()).thenReturn(partitionInfo);
+        MaterializedIndexMeta selectedIndexMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(table.getIndexMetaByIndexId(selectedIndexId)).thenReturn(selectedIndexMeta);
+        if (selectedIndexHasDefineStmt) {
+            Mockito.when(selectedIndexMeta.getDefineStmt())
+                    .thenReturn(new OriginStatement("CREATE MATERIALIZED VIEW", 0));
+        }
         Mockito.when(partitionInfo.getType()).thenReturn(partitionType);
         Mockito.when(partitionInfo.getPartitionColumns()).thenReturn(ImmutableList.of(partitionColumn));
         Mockito.when(partitionInfo.getItem(1L)).thenReturn(partitionItem);

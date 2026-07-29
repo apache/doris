@@ -1783,7 +1783,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql """
         CREATE TABLE rf_prune_aggregate_mv_fact (
             grp INT NOT NULL,
-            k INT NOT NULL
+            k BIGINT NOT NULL
         ) DUPLICATE KEY(grp, k)
         PARTITION BY RANGE(k) (
             PARTITION p0 VALUES [(0),(10)),
@@ -1829,6 +1829,53 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "count(*), coalesce(sum(f.sum_k), 0) "
                 + "FROM (SELECT sum_k FROM rf_prune_aggregate_mv_fact "
                 + "INDEX rf_prune_aggregate_mv_sum) f "
+                + "JOIN [broadcast] (SELECT value FROM rf_prune_rollup_value_dim "
+                + "WHERE scenario = 'aggregate') d ON f.sum_k = d.value",
+        "MIN_MAX")
+
+    // A rollup derived from the aggregate MV inherits sum_k's SlotRef(k)
+    // definition, while DUP KEY conversion clears its SUM marker. It must
+    // still be rejected because the selected rollup does not define that
+    // value-preserving lineage itself.
+    sql """
+        ALTER TABLE rf_prune_aggregate_mv_fact
+        ADD ROLLUP rf_prune_aggregate_rollup_sum(sum_k)
+        FROM rf_prune_aggregate_mv_sum
+    """
+    waitingMVTaskFinishedByMvName(
+        context.dbName, "rf_prune_aggregate_mv_fact", "rf_prune_aggregate_rollup_sum")
+    sql "sync"
+
+    explain {
+        verbose true
+        sql """
+            SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+                COUNT(*), COALESCE(SUM(f.sum_k), 0)
+            FROM (
+                SELECT sum_k
+                FROM rf_prune_aggregate_mv_fact INDEX rf_prune_aggregate_rollup_sum
+            ) f
+            JOIN [broadcast] (
+                SELECT value FROM rf_prune_rollup_value_dim WHERE scenario = 'aggregate'
+            ) d ON f.sum_k = d.value
+        """
+        contains "rf_prune_aggregate_mv_fact(rf_prune_aggregate_rollup_sum)"
+    }
+    order_qt_derived_rollup_inherited_mv_definition_not_alias """
+        SELECT /*+ SET_VAR(runtime_filter_type='MIN_MAX') */
+            COUNT(*), COALESCE(SUM(f.sum_k), 0)
+        FROM (
+            SELECT sum_k
+            FROM rf_prune_aggregate_mv_fact INDEX rf_prune_aggregate_rollup_sum
+        ) f
+        JOIN [broadcast] (
+            SELECT value FROM rf_prune_rollup_value_dim WHERE scenario = 'aggregate'
+        ) d ON f.sum_k = d.value
+    """
+    assertNoPartitionPruningProfile(
+        "count(*), coalesce(sum(f.sum_k), 0) "
+                + "FROM (SELECT sum_k FROM rf_prune_aggregate_mv_fact "
+                + "INDEX rf_prune_aggregate_rollup_sum) f "
                 + "JOIN [broadcast] (SELECT value FROM rf_prune_rollup_value_dim "
                 + "WHERE scenario = 'aggregate') d ON f.sum_k = d.value",
         "MIN_MAX")

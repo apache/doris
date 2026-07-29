@@ -153,3 +153,6 @@ Beijing	3
 
 -- !aggregate_mv_not_alias --
 1	13
+
+-- !derived_rollup_inherited_mv_definition_not_alias --
+1	13

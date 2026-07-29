@@ -42,6 +42,9 @@ public final class RuntimeFilterPartitionColumnResolver {
         OlapTable table = scanNode.getOlapTable();
         List<Column> partitionColumns = table.getPartitionInfo().getPartitionColumns();
         if (targetColumn.isMaterializedViewColumn()) {
+            if (table.getIndexMetaByIndexId(scanNode.getSelectedIndexId()).getDefineStmt() == null) {
+                return -1;
+            }
             if (targetColumn.isAggregated()) {
                 return -1;
             }
