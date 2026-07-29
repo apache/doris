@@ -2449,7 +2449,7 @@ public class DynamicPartitionTableTest {
             // implementation, not just for 16 hours of the day.
             ZonedDateTime fixedNow = ZonedDateTime.of(
                     2026, 7, 21, 8, 0, 0, 0, ZoneOffset.UTC);
-            Mockito.doReturn(fixedNow).when(spyScheduler).getNow(Mockito.any());
+            Mockito.doReturn(fixedNow).when(spyScheduler).getNow(Mockito.anyBoolean(), Mockito.any());
             schedulerField.set(Env.getCurrentEnv(), spyScheduler);
 
             String createOlapTblStmt = "CREATE TABLE test.`tstz_drop_cutoff` (\n"

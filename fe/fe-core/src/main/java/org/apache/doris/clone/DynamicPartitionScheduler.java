@@ -105,11 +105,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private static final long SLEEP_PIECE = 5000L;
 
-    /** Test-only: when non-null overrides the clock in both add and drop
-     *  paths so tests can reproduce time-sensitive scenarios deterministically. */
-    @VisibleForTesting
-    public static volatile ZonedDateTime testNow;
-
     private Map<Long, Map<String, String>> runtimeInfos = Maps.newConcurrentMap();
     private Set<Pair<Long, Long>> dynamicPartitionTableInfo = Sets.newConcurrentHashSet();
     private boolean initialize;
@@ -176,8 +171,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      *  this to control time-sensitive partition scheduling behavior, or
      *  set {@link #testNow} directly for static clock control. */
     @VisibleForTesting
-    public ZonedDateTime getNow(ZoneId zoneId) {
-        return testNow != null ? testNow : ZonedDateTime.now(zoneId);
+    public ZonedDateTime getNow(boolean isTimestampTz, ZoneId zoneId) {
+        ZonedDateTime nowTz = ZonedDateTime.now(zoneId);
+        return isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
     }
 
     // exponential moving average
@@ -303,8 +299,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // For TIMESTAMPTZ, both partition boundaries and names are UTC-based
         // (00:00—24:00 in UTC). This keeps partition names and values consistent.
         boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
-        ZonedDateTime nowTz = getNow(dynamicPartitionProperty.getTimeZone().toZoneId());
-        ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
+        ZonedDateTime now = getNow(isTimestampTz, dynamicPartitionProperty.getTimeZone().toZoneId());
         TimeZone borderTimeZone = isTimestampTz
                 ? TimeUtils.getUTCTimeZone()
                 : dynamicPartitionProperty.getTimeZone();
@@ -567,8 +562,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // For TIMESTAMPTZ, use UTC clock so the drop cutoff aligns with the
         // UTC-midnight partition boundaries created by getAddPartitionOp().
         boolean isTimestampTz = partitionColumn.getDataType() == PrimitiveType.TIMESTAMPTZ;
-        ZonedDateTime nowTz = getNow(dynamicPartitionProperty.getTimeZone().toZoneId());
-        ZonedDateTime now = isTimestampTz ? nowTz.withZoneSameInstant(ZoneOffset.UTC) : nowTz;
+        ZonedDateTime now = getNow(isTimestampTz, dynamicPartitionProperty.getTimeZone().toZoneId());
         TimeZone borderTimeZone = isTimestampTz
                 ? TimeUtils.getUTCTimeZone()
                 : dynamicPartitionProperty.getTimeZone();
