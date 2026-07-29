@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.InsertLoadJob;
@@ -109,12 +110,13 @@ public abstract class AbstractInsertExecutor {
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId, boolean needRegister) {
         this.ctx = ctx;
         this.database = table.getDatabase();
-        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
+        this.insertLoadJob = new InsertLoadJob(database.getId(), table.getId(), database.getFullName(),
+                table.getName(), labelName, jobId, ctx.queryId(), ctx.getCurrentUserIdentity());
+        this.coordinator = EnvFactory.getInstance().createCoordinator(
+                ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         if (needRegister) {
             ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
         }
-        this.coordinator = EnvFactory.getInstance().createCoordinator(
-                ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         this.labelName = labelName;
         this.table = table;
         this.insertCtx = insertCtx;
@@ -188,6 +190,12 @@ public abstract class AbstractInsertExecutor {
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        while (DebugPointUtil.isEnable("AbstractInsertExecutor.execImpl.blockBeforeCoordinatorExec")) {
+            Thread.sleep(100);
+        }
+        if (insertLoadJob.isCancelled()) {
+            ErrorReport.reportDdlException("Insert load job was cancelled before execution");
+        }
         executor.updateProfile(false);
         coordinator.exec();
         executor.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
