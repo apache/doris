@@ -110,6 +110,9 @@ Infinity	Infinity	Infinity
 -- !sql_float_fe --
 NaN	NaN	NaN
 
+-- !sql_float_fe --
+1.262177448353619e-29	1.26217745E-29	1.2621775e-29
+
 -- !sql_float_be --
 0.0	0.0	0
 
@@ -221,6 +224,9 @@ Infinity	Infinity	Infinity
 -- !sql_float_be --
 NaN	NaN	NaN
 
+-- !sql_float_be --
+1.262177448353619e-29	1.26217745E-29	1.2621775e-29
+
 -- !sql_float_to_string --
 0	0.0	0
 1	-0.0	-0
@@ -259,6 +265,7 @@ NaN	NaN	NaN
 34	-Infinity	-Infinity
 35	Infinity	Infinity
 36	NaN	NaN
+37	1.26217745E-29	1.2621775e-29
 
 -- !sql_double_fe --
 0.0	0	0
@@ -395,6 +402,9 @@ Infinity	Infinity	Infinity
 -- !sql_double_fe --
 NaN	NaN	NaN
 
+-- !sql_double_fe --
+5.9604644775390625e-08	5.960464477539063e-08	5.960464477539063e-08
+
 -- !sql_double_be --
 0.0	0	0
 
@@ -529,6 +539,9 @@ Infinity	Infinity	Infinity
 
 -- !sql_double_be --
 NaN	NaN	NaN
+
+-- !sql_double_be --
+5.9604644775390625e-08	5.960464477539063e-08	5.960464477539063e-08
 
 -- !sql_double_to_string --
 0	0	0
@@ -576,4 +589,5 @@ NaN	NaN	NaN
 42	Infinity	Infinity
 43	-Infinity	-Infinity
 44	NaN	NaN
+45	5.960464477539063e-08	5.960464477539063e-08
 

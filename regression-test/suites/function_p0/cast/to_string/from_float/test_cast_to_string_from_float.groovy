@@ -28,7 +28,7 @@ suite("test_cast_to_string_from_float") {
         "0.1234567", "0.123456789",
         "1234567890123456.12345", "12345678901234567.12345",
         "1.175494e-38", "-3.402823e+38", "1.401298e-45", "3.402823e+38",
-        "-Infinity", "Infinity", "NaN"
+        "-Infinity", "Infinity", "NaN", "1.262177448353619e-29"
     ]
 
     sql """set debug_skip_fold_constant = "false";"""
@@ -107,7 +107,8 @@ suite("test_cast_to_string_from_float") {
         "1.797693134862316e+308",
         "Infinity",
         "-Infinity",
-        "NaN"
+        "NaN",
+        "5.9604644775390625e-08"
     ]
 
     sql """set debug_skip_fold_constant = "false";"""
