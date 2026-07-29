@@ -46,7 +46,7 @@ import java.util.function.Supplier;
  * {@link HadoopAuthenticator} and the op runs inside its {@code doAs}. This is REQUIRED because the plugin
  * bundles its own {@code hadoop-common} + {@code fe-kerberos} child-first, so the plugin's HDFS
  * {@code FileSystem} reads a DIFFERENT {@code UserGroupInformation} copy than the one the FE-injected
- * authenticator (built app-side by the fe-core {@code MetastoreProperties}) logs in — the app-side
+ * authenticator (built app-side, outside the plugin loader) logs in — the app-side
  * {@code doAs} therefore never reaches the plugin FileSystem, which falls back to SIMPLE auth. The connector
  * is the only party that knows which UGI copy its FileSystem uses, so it owns the auth: on the Kerberos path
  * we run the plugin {@code doAs} and DELIBERATELY do NOT also call {@code delegate.executeAuthenticated}

@@ -35,15 +35,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.sts.StsClient;
-import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -378,83 +370,6 @@ public final class StorageAdapter {
      */
     public AwsCredentialsProviderMode getAwsCredentialsProviderMode() {
         return s3CredentialsMode;
-    }
-
-    /**
-     * fe-core-only AWS SDK credentials accessor, mirroring the legacy typed classes'
-     * {@code getAwsCredentialsProvider()} overrides exactly: static (optionally session)
-     * credentials first for every S3-compatible dialect; the S3 provider adds assume-role and
-     * the v1/v2 chain selection per {@code Config.aws_credentials_provider_version};
-     * OSS/GCS/COS/OBS fall back to anonymous credentials when both AK and SK are blank;
-     * everything else (Minio/Ozone/Azure and non-S3 types) returns {@code null}.
-     */
-    public AwsCredentialsProvider getAwsCredentialsProvider() {
-        if (!(spi instanceof S3CompatibleFileSystemProperties)) {
-            return null;
-        }
-        S3CompatibleFileSystemProperties s3 = (S3CompatibleFileSystemProperties) spi;
-        AwsCredentialsProvider staticProvider = staticAwsCredentialsProvider(s3);
-        if ("S3".equals(providerKey)) {
-            return s3AwsCredentialsProvider(s3, staticProvider);
-        }
-        if (staticProvider != null) {
-            return staticProvider;
-        }
-        switch (providerKey) {
-            case "OSS":
-            case "GCS":
-            case "COS":
-            case "OBS":
-                // Align fe-core OSS/GCS/COS/OBS Properties: anonymous access when unauthenticated.
-                if (StringUtils.isBlank(s3.getAccessKey()) && StringUtils.isBlank(s3.getSecretKey())) {
-                    return AnonymousCredentialsProvider.create();
-                }
-                return null;
-            default:
-                return null;
-        }
-    }
-
-    /** Align fe-core AbstractS3CompatibleProperties.getAwsCredentialsProvider (static creds only). */
-    private static AwsCredentialsProvider staticAwsCredentialsProvider(S3CompatibleFileSystemProperties s3) {
-        if (StringUtils.isNotBlank(s3.getAccessKey()) && StringUtils.isNotBlank(s3.getSecretKey())) {
-            if (StringUtils.isEmpty(s3.getSessionToken())) {
-                return StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(s3.getAccessKey(), s3.getSecretKey()));
-            }
-            return StaticCredentialsProvider.create(AwsSessionCredentials.create(
-                    s3.getAccessKey(), s3.getSecretKey(), s3.getSessionToken()));
-        }
-        return null;
-    }
-
-    /** Align fe-core S3Properties.getAwsCredentialsProviderV1/V2 (assume-role + chain selection). */
-    private AwsCredentialsProvider s3AwsCredentialsProvider(S3CompatibleFileSystemProperties s3,
-            AwsCredentialsProvider staticProvider) {
-        if (staticProvider != null) {
-            return staticProvider;
-        }
-        boolean v2 = Config.aws_credentials_provider_version.equalsIgnoreCase("v2");
-        if (StringUtils.isNotBlank(s3.getRoleArn())) {
-            StsClient stsClient = StsClient.builder()
-                    .region(Region.of(s3.getRegion()))
-                    .credentialsProvider(v2
-                            ? AwsCredentialsProviderFactory.createV2(s3CredentialsMode, false)
-                            : InstanceProfileCredentialsProvider.create())
-                    .build();
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(s3.getRoleArn()).roleSessionName("aws-sdk-java-v2-fe");
-                        if (StringUtils.isNotBlank(s3.getExternalId())) {
-                            builder.externalId(s3.getExternalId());
-                        }
-                    }).build();
-        }
-        // For anonymous access (no credentials required) v1 uses the anonymous provider; v2
-        // delegates to the factory's default chain (which may include anonymous).
-        return v2 ? AwsCredentialsProviderFactory.createV2(s3CredentialsMode, true)
-                : AnonymousCredentialsProvider.create();
     }
 
     public String validateAndNormalizeUri(String uri) {
@@ -852,10 +767,9 @@ public final class StorageAdapter {
     }
 
     /**
-     * Value equality over (provider, raw properties, broker-name override), mirroring the legacy
-     * {@code ConnectionProperties.equals}: logically identical configurations must share one
-     * {@code FileSystemCache} key so equal-config rebinds (e.g. catalog property rollback)
-     * re-hit cached filesystems instead of duplicating them.
+     * Value equality over (provider, raw properties, broker-name override): logically identical
+     * configurations must share one {@code FileSystemCache} key so equal-config rebinds (e.g. catalog
+     * property rollback) re-hit cached filesystems instead of duplicating them.
      */
     @Override
     public boolean equals(Object other) {

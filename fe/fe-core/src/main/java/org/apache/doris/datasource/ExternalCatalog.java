@@ -64,8 +64,6 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -174,9 +172,6 @@ public abstract class ExternalCatalog
     // Map lowercase database names to actual remote database names for case-insensitive lookup
     private Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
 
-    private volatile Configuration cachedConf = null;
-    private byte[] confLock = new byte[0];
-
     private volatile boolean isInitializing = false;
 
     public ExternalCatalog() {
@@ -198,62 +193,6 @@ public abstract class ExternalCatalog
         if (executionAuthenticator == null) {
             executionAuthenticator = new ExecutionAuthenticator(){};
         }
-    }
-
-    /**
-     * Returns Hadoop-related properties as a plain Map.
-     * Connector plugins should use this instead of getConfiguration()
-     * and build their own Configuration internally when needed.
-     */
-    public Map<String, String> getHadoopProperties() {
-        Map<String, String> props = new java.util.HashMap<>(catalogProperty.getHadoopProperties());
-        if (ifNotSetFallbackToSimpleAuth()) {
-            props.putIfAbsent("ipc.client.fallback-to-simple-auth-allowed", "true");
-        }
-        return props;
-    }
-
-    /**
-     * @deprecated Use {@link #getHadoopProperties()} and build Configuration locally.
-     *             This method will be removed when connector SPI extraction is complete.
-     */
-    @Deprecated
-    public Configuration getConfiguration() {
-        // build configuration is costly, so we cache it.
-        if (cachedConf != null) {
-            return cachedConf;
-        }
-        synchronized (confLock) {
-            if (cachedConf != null) {
-                return cachedConf;
-            }
-            cachedConf = buildConf();
-            return cachedConf;
-        }
-    }
-
-    /**
-     * Builds a Hadoop Configuration from a properties map.
-     * Use this when you need a Configuration object from catalog properties.
-     */
-    public static Configuration buildHadoopConfiguration(Map<String, String> properties) {
-        Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
-    }
-
-    private Configuration buildConf() {
-        Configuration conf = new HdfsConfiguration();
-        if (ifNotSetFallbackToSimpleAuth()) {
-            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
-        }
-        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
     }
 
     /**
@@ -285,11 +224,6 @@ public abstract class ExternalCatalog
 
     public boolean getEnableMappingTimestampTz() {
         return catalogProperty.getEnableMappingTimestampTz();
-    }
-
-    // we need check auth fallback for kerberos or simple
-    public boolean ifNotSetFallbackToSimpleAuth() {
-        return catalogProperty.getOrDefault("ipc.client.fallback-to-simple-auth-allowed", "").isEmpty();
     }
 
     // Will be called when creating catalog(not replaying).
@@ -675,9 +609,6 @@ public abstract class ExternalCatalog
         synchronized (this) {
             this.objectCreated = false;
             this.initialized = false;
-            synchronized (this.confLock) {
-                this.cachedConf = null;
-            }
             this.lowerCaseToDatabaseName.clear();
             onClose();
         }
@@ -1109,7 +1040,6 @@ public abstract class ExternalCatalog
                 }
             }
         }
-        this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
         if (tableAutoAnalyzePolicy == null) {

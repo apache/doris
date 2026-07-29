@@ -32,8 +32,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * F14: pins {@link AwsCredentialsProviderModes} — the connector's self-contained twin of legacy
- * {@code AwsCredentialsProviderFactory.getV2ClassName / createV2}. Without it, a flipped iceberg catalog with a
+ * F14: pins {@link AwsCredentialsProviderModes} — the connector's self-contained twin of the legacy fe-core
+ * mode-to-provider mapping. Without it, a flipped iceberg catalog with a
  * non-DEFAULT {@code s3.credentials_provider_type} (e.g. ANONYMOUS for a public bucket, or a forced
  * WEB_IDENTITY) silently dropped the pin and fell back to the SDK default chain.
  */
