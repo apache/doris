@@ -144,8 +144,13 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        beIdToMaxConcurrentTasks = Env.getCurrentSystemInfo().getAllBackendIds(true).stream().collect(
-                Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
+        beIdToMaxConcurrentTasks = Env.getCurrentSystemInfo().getAllBackendIds(true).stream()
+                .filter(beId -> {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                    return backend != null && backend.isLoadAvailable()
+                            && !backend.isDecommissioned() && !backend.isDecommissioning();
+                })
+                .collect(Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
     }
 
     // this is not real-time number
@@ -514,6 +519,7 @@ public class RoutineLoadManager implements Writable {
             updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             int previousBeIdleTaskNum = 0;
+            boolean previousBeAvailable = false;
 
             // 1. Find if the given BE id has more than half of available slots
             if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
@@ -521,6 +527,7 @@ public class RoutineLoadManager implements Writable {
                 Backend previousBackend = Env.getCurrentSystemInfo().getBackend(previousBeId);
                 // check previousBackend is not null && load available
                 if (previousBackend != null && previousBackend.isLoadAvailable()) {
+                    previousBeAvailable = true;
                     if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
                         previousBeIdleTaskNum = 0;
                     } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
@@ -529,7 +536,8 @@ public class RoutineLoadManager implements Writable {
                     } else {
                         previousBeIdleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
-                    if (previousBeIdleTaskNum == Config.max_routine_load_task_num_per_be) {
+                    if (previousBeIdleTaskNum > 0
+                            && previousBeIdleTaskNum == Config.max_routine_load_task_num_per_be) {
                         return previousBeId;
                     }
                 }
@@ -558,7 +566,7 @@ public class RoutineLoadManager implements Writable {
             }
             // 4. on the basis of selecting the maximum idle slot be,
             //    try to reuse the object cache as much as possible
-            if (previousBeIdleTaskNum == maxIdleSlotNum) {
+            if (previousBeAvailable && previousBeIdleTaskNum > 0 && previousBeIdleTaskNum == maxIdleSlotNum) {
                 return previousBeId;
             }
             return resultBeId;

@@ -74,6 +74,24 @@ public class StreamLoadHandlerTest {
     }
 
     @Test
+    public void testSelectBackendSkipsDecommissioningBackend() throws Exception {
+        SystemInfoService originalSystemInfoService = Env.getCurrentSystemInfo();
+        Backend decommissioningBackend = createBackend(10001L, "127.0.0.1");
+        decommissioningBackend.setDecommissioning(true);
+        Backend selectedBackend = createBackend(10002L, "127.0.0.2");
+        CloudSystemInfoService systemInfoService =
+                new TestCloudSystemInfoService(Arrays.asList(decommissioningBackend, selectedBackend));
+
+        try {
+            Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfoService);
+
+            Assert.assertEquals(selectedBackend.getId(), StreamLoadHandler.selectBackend("cluster0").getId());
+        } finally {
+            Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);
+        }
+    }
+
+    @Test
     public void testGroupCommitValidatesBackendComputeGroupPrivilege() throws Exception {
         String originalCloudUniqueId = Config.cloud_unique_id;
         Backend backend = createBackend(10001L, "127.0.0.1");
@@ -143,6 +161,11 @@ public class StreamLoadHandlerTest {
         @Override
         public Backend getBackend(long backendId) {
             return backends.stream().filter(backend -> backend.getId() == backendId).findFirst().orElse(null);
+        }
+
+        @Override
+        public List<Backend> getBackendsByClusterName(final String clusterName) {
+            return backends;
         }
     }
 }

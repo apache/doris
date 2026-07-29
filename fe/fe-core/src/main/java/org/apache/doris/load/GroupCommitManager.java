@@ -336,7 +336,8 @@ public class GroupCommitManager {
         }
         List<String> backendsInfo = backends.stream()
                 .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive() + ", active=" + be.isActive()
-                        + ", decommission=" + be.isDecommissioned() + " }")
+                        + ", decommission=" + be.isDecommissioned()
+                        + ", decommissioning=" + be.isDecommissioning() + " }")
                 .collect(Collectors.toList());
         throw new LoadException("No suitable backend " + ", backends = " + backendsInfo);
     }
@@ -370,15 +371,12 @@ public class GroupCommitManager {
     }
 
     private boolean isBackendAvailable(Backend backend, String cluster) {
-        if (backend == null || !backend.isAlive() || backend.isDecommissioned() || !backend.isLoadAvailable()) {
+        if (backend == null || !backend.isAlive() || backend.isDecommissioned() || backend.isDecommissioning()
+                || !backend.isLoadAvailable()) {
             return false;
         }
         if (!Config.isCloudMode()) {
             return true;
-        }
-        // for cloud mode
-        if (backend.isDecommissioning()) {
-            return false;
         }
         return cluster == null || cluster.equals(backend.getCloudClusterName());
     }
