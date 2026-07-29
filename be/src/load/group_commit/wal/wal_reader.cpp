@@ -99,13 +99,42 @@ Status WalReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
             return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
                                          pos, src_block.columns());
         }
-        ColumnPtr column_ptr = src_block.get_by_position(pos).column;
-        if (!column_ptr && slot_desc->is_nullable()) {
-            column_ptr = make_nullable(column_ptr);
+        const auto& source_column = src_block.get_by_position(pos);
+        const auto& target_column = output_block_columns[index];
+        auto source_status = source_column.check_type_and_column_match();
+        if (!source_status.ok()) {
+            return Status::InternalError(
+                    "Invalid WAL column while replaying WAL {}: slot={} (unique_id={}), "
+                    "source_position={}, error={}",
+                    _wal_path, slot_desc->col_name(), slot_desc->col_unique_id(), pos,
+                    source_status.to_string());
         }
-        dst_block.insert(index, ColumnWithTypeAndName(std::move(column_ptr),
-                                                      output_block_columns[index].type,
-                                                      output_block_columns[index].name));
+
+        ColumnWithTypeAndName replay_column(source_column.column, target_column.type,
+                                            target_column.name);
+        auto replay_status = replay_column.check_type_and_column_match();
+        if (!replay_status.ok()) {
+            return Status::InternalError(
+                    "WAL replay column type mismatch: wal={}, slot={} (unique_id={}), "
+                    "source_position={}, source_name={}, source_type={}, source_column={}, "
+                    "target_name={}, target_type={}, error={}",
+                    _wal_path, slot_desc->col_name(), slot_desc->col_unique_id(), pos,
+                    source_column.name, source_column.type->get_name(),
+                    source_column.column->get_name(), target_column.name,
+                    target_column.type == nullptr ? "null" : target_column.type->get_name(),
+                    replay_status.to_string());
+        }
+        if (!source_column.type->equals(*target_column.type)) {
+            return Status::InternalError(
+                    "WAL replay logical type mismatch: wal={}, slot={} (unique_id={}), "
+                    "source_position={}, source_name={}, source_type={}, target_name={}, "
+                    "target_type={}",
+                    _wal_path, slot_desc->col_name(), slot_desc->col_unique_id(), pos,
+                    source_column.name, source_column.type->get_name(), target_column.name,
+                    target_column.type->get_name());
+        }
+        dst_block.insert(index, ColumnWithTypeAndName(source_column.column, target_column.type,
+                                                      target_column.name));
         index++;
     }
     block->swap(dst_block);
