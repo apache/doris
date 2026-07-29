@@ -197,11 +197,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-        // todo: support pruned struct fields
-        InternalRow row = record.getRow(idx, structFieldIndex.size());
+        RowType rowType = (RowType) dataType;
+        // Projection entries are original child indexes, so the binary row must keep the full RowType arity.
+        InternalRow row = record.getRow(idx, rowType.getFieldCount());
         for (int i : structFieldIndex) {
             values.add(new PaimonColumnValue(row, i, dorisType.getChildTypes().get(i),
-                    ((RowType) dataType).getFields().get(i).type(), timeZone));
+                    rowType.getFields().get(i).type(), timeZone));
         }
     }
 }
