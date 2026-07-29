@@ -75,6 +75,9 @@ public class BaseController {
             // If has Authorization header, check auth info
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             UserIdentity currentUser = checkPassword(authInfo, request);
+            // Callers do privilege checks on the returned authInfo, so the resolved identity must be
+            // carried back out. Leaving it null makes every such check throw NPE.
+            authInfo.userIdentity = currentUser;
 
             if (Config.isCloudMode() && checkAuth) {
                 checkInstanceOverdue(currentUser);
@@ -165,6 +168,7 @@ public class BaseController {
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
         authInfo.password = sessionValue.password;
+        authInfo.userIdentity = sessionValue.currentUser;
         return authInfo;
     }
 
@@ -212,6 +216,27 @@ public class BaseController {
             sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
             sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
             return sb.toString();
+        }
+    }
+
+    /**
+     * The overdue-warehouse fence for handlers that call checkWithCookie(.., false).
+     *
+     * checkWithCookie's `checkAuth` flag gates two unrelated things at once: the global
+     * ADMIN_OR_NODE requirement and, in cloud mode, the overdue check. A handler that passes false
+     * is saying "I do my own, narrower authorization" -- it is not saying "serve this from an
+     * overdue warehouse". Such a handler calls this to get the fence back without the ADMIN
+     * requirement.
+     *
+     * This is deliberately opt-in per handler rather than unconditional inside checkWithCookie:
+     * /api/query also passes false, but it hands the statement to a real JDBC session that
+     * enforces the overdue state itself and reports it as a common error. Moving that rejection
+     * up to this layer would silently change that endpoint's response from COMMON_ERROR to
+     * UNAUTHORIZED.
+     */
+    protected void checkInstanceOverdueIfCloud(UserIdentity currentUser) {
+        if (Config.isCloudMode()) {
+            checkInstanceOverdue(currentUser);
         }
     }
 
