@@ -474,6 +474,69 @@ TEST_F(DataDirSweepWorkerTest, RemoteGcRunsRowsetBeforeTablet) {
     EXPECT_EQ(remote_fs->operations(), std::vector<std::string>({"rowset", "tablet"}));
 }
 
+TEST_F(DataDirSweepWorkerTest, RemoteGcMissingResourceRetainsBacklogWithoutFailingJob) {
+    constexpr uint64_t sweep_epoch = 18;
+    const std::string missing_resource_id = "missing-data-dir-sweep-resource-99003";
+
+    RemoteRowsetGcPB rowset_gc;
+    rowset_gc.set_resource_id(missing_resource_id);
+    rowset_gc.set_tablet_id(101);
+    rowset_gc.set_num_segments(1);
+    ASSERT_TRUE(_data_dir->get_meta()
+                        ->put(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX + "rowset",
+                              rowset_gc.SerializeAsString())
+                        .ok());
+    RemoteTabletGcPB tablet_gc;
+    tablet_gc.add_resource_ids(missing_resource_id);
+    ASSERT_TRUE(_data_dir->get_meta()
+                        ->put(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX + "101",
+                              tablet_gc.SerializeAsString())
+                        .ok());
+
+    const int64_t failed_jobs = _data_dir->disks_sweep_worker_failed_jobs->value();
+    DataDirSweepJob job;
+    job.sweep_epoch = sweep_epoch;
+    job.type = DataDirSweepJobType::REMOTE_GC;
+    job.data_dir = _data_dir.get();
+    job.payload = RemoteGcPayload {};
+    auto result = _engine->_execute_data_dir_sweep_job(job);
+
+    EXPECT_TRUE(result.status.ok()) << result.status;
+    EXPECT_EQ(result.remote_rowset_gc_scanned, 1);
+    EXPECT_EQ(result.remote_rowset_gc_backlog, 1);
+    EXPECT_EQ(result.remote_tablet_gc_scanned, 1);
+    EXPECT_EQ(result.remote_tablet_gc_backlog, 1);
+    EXPECT_EQ(_data_dir->disks_sweep_worker_failed_jobs->value(), failed_jobs);
+}
+
+TEST_F(DataDirSweepWorkerTest, RemoteGcMalformedPbStillFailsJob) {
+    constexpr uint64_t sweep_epoch = 19;
+    const std::string malformed_pb(1, '\xff');
+    ASSERT_TRUE(_data_dir->get_meta()
+                        ->put(META_COLUMN_FAMILY_INDEX, REMOTE_ROWSET_GC_PREFIX + "rowset",
+                              malformed_pb)
+                        .ok());
+    ASSERT_TRUE(
+            _data_dir->get_meta()
+                    ->put(META_COLUMN_FAMILY_INDEX, REMOTE_TABLET_GC_PREFIX + "102", malformed_pb)
+                    .ok());
+
+    const int64_t failed_jobs = _data_dir->disks_sweep_worker_failed_jobs->value();
+    DataDirSweepJob job;
+    job.sweep_epoch = sweep_epoch;
+    job.type = DataDirSweepJobType::REMOTE_GC;
+    job.data_dir = _data_dir.get();
+    job.payload = RemoteGcPayload {};
+    auto result = _engine->_execute_data_dir_sweep_job(job);
+
+    EXPECT_FALSE(result.status.ok());
+    EXPECT_EQ(result.remote_rowset_gc_scanned, 1);
+    EXPECT_EQ(result.remote_rowset_gc_backlog, 0);
+    EXPECT_EQ(result.remote_tablet_gc_scanned, 1);
+    EXPECT_EQ(result.remote_tablet_gc_backlog, 0);
+    EXPECT_EQ(_data_dir->disks_sweep_worker_failed_jobs->value(), failed_jobs + 1);
+}
+
 TEST_F(DataDirSweepWorkerTest, RemoteRowsetGcRetainsFailedMarkerAndContinues) {
     constexpr int64_t resource_id = 99002;
     auto remote_fs = std::make_shared<GcRemoteFileSystem>(std::to_string(resource_id));

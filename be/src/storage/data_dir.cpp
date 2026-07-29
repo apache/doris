@@ -1269,10 +1269,9 @@ Status DataDir::perform_remote_rowset_gc(RemoteGcStats* stats) {
 
         auto storage_resource = get_storage_resource(gc_pb.resource_id());
         if (!storage_resource) {
-            LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
-            update_first_error(
-                    &result, Status::InternalError("Cannot get remote file system. resource_id={}",
-                                                   gc_pb.resource_id()));
+            LOG(WARNING) << "Cannot get remote file system; retain rowset GC marker for retry. "
+                            "resource_id="
+                         << gc_pb.resource_id() << ", rowset_id=" << rowset_id;
             continue;
         }
 
@@ -1341,10 +1340,9 @@ Status DataDir::perform_remote_tablet_gc(RemoteGcStats* stats) {
         for (auto& resource_id : gc_pb.resource_ids()) {
             auto fs = get_filesystem(resource_id);
             if (!fs) {
-                LOG(WARNING) << "could not get file system. resource_id=" << resource_id;
-                update_first_error(&result, Status::InternalError(
-                                                    "Cannot get remote file system. resource_id={}",
-                                                    resource_id));
+                LOG(WARNING) << "Cannot get remote file system; retain tablet GC marker for retry. "
+                                "resource_id="
+                             << resource_id << ", tablet_id=" << tablet_id;
                 success = false;
                 continue;
             }

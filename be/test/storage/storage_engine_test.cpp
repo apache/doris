@@ -307,6 +307,47 @@ TEST_F(StorageEngineTest, TrashSweepUsesSynchronousFallbackWhenWorkerDisabled) {
     EXPECT_TRUE(_storage_engine->_data_dir_sweep_workers.empty());
 }
 
+TEST_F(StorageEngineTest, ShutdownSweepUsesWorkerAfterDataDirBecomesUnused) {
+    const bool enable_worker = config::enable_data_dir_sweep_worker;
+    config::enable_data_dir_sweep_worker = true;
+    Defer restore_config {[&] { config::enable_data_dir_sweep_worker = enable_worker; }};
+
+    auto* data_dir = attach_data_dir();
+    ASSERT_TRUE(_storage_engine->_start_data_dir_sweep_workers().ok());
+
+    const std::string test_file_path = data_dir->path() + "/" + kTestFilePath;
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_file_path + "/nested").ok());
+    Defer restore_broken_path {[&] { _storage_engine->remove_broken_path(data_dir->path()); }};
+    data_dir->health_check();
+    ASSERT_FALSE(data_dir->is_used());
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(test_file_path).ok());
+
+    auto shutdown_tablet = create_shutdown_tablet(data_dir, 20501);
+    reset_shutdown_tablets({std::move(shutdown_tablet)});
+
+    std::vector<DataDirSweepJobType> executed_jobs;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard callback_guard;
+    sync_point->set_call_back(
+            "StorageEngine::_execute_data_dir_sweep_job",
+            [&](auto&& args) {
+                auto* job = try_any_cast<DataDirSweepJob*>(args[0]);
+                executed_jobs.push_back(job->type);
+            },
+            &callback_guard);
+    sync_point->enable_processing();
+    Defer disable_sync_point {[&] { sync_point->disable_processing(); }};
+
+    auto sweep_status = _storage_engine->start_trash_sweep(nullptr);
+
+    EXPECT_TRUE(sweep_status.ok()) << sweep_status;
+    EXPECT_EQ(executed_jobs,
+              std::vector<DataDirSweepJobType>({DataDirSweepJobType::SHUTDOWN_TABLET_MOVE}));
+    EXPECT_TRUE(list_shutdown_tablets().empty());
+    EXPECT_NE(_storage_engine->_data_dir_sweep_workers.find(data_dir),
+              _storage_engine->_data_dir_sweep_workers.end());
+}
+
 TEST_F(StorageEngineTest, TrashSweepRequeuesShutdownTabletsWhenWorkerSubmitFails) {
     const bool enable_worker = config::enable_data_dir_sweep_worker;
     config::enable_data_dir_sweep_worker = true;
