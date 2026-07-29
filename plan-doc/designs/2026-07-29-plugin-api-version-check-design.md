@@ -91,11 +91,48 @@ P.major != K.major   → 拒绝
 **代价**（需写进插件作者文档）：Doris 每次给 SPI 表面加东西都是 major 变更，所有已有插件
 会被拒、必须重新编译。树内插件同批构建无影响；第三方插件作者要有此预期。
 
-### 3.3 跨族耦合
+### 3.3 版本独立性与共享耦合
 
-`fe-extension-spi`（`Plugin` / `PluginFactory` / `PluginContext` / `PluginException`）被
-四族共用。**它一改，四个 property 全要 bump major。** 这条无法靠 pom 结构强制，只能靠纪律
-加 §7 的基线提示。
+**四族的版本号彼此独立**：各有自己的 property、自己的 major，互不影响。改 `fe-connector-api`
+只 bump CONNECTOR，filesystem / authentication / lineage 的插件一个都不用重编。
+
+各族插件链接的"内核提供契约"（`plugin-zip.xml` 排除项 + parent-first 前缀共同决定）：
+
+| 插件族 | 内核提供的契约 artifact |
+| --- | --- |
+| CONNECTOR | `fe-connector-api`、`fe-connector-spi`、**`fe-extension-spi`**、**`fe-filesystem-api`** |
+| FILESYSTEM | `fe-filesystem-api`、`fe-filesystem-spi`、**`fe-extension-spi`** |
+| AUTHENTICATION | `fe-authentication-api`、`fe-authentication-spi`、**`fe-extension-spi`** |
+| LINEAGE | fe-core 的 `org.apache.doris.nereids.lineage` 包、**`fe-extension-spi`** |
+
+由此得到"改什么要 bump 谁"：
+
+| 改动了什么 | 要 bump 哪几族 |
+| --- | --- |
+| `fe-connector-api` / `fe-connector-spi` | 只 CONNECTOR |
+| `fe-filesystem-spi` | 只 FILESYSTEM |
+| `fe-authentication-api` / `fe-authentication-spi` | 只 AUTHENTICATION |
+| fe-core 的 `nereids.lineage` 包 | 只 LINEAGE |
+| **`fe-filesystem-api`** | FILESYSTEM **+ CONNECTOR** |
+| **`fe-extension-spi`** | **四族全部** |
+
+后两行是仅有的耦合，且它们是**物理事实，不是版本方案造成的**：
+
+- `org.apache.doris.extension.spi.` 位于 `ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES`
+  （`ChildFirstClassLoader.java:50`），对四族**强制** parent-first —— 四族插件都链接它；
+- `fe-connector-hive` / `-iceberg` / `-paimon` 确有 `org.apache.doris.filesystem` 的 import
+  （已验证），connector 插件真的用 filesystem 的类型。
+
+即便给这两个 artifact 单独的版本号，"改了 `PluginFactory` 的参数 → 四族插件字节码层面全不兼容"
+也不会变。版本号只能如实描述这个事实。
+
+**处理方式（已决）**：保持 4 个版本号，共享 artifact 的耦合靠纪律 + §7 的基线提示。
+`fe-extension-spi` 的 `Plugin` / `PluginFactory` / `PluginContext` 在四族基线里**都冻结**，
+改它会让四个基线测试同时变红，失败信息提示"四个 property 都要 bump"。
+
+**已知残留风险**：漏 bump 其中几族，那几族会静默放行。基线红会提醒，但不强制。接受此风险的
+依据是 `fe-extension-spi` 表面极小（`Plugin` 2 个方法、`PluginFactory` 3 个、`PluginContext`
+2 个、`PluginException` 2 个构造器）且是稳定的生命周期契约，实际变更频率极低。
 
 ### 3.4 解析规则
 
@@ -295,6 +332,8 @@ resources` 下的录制基线逐字节比对。
 | 判定规则 | major 相等，minor/patch 忽略 | **单向 `P.minor <= K.minor`**：owner 明确要求 minor 双向兼容。 |
 | 单一来源 | property → filtered resource + manifest | **Java 常量 + 相等性测试**：两个数字靠测试同步，与本文 §1 的失败模式同构。 |
 | 基线范围 | 四族各冻结顶层契约 | **只加提示**：另三族改了表面无任何信号。**全表面**：高频误报致麻木失效。 |
+| 版本粒度 | 每族一个，共 4 个（见 §3.3） | **共用一个版本号**：改一族会逼另三族全部重编，owner 明确要求分开。 |
+| 共享 artifact 耦合 | 靠纪律 + 基线提示 | **给 `fe-extension-spi` 单独第 5 个版本号**：能让"改 extension → 四族自动全拒"不依赖人记得，但插件作者要声明两个数字；因该 artifact 表面极小、极少变更，判定不值这个复杂度。**按 artifact 逐个版本化**：connector 插件要声明 4 个数字，实质是在造小型 OSGi。 |
 
 ---
 
