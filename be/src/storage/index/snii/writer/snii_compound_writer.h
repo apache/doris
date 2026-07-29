@@ -195,11 +195,11 @@ public:
     // Registers one opaque BLOB logical index (kind must not be kInverted).
     // Registration is pure bookkeeping -- NOT A BYTE is written here, so it is
     // legal at any point before finish() (even while a streamed session is
-    // active). finish() streams cold_files into the data area (after
-    // write_norms) and hot_files after the text metadata groups, physically
-    // adjacent per entry, recording absolute offsets + crc32c into the
-    // directory entry. A rejected registration leaves the writer clean; a copy
-    // failure during finish() poisons the container for good.
+    // active). finish() streams cold_files into the data area after all text
+    // physical sections, and hot_files after the text metadata groups,
+    // physically adjacent per entry, recording absolute offsets + crc32c into
+    // the directory entry. A rejected registration leaves the writer clean; a
+    // copy failure during finish() poisons the container for good.
     Status add_blob_index(uint64_t index_id, std::string index_suffix,
                           format::LogicalIndexKind kind, std::vector<BlobFileSource> cold_files,
                           std::vector<BlobFileSource> hot_files);
@@ -266,7 +266,12 @@ private:
 
     Status ensure_bootstrap();
     Status write_bootstrap();
-    Status write_norms();
+    // Writes indexes_[index]'s norms/null-bitmap/bsbf immediately after its
+    // [posting][dict] pair and fills placements_[index]. Keeping one index's sections
+    // contiguous is what makes a single-index cold query touch one cache block instead
+    // of three; the previous layout grouped these by section type across all indexes.
+    // Must be called after indexes_/placements_ have been pushed for this index.
+    Status write_index_aux_sections(size_t index);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
     Status poison(Status status);
@@ -296,9 +301,13 @@ private:
     // Owned here so the raw handles returned to callers stay valid for the
     // writer's lifetime; a finished session is inert (its writer moved out).
     std::vector<std::unique_ptr<SniiStreamedIndexSession>> sessions_;
-    // Per-index placement; post_off/post_len are filled as each index's posting region
-    // streams in during add_logical_index, the rest during finish(). The absolute write
-    // offset is out_->bytes_written() (the single source of truth -- no separate cursor).
+    // Per-index placement, fully resolved by the time add_logical_index /
+    // finish_streamed_index returns: post_off/post_len and dict_off/dict_len as each
+    // index's posting/DICT regions stream in, then norms/null/bsbf off+len via
+    // write_index_aux_sections immediately after. finish() no longer fills any of
+    // these fields -- it only reads placements_ to build the metadata directory. The
+    // absolute write offset is out_->bytes_written() (the single source of truth --
+    // no separate cursor).
     std::vector<Placement> placements_;
     // Logical indexes carried over by inherit(), in source directory order. They
     // own no LogicalIndexWriter: their sections are already in the copied prefix.

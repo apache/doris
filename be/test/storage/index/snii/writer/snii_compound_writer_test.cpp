@@ -504,6 +504,54 @@ Status LocateEntry(const std::vector<uint8_t>& file, const SampledTermIndexReade
     return br.find_term(term, found, out);
 }
 
+// Shared by the two-index and three-index section-layout tests further below: walks
+// one index's aux sections (norms -> null_bitmap -> bsbf) and asserts each non-empty
+// section abuts the previous one, while an absent section keeps offset 0 (never a
+// stale cursor value). Also re-checks the posting-immediately-before-dict invariant
+// these sections build on. Returns the index's overall [begin, end) span (from
+// posting_region's start through the last thing written for it) so each caller can
+// assert its own cross-index span relationships.
+struct Span {
+    uint64_t begin;
+    uint64_t end;
+};
+
+Span CheckIndexSectionsContiguous(const std::vector<uint8_t>& file,
+                                  const MetadataDirectory& directory, uint64_t index_id,
+                                  const std::string& suffix) {
+    const LogicalIndexMetadataRef* ref = directory.find(index_id, suffix);
+    EXPECT_NE(ref, nullptr) << "index " << index_id;
+    if (ref == nullptr) {
+        return {0, 0};
+    }
+    CoreMetadata core;
+    SampledTermIndexReader sti;
+    DictBlockDirectoryReader dbd;
+    EXPECT_TRUE(ParseMetadataGroup(file, *ref, &core, &sti, &dbd).ok()) << "index " << index_id;
+    const SectionRefs& refs = core.section_refs;
+
+    // Existing invariant, must survive: posting immediately followed by dict.
+    EXPECT_EQ(refs.posting_region.offset + refs.posting_region.length, refs.dict_region.offset)
+            << "index " << index_id;
+
+    // The aux sections follow dict, in norms -> null -> bsbf order, each abutting
+    // the previous non-empty one. Empty sections stay at offset 0.
+    uint64_t cursor = refs.dict_region.offset + refs.dict_region.length;
+    for (const auto& section : std::vector<std::pair<const char*, RegionRef>> {
+                 {"norms", refs.norms}, {"null_bitmap", refs.null_bitmap}, {"bsbf", refs.bsbf}}) {
+        if (section.second.length == 0) {
+            EXPECT_EQ(section.second.offset, 0U)
+                    << "index " << index_id << " empty " << section.first << " must keep offset 0";
+            continue;
+        }
+        EXPECT_EQ(section.second.offset, cursor)
+                << "index " << index_id << " section " << section.first
+                << " is not contiguous with the previous one";
+        cursor = section.second.offset + section.second.length;
+    }
+    return {refs.posting_region.offset, cursor};
+}
+
 } // namespace
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
@@ -1261,4 +1309,70 @@ TEST(SniiCompoundWriter, ChecksumCorruptionDetectedOnRead) {
         bad[metadata_ref->core_metadata.offset] ^= 0xFF;
         EXPECT_FALSE(opens_ok(bad));
     }
+}
+
+// P2: a single-index query reads that index's sections only, so they must be contiguous.
+// The old layout grouped by section type across indexes ([i0.norms][i1.norms][i0.bsbf]...),
+// which split every single-index read into three regions of the file and cost three
+// 1 MiB cache blocks instead of one.
+TEST(SniiCompoundWriter, PacksEachIndexSectionsContiguouslyWithoutInterleaving) {
+    const std::string path = TempPath();
+    {
+        io::LocalFileWriter w;
+        ASSERT_TRUE(w.open(path).ok());
+        SniiCompoundWriter cw(&w);
+        ASSERT_TRUE(cw.add_logical_index(MakeIndex(10, "title", 30)).ok());
+        ASSERT_TRUE(cw.add_logical_index(MakeIndex(11, "body", 30)).ok());
+        ASSERT_TRUE(cw.finish().ok());
+    }
+
+    std::vector<uint8_t> file = ReadAll(path);
+    TailFields tail;
+    MetadataDirectory directory;
+    ASSERT_TRUE(ParseDirectory(file, &tail, &directory).ok());
+    ASSERT_EQ(directory.size(), 2U);
+
+    const Span index0 = CheckIndexSectionsContiguous(file, directory, 10, "title");
+    const Span index1 = CheckIndexSectionsContiguous(file, directory, 11, "body");
+
+    // The two indexes' spans must not interleave: index 0 ends before index 1 begins.
+    EXPECT_LE(index0.end, index1.begin)
+            << "index 0 span [" << index0.begin << "," << index0.end << ") overlaps index 1 span ["
+            << index1.begin << "," << index1.end << ")";
+    // And nothing of either index may spill into the tail metadata region.
+    EXPECT_LE(index1.end, tail.directory_offset);
+}
+
+// Three indexes, not two: with two, "index 0 ends before index 1 begins" also holds
+// under several wrong layouts. A middle index is what catches an off-by-one in the
+// per-index loop or any leftover group-by-section-type write.
+TEST(SniiCompoundWriter, KeepsEveryIndexSpanDisjointWithThreeIndexes) {
+    const std::string path = TempPath();
+    {
+        io::LocalFileWriter w;
+        ASSERT_TRUE(w.open(path).ok());
+        SniiCompoundWriter cw(&w);
+        ASSERT_TRUE(cw.add_logical_index(MakeIndex(10, "title", 30)).ok());
+        ASSERT_TRUE(cw.add_logical_index(MakeIndex(11, "body", 30)).ok());
+        ASSERT_TRUE(cw.add_logical_index(MakeIndex(12, "url", 30)).ok());
+        ASSERT_TRUE(cw.finish().ok());
+    }
+
+    std::vector<uint8_t> file = ReadAll(path);
+    TailFields tail;
+    MetadataDirectory directory;
+    ASSERT_TRUE(ParseDirectory(file, &tail, &directory).ok());
+    ASSERT_EQ(directory.size(), 3U);
+
+    const std::vector<Span> spans = {
+            CheckIndexSectionsContiguous(file, directory, 10, "title"),
+            CheckIndexSectionsContiguous(file, directory, 11, "body"),
+            CheckIndexSectionsContiguous(file, directory, 12, "url"),
+    };
+
+    for (size_t i = 0; i + 1 < spans.size(); ++i) {
+        EXPECT_LE(spans[i].end, spans[i + 1].begin)
+                << "index " << i << " span overlaps index " << (i + 1);
+    }
+    EXPECT_LE(spans.back().end, tail.directory_offset);
 }

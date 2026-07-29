@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
@@ -52,6 +53,7 @@
 #include "storage/index/snii/writer/term_posting_source.h"
 #include "storage/index/snii/writer/term_posting_test_utils.h"
 #include "storage/index/snii_query_test_util.h"
+#include "util/defer_op.h"
 
 namespace {
 
@@ -695,7 +697,15 @@ TEST(SniiStreamedWriterSessionTest, NullBitmapMemoryIsReleasedAfterCompoundAppen
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);
     assert_ok(session->finish());
-    EXPECT_GT(reporter.current_bytes(), 0);
+    // The null-bitmap append (and its release_null_bitmap_bytes()) now runs inside
+    // finish_streamed_index: write_index_aux_sections lands this index's aux sections
+    // contiguously right after its own [posting][dict] pair instead of waiting for a
+    // later pass grouped by section type across every index. That moved the release
+    // one step earlier -- it is already gone by the time session->finish() returns,
+    // not just by the later compound.finish() -- which lowers import peak memory.
+    // Still asserted exactly (not just skipped) so this fails loudly if the release
+    // is ever skipped or delayed again.
+    EXPECT_EQ(reporter.current_bytes(), 0);
     assert_ok(compound.finish());
     EXPECT_EQ(reporter.current_bytes(), 0);
 }
@@ -971,10 +981,16 @@ TEST(SniiStreamedWriterSessionTest, ReleasesResidentDictAfterStreamingItIntoCont
     }
     assert_ok(session->finish());
 
-    // finish() has already copied the complete DICT region into the compound
-    // output. The only remaining tracked bytes are the BSBF that must be laid
-    // out after every logical index's posting/DICT regions.
-    EXPECT_GT(reporter.current_bytes(), 0);
+    // finish() has already copied the complete DICT region into the compound output.
+    // Its BSBF -- once the only bytes still tracked past this point -- now also gets
+    // appended and released right here too: write_index_aux_sections runs inside
+    // finish_streamed_index so this index's aux sections land contiguously right after
+    // its own [posting][dict] pair, instead of waiting for a later pass over every
+    // index's sections grouped by type. So the release that used to land only at
+    // compound.finish() now lands one step earlier, at session->finish(); this is
+    // still asserted exactly (not skipped) so it fails loudly if that release is ever
+    // skipped or delayed again.
+    EXPECT_EQ(reporter.current_bytes(), 0);
     assert_ok(compound.finish());
     EXPECT_EQ(reporter.current_bytes(), 0);
 }

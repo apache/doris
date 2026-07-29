@@ -174,6 +174,9 @@ Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
     p.dict_len = out_->bytes_written() - p.dict_off;
     indexes_.push_back(std::move(liw));
     placements_.push_back(p);
+    // liw has been moved from; write_index_aux_sections works off indexes_.back().
+    status = write_index_aux_sections(indexes_.size() - 1);
+    if (!status.ok()) return poison(status);
     return Status::OK();
 }
 
@@ -465,11 +468,18 @@ Status SniiCompoundWriter::finish_streamed_index(SniiStreamedIndexSession* sessi
     status = session->writer_->stream_dict_region_into(out_);
     if (!status.ok()) return poison(status);
     p.dict_len = out_->bytes_written() - p.dict_off;
-    // Only now does the index join the container. Any failure above leaves
-    // finished_ false, so finish() keeps failing loudly instead of sealing a
-    // tail that silently omits an index whose posting bytes are in the file.
+    // The index joins the container (indexes_/placements_) here, but session->finished_
+    // is not set until write_index_aux_sections below also succeeds. A failure ANYWHERE
+    // in this function -- finish_streamed()/stream_dict_region_into() above, or
+    // write_index_aux_sections below -- calls poison(), which sets failed_ before
+    // returning. finish() checks "if (!failed_.ok()) return failed_;" ahead of its
+    // has_active_session() gate, so a poisoned writer fails loudly on its own; it can
+    // never fall through to sealing a tail that silently omits an index whose posting
+    // bytes are already in the file.
     indexes_.push_back(std::move(session->writer_));
     placements_.push_back(p);
+    status = write_index_aux_sections(indexes_.size() - 1);
+    if (!status.ok()) return poison(status);
     session->finished_ = true;
     return Status::OK();
 }
@@ -482,31 +492,28 @@ Status SniiCompoundWriter::write_bootstrap() {
     return append(sink.buffer());
 }
 
-// Writes each index's norms POD then bsbf section (in add order), after all the
-// per-index [posting][dict] regions.
-Status SniiCompoundWriter::write_norms() {
-    for (size_t i = 0; i < indexes_.size(); ++i) {
-        const LogicalIndexWriter& w = *indexes_[i];
-        if (!w.has_norms() || w.norms_bytes().empty()) continue;
-        Placement& p = placements_[i];
+// Writes one index's norms / null bitmap / bsbf directly after its [posting][dict] pair.
+// Bytes are released as soon as they are on disk rather than being held until finish(),
+// which also lowers import peak memory -- a content column's bsbf runs to MBs.
+Status SniiCompoundWriter::write_index_aux_sections(size_t index) {
+    DORIS_CHECK_LT(index, indexes_.size());
+    DORIS_CHECK_LT(index, placements_.size());
+    LogicalIndexWriter& w = *indexes_[index];
+    Placement& p = placements_[index];
+
+    if (w.has_norms() && !w.norms_bytes().empty()) {
         p.norms_off = out_->bytes_written();
         RETURN_IF_ERROR(append(w.norms_bytes()));
         p.norms_len = out_->bytes_written() - p.norms_off;
-        indexes_[i]->release_norms_bytes();
+        w.release_norms_bytes();
     }
-    for (size_t i = 0; i < indexes_.size(); ++i) {
-        LogicalIndexWriter& w = *indexes_[i];
-        if (!w.has_null_bitmap()) continue;
-        Placement& p = placements_[i];
+    if (w.has_null_bitmap()) {
         p.null_off = out_->bytes_written();
         RETURN_IF_ERROR(append(w.null_bitmap_bytes()));
         p.null_len = out_->bytes_written() - p.null_off;
         w.release_null_bitmap_bytes();
     }
-    for (size_t i = 0; i < indexes_.size(); ++i) {
-        LogicalIndexWriter& w = *indexes_[i];
-        if (!w.has_bsbf()) continue;
-        Placement& p = placements_[i];
+    if (w.has_bsbf()) {
         p.bsbf_off = out_->bytes_written();
         RETURN_IF_ERROR(append(w.bsbf_bytes()));
         p.bsbf_len = out_->bytes_written() - p.bsbf_off;
@@ -634,10 +641,11 @@ Status SniiCompoundWriter::finish() {
     finished_ = true;
 
     RETURN_IF_ERROR(ensure_bootstrap()); // empty container still gets a header
-    Status status = write_norms();
-    if (!status.ok()) return poison(status);
-    // Blob COLD files: after every text physical section (posting/dict/norms/
-    // null-bitmap/BSBF), before the first metadata group. Registration order.
+    // Aux sections were written per index at add/finish_streamed time, right after each
+    // index's [posting][dict] pair -- see write_index_aux_sections.
+    // Blob COLD files follow all text physical sections and precede the first
+    // metadata group, in registration order.
+    Status status;
     for (PendingBlobIndex& blob : blobs_) {
         status = write_blob_files(blob.cold_files, &blob.cold_refs);
         if (!status.ok()) return poison(status);
