@@ -19,6 +19,8 @@
 
 #include <array>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -36,9 +38,45 @@ namespace doris {
 
 class DataTypeVariantV2SerDe;
 class VariantBatchBuilder;
+class ColumnVariantV2;
 
-// ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes or one nullable
-// typed scalar column. Mixed operations materialize the typed state as encoded bytes on demand.
+struct VariantShreddedPathSegment {
+    enum class Kind : uint8_t { OBJECT_KEY, ARRAY_INDEX };
+
+    Kind kind = Kind::OBJECT_KEY;
+    StringRef key;
+    int64_t index = 0;
+};
+
+struct VariantShreddedTypedValue {
+    // The state owns the same immutable column. Keeping a ColumnPtr here lets expression results
+    // retain the decoded leaf without copying it or depending on scanner lifetime.
+    ColumnPtr column;
+    DataTypePtr type;
+};
+
+// Format readers keep their native shredded representation behind this interface. Core Variant
+// code sees only logical paths and an explicit late-materialization boundary.
+class VariantShreddedState {
+public:
+    virtual ~VariantShreddedState() = default;
+
+    virtual size_t size() const = 0;
+    virtual size_t byte_size() const = 0;
+    virtual size_t allocated_bytes() const = 0;
+    virtual void sanity_check() const = 0;
+    virtual void for_each_subcolumn(const IColumn::ColumnCallback& callback) const = 0;
+    virtual std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment> path) const = 0;
+
+    // The returned column is cached and owned by this state, so borrowed VariantRef values remain
+    // valid for the state lifetime. Implementations must not materialize before this is called.
+    virtual const ColumnVariantV2& materialized_column() const = 0;
+};
+
+// ColumnVariantV2 stores a whole column in exactly one state: encoded Variant bytes, one nullable
+// typed scalar column, or a format-owned shredded tree. Mixed operations materialize typed or
+// shredded state as encoded bytes only when canonical row bytes are required.
 class ColumnVariantV2 final : public COWHelper<IColumn, ColumnVariantV2> {
 public:
     struct EncodedDataView {
@@ -87,10 +125,14 @@ public:
     // The input must be an exact, non-Const ColumnNullable whose nested column matches the
     // non-nullable supported scalar type.
     static MutablePtr create_typed(ColumnPtr column, DataTypePtr scalar_type);
+    static MutablePtr create_shredded(std::shared_ptr<VariantShreddedState> state);
 
     bool is_typed() const noexcept { return _typed != nullptr; }
+    bool is_shredded() const noexcept { return _shredded != nullptr; }
     const IColumn& typed_column() const;
     const DataTypePtr& typed_type() const;
+    std::optional<VariantShreddedTypedValue> find_shredded_typed_value(
+            std::span<const VariantShreddedPathSegment> path) const;
     void ensure_encoded();
     ReadView read_view() const;
 
@@ -200,6 +242,10 @@ private:
     // single type described by _typed_type.
     IColumn::WrappedPtr _typed;
     DataTypePtr _typed_type;
+
+    // A non-null state owns the decoded format columns. Encoded and typed storage stay empty until
+    // an operation explicitly requests canonical Variant bytes.
+    std::shared_ptr<VariantShreddedState> _shredded;
 };
 
 template <typename NullCallback, typename ValueCallback>

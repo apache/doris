@@ -40,10 +40,14 @@ struct VariantMaterializationNode {
 // typed_value is the Variant null value.
 Status materialize_variant_rows(const ParquetColumnSchema& schema, const IColumn& physical,
                                 MutableColumnPtr& output);
+Status materialize_variant_rows(const ParquetColumnSchema& schema, ColumnPtr physical,
+                                MutableColumnPtr& output);
 
 // Recursively replaces projected VARIANT nodes inside STRUCT/LIST/MAP columns while preserving the
 // surrounding column shape, offsets, and null maps. The destination is unchanged on decode errors.
 Status materialize_variant_columns(const VariantMaterializationNode& plan, const IColumn& physical,
+                                   MutableColumnPtr& output);
+Status materialize_variant_columns(const VariantMaterializationNode& plan, ColumnPtr physical,
                                    MutableColumnPtr& output);
 
 } // namespace doris::format::parquet
