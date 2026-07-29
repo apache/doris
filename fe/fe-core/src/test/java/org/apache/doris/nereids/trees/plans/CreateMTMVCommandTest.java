@@ -429,6 +429,21 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIncrementalMTMVRejectsNonIvmMtmvBase() throws Exception {
+        createIvmMowTable("mtmv_non_ivm_base_source");
+        createMtmv("CREATE MATERIALIZED VIEW mtmv_non_ivm_base\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n"
+                + " AS SELECT k1, v1 FROM mtmv_non_ivm_base_source;");
+
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW mtmv_ivm_on_non_ivm_base\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM mtmv_non_ivm_base;",
+                "cannot use non-IVM MTMV as a base table");
+    }
+
+    @Test
     public void testCreateAutoMTMVPersistsIvmFlagWhenCapable() throws Exception {
         createTable("create table test.mtmv_auto_increment_flag_base (k1 int)\n"
                 + "duplicate key(k1)\n"
