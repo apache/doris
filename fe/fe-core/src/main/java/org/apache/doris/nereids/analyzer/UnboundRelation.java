@@ -53,6 +53,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     private final List<String> partNames;
     private final List<Long> tabletIds;
     private final boolean isTempPart;
+    private final boolean isMaxVisiblePartition;
     private final List<String> hints;
     private final Optional<TableSample> tableSample;
     private final Optional<String> indexName;
@@ -64,14 +65,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), false, ImmutableList.of(),
+                ImmutableList.of(), false, false, ImmutableList.of(),
                 ImmutableList.of(), Optional.empty(), Optional.empty(), null,
                 Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames,
             boolean isTempPart) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, false, ImmutableList.of(),
                 ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), Optional.empty());
     }
 
@@ -79,7 +80,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             boolean isTempPart, List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
             Optional<String> indexName) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(),
+                partNames, isTempPart, false, tabletIds, hints, tableSample, indexName, null, Optional.empty(),
                 Optional.empty());
     }
 
@@ -87,7 +88,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             boolean isTempPart, List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
             Optional<String> indexName, TableScanParams scanParams, Optional<TableSnapshot> tableSnapshot) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(),
+                partNames, isTempPart, false, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(),
                 tableSnapshot);
     }
 
@@ -96,7 +97,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             List<String> partNames, boolean isTempPart, List<Long> tabletIds, List<String> hints,
             Optional<TableSample> tableSample, Optional<String> indexName) {
         this(id, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), Optional.empty());
+                isTempPart, false, tabletIds, hints, tableSample, indexName, null, Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames,
@@ -104,16 +105,29 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             Optional<String> indexName, TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
             Optional<TableSnapshot> tableSnapshot) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, indexInSqlString,
+                partNames, isTempPart, false, tabletIds, hints, tableSample, indexName, scanParams, indexInSqlString,
                 tableSnapshot);
     }
 
     /**
-     * constructor of UnboundRelation
+     * constructor of UnboundRelation with max_visible_partition() flag.
+     */
+    public UnboundRelation(RelationId id, List<String> nameParts,
+            List<String> partNames, boolean isTempPart, boolean isMaxVisiblePartition,
+            List<Long> tabletIds, List<String> hints,
+            Optional<TableSample> tableSample, Optional<String> indexName, TableScanParams scanParams,
+            Optional<TableSnapshot> tableSnapshot) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, isMaxVisiblePartition,
+                tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(), tableSnapshot);
+    }
+
+    /**
+     * constructor of UnboundRelation with max_visible_partition() flag.
      */
     public UnboundRelation(RelationId id, List<String> nameParts,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<String> partNames, boolean isTempPart, List<Long> tabletIds, List<String> hints,
+            List<String> partNames, boolean isTempPart, boolean isMaxVisiblePartition,
+            List<Long> tabletIds, List<String> hints,
             Optional<TableSample> tableSample, Optional<String> indexName, TableScanParams scanParams,
             Optional<Pair<Integer, Integer>> indexInSqlString,
             Optional<TableSnapshot> tableSnapshot) {
@@ -122,6 +136,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
         this.tabletIds = ImmutableList.copyOf(Objects.requireNonNull(tabletIds, "tabletIds should not null"));
         this.isTempPart = isTempPart;
+        this.isMaxVisiblePartition = isMaxVisiblePartition;
         this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints should not be null."));
         this.tableSample = tableSample;
         this.indexName = indexName;
@@ -148,23 +163,23 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(relationId, nameParts,
                 groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
-                indexInSqlString, tableSnapshot);
+                partNames, isTempPart, isMaxVisiblePartition, tabletIds, hints, tableSample, indexName,
+                scanParams, indexInSqlString, tableSnapshot);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(relationId, nameParts, groupExpression,
-                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
-                indexInSqlString, tableSnapshot);
+                logicalProperties, partNames, isTempPart, isMaxVisiblePartition, tabletIds, hints, tableSample,
+                indexName, scanParams, indexInSqlString, tableSnapshot);
     }
 
     public UnboundRelation withIndexInSql(Pair<Integer, Integer> index) {
         // SQL source indexing annotates relation identity only; it must not erase scan semantics.
         return new UnboundRelation(relationId, nameParts, groupExpression,
-                Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints, tableSample, indexName,
-                scanParams, Optional.of(index), tableSnapshot);
+                Optional.of(getLogicalProperties()), partNames, isTempPart, isMaxVisiblePartition, tabletIds,
+                hints, tableSample, indexName, scanParams, Optional.of(index), tableSnapshot);
     }
 
     @Override
@@ -197,6 +212,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             sb.append(nameParts.stream().collect(Collectors.joining(".")));
             sb.append(" ");
         }
+        if (isMaxVisiblePartition) {
+            sb.append("MAX_VISIBLE_PARTITION()").append(" ");
+        }
         if (indexName.isPresent()) {
             sb.append("INDEX ").append(indexName.get()).append(" ");
         }
@@ -221,7 +239,8 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             return false;
         }
         UnboundRelation that = (UnboundRelation) o;
-        return isTempPart == that.isTempPart && Objects.equals(nameParts, that.nameParts)
+        return isTempPart == that.isTempPart && isMaxVisiblePartition == that.isMaxVisiblePartition
+                && Objects.equals(nameParts, that.nameParts)
                 && Objects.equals(partNames, that.partNames) && Objects.equals(tabletIds,
                 that.tabletIds) && Objects.equals(hints, that.hints) && Objects.equals(tableSample,
                 that.tableSample) && Objects.equals(indexName, that.indexName) && Objects.equals(
@@ -245,6 +264,10 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
 
     public boolean isTempPart() {
         return isTempPart;
+    }
+
+    public boolean isMaxVisiblePartition() {
+        return isMaxVisiblePartition;
     }
 
     public List<Long> getTabletIds() {
