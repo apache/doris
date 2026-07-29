@@ -69,13 +69,13 @@ class CodexAuthStateTest(unittest.TestCase):
         self.assertEqual(AUTH_3, after_cooldown.auth_object)
         self.assertEqual(auth_state.AVAILABLE, auth_state.account_state(state, AUTH_1)["status"])
 
-    def test_quota_exhaustion_retries_after_one_day_and_alerts_for_all_accounts(self) -> None:
+    def test_quota_exhaustion_retries_after_twelve_hours_and_alerts_for_all_accounts(self) -> None:
         state = auth_state.default_state()
         for auth_object in AUTH_OBJECTS:
             auth_state.record_result(state, auth_object, auth_state.QUOTA_EXHAUSTED, NOW)
 
-        unavailable = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW + timedelta(hours=23))
-        available_again = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW + timedelta(days=1))
+        unavailable = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW + timedelta(hours=11))
+        available_again = auth_state.select_auth_object(state, AUTH_OBJECTS, NOW + timedelta(hours=12))
 
         self.assertIsNone(unavailable.auth_object)
         self.assertTrue(unavailable.all_quota_exhausted)
@@ -247,7 +247,7 @@ class CodexAuthStateTest(unittest.TestCase):
         self.assertEqual(auth_state.TRANSIENT_FAILURE, classification.kind)
         self.assertEqual(503, classification.http_status)
 
-    def test_usage_limit_message_preserves_its_reset_time(self) -> None:
+    def test_usage_limit_message_caps_its_reset_time_at_twelve_hours(self) -> None:
         message = "You've hit your usage limit for this period; try again at Aug 2nd, 2026 1:27 AM."
         classification = auth_state.classify_terminal_failure(
             '{"type":"turn.failed","error":{"message":"' + message + '"}}', "", NOW
@@ -264,10 +264,10 @@ class CodexAuthStateTest(unittest.TestCase):
         )
 
         self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
-        self.assertEqual("2026-08-02T01:27:00Z", classification.retry_after)
-        self.assertEqual("2026-08-02T01:27:00Z", auth_state.account_state(state, AUTH_1)["retry_after"])
+        self.assertEqual("2026-07-27T22:00:00Z", classification.retry_after)
+        self.assertEqual("2026-07-27T22:00:00Z", auth_state.account_state(state, AUTH_1)["retry_after"])
 
-    def test_usage_limit_time_only_uses_the_next_occurrence(self) -> None:
+    def test_usage_limit_time_only_caps_the_next_occurrence_at_twelve_hours(self) -> None:
         message = "You've hit your usage limit for this period; try again at 1:27 AM."
 
         classification = auth_state.classify_terminal_failure(
@@ -275,7 +275,7 @@ class CodexAuthStateTest(unittest.TestCase):
         )
 
         self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
-        self.assertEqual("2026-07-28T01:27:00Z", classification.retry_after)
+        self.assertEqual("2026-07-27T22:00:00Z", classification.retry_after)
 
     def test_usage_limit_without_timestamp_uses_a_safe_fallback(self) -> None:
         message = "You've hit your usage limit for this period. Try again later."
@@ -285,7 +285,7 @@ class CodexAuthStateTest(unittest.TestCase):
         )
 
         self.assertEqual(auth_state.QUOTA_EXHAUSTED, classification.kind)
-        self.assertEqual("2026-07-28T10:00:00Z", classification.retry_after)
+        self.assertEqual("2026-07-27T22:00:00Z", classification.retry_after)
 
 
 if __name__ == "__main__":

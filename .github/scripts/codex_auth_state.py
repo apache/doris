@@ -22,7 +22,7 @@ RATE_LIMITED = "rate_limited"
 AUTHENTICATION_FAILED = "authentication_failed"
 TRANSIENT_FAILURE = "transient_failure"
 STATUS_VALUES = {AVAILABLE, QUOTA_EXHAUSTED, RATE_LIMITED, AUTHENTICATION_FAILED}
-QUOTA_RETRY_DELAY = timedelta(days=1)
+QUOTA_RETRY_DELAY = timedelta(hours=12)
 RATE_LIMIT_RETRY_DELAY = timedelta(hours=1)
 PERMANENT_AUTH_FAILURE_PATTERN = re.compile(
     r"refresh[\s_-]*token.*(?:revoked|expired|already\s+used)|"
@@ -270,6 +270,13 @@ def next_retry_at(state: dict[str, Any], auth_objects: list[str]) -> str | None:
     return min(retry_at, key=parse_timestamp, default=None)
 
 
+def quota_retry_at(now: datetime, retry_after: datetime | None) -> datetime:
+    latest_retry_at = now + QUOTA_RETRY_DELAY
+    if retry_after is None or retry_after > latest_retry_at:
+        return latest_retry_at
+    return retry_after
+
+
 def all_quota_exhausted(state: dict[str, Any], auth_objects: list[str]) -> bool:
     return bool(auth_objects) and all(
         account_state(state, auth_object)["status"] == QUOTA_EXHAUSTED for auth_object in auth_objects
@@ -311,7 +318,7 @@ def record_result(
 
     if result == QUOTA_EXHAUSTED:
         http_status = http_status or 403
-        retry_at = retry_after or now + QUOTA_RETRY_DELAY
+        retry_at = quota_retry_at(now, retry_after)
     elif result == RATE_LIMITED:
         http_status = http_status or 429
     elif result == AUTHENTICATION_FAILED:
@@ -368,7 +375,7 @@ def usage_limit_retry_after(text: str, now: datetime | None = None) -> datetime 
     except ValueError:
         return None
     retry_at = datetime.combine(current_time.date(), retry_time, tzinfo=timezone.utc)
-    return retry_at if retry_at > current_time else retry_at + timedelta(days=1)
+    return retry_at if retry_at > current_time else current_time + QUOTA_RETRY_DELAY
 
 
 def classify_failure(text: str) -> str:
@@ -434,8 +441,8 @@ def classify_terminal_failure(
     message = terminal_event_error(events) or terminal_stderr_error(stderr) or ""
     current_time = now or utc_now()
     retry_after = usage_limit_retry_after(message, current_time)
-    if retry_after is None and classify_failure(message) == QUOTA_EXHAUSTED:
-        retry_after = current_time + QUOTA_RETRY_DELAY
+    if classify_failure(message) == QUOTA_EXHAUSTED:
+        retry_after = quota_retry_at(current_time, retry_after)
     return FailureClassification(
         kind=classify_failure(message),
         http_status=extract_http_status(message),
