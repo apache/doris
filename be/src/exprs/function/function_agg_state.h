@@ -30,6 +30,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -60,6 +61,16 @@ public:
     size_t get_number_of_arguments() const override { return _argument_types.size(); }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        // FunctionAggState does not go through AggFnEvaluator::prepare(), where query-scoped
+        // resources are normally attached to blockable aggregates such as ai_agg. Attach them
+        // once before state serialization creates aggregate states.
+        if (scope == FunctionContext::FRAGMENT_LOCAL && _agg_function->is_blockable()) {
+            _agg_function->set_query_context(context->state()->get_query_ctx());
+        }
+        return Status::OK();
+    }
 
     String get_name() const override { return fmt::format("{}_state", _agg_function->get_name()); }
 

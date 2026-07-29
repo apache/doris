@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
@@ -137,6 +138,11 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
             // distinct will be passed as 1st boolean true arg. remove it
             if (!arguments.isEmpty() && arguments.get(0) instanceof Boolean && (Boolean) arguments.get(0)) {
                 arguments = arguments.subList(1, arguments.size());
+            }
+            // AIAgg's two-argument constructor injects the default resource into the nested function.
+            // Include it in the state arguments because BE always consumes [resource, input, task].
+            if (nestedFunction instanceof AIAgg && arguments.size() == 2) {
+                arguments = nestedFunction.getArguments();
             }
             return Pair.of(new StateCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
         } else if (combinatorSuffix.equalsIgnoreCase(MERGE)) {

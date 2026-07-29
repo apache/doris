@@ -24,7 +24,6 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
-#include "core/block/column_with_type_and_name.h"
 #include "core/data_type/data_type.h"
 #include "exec/sort/sort_description.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -118,9 +117,6 @@ public:
     const std::vector<bool>& always_const_argument_idx() const {
         return _always_const_argument_idx;
     }
-    const std::vector<ColumnWithTypeAndName>& always_const_arguments() const {
-        return _always_const_arguments;
-    }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena& arena) const {
         _function->merge(place, rhs, arena);
     }
@@ -189,7 +185,6 @@ private:
               _without_key(without_key),
               _is_window_function(is_window_function) {};
 #endif
-    Status _init_always_const_arguments();
     Status _calc_argument_columns(Block* block);
 
     DataTypes _argument_types_with_sort;
@@ -213,7 +208,6 @@ private:
     std::string _expr_name;
 
     std::vector<const IColumn*> _agg_columns;
-    std::vector<ColumnWithTypeAndName> _always_const_arguments;
     // Bool map of argument positions that must be constant by aggregate semantics.
     // FE checks these positions before execution.
     std::vector<bool> _always_const_argument_idx;

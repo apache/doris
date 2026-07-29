@@ -172,6 +172,16 @@ ColumnWithTypeAndName create_const_nullable_null_level(size_t size) {
             make_nullable(std::make_shared<DataTypeFloat64>()), "nullable_level"};
 }
 
+ColumnWithTypeAndName create_const_nullable_level(double value, size_t size) {
+    auto level_column = ColumnFloat64::create();
+    level_column->insert_value(value);
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    auto nullable = ColumnNullable::create(std::move(level_column), std::move(null_map));
+    return {ColumnConst::create(std::move(nullable), size),
+            make_nullable(std::make_shared<DataTypeFloat64>()), "nullable_level"};
+}
+
 ColumnWithTypeAndName create_nullable_int_column(const std::vector<int32_t>& values,
                                                  const std::vector<uint8_t>& null_map_values) {
     DCHECK_EQ(values.size(), null_map_values.size());
@@ -536,6 +546,30 @@ TEST(AggregateFunctionPercentileTest, nullable_const_null_short_circuit) {
 
         fn->add_batch_single_place(2, place, columns, arena);
         EXPECT_TRUE(std::isnan(read_result(fn, place)));
+        fn->destroy(place);
+    }
+}
+
+TEST(AggregateFunctionPercentileTest, nullable_const_level_across_rows) {
+    for (bool use_null_v2 : {false, true}) {
+        auto fn = create_percentile_reservoir_function(
+                {std::make_shared<DataTypeFloat64>(),
+                 make_nullable(std::make_shared<DataTypeFloat64>())},
+                false, use_null_v2);
+        ASSERT_TRUE(fn != nullptr);
+
+        std::vector<ColumnWithTypeAndName> arguments;
+        arguments.emplace_back(create_value_block({1.0, 2.0, 3.0, 4.0}));
+        arguments.emplace_back(create_const_nullable_level(0.5, 4));
+        const IColumn* columns[] = {arguments[0].column.get(), arguments[1].column.get()};
+
+        Arena arena;
+        std::unique_ptr<char[]> place_mem(new char[fn->size_of_data()]);
+        AggregateDataPtr place = place_mem.get();
+        fn->create(place);
+
+        fn->add_batch_single_place(4, place, columns, arena);
+        EXPECT_DOUBLE_EQ(read_result(fn, place), 2.5);
         fn->destroy(place);
     }
 }

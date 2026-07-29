@@ -65,6 +65,10 @@ suite("percentile") {
     qt_percentile_distinct_const_arg """select percentile(distinct col_double, cast('0.5' as double)) from d_table;"""
     sql """set debug_skip_fold_constant=true;"""
     qt_percentile_const_expr_materialized """select percentile(col_double, coalesce(cast(null as double), cast(0.5 as double))) from d_table;"""
+    test {
+        // NormalizeRepeat materializes the constant expression as a Slot in old FE plans.
+        sql """select percentile(col_double, 0.1 + 0.1) from d_table group by grouping sets ((k1), ());"""
+    }
     sql """set enable_aggregate_function_null_v2=false;"""
     qt_percentile_const_nullable_null_v1 """select percentile(col_double, coalesce(cast(null as double), cast(null as double))) from d_table;"""
     sql """set enable_aggregate_function_null_v2=true;"""
@@ -96,7 +100,7 @@ suite("percentile") {
     sql """set enable_aggregate_function_null_v2=true;"""
     qt_percentile_nullable_input_v2 """select percentile(v, 0.5) from percentile_nullable_t;"""
     order_qt_percentile_window_nullable_v2 """select id, percentile(v, 0.5) over(order by id rows between 1 preceding and current row) from percentile_nullable_t order by id;"""
-    sql """set enable_aggregate_function_null_v2=false;"""
+    sql """set enable_aggregate_function_null_v2=true;"""
 
     sql """drop table if exists percentile_nan_t;"""
     sql """

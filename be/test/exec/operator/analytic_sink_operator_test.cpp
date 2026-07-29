@@ -24,6 +24,7 @@
 #include <string>
 
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
@@ -31,7 +32,6 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_descriptors.h"
-#include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
@@ -299,38 +299,83 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction) {
     std::cout << "######### AggFunction with sum test end #########" << std::endl;
 }
 
-TEST_F(AnalyticSinkOperatorTest, OpenCachesAlwaysConstArgumentColumnPointers) {
-    Initialize(10);
+TEST_F(AnalyticSinkOperatorTest, AlwaysConstSlotRemainsConstAcrossInputBlocks) {
+    Initialize(3);
     auto double_type = std::make_shared<DataTypeFloat64>();
     create_operator(true, 1, "percentile", {double_type, double_type}, double_type);
     sink->_num_agg_input[0] = 2;
-
-    auto value_expr = MockSlotRef::create_mock_context(0, double_type);
-    auto const_quantile_expr = MockLiteral::create_const<DataTypeFloat64>(0.5, 1);
     sink->_agg_expr_ctxs.resize(1);
-    sink->_agg_expr_ctxs[0] = {value_expr, const_quantile_expr};
-    sink->_agg_functions[0]->_input_exprs_ctxs = sink->_agg_expr_ctxs[0];
-    ASSERT_TRUE(sink->_agg_functions[0]->open(state.get()).ok());
+    sink->_agg_expr_ctxs[0] = {MockSlotRef::create_mock_context(0, double_type),
+                               MockSlotRef::create_mock_context(1, double_type)};
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary current_row;
+    current_row.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+    window.__set_window_start(current_row);
+    window.__set_window_end(current_row);
+    create_window_type(true, true, window);
 
+    // Old FE plans can materialize the constant quantile expression as a normal SlotRef.
+    // Opening the evaluator must leave that SlotRef for the Analytic operator to evaluate
+    // from its input blocks.
+    ASSERT_TRUE(sink->_agg_functions[0]->open(state.get()).ok());
     create_local_state();
+
+    Block first_input =
+            ColumnHelper::create_block<DataTypeFloat64>({1.0, 2.0, 3.0}, {0.5, 0.5, 0.5});
+    auto status = sink->_add_input_block(state.get(), &first_input);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     ASSERT_EQ(sink_local_state->_agg_input_columns.size(), 1);
     ASSERT_EQ(sink_local_state->_agg_input_columns[0].size(), 2);
-    ASSERT_EQ(sink_local_state->_agg_input_column_ptrs.size(), 1);
-    ASSERT_EQ(sink_local_state->_agg_input_column_ptrs[0].size(), 2);
+    auto* const_column =
+            check_and_get_column<ColumnConst>(sink_local_state->_agg_input_columns[0][1].get());
+    ASSERT_NE(const_column, nullptr);
+    ASSERT_EQ(const_column->size(), 3);
+    ASSERT_EQ(const_column->get_data_column_ptr()->size(), 1);
+    const auto* const_column_address = const_column;
+    const auto const_data = const_column->get_data_column_ptr();
 
-    EXPECT_EQ(sink_local_state->_agg_input_column_ptrs[0][0],
-              sink_local_state->_agg_input_columns[0][0].get());
-    EXPECT_NE(sink_local_state->_agg_input_column_ptrs[0][1],
-              sink_local_state->_agg_input_columns[0][1].get());
+    Block second_input =
+            ColumnHelper::create_block<DataTypeFloat64>({4.0, 5.0, 6.0}, {0.5, 0.5, 0.5});
+    status = sink->_add_input_block(state.get(), &second_input);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
-    const auto& always_const_arguments =
-            sink_local_state->_agg_functions[0]->always_const_arguments();
-    ASSERT_EQ(always_const_arguments.size(), 2);
-    ASSERT_TRUE(always_const_arguments[1].column);
-    EXPECT_EQ(sink_local_state->_agg_input_column_ptrs[0][1],
-              always_const_arguments[1].column.get());
-    EXPECT_TRUE(is_column<ColumnConst>(*sink_local_state->_agg_input_column_ptrs[0][1]));
+    // Appending another input block only grows the ColumnConst's logical size. Neither the
+    // wrapper nor its single physical value should be rebuilt.
+    const_column =
+            check_and_get_column<ColumnConst>(sink_local_state->_agg_input_columns[0][1].get());
+    ASSERT_NE(const_column, nullptr);
+    EXPECT_EQ(const_column, const_column_address);
+    EXPECT_EQ(const_column->size(), 6);
+    ASSERT_EQ(const_column->get_data_column_ptr()->size(), 1);
+    EXPECT_EQ(const_column->get_data_column_ptr().get(), const_data.get());
+
+    // Finalizing this CURRENT ROW frame calls _execute_for_function once per input row.
+    Block eos_block = ColumnHelper::create_block<DataTypeFloat64>({});
+    status = sink->sink(state.get(), &eos_block, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(sink_local_state->_agg_input_columns[0][1].get(), const_column_address);
+
+    auto check_output = [&](const std::vector<double>& values) {
+        Block output = ColumnHelper::create_block<DataTypeFloat64>({});
+        bool eos = false;
+        status = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        std::vector<double> quantiles(values.size(), 0.5);
+        auto expected = ColumnHelper::create_block<DataTypeFloat64>(values, quantiles);
+        expected.insert(ColumnHelper::create_column_with_name<DataTypeFloat64>(values));
+        EXPECT_TRUE(ColumnHelper::block_equal(output, expected));
+    };
+    check_output({1.0, 2.0, 3.0});
+    check_output({4.0, 5.0, 6.0});
+
+    Block output = ColumnHelper::create_block<DataTypeFloat64>({});
+    bool eos = false;
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
     EXPECT_TRUE(sink_local_state->close(state.get(), Status::OK()).ok());
 }
 

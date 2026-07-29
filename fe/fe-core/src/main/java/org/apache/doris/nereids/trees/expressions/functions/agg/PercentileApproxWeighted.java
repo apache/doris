@@ -107,13 +107,12 @@ public class PercentileApproxWeighted extends NullableAggregateFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        checkLegalityBeforeTypeCoercion();
         Expression quantile = getArgument(2);
         if (!(quantile instanceof Literal) || !quantile.getDataType().isNumericType()) {
             return;
         }
         double value = ((Literal) quantile).getDouble();
-        if (value < 0.0 || value > 1.0) {
+        if (!Double.isFinite(value) || value < 0.0 || value > 1.0) {
             throw new AnalysisException(
                     "percentile_approx_weighted quantile must be in [0, 1], but got " + value + ": "
                             + this.toSql());

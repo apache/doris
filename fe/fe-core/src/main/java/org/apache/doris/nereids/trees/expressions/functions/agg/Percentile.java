@@ -93,7 +93,7 @@ public class Percentile extends NullableAggregateFunction
             return;
         }
         double value = ((Literal) quantile).getDouble();
-        if (value < 0.0 || value > 1.0) {
+        if (!Double.isFinite(value) || value < 0.0 || value > 1.0) {
             throw new AnalysisException(
                     "percentile quantile must be in [0, 1], but got " + value + ": " + this.toSql());
         }
@@ -106,11 +106,6 @@ public class Percentile extends NullableAggregateFunction
     public Percentile withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new Percentile(getFunctionParams(distinct, children));
-    }
-
-    @Override
-    public List<Expression> getDistinctArguments() {
-        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 
     @Override

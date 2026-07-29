@@ -24,12 +24,19 @@
 #include <string>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "core/arena.h"
+#include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/function/function_agg_state.h"
+#include "exprs/function_context.h"
 #include "runtime/query_context.h"
 #include "service/http/http_client.h"
 #include "testutil/column_helper.h"
@@ -214,6 +221,62 @@ TEST_F(AggregateFunctionAIAggTest, serialize_deserialize_test) {
 
     _agg_function->destroy(place1);
     _agg_function->destroy(place2);
+}
+
+TEST_F(AggregateFunctionAIAggTest, state_serialization_propagates_query_context) {
+    constexpr size_t num_rows = 2;
+
+    for (bool nullable_input : {false, true}) {
+        auto string_type = std::make_shared<DataTypeString>();
+        DataTypePtr input_type =
+                nullable_input ? make_nullable(string_type) : DataTypePtr(string_type);
+        DataTypes argument_types {string_type, input_type, string_type};
+        auto state_type =
+                std::make_shared<DataTypeAggState>(argument_types, nullable_input, "ai_agg",
+                                                   BeExecVersionManager::get_newest_version());
+        auto function = FunctionAggState::create(argument_types, state_type,
+                                                 state_type->get_nested_function());
+        ASSERT_NE(function, nullptr);
+
+        auto function_context =
+                FunctionContext::create_context(_runtime_state.get(), state_type, argument_types);
+        ASSERT_TRUE(function->open(function_context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+
+        // The two-argument SQL overload reaches BE with the session's default resource injected
+        // as the first argument, so exercise the complete three-column runtime representation.
+        auto resource = ColumnString::create();
+        resource->insert_data("mock_resource", 13);
+        auto task = ColumnString::create();
+        task->insert_data("summarize", 9);
+        auto input = ColumnString::create();
+        input->insert_data("first", 5);
+        input->insert_data("second", 6);
+
+        ColumnPtr input_column;
+        if (nullable_input) {
+            input_column =
+                    ColumnNullable::create(std::move(input), ColumnUInt8::create(num_rows, 0));
+        } else {
+            input_column = std::move(input);
+        }
+
+        Block block;
+        block.insert({ColumnConst::create(std::move(resource), num_rows), string_type, "resource"});
+        block.insert({std::move(input_column), input_type, "input"});
+        block.insert({ColumnConst::create(std::move(task), num_rows), string_type, "task"});
+        block.insert({nullptr, state_type, "result"});
+
+        auto executable = function->prepare(function_context.get(), block, {0, 1, 2}, 3);
+        ASSERT_NE(executable, nullptr);
+        ASSERT_TRUE(
+                executable->execute(function_context.get(), block, {0, 1, 2}, 3, num_rows).ok());
+
+        const auto& result = block.get_by_position(3).column;
+        ASSERT_TRUE(result);
+        ASSERT_EQ(result->size(), num_rows);
+        EXPECT_FALSE(result->is_null_at(0));
+        EXPECT_GT(result->get_data_at(0).size, 0);
+    }
 }
 
 TEST_F(AggregateFunctionAIAggTest, reset_test) {

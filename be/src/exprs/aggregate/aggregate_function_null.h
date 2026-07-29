@@ -22,6 +22,7 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 
@@ -48,10 +49,9 @@ protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
     bool is_window_function = false;
-    // Argument positions that must be constant by nested aggregate semantics.
-    // Other positions may also receive constant columns at runtime, but FE only
-    // guarantees these positions are always constant arguments.
-    std::vector<bool> always_const_argument_idx;
+    // Nullable argument positions that must be constant by nested aggregate semantics.
+    // Only these positions need the constant-NULL check before unwrapping ColumnNullable.
+    std::vector<size_t> nullable_const_argument_indexes;
 
     /** In addition to data for nested aggregate function, we keep a flag
       *  indicating - was there at least one non-NULL value accumulated.
@@ -119,12 +119,13 @@ public:
                                     const DataTypes& arguments, bool is_window_function_)
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)},
-              is_window_function(is_window_function_),
-              always_const_argument_idx(arguments.size(), false) {
+              is_window_function(is_window_function_) {
         DCHECK(nested_function_ != nullptr);
         for (auto index : nested_function->get_const_argument_indexes()) {
-            DORIS_CHECK_LT(index, always_const_argument_idx.size());
-            always_const_argument_idx[index] = true;
+            DORIS_CHECK_LT(index, arguments.size());
+            if (arguments[index]->is_nullable()) {
+                nullable_const_argument_indexes.push_back(index);
+            }
         }
         if constexpr (result_is_nullable) {
             if (this->is_window_function) {
@@ -153,9 +154,8 @@ public:
     }
 
     bool check_always_const_col_has_null(const IColumn** columns) const {
-        for (size_t i = 0; i < always_const_argument_idx.size(); ++i) {
-            if (always_const_argument_idx[i] && this->argument_types[i]->is_nullable() &&
-                columns[i]->is_null_at(0)) {
+        for (auto index : nullable_const_argument_indexes) {
+            if (columns[index]->is_null_at(0)) {
                 return true;
             }
         }
@@ -637,25 +637,19 @@ public:
             return;
         }
         /// This container stores the columns we really pass to the nested function.
-        std::vector<const IColumn*> nested_columns(number_of_arguments);
-        std::vector<ColumnPtr> nested_const_columns(number_of_arguments);
+        std::array<const IColumn*, MAX_ARGS> nested_columns;
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
                 if (const auto* const_column = check_and_get_column<ColumnConst>(*columns[i])) {
+                    // Non-semantic constants are materialized before reaching this wrapper.
+                    DCHECK(std::find(this->nullable_const_argument_indexes.begin(),
+                                     this->nullable_const_argument_indexes.end(),
+                                     i) != this->nullable_const_argument_indexes.end());
                     const auto& nullable_col =
                             assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                     const_column->get_data_column());
-                    if (nullable_col.is_null_at(0)) {
-                        return;
-                    }
-                    nested_const_columns[i] = ColumnConst::create(
-                            nullable_col.get_nested_column_ptr(), const_column->size());
-                    if (!this->always_const_argument_idx[i]) {
-                        nested_const_columns[i] =
-                                nested_const_columns[i]->convert_to_full_column_if_const();
-                    }
-                    nested_columns[i] = nested_const_columns[i].get();
+                    nested_columns[i] = &nullable_col.get_nested_column();
                     continue;
                 }
                 const auto& nullable_col =

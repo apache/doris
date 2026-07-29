@@ -74,7 +74,7 @@ public class PercentileReservoir extends NullableAggregateFunction
         }
         if (levelArgument instanceof Literal && levelArgument.getDataType().isNumericType()) {
             double value = ((Literal) levelArgument).getDouble();
-            if (value < 0 || value > 1) {
+            if (!Double.isFinite(value) || value < 0 || value > 1) {
                 throw new AnalysisException(
                         "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
             }
@@ -83,13 +83,15 @@ public class PercentileReservoir extends NullableAggregateFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        checkLegalityBeforeTypeCoercion();
+        // Constantness is checked on the original argument before type coercion. A DISTINCT
+        // aggregate can replace that argument with an internal slot during normalization, so this
+        // stage only validates the value when constant folding has produced a literal.
         Expression levelArgument = getArgument(1);
         if (!(levelArgument instanceof Literal) || !levelArgument.getDataType().isNumericType()) {
             return;
         }
         double value = ((Literal) levelArgument).getDouble();
-        if (value < 0 || value > 1) {
+        if (!Double.isFinite(value) || value < 0 || value > 1) {
             throw new AnalysisException(
                     "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
         }
@@ -102,11 +104,6 @@ public class PercentileReservoir extends NullableAggregateFunction
     public PercentileReservoir withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PercentileReservoir(getFunctionParams(distinct, children));
-    }
-
-    @Override
-    public List<Expression> getDistinctArguments() {
-        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 
     @Override

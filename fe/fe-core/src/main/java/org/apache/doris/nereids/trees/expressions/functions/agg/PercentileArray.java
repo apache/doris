@@ -105,7 +105,7 @@ public class PercentileArray extends NotNullableAggregateFunction
                 continue;
             }
             double value = ((Literal) item).getDouble();
-            if (value < 0.0 || value > 1.0) {
+            if (!Double.isFinite(value) || value < 0.0 || value > 1.0) {
                 throw new AnalysisException("percentile_array quantile must be in [0, 1], but got "
                         + value + ": " + this.toSql());
             }
@@ -119,11 +119,6 @@ public class PercentileArray extends NotNullableAggregateFunction
     public PercentileArray withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PercentileArray(getFunctionParams(distinct, children));
-    }
-
-    @Override
-    public List<Expression> getDistinctArguments() {
-        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 
     @Override
