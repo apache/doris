@@ -145,6 +145,9 @@ public:
     virtual size_t raw_fixed_value_size() const = 0;
     virtual Status find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
                                         uint8_t* matches) const = 0;
+    virtual bool supports_raw_binary_values() const = 0;
+    virtual Status find_batch_raw_binary(const StringRef* values, size_t rows,
+                                         uint8_t* matches) const = 0;
     virtual bool test_field(const Field& field) const = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const IColumn& column, const uint8_t* nullmap,
@@ -223,6 +226,26 @@ public:
                 ValueType value;
                 std::memcpy(&value, values + row * sizeof(ValueType), sizeof(ValueType));
                 matches[row] &= _bloom_filter->test_element<fixed_len_to_uint32_v2>(value) ? 1 : 0;
+            }
+            return Status::OK();
+        }
+    }
+
+    bool supports_raw_binary_values() const override { return is_string_type(type); }
+
+    Status find_batch_raw_binary(const StringRef* values, size_t rows,
+                                 uint8_t* matches) const override {
+        if constexpr (!is_string_type(type)) {
+            return Status::NotSupported("Non-string Bloom filter cannot probe binary values");
+        } else {
+            if (_bloom_filter == nullptr) {
+                return Status::InternalError("Bloom filter is not initialized");
+            }
+            DORIS_CHECK(values != nullptr || rows == 0);
+            DORIS_CHECK(matches != nullptr || rows == 0);
+            for (size_t row = 0; row < rows; ++row) {
+                matches[row] &=
+                        _bloom_filter->test_element<fixed_len_to_uint32_v2>(values[row]) ? 1 : 0;
             }
             return Status::OK();
         }
