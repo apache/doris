@@ -35,12 +35,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Tests for {@link ConnectorPluginManager}: API version compatibility, the type-name contract enforced when a
+ * Tests for {@link ConnectorPluginManager}: provider selection, the type-name contract enforced when a
  * provider is discovered, and the split between sibling lookup and building a standalone catalog.
+ *
+ * <p>Plugin API compatibility is deliberately absent here. It used to be decided by {@code
+ * ConnectorProvider.apiVersion()}, which could never reject anything (the SPI interface — and therefore its
+ * default body — always came from the FE's own classloader). It is now decided at load time from a MANIFEST
+ * attribute of the plugin jar, and is covered where that decision lives: {@code ApiVersionGateTest} and
+ * {@code DirectoryPluginRuntimeManagerApiVersionTest} in fe-extension-loader, plus this family's wiring in
+ * {@code org.apache.doris.pluginapiversion.PluginApiVersionWiringTest}.
  */
 public class ConnectorPluginManagerTest {
-
-    private static final int CURRENT = ConnectorPluginManager.CURRENT_API_VERSION;
 
     private ConnectorPluginManager manager;
     private ConnectorContext testContext;
@@ -62,53 +67,40 @@ public class ConnectorPluginManagerTest {
     }
 
     @Test
-    void testCompatibleApiVersionCreatesConnector() {
-        manager.registerProvider(createProvider("test_type",
-                ConnectorPluginManager.CURRENT_API_VERSION));
+    void testRegisteredProviderCreatesConnector() {
+        manager.registerProvider(createProvider("test_type"));
 
         Connector connector = manager.createConnector("test_type",
                 Collections.emptyMap(), testContext);
         Assertions.assertNotNull(connector,
-                "Compatible provider should create connector successfully");
+                "A registered provider that supports the type should create the connector");
     }
 
     @Test
-    void testIncompatibleApiVersionReturnsNull() {
-        manager.registerProvider(createProvider("test_type", 999));
+    void testValidatePropertiesDelegatesToTheMatchingProvider() {
+        manager.registerProvider(new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "validating_type";
+            }
 
-        Connector connector = manager.createConnector("test_type",
-                Collections.emptyMap(), testContext);
-        Assertions.assertNull(connector,
-                "Incompatible provider should be skipped, returning null");
-    }
+            @Override
+            public void validateProperties(Map<String, String> properties) {
+                throw new IllegalArgumentException("rejected by provider");
+            }
 
-    @Test
-    void testIncompatibleApiVersionValidateThrows() {
-        manager.registerProvider(createProvider("test_type", 999));
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return new TaggedConnector("validating");
+            }
+        });
 
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
-                manager.validateProperties("test_type", Collections.emptyMap()),
-                "validateProperties should throw for incompatible version");
-    }
-
-    @Test
-    void testFallsBackToCompatibleProvider() {
-        // Register incompatible first, compatible second
-        manager.registerProvider(createProvider("test_type", 999));
-        // registerProvider adds at index 0, so add compatible last with direct list access
-        // Actually registerProvider always inserts at index 0, so we need a workaround.
-        // The incompatible one was added at 0. Now add compatible at 0 too — it'll be first.
-        // But we want incompatible first. Let's just test the reverse: compatible registered,
-        // then incompatible for same type — the compatible (index 0) should be found first.
-        ConnectorPluginManager mgr = new ConnectorPluginManager();
-        // Add compatible at index 0
-        mgr.registerProvider(createProvider("test_type",
-                ConnectorPluginManager.CURRENT_API_VERSION));
-
-        Connector connector = mgr.createConnector("test_type",
-                Collections.emptyMap(), testContext);
-        Assertions.assertNotNull(connector,
-                "Should use the compatible provider");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.validateProperties("validating_type", Collections.emptyMap()));
+        Assertions.assertEquals("rejected by provider", e.getMessage(),
+                "CREATE CATALOG must surface the provider's own reason, not one invented by the engine");
+        Assertions.assertDoesNotThrow(() -> manager.validateProperties("unknown_type", Collections.emptyMap()),
+                "an unmatched type validates to nothing here; CatalogFactory decides how to fail");
     }
 
     @Test
@@ -126,7 +118,7 @@ public class ConnectorPluginManagerTest {
         // standalone filter leaked into createConnector, every such table would stop being readable; if the
         // filter were missing from createStandaloneCatalogConnector, CREATE CATALOG could build a catalog with
         // no engine-side semantics behind it. Both directions must hold at once.
-        manager.registerProvider(createProvider("sibling_only", CURRENT, false, "sib"));
+        manager.registerProvider(createProvider("sibling_only", false, "sib"));
 
         Assertions.assertNotNull(manager.createConnector("sibling_only", Collections.emptyMap(), testContext),
                 "sibling lookup must still reach a sibling-only connector — it has no other entry point");
@@ -140,7 +132,7 @@ public class ConnectorPluginManagerTest {
         // The point of removing the catalog type allow-list: a type name the engine has never heard of becomes
         // usable purely by registering a provider for it. This cannot pass while an engine-side list of
         // accepted types exists.
-        manager.registerProvider(createProvider("acme-lake", CURRENT, true, "acme"));
+        manager.registerProvider(createProvider("acme-lake", true, "acme"));
 
         Assertions.assertNotNull(
                 manager.createStandaloneCatalogConnector("acme-lake", Collections.emptyMap(), testContext),
@@ -153,7 +145,7 @@ public class ConnectorPluginManagerTest {
     void siblingOnlyTypeIsNotListedAsCreatable() {
         // The list feeds the CREATE CATALOG diagnostic; naming a type that can never be created would send the
         // user chasing a value the engine will always reject.
-        manager.registerProvider(createProvider("sibling_only", CURRENT, false, "sib"));
+        manager.registerProvider(createProvider("sibling_only", false, "sib"));
 
         Assertions.assertTrue(manager.getStandaloneCatalogTypes().isEmpty(),
                 "sibling-only types must not appear among the creatable catalog types");
@@ -166,10 +158,10 @@ public class ConnectorPluginManagerTest {
         // Type names are the identity CREATE CATALOG routes on and the anchor of source-prefixed namespaces.
         // Two providers claiming one name on the classpath is a build error, and the winner would be decided by
         // ServiceLoader order — silently, differently per build.
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", CURRENT, true, "first"), true));
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", true, "first"), true));
 
         IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
-                () -> manager.registerDiscovered(createProvider("DUP", CURRENT, true, "second"), true),
+                () -> manager.registerDiscovered(createProvider("DUP", true, "second"), true),
                 "a classpath duplicate must fail loud, and case must not be a way around it");
         Assertions.assertTrue(e.getMessage().contains("already claimed"), e.getMessage());
     }
@@ -179,8 +171,8 @@ public class ConnectorPluginManagerTest {
         // Same conflict, different blame: two plugin directories shipping one type name is a deployment
         // accident. loadPlugins promises partial success — one bad plugin dir must not keep FE from starting —
         // so the offender is skipped and the incumbent keeps serving.
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", CURRENT, true, "first"), false));
-        Assertions.assertFalse(manager.registerDiscovered(createProvider("dup", CURRENT, true, "second"), false),
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("dup", true, "first"), false));
+        Assertions.assertFalse(manager.registerDiscovered(createProvider("dup", true, "second"), false),
                 "the second claimant must be refused, not silently appended");
 
         Assertions.assertEquals(Collections.singletonList("dup"), manager.getRegisteredTypes(),
@@ -197,10 +189,10 @@ public class ConnectorPluginManagerTest {
         // creates. Refusing it at registration means the shadowing case cannot arise at all.
         for (String builtin : new String[] {"doris", "test", "lakesoul"}) {
             Assertions.assertTrue(CatalogFactory.isBuiltinCatalogType(builtin), builtin);
-            Assertions.assertFalse(manager.registerDiscovered(createProvider(builtin, CURRENT, true, "x"), false),
+            Assertions.assertFalse(manager.registerDiscovered(createProvider(builtin, true, "x"), false),
                     "a plugin must not be allowed to claim engine built-in type '" + builtin + "'");
             Assertions.assertThrows(IllegalStateException.class,
-                    () -> manager.registerDiscovered(createProvider(builtin.toUpperCase(), CURRENT, true, "x"),
+                    () -> manager.registerDiscovered(createProvider(builtin.toUpperCase(), true, "x"),
                             true),
                     "on the classpath the same violation must fail loud, case-insensitively");
         }
@@ -212,7 +204,7 @@ public class ConnectorPluginManagerTest {
     void blankTypeNameIsRefused() {
         // getType() is now the sole admission ticket for third-party code; a blank name would otherwise sit in
         // the registry and match nothing, or match everything the moment someone compares loosely.
-        Assertions.assertFalse(manager.registerDiscovered(createProvider("  ", CURRENT, true, "x"), false),
+        Assertions.assertFalse(manager.registerDiscovered(createProvider("  ", true, "x"), false),
                 "a blank type name must be refused");
         Assertions.assertTrue(manager.getRegisteredTypes().isEmpty());
     }
@@ -221,8 +213,8 @@ public class ConnectorPluginManagerTest {
     void registerProviderStillShadowsADiscoveredType() {
         // registerProvider exists to stand in for a real plugin in tests (several rely on shadowing a real
         // type name). The uniqueness check must not reach it, or those tests lose their only seam.
-        Assertions.assertTrue(manager.registerDiscovered(createProvider("iceberg", CURRENT, true, "real"), false));
-        manager.registerProvider(createProvider("iceberg", CURRENT, true, "override"));
+        Assertions.assertTrue(manager.registerDiscovered(createProvider("iceberg", true, "real"), false));
+        manager.registerProvider(createProvider("iceberg", true, "override"));
 
         Connector connector = manager.createConnector("iceberg", Collections.emptyMap(), testContext);
         Assertions.assertEquals("override", ((TaggedConnector) connector).tag,
@@ -296,20 +288,15 @@ public class ConnectorPluginManagerTest {
         };
     }
 
-    private static ConnectorProvider createProvider(String type, int apiVersion) {
-        return createProvider(type, apiVersion, true, "");
+    private static ConnectorProvider createProvider(String type) {
+        return createProvider(type, true, "");
     }
 
-    private static ConnectorProvider createProvider(String type, int apiVersion, boolean standalone, String tag) {
+    private static ConnectorProvider createProvider(String type, boolean standalone, String tag) {
         return new ConnectorProvider() {
             @Override
             public String getType() {
                 return type;
-            }
-
-            @Override
-            public int apiVersion() {
-                return apiVersion;
             }
 
             @Override

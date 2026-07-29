@@ -212,7 +212,7 @@ public interface ConnectorContext {
 - **不要顺手给 iceberg / paimon 的 REST / JDBC 目录补上出站地址检查。** 那是一项独立的安全增强（要动第三方 SDK 的建连路径），与上游 master 行为一致、不是本次迁移的回退；混进本任务会让「行为不变」这个验收前提失效。
 - **不要顺手删 `getMetaInvalidator`**（任务 14）**或改动本次范围外的默认值政策**（任务 07）。本任务只搬位置 + 一次改名。
 - **不要为「存储方法是否搬齐」写 shell / 正则门禁。** 本仓库已有结论：这类门禁只适合存在性与前缀类不变量。这里编译器本身就是门禁。
-- **不要变动 `ConnectorPluginManager.java:60` 的 `CURRENT_API_VERSION`。** 它至今是 1，从未随任何一次 SPI 改动递增；本工作线里 10 / 11 / 13 / 14 号任务同样在改 SPI 表面。真正的保障是「FE 与插件包一起重新构建、一起部署」，见第六节。
+- ~~**不要变动 `ConnectorPluginManager.java:60` 的 `CURRENT_API_VERSION`。**~~（2026-07-29：该常量与 `ConnectorProvider.apiVersion()` 已一并删除，版本判定改在插件加载期比 MANIFEST 属性，见 [`designs/2026-07-29-plugin-api-version-check-design.md`](../../designs/2026-07-29-plugin-api-version-check-design.md)。下面是原文。） 它至今是 1，从未随任何一次 SPI 改动递增；本工作线里 10 / 11 / 13 / 14 号任务同样在改 SPI 表面。真正的保障是「FE 与插件包一起重新构建、一起部署」，见第六节。
 
 ## 六、怎么验证
 

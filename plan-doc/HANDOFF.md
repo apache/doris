@@ -5,7 +5,73 @@
 
 ---
 
-# 🆕🆕🆕 最新一轮（2026-07-28b）：rebase onto `2faf819fa89` —— 上游 #65870 是**行为中性**的 iceberg 测试补强
+# 🆕🆕🆕 最新一轮（2026-07-29）：四族插件 API 版本门禁 —— **已实现、已验证、已提交**
+
+> 分支 `catalog-spi-review-22`，**基于 `upstream-apache/branch-catalog-spi`**（tip `688c8b7025e`）。
+> 其上 5 个 commit：4 个设计文档 commit + 1 个实现 commit（48 文件）。**未 push**。
+>
+> 由来：实现最初提在 `catalog-spi-review-21` 之上，随后按 owner 要求把 `58ea10d8541` 起的 5 个
+> commit 整体 cherry-pick 到上游 tip 上重建本分支。零冲突——上游那条 tip 与原 base `b97bf008ebc`
+> **树完全相同**（`git diff --name-only` 返回 0 个文件），只是历史被 rebase/squash 过。
+> 等价性证据：`range-diff` 五条全 `=`；结果树与备份 tag `backup-before-rebase-22` 逐字节相同，
+> 故此前的全量构建/测试结论直接适用，未重跑。
+
+> 依据：[`plan-doc/designs/2026-07-29-plugin-api-version-check-design.md`](designs/2026-07-29-plugin-api-version-check-design.md)。
+> **完整实现记录 + 全部偏差理由在该文档 §14**，这里只留下一个 session 必须的上下文。
+
+## 一句话
+
+`ConnectorProvider.apiVersion()` 这套检查**恒真、拦不住任何插件**（SPI 接口永远由内核 classloader 加载，
+插件不 override 时 default 方法说话的其实是内核自己）。已换成：版本号由各族父 pom 的一个 property
+同时流向「SPI 模块的 filtered resource（内核期望值）」与「插件 jar 的 MANIFEST（插件声明值）」，
+在 `DirectoryPluginRuntimeManager` 目录加载时比 major，不声明即拒绝。四族全部接线，旧机制已删。
+
+## 状态
+
+- 四族版本号均为 `1.0`，property 分别在 `fe/fe-connector`、`fe/fe-filesystem`、`fe/fe-authentication`、`fe/fe-core` 的 pom
+- 新增 `ApiVersionGate`（fe-extension-loader，族中立）+ `LoadFailure.STAGE_API_VERSION`
+- `loadAll` 加**必填**第 5 参（owner 签字），6 处调用点已改
+- 删 `ConnectorProvider#apiVersion()` + `ConnectorPluginManager.CURRENT_API_VERSION` 及三处比较
+- 新增四份 SPI 表面基线（connector 49 / filesystem 64 / authentication 22 / lineage 16 行）
+- 测试：loader 19 例 + fe-core 定向 56 例 + auth handler 20 例，全绿；真实产物 MANIFEST 与 filtered resource 实测已核对
+- 全反应堆 `package`（74 模块、禁 build-cache、测试源全编）BUILD SUCCESS；6 个改动模块 checkstyle 各 0 violation
+- 对抗复审（7 视角 + 每条 3 refuter，55 agent）：16 条候选 / 15 条推翻 / **1 条确认已修**（license header），
+  另有 **1 条被多数票误杀、经实测复现后采纳并修复**（build-cache，见下节）
+
+## 复审救回来的那条（重要，会重演）
+
+**maven build-cache 的 key-pom 不含 `<properties>`**。四族的版本号都是 maven property，而
+filtered resource 的**源文件**是字面量 `${...}` 占位符、哈希永不变——所以只改 property 时模块
+checksum 纹丝不动，`mvn clean package` 直接恢复缓存产物，jar 里仍是**旧版本号**。已实测复现：
+1.0→2.0 两次构建 checksum 同为 `4c1d34a6e04836c6`，jar 里始终 `api.version=1.0`。
+
+CONNECTOR / FILESYSTEM 侥幸无事，只因为它们的值被插值进了 `<build><plugins>`（maven-jar-plugin
+的 `<manifestEntries>`），那是被哈希的输入。**修法 = 给 AUTHENTICATION 和 LINEAGE 也加
+`<manifestEntries>`**（推翻了设计原本"这两族只加 property"的决定），四族对称。修后 checksum
+随 bump 变化：`a388a287b5a7e172` → `cfb1d83e91b92b98`，jar 内 resource 与 MANIFEST 双双跟随。
+
+> 教训（值得推广）：多 agent 复审的**多数票会误杀实证**。这条被 2/3 票判为"不是缺陷"，理由是
+> "major bump 必然伴随 SPI 表面变化，不会只改 property"——听起来合理，但唯一**真的跑了 A/B
+> 实验**的那个 agent 拿出了复现。判据冲突时以能复现的一方为准，别数票。
+
+## 下一个 session 需要知道的四件事
+
+1. **全反应堆验证一律用 `package` 而非 `test-compile`，且要禁缓存**：
+   `mvn -o -f fe/pom.xml -Dmaven.build.cache.enabled=false -Dcheckstyle.skip=true -Dexec.skip=true -DskipTests package`。
+   两层原因——① `fe-connector-hms` 编译需要 `fe-connector-hms-hive-shade` 的 shade 产物，shade 绑在
+   `package` 阶段，**冷缓存**下 `test-compile` 拿不到（缓存热时能过，所以这个坑时隐时现）；
+   ② 禁缓存才能保证测的是真实产物，见上一节。
+2. **pom 里的 `<Doris-*-Plugin-Api-Version>` 元素名与 Java 侧的派生规则没有构建期检查**（XML 元素名不能插值）。
+   四个期望字面量钉在 `ApiVersionGateTest` / `PluginApiVersionWiringTest` 里供评审对照。见设计 §14.2。
+3. **`information_schema.extensions` 的 version 列不是 NULL**，而是全表恒等于 FE 构建号 `1.2-SNAPSHOT`
+   （ASF 父 pom 的 `addDefaultImplementationEntries` 自动写入），因此设计 §8 的"顺带项"已作废为 no-op。
+4. **es / trino 的 plugin-zip 漏排除 `fe-filesystem-api` 已一并修好**（owner 中途要求），8/8 连接器 zip 现已一致。
+   ⚠️ 复核这类"插件 zip 里到底打了哪些 jar"的问题，**必须用带 `-am` 的 reactor 构建**——不带 `-am` 时
+   maven 从 `~/.m2` 取陈旧的 `fe-connector-spi` pom，会测出 `fe-foundation` 也一起消失的**假象**。
+
+---
+
+# 上一轮（2026-07-28b）：rebase onto `2faf819fa89` —— 上游 #65870 是**行为中性**的 iceberg 测试补强
 
 > `git pull --rebase upstream-apache master`，73 commit onto **`2faf819fa89`**（上游新增 **2** 个 commit）。
 > 备份点 tag `backup-before-rebase-0728b` = rebase 前 HEAD `d55a4fb458c`。**未 push**。

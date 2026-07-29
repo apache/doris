@@ -307,8 +307,12 @@ public class AuthenticationIntegrationRuntime {
         }
 
         if (!pluginManager.hasFactory(pluginType)) {
+            // The hint is what turns "not installed" into "installed but refused, and here is why" — a
+            // plugin refused on its declared API version never reaches factories, and the load itself does
+            // not throw as long as some other plugin directory loaded.
             throw new AuthenticationException(
-                    "No authentication plugin factory found for type: " + pluginType,
+                    "No authentication plugin factory found for type: " + pluginType
+                            + pluginManager.apiVersionRejectionHint(),
                     AuthenticationFailureType.MISCONFIGURED);
         }
     }

@@ -34,6 +34,18 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
+
+        <!--
+          The LINEAGE plugin API version, declared exactly once. Filtered into this module's
+          META-INF/doris/lineage-plugin-api-version.properties, which is what the FE kernel expects
+          of a plugin. It lives here rather than in a dedicated SPI module because the lineage SPI
+          (org.apache.doris.nereids.lineage) is part of fe-core itself.
+
+          Bump the MAJOR (and zero the minor) in the SAME commit as ANY change to the lineage SPI
+          surface - additions included. A change to fe-extension-spi means bumping all four families.
+          See plan-doc/designs/2026-07-29-plugin-api-version-check-design.md.
+        -->
+        <lineage.plugin.api.version>1.0</lineage.plugin.api.version>
     </properties>
     <profiles>
         <profile>
@@ -812,8 +824,42 @@ under the License.
                     <include>**/*.*</include>
                 </includes>
             </resource>
+            <!--
+              Kept apart from src/main/resources so that ${...} substitution applies ONLY to the
+              lineage plugin API version file and never rewrites any of fe-core's other resources.
+            -->
+            <resource>
+                <directory>src/main/resources-filtered</directory>
+                <filtering>true</filtering>
+            </resource>
         </resources>
         <plugins>
+            <!--
+              Stamps the declared LINEAGE plugin API version into doris-fe.jar.
+
+              This tree ships zero lineage plugins, so nothing READS the attribute yet - a
+              third-party plugin stamps its own. The block is still mandatory, for a reason that is
+              not obvious: maven-build-cache-extension (enabled in fe/.mvn) hashes a module from its
+              src/** files, its dependencies and its <build><plugins>, and NOT from <properties>.
+              The filtered resource's source text is the literal ${...} placeholder, whose hash never
+              moves. Without the value appearing somewhere inside <build><plugins>, bumping the
+              property alone would leave the module checksum unchanged, so `mvn clean package` would
+              restore the cached jar and ship the OLD version in
+              META-INF/doris/lineage-plugin-api-version.properties - the FE would then serve a
+              contract nobody declared. (Reproduced on the sibling fe-authentication-spi module
+              before this block existed: 1.0 -> 2.0 gave an identical checksum and a stale jar.)
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Doris-Lineage-Plugin-Api-Version>${lineage.plugin.api.version}</Doris-Lineage-Plugin-Api-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
             <!--antlr-->
             <plugin>
                 <groupId>org.antlr</groupId>

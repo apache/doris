@@ -412,7 +412,10 @@
 ### D-009 — API 版本号本计划永不 +1（原 D9）
 
 - **日期**：2026-05-24
-- **状态**：✅ 生效
+- **状态**：⛔ **已废止（2026-07-29）** —— `apiVersion()` / `CURRENT_API_VERSION` 已删除，
+  换成随插件产物走的 MANIFEST 属性 + 各族 maven property，且 bump 判据改为「SPI 表面任何变化（含新增）都是 major」。
+  见 [`designs/2026-07-29-plugin-api-version-check-design.md`](./designs/2026-07-29-plugin-api-version-check-design.md)。
+  下面是原文，保留作历史记录。
 - **关联**：[00-master-plan.md §5](./00-master-plan.md)、[01-spi-extensions-rfc.md §2.1](./01-spi-extensions-rfc.md)
 - **背景**：`ConnectorProvider.apiVersion()` 何时 +1？
 - **决策**：本计划范围内（25 周）保持 `apiVersion=1`，只新增 default 方法，不破坏现有签名。
