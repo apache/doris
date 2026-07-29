@@ -45,47 +45,6 @@ static const int64_t micro_to_nano_second = 1000;
 
 namespace {
 
-Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
-                                           int64_t timestamp_micros) {
-    static constexpr int64_t MICROS_PER_SECOND = 1000000;
-    static constexpr int64_t MICROS_PER_MINUTE = MICROS_PER_SECOND * 60;
-    static constexpr int64_t MICROS_PER_HOUR = MICROS_PER_MINUTE * 60;
-    static constexpr int64_t MICROS_PER_DAY = MICROS_PER_HOUR * 24;
-    static const int64_t EPOCH_DAYNR = calc_daynr(1970, 1, 1);
-
-    int64_t days_since_epoch = timestamp_micros / MICROS_PER_DAY;
-    int64_t micros_of_day = timestamp_micros % MICROS_PER_DAY;
-    if (micros_of_day < 0) {
-        micros_of_day += MICROS_PER_DAY;
-        --days_since_epoch;
-    }
-
-    const int64_t daynr = EPOCH_DAYNR + days_since_epoch;
-    if (daynr <= 0) {
-        return Status::DataQualityError(
-                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
-                timestamp_micros, daynr);
-    }
-
-    DateV2Value<DateTimeV2ValueType> datetime_value;
-    if (!datetime_value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
-        return Status::DataQualityError(
-                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
-                timestamp_micros, daynr);
-    }
-
-    const auto hour = static_cast<uint8_t>(micros_of_day / MICROS_PER_HOUR);
-    micros_of_day %= MICROS_PER_HOUR;
-    const auto minute = static_cast<uint8_t>(micros_of_day / MICROS_PER_MINUTE);
-    micros_of_day %= MICROS_PER_MINUTE;
-    const auto second = static_cast<uint16_t>(micros_of_day / MICROS_PER_SECOND);
-    const auto microsecond = static_cast<uint32_t>(micros_of_day % MICROS_PER_SECOND);
-    datetime_value.unchecked_set_time(datetime_value.year(), datetime_value.month(),
-                                      datetime_value.day(), hour, minute, second, microsecond);
-    data.push_back(datetime_value);
-    return Status::OK();
-}
-
 Status append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
                                                int64_t timestamp_micros,
                                                const cctz::time_zone& timezone) {
@@ -108,6 +67,12 @@ Status append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data
     }
     data.push_back(datetime_value);
     return Status::OK();
+}
+
+Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
+                                           int64_t timestamp_micros) {
+    static const auto utc_timezone = cctz::utc_time_zone();
+    return append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, utc_timezone);
 }
 
 ParquetTimeUnit decoded_parquet_time_unit(const DecodedColumnView& view) {

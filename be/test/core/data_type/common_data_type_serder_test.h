@@ -394,13 +394,13 @@ public:
             auto ret =
                     arrow_column_to_doris_column(array.get(), 0, column_with_type_and_name.column,
                                                  column_with_type_and_name.type, rows, "UTC");
+            ASSERT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
             // do check data
             std::cout << "arrow_column_to_doris_column done, column data: "
                       << (column_with_type_and_name.column->empty()
                                   ? "empty"
                                   : column_with_type_and_name.to_string(0).substr(0, 256))
                       << ", column size: " << column_with_type_and_name.column->size() << std::endl;
-            EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
         }
         std::cout << "arrow deserialize block structure: " << new_block->dump_structure()
                   << std::endl;
