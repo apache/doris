@@ -1488,6 +1488,12 @@ TEST(function_string_test, function_null_or_empty_test) {
 TEST(function_string_test, function_to_base64_test) {
     std::string func_name = "to_base64";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    std::string large_input(60000, 'a');
+    std::string large_output;
+    large_output.reserve(80000);
+    for (int i = 0; i < 20000; ++i) {
+        large_output.append("YWFh");
+    }
 
     DataSet data_set = {
             {{std::string("ABC")}, std::string("QUJD")},
@@ -1505,6 +1511,7 @@ TEST(function_string_test, function_to_base64_test) {
             {{std::string("test ")}, std::string("dGVzdCA=")},
             // // 空字符串
             {{std::string("")}, std::string("")},
+            {{large_input}, large_output},
     };
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -1513,6 +1520,12 @@ TEST(function_string_test, function_to_base64_test) {
 TEST(function_string_test, function_from_base64_test) {
     std::string func_name = "from_base64";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    std::string large_input;
+    large_input.reserve(120000);
+    for (int i = 0; i < 30000; ++i) {
+        large_input.append("YWFh");
+    }
+    std::string large_output(90000, 'a');
 
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9")}, std::string("asd你好")},
@@ -1523,7 +1536,11 @@ TEST(function_string_test, function_from_base64_test) {
             {{std::string("5ZWK5ZOI5ZOI5ZOI8J+YhCDjgILigJTigJQh")},
              std::string("啊哈哈哈😄 。——!")},
             {{std::string("ò&ø")}, Null()},
+            {{std::string("bad@")}, Null()},
+            {{std::string("====")}, Null()},
+            {{std::string("YQ")}, Null()},
             {{std::string("TVl0ZXN0U1RS")}, std::string("MYtestSTR")},
+            {{large_input}, large_output},
             {{Null()}, Null()},
     };
 
