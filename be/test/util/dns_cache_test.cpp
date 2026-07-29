@@ -354,7 +354,7 @@ TEST_F(DNSCacheTest, concurrent_success_prevents_stale_eviction) {
     // was called a concurrent success cleared failure_count.
     {
         std::unique_lock<std::shared_mutex> lock(cache.mutex);
-        cache.failure_count["fake-host.test"] = 1; // set to threshold
+        cache.failure_count["fake-host.test"] = 1;   // set to threshold
         cache.failure_count.erase("fake-host.test"); // concurrent success clears it
     }
 
@@ -432,7 +432,8 @@ TEST_F(DNSCacheTest, negative_cache_rearms_on_continued_failure_after_ttl_expiry
     int calls_before = resolver_calls;
     EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
     EXPECT_GT(resolver_calls, calls_before) << "resolver called after TTL expiry";
-    EXPECT_EQ(1u, cache.negative_cache_size_for_test()) << "negative cache re-armed on continued failure";
+    EXPECT_EQ(1u, cache.negative_cache_size_for_test())
+            << "negative cache re-armed on continued failure";
 
     // Subsequent calls are now blocked without hitting the resolver.
     calls_before = resolver_calls;

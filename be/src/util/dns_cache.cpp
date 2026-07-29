@@ -170,8 +170,7 @@ void DNSCache::_erase(const std::string& hostname) {
     failure_count.erase(hostname);
     int32_t ttl = config::dns_cache_negative_ttl_seconds;
     if (ttl > 0) {
-        _negative_cache[hostname] =
-                std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
+        _negative_cache[hostname] = std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
     }
 }
 
@@ -187,8 +186,7 @@ bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t thr
     failure_count.erase(hostname);
     int32_t ttl = config::dns_cache_negative_ttl_seconds;
     if (ttl > 0) {
-        _negative_cache[hostname] =
-                std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
+        _negative_cache[hostname] = std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
     }
     return true;
 }
@@ -273,8 +271,8 @@ void DNSCache::_refresh_once() {
             // to fence any concurrent success that cleared the counter between
             // _update() returning and this point.
             if (_erase_if_still_failing(key, static_cast<uint32_t>(threshold))) {
-                LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after "
-                             << failures << " consecutive resolution failures";
+                LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after " << failures
+                             << " consecutive resolution failures";
             }
         }
     }
