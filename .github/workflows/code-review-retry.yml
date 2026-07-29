@@ -1,0 +1,246 @@
+name: Retry Deferred Code Reviews
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: code-review-deferred-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch-deferred-reviews:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Dispatch reviews that have reached their retry time
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_REVIEW_PENDING_PREFIX: oss://doris-community-ci/codex/review-pending
+          OSS_CODEX_REVIEW_CLAIMED_PREFIX: oss://doris-community-ci/codex/review-claimed
+          REPO: ${{ github.repository }}
+        run: |
+          post_status() {
+            local head_sha="$1" state="$2" description="$3"
+            gh api "repos/${REPO}/statuses/${head_sha}" \
+              -X POST \
+              -f state="$state" \
+              -f context='code-review' \
+              -f description="$description" \
+              -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${GITHUB_RUN_ID}"
+          }
+
+          validate_request() {
+            jq -e '
+              (.pr_number | type == "string" and test("^[0-9]+$"))
+              and (.head_sha | type == "string" and length > 0)
+              and (.base_sha | type == "string" and length > 0)
+              and (.review_focus | type == "string")
+              and (.not_before | type == "string")
+              and (.request_id | type == "string" and test("^[0-9]+$"))
+              and ((.lease_id // "") | type == "string")
+              and ((.lease_expires_at // "") | type == "string")
+            ' "$1" >/dev/null
+          }
+
+          review_run_is_active() {
+            local status
+            if ! status="$(gh run view "$1" --repo "$REPO" --json status --jq '.status' 2>/dev/null)"; then
+              return 1
+            fi
+            [ "$status" = 'queued' ] || [ "$status" = 'in_progress' ] || [ "$status" = 'waiting' ]
+          }
+
+          active_runner_run_id() {
+            local request_id="$1"
+            gh run list --repo "$REPO" --workflow code-review-runner.yml --event workflow_dispatch \
+              --limit 100 --json databaseId,displayTitle,status \
+              --jq ".[] | select(.displayTitle == \"Codex review request ${request_id}\") | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\") | .databaseId" \
+              | head -n 1
+          }
+
+          bind_claim_to_runner() {
+            local claim_file="$1" claim_object="$2" runner_run_id="$3"
+            jq --arg lease_id "$runner_run_id" '.lease_id = $lease_id' "$claim_file" > "${claim_file}.runner"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "${claim_file}.runner" "$claim_object"
+            rm -f "${claim_file}.runner"
+          }
+
+          requeue_expired_claims() {
+            local claim_listing claim_object claim_file pending_object lease_id lease_expires_at request_id runner_run_id
+            claim_listing="$RUNNER_TEMP/codex-review-claimed.list"
+            if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls \
+              "$OSS_CODEX_REVIEW_CLAIMED_PREFIX/" -s > "$claim_listing"; then
+              echo 'Failed to list claimed Codex review requests.' >&2
+              exit 1
+            fi
+            while IFS= read -r claim_object; do
+              claim_file="$(mktemp "$RUNNER_TEMP/codex-review-claimed.XXXXXX")"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$claim_object" "$claim_file"
+              if ! validate_request "$claim_file"; then
+                echo "Removing malformed claimed review request: ${claim_object##*/}"
+                ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$claim_object"
+                rm -f "$claim_file"
+                continue
+              fi
+              request_id="$(jq -r '.request_id' "$claim_file")"
+              runner_run_id="$(active_runner_run_id "$request_id")"
+              if [ -n "$runner_run_id" ]; then
+                bind_claim_to_runner "$claim_file" "$claim_object" "$runner_run_id"
+                rm -f "$claim_file"
+                continue
+              fi
+              lease_id="$(jq -r '.lease_id // ""' "$claim_file")"
+              lease_expires_at="$(jq -r '.lease_expires_at // ""' "$claim_file")"
+              if [ -n "$lease_id" ] && review_run_is_active "$lease_id"; then
+                rm -f "$claim_file"
+                continue
+              fi
+              if [ "$lease_expires_at" ">" "$now" ]; then
+                rm -f "$claim_file"
+                continue
+              fi
+              pr_number="$(jq -r '.pr_number' "$claim_file")"
+              head_sha="$(jq -r '.head_sha' "$claim_file")"
+              base_sha="$(jq -r '.base_sha' "$claim_file")"
+              pull="$(gh api "repos/${REPO}/pulls/${pr_number}")"
+              if [ "$(jq -r '.state' <<<"$pull")" != 'open' ] \
+                || [ "$(jq -r '.head.sha' <<<"$pull")" != "$head_sha" ] \
+                || [ "$(jq -r '.base.sha' <<<"$pull")" != "$base_sha" ]; then
+                post_status "$head_sha" error 'Automated review request was abandoned because its pull request changed.'
+                ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$claim_object"
+                rm -f "$claim_file"
+                continue
+              fi
+              pending_object="$OSS_CODEX_REVIEW_PENDING_PREFIX/${pr_number}-${head_sha}-$(jq -r '.request_id' "$claim_file").json"
+              jq '.lease_id = "" | .lease_expires_at = ""' "$claim_file" > "${claim_file}.pending"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "${claim_file}.pending" "$pending_object"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$claim_object"
+              rm -f "$claim_file" "${claim_file}.pending"
+            done < <(
+              awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/review-claimed\/[0-9]+-[0-9a-f]+-[0-9]+-[0-9]+\.json$/ { print }' \
+                "$claim_listing" | sort
+            )
+          }
+
+          pending_listing="$RUNNER_TEMP/codex-review-pending.list"
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls \
+            "$OSS_CODEX_REVIEW_PENDING_PREFIX/" -s > "$pending_listing"; then
+            echo 'Failed to list deferred Codex review requests.' >&2
+            exit 1
+          fi
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          requeue_expired_claims
+          while IFS= read -r pending_object; do
+            pending_file="$(mktemp "$RUNNER_TEMP/codex-review-pending.XXXXXX")"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "$pending_object" "$pending_file"
+            if ! validate_request "$pending_file"; then
+              echo "Removing malformed deferred review request: ${pending_object##*/}"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$pending_object"
+              rm -f "$pending_file"
+              continue
+            fi
+
+            not_before="$(jq -r '.not_before' "$pending_file")"
+            if [ -n "$not_before" ] && [[ "$not_before" > "$now" ]]; then
+              rm -f "$pending_file"
+              continue
+            fi
+
+            request_id="$(jq -r '.request_id' "$pending_file")"
+            runner_run_id="$(active_runner_run_id "$request_id")"
+            if [ -n "$runner_run_id" ]; then
+              bind_claim_to_runner "$pending_file" "$pending_object" "$runner_run_id"
+              rm -f "$pending_file"
+              continue
+            fi
+            lease_id="$(jq -r '.lease_id // ""' "$pending_file")"
+            lease_expires_at="$(jq -r '.lease_expires_at // ""' "$pending_file")"
+            if [ -n "$lease_id" ]; then
+              if review_run_is_active "$lease_id"; then
+                rm -f "$pending_file"
+                continue
+              fi
+              if [ "$lease_expires_at" ">" "$now" ]; then
+                rm -f "$pending_file"
+                continue
+              fi
+            fi
+
+            pr_number="$(jq -r '.pr_number' "$pending_file")"
+            head_sha="$(jq -r '.head_sha' "$pending_file")"
+            base_sha="$(jq -r '.base_sha' "$pending_file")"
+            review_focus="$(jq -r '.review_focus' "$pending_file")"
+            request_id="$(jq -r '.request_id' "$pending_file")"
+            pull="$(gh api "repos/${REPO}/pulls/${pr_number}")"
+            if [ "$(jq -r '.state' <<<"$pull")" != 'open' ] \
+              || [ "$(jq -r '.head.sha' <<<"$pull")" != "$head_sha" ] \
+              || [ "$(jq -r '.base.sha' <<<"$pull")" != "$base_sha" ]; then
+              echo "Removing stale deferred review request: ${pending_object##*/}"
+              post_status "$head_sha" error 'Automated review request was abandoned because its pull request changed.'
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$pending_object"
+              rm -f "$pending_file"
+              continue
+            fi
+
+            claim_id="$GITHUB_RUN_ID"
+            claim_object="$OSS_CODEX_REVIEW_CLAIMED_PREFIX/${pr_number}-${head_sha}-${request_id}-${claim_id}.json"
+            claim_file="${pending_file}.claimed"
+            jq \
+              --arg lease_id "$claim_id" \
+              --arg lease_expires_at "$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)" \
+              '.lease_id = $lease_id | .lease_expires_at = $lease_expires_at' \
+              "$pending_file" > "$claim_file"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$claim_file" "$claim_object"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$pending_object"
+            if ! gh workflow run code-review-runner.yml --ref "$GITHUB_REF_NAME" \
+              -f "pr_number=$pr_number" \
+              -f "head_sha=$head_sha" \
+              -f "base_sha=$base_sha" \
+              -f "review_focus=$review_focus" \
+              -f "deferred_request_id=$request_id" \
+              -f "deferred_claim_id=$claim_id"; then
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$pending_file" "$pending_object"
+              ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$claim_object"
+              rm -f "$pending_file" "$claim_file"
+              exit 1
+            fi
+            runner_run_id=''
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              runner_run_id="$(active_runner_run_id "$request_id")"
+              if [ -n "$runner_run_id" ]; then
+                break
+              fi
+              sleep 5
+            done
+            if [ -n "$runner_run_id" ]; then
+              bind_claim_to_runner "$claim_file" "$claim_object" "$runner_run_id"
+            else
+              echo 'Deferred runner was dispatched but its workflow run ID was not yet observable.' >&2
+            fi
+            post_status "$head_sha" pending 'Automated review is durably leased to a deferred runner.'
+            rm -f "$pending_file" "$claim_file"
+            break
+          done < <(
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/review-pending\/[0-9]+-[0-9a-f]+-[0-9]+\.json$/ { print }' \
+              "$pending_listing" | sort
+          )
