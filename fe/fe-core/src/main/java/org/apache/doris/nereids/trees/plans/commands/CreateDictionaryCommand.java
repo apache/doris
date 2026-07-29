@@ -90,15 +90,14 @@ public class CreateDictionaryCommand extends Command implements ForwardWithSync 
     }
 
     /**
-     * A dictionary is created in the internal catalog and its data is loaded by an internal task
-     * running as ADMIN, so require CREATE on the target database and SELECT on the source table.
-     * Without the latter the dictionary would expose data the creator can not read.
+     * A dictionary is created in the internal catalog and its data is loaded by an internal task,
+     * so require CREATE on the dictionary itself and SELECT on the source table. Without the latter
+     * the dictionary would expose data the creator can not read.
      */
     private void checkAuth(ConnectContext ctx) throws org.apache.doris.common.AnalysisException {
-        String dbName = createDictionaryInfo.getDbName();
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
-                dbName, PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), dbName);
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                createDictionaryInfo.getDbName(), createDictionaryInfo.getDictName(), PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
         String srcCtl = createDictionaryInfo.getSourceCtlName();

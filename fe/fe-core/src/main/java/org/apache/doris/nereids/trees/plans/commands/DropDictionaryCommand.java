@@ -67,9 +67,9 @@ public class DropDictionaryCommand extends Command implements ForwardWithSync {
             dbName = ctx.getDatabase();
         }
         // check auth. dictionaries always live in the internal catalog.
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
-                dbName, PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), dbName);
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbName, dictName, PrivPredicate.DROP)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
         try {
             ctx.getEnv().getDictionaryManager().dropDictionary(ctx, dbName, dictName, ifExists);

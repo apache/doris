@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -140,6 +141,14 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         handleWarmUp(ctx, executor);
     }
 
+    private void checkComputeGroupUsage(ConnectContext ctx, String computeGroup) throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ctx.getCurrentUserIdentity(),
+                computeGroup, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new AnalysisException("USAGE denied to user '" + ctx.getQualifiedUser() + "'@'"
+                    + ctx.getRemoteIP() + "' for compute group '" + computeGroup + "'");
+        }
+    }
+
     private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
         if (!Strings.isNullOrEmpty(srcCluster)) {
             CloudComputeGroupMeta srcCg = cloudSys.getComputeGroupByName(srcCluster);
@@ -177,13 +186,15 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
      * validate
      */
     public void validate(ConnectContext connectContext) throws UserException {
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-
         if (!Config.isCloudMode()) {
             throw new UserException("The sql is just support in cloud mode");
+        }
+
+        // check auth. warming up moves data between compute groups, so require USAGE on both ends
+        // instead of global ADMIN. Keep it aligned with UseCloudClusterCommand.
+        checkComputeGroupUsage(connectContext, dstCluster);
+        if (!Strings.isNullOrEmpty(srcCluster)) {
+            checkComputeGroupUsage(connectContext, srcCluster);
         }
 
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
@@ -231,6 +242,12 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 OlapTable table = (OlapTable) db.getTableNullable(tableNameInfo.getTbl());
                 if (table == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableNameInfo.getTbl());
+                }
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(connectContext, tableNameInfo.getCtl(),
+                        dbName, tableNameInfo.getTbl(), PrivPredicate.SELECT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                            connectContext.getQualifiedUser(), connectContext.getRemoteIP(),
+                            dbName + ": " + tableNameInfo.getTbl());
                 }
                 if (partitionName.length() != 0 && !table.containsPartition(partitionName)) {
                     throw new AnalysisException("The partition " + partitionName + " doesn't exist");
