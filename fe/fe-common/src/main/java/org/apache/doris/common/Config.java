@@ -2853,7 +2853,7 @@ public class Config extends ConfigBase {
             "Auto Buckets 中最小的 buckets 数目",
             "min buckets of auto bucket"
     })
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets 中最大的 buckets 数目",
