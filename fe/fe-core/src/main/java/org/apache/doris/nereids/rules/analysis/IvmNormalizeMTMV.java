@@ -29,7 +29,6 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
-import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionRegistry;
@@ -49,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.types.LargeIntType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -223,6 +225,18 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     public Plan visitLogicalOlapTableStreamScan(LogicalOlapTableStreamScan scan, NormalizeContext context) {
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "IVM normalize does not support LogicalOlapTableStreamScan");
+    }
+
+    // whitelisted: one-row relation — its single row has a stable row-id within this plan node.
+    @Override
+    public Plan visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, NormalizeContext context) {
+        Alias rowIdAlias = new Alias(new LargeIntLiteral(BigInteger.ONE), Column.IVM_ROW_ID_COL);
+        rewriteResult.addRowId(rowIdAlias.toSlot(), true);
+        List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
+                .add(rowIdAlias)
+                .addAll(oneRowRelation.getProjects())
+                .build();
+        return oneRowRelation.withRelationIdAndProjects(oneRowRelation.getRelationId(), outputs);
     }
 
     // whitelisted: project — recurse into child, then propagate row-id if not already present

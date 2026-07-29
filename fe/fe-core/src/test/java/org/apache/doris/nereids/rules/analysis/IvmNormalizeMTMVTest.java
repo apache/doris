@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -148,6 +149,26 @@ class IvmNormalizeMTMVTest {
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         Assertions.assertEquals(1, rewriteResult.getRowIdDeterminism().size());
         Assertions.assertFalse(rewriteResult.getRowIdDeterminism().values().iterator().next());
+    }
+
+    @Test
+    void testOneRowRelationInjectsStableRowId() {
+        LogicalOneRowRelation oneRowRelation = new LogicalOneRowRelation(PlanConstructor.getNextRelationId(),
+                ImmutableList.of(new Alias(new LargeIntLiteral(BigInteger.TEN), "c1")));
+        JobContext jobContext = newJobContext(true);
+
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(oneRowRelation, jobContext);
+
+        Assertions.assertInstanceOf(LogicalOneRowRelation.class, result);
+        LogicalOneRowRelation normalized = (LogicalOneRowRelation) result;
+        Assertions.assertEquals(2, normalized.getOutput().size());
+        Slot rowId = normalized.getOutput().get(0);
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rowId.getName());
+        Assertions.assertEquals(LargeIntType.INSTANCE, rowId.getDataType());
+        Assertions.assertFalse(rowId.nullable());
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        Assertions.assertTrue(rewriteResult.isDeterministic(rowId));
+        Assertions.assertNotNull(rewriteResult.getPlanSignature());
     }
 
     @Test
