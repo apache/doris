@@ -74,7 +74,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
                 table.getDatabase().getCatalog(), table.getDatabase(), table);
         ImmutableList<String> columns = columnsAndTable.first;
-        checkAlterPriv(tableNameInfo);
+        checkAlterPriv(ctx, tableNameInfo);
 
         Pair<ImmutableList<String>, TableNameInfo> referencedColumnsAndTable = null;
         if (constraint.isForeignKey()) {
@@ -84,7 +84,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             TableNameInfo refTableInfo = TableNameInfoUtils.fromCatalogDb(
                     refTable.getDatabase().getCatalog(), refTable.getDatabase(), refTable);
             // a foreign key also registers a reverse reference on the referenced table
-            checkAlterPriv(refTableInfo);
+            checkAlterPriv(ctx, refTableInfo);
             referencedColumnsAndTable = Pair.of(refColumnsAndTable.first, refTableInfo);
         }
         if (constraint.isForeignKey()) {
@@ -103,11 +103,12 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void checkAlterPriv(TableNameInfo tableNameInfo) throws org.apache.doris.common.AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(),
+    private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
+            throws org.apache.doris.common.AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableNameInfo.getCtl(),
                 tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
     }
