@@ -809,6 +809,42 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
         std::unordered_set<size_t>().swap(_ancestor_null_indices);
         release_selection = true;
     }
+    // The limit applies to the reader as a whole: several individually small idle buffers must not
+    // evade reclamation merely because none of them crosses the per-buffer threshold.
+    const auto aggregate_over_budget = [&]() {
+        return retained_batch_scratch_bytes() > max_retained_bytes;
+    };
+    const auto release_vector_for_aggregate = [&](auto* values) {
+        if (!aggregate_over_budget()) {
+            return false;
+        }
+        return release_vector_if_oversized(values, 0);
+    };
+    const auto release_filter_for_aggregate = [&](IColumn::Filter* values) {
+        if (!aggregate_over_budget()) {
+            return false;
+        }
+        return release_filter_if_oversized(values, 0);
+    };
+    release_selection |= release_vector_for_aggregate(&_rep_levels);
+    release_selection |= release_vector_for_aggregate(&_def_levels);
+    release_selection |= release_vector_for_aggregate(&_null_run_lengths);
+    release_selection |= release_vector_for_aggregate(&_nested_filter_map_data);
+    release_selection |= release_vector_for_aggregate(&_materialization_state.dictionary_indices);
+    release_selection |= release_vector_for_aggregate(&_materialization_state.selection.ranges);
+    release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_nulls);
+    release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_matches);
+    release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_conversion_nulls);
+    if (aggregate_over_budget() && !_ancestor_null_indices.empty()) {
+        std::unordered_set<size_t>().swap(_ancestor_null_indices);
+        release_selection = true;
+    }
+    if (aggregate_over_budget() && _serde != nullptr) {
+        _serde->release_parquet_raw_predicate_scratch(0);
+    }
+    if (aggregate_over_budget() && _chunk_reader != nullptr) {
+        _chunk_reader->release_decoder_scratch(0);
+    }
     if (release_selection) {
         _select_vector = ColumnSelectVector();
     }
@@ -857,6 +893,13 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_
     _materialization_state.dictionary_indices.reserve(elements);
     _materialization_state.selection.ranges.reserve(elements);
     _ancestor_null_indices.reserve(elements);
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_level_scratch_for_test(
+        size_t elements) {
+    _rep_levels.reserve(elements);
+    _def_levels.reserve(elements);
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

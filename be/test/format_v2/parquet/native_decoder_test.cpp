@@ -4866,5 +4866,23 @@ TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHystere
     EXPECT_LE(released_bytes, max_retained_bytes + sizeof(void*));
 }
 
+TEST(ParquetV2NativeDecoderTest, NestedBatchScratchEnforcesAggregateRetentionLimit) {
+    ::doris::RowRanges row_ranges;
+    tparquet::ColumnChunk chunk;
+    ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
+
+    constexpr size_t max_retained_bytes = 64UL << 10;
+    constexpr size_t elements_per_level_buffer = 24UL << 10;
+    reader.reserve_level_scratch_for_test(elements_per_level_buffer);
+    const size_t aggregate_bytes = reader.retained_batch_scratch_bytes_for_test();
+    ASSERT_GT(aggregate_bytes, max_retained_bytes);
+    ASSERT_LT(elements_per_level_buffer * sizeof(level_t), max_retained_bytes);
+
+    reader.release_batch_scratch(max_retained_bytes);
+    reader.release_batch_scratch(max_retained_bytes);
+    reader.release_batch_scratch(max_retained_bytes);
+    EXPECT_LE(reader.retained_batch_scratch_bytes_for_test(), max_retained_bytes);
+}
+
 } // namespace
 } // namespace doris::format::parquet::native

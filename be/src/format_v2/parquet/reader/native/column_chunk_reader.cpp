@@ -1769,6 +1769,9 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_valu
                                                 decimal_scale_matches && decimal_metadata_fits))) ||
             (_metadata.type == tparquet::Type::FLOAT && primitive_type == TYPE_FLOAT) ||
             (_metadata.type == tparquet::Type::DOUBLE && primitive_type == TYPE_DOUBLE);
+    const bool has_infallible_identity_value = has_identity_value &&
+                                               primitive_type != TYPE_DECIMAL32 &&
+                                               primitive_type != TYPE_DECIMAL64;
     if (has_identity_value &&
         supports_raw_fixed_filter_encoding(_current_encoding, _metadata.type)) {
         return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
@@ -1790,9 +1793,9 @@ bool ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::can_filter_fixed_width_valu
                 (is_string_type(primitive_type) || primitive_type == TYPE_VARBINARY);
         // Dictionary definition levels are insufficient for logical types whose dictionary entry
         // conversion can fail (for example an invalid DATE). Use the level-only path only for
-        // identity payloads, or decode PLAIN values through SerDe so strict/error and synthetic
-        // NULL semantics remain identical to ordinary materialization.
-        return has_identity_value || has_identity_binary || can_convert_logical_values;
+        // infallible identity payloads, or decode PLAIN values through SerDe so strict/error and
+        // synthetic NULL semantics remain identical to ordinary materialization.
+        return has_infallible_identity_value || has_identity_binary || can_convert_logical_values;
     }
     if (can_convert_logical_values) {
         return std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
@@ -1830,7 +1833,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
     *used_filter = false;
     *execution_kind = DirectPredicateExecutionKind::NONE;
     row_filter->clear();
-    if (!can_filter_fixed_width_values(conjuncts, column_id, &serde, &decode_context)) {
+    ParquetDecodeContext page_decode_context = decode_context;
+    // Direct filtering can be the first value operation on a page, so its SerDe dispatch must not
+    // depend on materialize_values() having synchronized the page encoding first.
+    RETURN_IF_ERROR(translate_value_encoding(_current_encoding, &page_decode_context.encoding));
+    if (!can_filter_fixed_width_values(conjuncts, column_id, &serde, &page_decode_context)) {
         return Status::OK();
     }
     if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
@@ -1898,7 +1905,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
         RETURN_IF_ERROR(_page_decoder->skip_values(selection.total_values));
         *execution_kind = DirectPredicateExecutionKind::DEFINITION_LEVEL;
     } else if (raw_conjuncts.empty()) {
-        if (serde.supports_parquet_raw_predicate(decode_context)) {
+        if (serde.supports_parquet_raw_predicate(page_decode_context)) {
             // Definition levels alone cannot distinguish a present payload that permissive SerDe
             // conversion turns into NULL (or a strict conversion error). Decode only the selected
             // payloads through the same conversion kernel before evaluating IS NULL/IS NOT NULL.
@@ -1906,7 +1913,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
             FixedWidthPredicateConsumer consumer(raw_conjuncts, _field_schema->data_type, column_id,
                                                  physical_matches, projected_column,
                                                  physical_conversion_nulls);
-            RETURN_IF_ERROR(serde.read_parquet_raw_predicate(selected_source, decode_context,
+            RETURN_IF_ERROR(serde.read_parquet_raw_predicate(selected_source, page_decode_context,
                                                              selection.selected_values,
                                                              enable_strict_mode, consumer));
             // Conversion is needed only to refine the logical null map; no value predicate ran.
@@ -1934,7 +1941,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
                 RETURN_IF_ERROR(_page_decoder->decode_selected_fixed_values(selection, consumer));
             }
             *execution_kind = DirectPredicateExecutionKind::RAW_BINARY;
-        } else if (all_raw_fixed && serde.supports_parquet_raw_predicate(decode_context)) {
+        } else if (all_raw_fixed && serde.supports_parquet_raw_predicate(page_decode_context)) {
             // Type conversion is fused between the decoder and predicate sink. Conversion-null
             // bits travel beside the POD batch, preserving permissive scan semantics without an
             // intermediate nullable IColumn.
@@ -1942,7 +1949,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_fixed_width_values
             FixedWidthPredicateConsumer consumer(raw_conjuncts, _field_schema->data_type, column_id,
                                                  physical_matches, projected_column,
                                                  physical_conversion_nulls);
-            RETURN_IF_ERROR(serde.read_parquet_raw_predicate(selected_source, decode_context,
+            RETURN_IF_ERROR(serde.read_parquet_raw_predicate(selected_source, page_decode_context,
                                                              selection.selected_values,
                                                              enable_strict_mode, consumer));
             *execution_kind = DirectPredicateExecutionKind::CONVERTED_FIXED;
