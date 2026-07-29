@@ -27,8 +27,6 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
-#include <string_view>
 #include <vector>
 
 #include "common/atomic_shared_ptr.h"
@@ -72,20 +70,6 @@ private:
 
 using AsyncCacheWriteBufferPtr = std::shared_ptr<AsyncCacheWriteBuffer>;
 
-/// Admission behavior when every pending slot is already owned by an active or queued task.
-enum class AsyncCacheWriteQueueFullPolicy : uint8_t {
-    REJECT_NEW,
-    DROP_OLDEST,
-};
-
-/// Convert the validated configuration spelling to the service policy.
-AsyncCacheWriteQueueFullPolicy async_cache_write_queue_full_policy_from_string(
-        std::string_view policy);
-
-/// Return the stable configuration spelling for a service policy.
-std::string_view async_cache_write_queue_full_policy_to_string(
-        AsyncCacheWriteQueueFullPolicy policy);
-
 /// One block-aligned cache write. `buffer` contains exactly `file_size` bytes starting at
 /// `file_offset`; `write_epoch` prevents a worker from resurrecting data after cache invalidation.
 struct AsyncCacheWriteTask {
@@ -107,7 +91,6 @@ struct AsyncCacheWriteServiceOptions {
     size_t batch_size {1};
     int64_t watchdog_warn_secs {30};
     int64_t watchdog_drop_secs {120};
-    AsyncCacheWriteQueueFullPolicy queue_full_policy {AsyncCacheWriteQueueFullPolicy::DROP_OLDEST};
 };
 
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
@@ -124,8 +107,9 @@ public:
     /// Create the worker pool and schedule the configured long-running workers. Idempotent.
     Status start();
 
-    /// Admit `task` into the bounded FIFO without waiting for a queue slot or disk I/O. This call
-    /// can briefly wait for the queue mutex and DROP_OLDEST finalizes its victim before returning.
+    /// Admit `task` into the bounded FIFO without waiting for a queue slot or disk I/O. At the
+    /// pending limit, the oldest queued task is displaced when one is available. This call can
+    /// briefly wait for the queue mutex and finalizes a displaced task before returning.
     /// @return true if ownership was transferred to the queue; false when workers have not been
     /// started, during shutdown, on backpressure, or on queue rejection. A rejected task's
     /// finalization callback is not invoked.
@@ -180,7 +164,7 @@ public:
     /// Return bytes currently held by tracked task buffers.
     int64_t buffer_memory_bytes() const { return _mem_tracker->consumption(); }
 
-    /// Return tasks displaced by DROP_OLDEST admission.
+    /// Return tasks displaced by full-queue admission.
     uint64_t evicted_oldest_count() const { return _evicted_oldest_metric->get_value(); }
 
     /// Return the current rolling P99 wait to acquire the FIFO mutex.
