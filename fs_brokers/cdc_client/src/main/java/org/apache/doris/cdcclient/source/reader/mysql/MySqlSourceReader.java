@@ -1039,10 +1039,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
-        if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
-            configFactory.splitSize(
-                    Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)));
-        }
+        configFactory.splitSize(
+                Integer.parseInt(
+                        cdcConfig.getOrDefault(
+                                DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+                                DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE_DEFAULT)));
 
         // todo: Currently, only one split key is supported; future will require multiple split
         // keys.
