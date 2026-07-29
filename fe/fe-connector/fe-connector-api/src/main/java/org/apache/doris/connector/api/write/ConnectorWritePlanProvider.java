@@ -212,10 +212,13 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
-     * Whether the connector's data files physically retain partition columns, so a static-partition write
-     * must materialize the PARTITION-clause literal into the data column instead of NULL-filling it (e.g.
-     * Iceberg). Formerly a static {@code ConnectorCapability} switch; now this per-provider method is the
-     * single source of truth. Default: no.
+     * Whether the connector's write path consumes the partition value FROM THE ROW, so a static-partition
+     * write must materialize the PARTITION-clause literal into the data column instead of NULL-filling it.
+     * Two distinct reasons put a connector here: its data files physically retain the partition column
+     * (iceberg), or its files strip the column but the BE derives the partition directory from the row value
+     * (hive). Connectors that strip the column AND refill it from an out-of-band static-partition spec
+     * (maxcompute) return {@code false} and keep the NULL fill. Formerly a static {@code ConnectorCapability}
+     * switch; now this per-provider method is the single source of truth. Default: no.
      */
     default boolean requiresMaterializeStaticPartitionValues() {
         return false;

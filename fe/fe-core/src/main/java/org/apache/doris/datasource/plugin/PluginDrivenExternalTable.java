@@ -447,7 +447,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return false;
         }
-        // Per-table: iceberg retains partition columns (materialize the PARTITION literal), hive does not.
+        // Per-table: iceberg retains partition columns and hive derives the partition directory from the row
+        // (both materialize the PARTITION literal); maxcompute refills from the static spec instead.
         return resolveWriteCapabilityHandle(connector)
                 .map(connector::getWritePlanProvider)
                 .map(ConnectorWritePlanProvider::requiresMaterializeStaticPartitionValues)

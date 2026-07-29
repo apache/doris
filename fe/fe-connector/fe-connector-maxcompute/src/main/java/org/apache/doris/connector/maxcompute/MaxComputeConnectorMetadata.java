@@ -55,6 +55,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * ConnectorMetadata implementation for MaxCompute.
@@ -590,6 +591,53 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
             }
         }
         return mcProperties;
+    }
+
+    /**
+     * Rejects a static-partition column name that is not EXACTLY an ODPS partition column.
+     *
+     * <p>This is a fail-loud guard, not a feature. MaxCompute consumes the static-partition spec by exact key
+     * lookup — {@code MaxComputeWritePlanProvider.buildStaticPartitionSpecString} does
+     * {@code partitionColumnNames.stream().filter(staticPartitionSpec::containsKey)} — and those keys come from
+     * the unbound sink, i.e. the raw case the user typed, which the engine's canonicalization does not reach.
+     * So a case-mismatched {@code PARTITION(DS='x')} against a column {@code ds} would silently produce an
+     * EMPTY {@code PartitionSpec} and write to the wrong place. Before the engine canonicalized static-partition
+     * names it surfaced as a column-count mismatch; this keeps it loud, with a message that names the cause.
+     *
+     * <p>Matching is deliberately case-SENSITIVE: ODPS's own case semantics for partition names are not
+     * verified here, and the downstream lookup this guards is itself exact. Making MaxCompute accept a
+     * case-mismatched name would be a behavior change that needs a real ODPS environment to validate.</p>
+     */
+    @Override
+    public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        if (staticPartitionColumnNames == null || staticPartitionColumnNames.isEmpty()) {
+            return;
+        }
+        MaxComputeTableHandle mcHandle = (MaxComputeTableHandle) handle;
+        List<String> partitionColumnNames = mcHandle.getOdpsTable().getSchema().getPartitionColumns()
+                .stream().map(Column::getName).collect(Collectors.toList());
+        checkStaticPartitionColumns(mcHandle.getTableName(), partitionColumnNames, staticPartitionColumnNames);
+    }
+
+    /**
+     * The pure decision of {@link #validateStaticPartitionColumns}, split from the ODPS {@code Table} lookup so
+     * it is directly assertable: the ODPS SDK's {@code Table} has a package-private constructor and cannot be
+     * faked from this package.
+     */
+    static void checkStaticPartitionColumns(String tableName, List<String> partitionColumnNames,
+            List<String> staticPartitionColumnNames) {
+        if (partitionColumnNames.isEmpty()) {
+            throw new DorisConnectorException(String.format(
+                    "Table %s is not a partitioned table, cannot use static partition syntax", tableName));
+        }
+        for (String colName : staticPartitionColumnNames) {
+            if (!partitionColumnNames.contains(colName)) {
+                throw new DorisConnectorException(String.format(
+                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                        colName, tableName, partitionColumnNames));
+            }
+        }
     }
 
     private Integer extractBucketNum(ConnectorBucketSpec bucketSpec) {

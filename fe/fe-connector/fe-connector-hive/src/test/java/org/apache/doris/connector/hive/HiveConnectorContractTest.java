@@ -73,6 +73,14 @@ public class HiveConnectorContractTest {
                 "hive is the connector that exercises the hash-without-sort arm");
         Assertions.assertFalse(writeProvider.requiresPartitionLocalSort(),
                 "invariant #5: a connector picks at most one partition-distribution arm");
+        // Hive's data files STRIP the partition column, yet the BE derives the partition DIRECTORY from the
+        // row value (vhive_table_writer.cpp::_create_partition_values), where a NULL becomes the literal
+        // __HIVE_DEFAULT_PARTITION__. There is no static-partition field on THiveTableSink to carry the value
+        // out of band, so the row is the only channel. If this flips to false, BindSink stops re-projecting
+        // the PARTITION literal and INSERT ... PARTITION(dt='x') silently writes to the wrong partition.
+        Assertions.assertTrue(writeProvider.requiresMaterializeStaticPartitionValues(),
+                "hive must materialize the PARTITION literal into the row, or the BE writes "
+                        + "__HIVE_DEFAULT_PARTITION__");
 
         ConnectorContractValidator.validate(connector, "hive");
     }

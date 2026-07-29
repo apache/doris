@@ -143,6 +143,20 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     /**
+     * Hive needs the {@code PARTITION(col='val')} literal materialized into the row, so the engine must NOT
+     * NULL-fill a static-partition column. Unlike iceberg, hive's data files do not retain partition columns
+     * ({@link #buildColumns} marks them {@code PARTITION_KEY} and the BE drops them from the written file) —
+     * but the BE derives the partition DIRECTORY from that row value, and a NULL there becomes the literal
+     * {@code __HIVE_DEFAULT_PARTITION__}. There is no static-partition field on {@code THiveTableSink} to
+     * carry the value out of band, so the row is the only channel. Returning {@code false} here would make
+     * {@code INSERT [OVERWRITE] ... PARTITION(dt='x')} silently write to {@code dt=__HIVE_DEFAULT_PARTITION__}.
+     */
+    @Override
+    public boolean requiresMaterializeStaticPartitionValues() {
+        return true;
+    }
+
+    /**
      * Builds the op-context threaded into {@link HiveConnectorTransaction#beginWrite}. Port of the legacy
      * {@code HiveTableSink.bindDataSink} location block: resolves the BE file type from the raw table
      * location and the write path (an in-place normalized path for an object store, or a staging temp path

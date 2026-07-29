@@ -113,7 +113,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -724,6 +723,43 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
+    /**
+     * Resolves the user-typed static-partition column names ({@code PARTITION(TS_DATE='x')}) to their canonical
+     * schema names ({@code ts_date}), and rejects a column named twice.
+     *
+     * <p>Resolution goes through {@link org.apache.doris.datasource.ExternalTable#getColumn}, which already
+     * matches with {@code equalsIgnoreCase} — the same lookup the two sibling statements in
+     * {@link #bindConnectorTableSink} use (the materialize block and the explicit-column-list bind). Only the
+     * exclusion filter in {@link #selectConnectorSinkBindColumns} compared raw names, so this removes an
+     * inconsistency rather than introducing a case rule into the engine. It is safe because no plugin-driven
+     * schema may hold two columns differing only by case ({@code SchemaCacheValue.validateSchema} rejects that
+     * on every schema load), so the fold cannot merge two distinct columns.</p>
+     *
+     * <p>A name that resolves to no column is kept VERBATIM: on iceberg the PARTITION clause names a partition
+     * FIELD (e.g. {@code category_bucket} for {@code bucket(4, category)}), which is not a table column. The
+     * connector already validated those names, so fe-core must not rewrite them.</p>
+     *
+     * <p>The duplicate check is why this is not a plain {@code map()}: {@code PARTITION(dt='1', DT='2')} is two
+     * entries here but ONE entry in the case-insensitive {@code columnToOutput} map (see
+     * {@link #getColumnToOutput}), so without this the later value would silently overwrite the earlier one.
+     * The message quotes the user's spelling.</p>
+     */
+    @VisibleForTesting
+    static Set<String> canonicalStaticPartitionColNames(PluginDrivenExternalTable table,
+            Map<String, Expression> staticPartitions) {
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return Sets.newHashSet();
+        }
+        Set<String> canonical = Sets.newLinkedHashSet();
+        for (String name : staticPartitions.keySet()) {
+            Column column = table.getColumn(name);
+            if (!canonical.add(column != null ? column.getName() : name)) {
+                throw new AnalysisException("Duplicate partition column: " + name);
+            }
+        }
+        return canonical;
+    }
+
     private Plan bindConnectorTableSink(MatchingContext<UnboundConnectorTableSink<Plan>> ctx) {
         UnboundConnectorTableSink<?> sink = ctx.root;
         Pair<ExternalDatabase, PluginDrivenExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -744,7 +780,12 @@ public class BindSink implements AnalysisRuleFactory {
         // knowledge and its messages stay in the connector — the retired legacy validation never ran on this
         // path. Fail loud at analysis time, before the write plan is synthesized (otherwise an unknown column is
         // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
+        // Deliberately fed the RAW (user-typed) names, so a connector message quotes what the user wrote.
         checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
+
+        // Resolve the user-typed static-partition names to their canonical schema names before they are used
+        // to exclude / reject bound columns below. Runs AFTER the connector validated them.
+        staticPartitionColNames = canonicalStaticPartitionColNames(table, staticPartitions);
 
         // Reject the dynamic partition-NAME list form (INSERT ... PARTITION(p1, p2)) via the neutral SPI, so the
         // reject and its message stay in the connector (hive rejects with the legacy message; iceberg accepts).
@@ -784,18 +825,22 @@ public class BindSink implements AnalysisRuleFactory {
             // partition columns by their full-schema position, so the child must be in full-schema order.
             Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false, boundSink, child);
             if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
-                // Connectors whose data files RETAIN partition columns (e.g. Iceberg) must write the static
-                // partition value INTO the data column: getColumnToOutput excluded it from the bound columns
-                // and NULL-filled it, so re-project the PARTITION-clause literal here (mirrors the
-                // retired legacy iceberg bind). Connectors that STRIP partition columns and refill them from
-                // static_partition_values (e.g. MaxCompute) do NOT declare the capability and keep the NULL fill.
+                // Connectors that consume the partition value FROM THE ROW must write the static partition value
+                // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
+                // so re-project the PARTITION-clause literal here (mirrors the retired legacy iceberg bind).
+                // Two reasons put a connector here — its files retain the column (Iceberg), or its files strip
+                // the column but the BE derives the partition DIRECTORY from the row value (Hive, where a NULL
+                // would become __HIVE_DEFAULT_PARTITION__). Connectors that STRIP partition columns and refill
+                // them from static_partition_values (e.g. MaxCompute) do not declare the capability and keep the
+                // NULL fill.
                 for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                    String colName = entry.getKey();
-                    Column column = table.getColumn(colName);
+                    Column column = table.getColumn(entry.getKey());
                     if (column != null) {
                         Expression castExpr = TypeCoercionUtils.castIfNotSameType(
                                 entry.getValue(), DataType.fromCatalogType(column.getType()));
-                        columnToOutput.put(colName, new Alias(castExpr, colName));
+                        // Key and alias use the canonical schema name, so they line up with
+                        // getOutputProjectByCoercion, which looks columnToOutput up by getFullSchema() names.
+                        columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
                     }
                 }
             }
@@ -837,6 +882,10 @@ public class BindSink implements AnalysisRuleFactory {
      * rewrites full rows, preserving the engine-managed lineage values), mirroring the retired
      * legacy iceberg bind's rewrite branch. The {@code isVisible} / {@code isRewrite} split is
      * connector-agnostic, so no source-specific code enters the generic SPI path.
+     *
+     * <p>{@code staticPartitionColNames} must already be canonicalized by
+     * {@link #canonicalStaticPartitionColNames}, so both the exclusion filter and the explicit-column-list
+     * rejection below can compare against schema names directly.</p>
      */
     @VisibleForTesting
     static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
@@ -852,6 +901,13 @@ public class BindSink implements AnalysisRuleFactory {
             if (column == null) {
                 throw new AnalysisException(String.format("column %s is not found in table %s",
                         cn, table.getName()));
+            }
+            // A column whose value comes from the PARTITION clause must not ALSO be supplied by the query:
+            // the materialize block would overwrite the query's value, silently discarding it. Both sides are
+            // canonical schema names here, so this catches PARTITION(TS_DATE=..) (col1, ts_date) too.
+            if (staticPartitionColNames.contains(column.getName())) {
+                throw new AnalysisException(String.format(
+                        "column %s is a static partition column, should not be in the insert column list", cn));
             }
             // Reject explicitly naming an engine-managed invisible column (e.g. iceberg v3 row-lineage
             // _row_id / _last_updated_sequence_number) in an ordinary INSERT: the user never supplies

@@ -2023,9 +2023,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // ========== ConnectorWriteOps: write validation -- foreign (iceberg) handles divert to the sibling ==========
     //
     // Both validators carry a handle and run at analysis time. A foreign (iceberg-on-HMS) handle forwards to the
-    // sibling so iceberg's real write-mode / static-partition rejections apply. A hive handle MUST reproduce the
-    // permissive SPI default (return silently, NEVER throw) -- a throw here would newly reject legal plain-hive
-    // row-level DML / static-partition INSERTs.
+    // sibling so iceberg's real write-mode / static-partition rejections apply.
 
     @Override
     public void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
@@ -2033,9 +2031,26 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             siblingMetadata(session, handle).validateRowLevelDmlMode(session, handle, op);
             return;
         }
-        // hive: no per-table row-level DML mode constraint (SPI default no-op).
+        // hive: no per-table row-level DML mode constraint (SPI default no-op). A hive handle MUST stay
+        // permissive here -- a throw would newly reject legal plain-hive row-level DML.
     }
 
+    /**
+     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the
+     * column must be a partition key of this (partitioned) table. Port of upstream #65991's
+     * {@code BindSink.validateHiveStaticPartition}; the partition-key knowledge and the messages live here
+     * rather than in the engine, matching {@code IcebergConnectorMetadata}. The wording deliberately differs
+     * from iceberg's ("is not a partitioned table" vs iceberg's "is not partitioned") because it is upstream's
+     * hive wording, which the e2e suite substring-matches.
+     *
+     * <p>Matching is CASE-INSENSITIVE: HMS stores hive column names lowercased, so {@code PARTITION(TS_DATE=..)}
+     * names the same column as {@code ts_date}. {@code Locale.ROOT} keeps the fold locale-independent (a Turkish
+     * default locale would fold 'I' to 'ı' and fail to match a column named {@code id}). The literal-value check
+     * is connector-agnostic and stays in the engine, where the Nereids expression is available.</p>
+     *
+     * <p>Unlike {@link #validateRowLevelDmlMode} above, a hive handle here THROWS -- this is the net-new
+     * rejection, not a no-op. An empty list still returns silently (a plain {@code INSERT ... SELECT}).</p>
+     */
     @Override
     public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
             List<String> staticPartitionColumnNames) {
@@ -2044,7 +2059,26 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     .validateStaticPartitionColumns(session, handle, staticPartitionColumnNames);
             return;
         }
-        // hive: no static-partition constraint (SPI default no-op).
+        if (staticPartitionColumnNames == null || staticPartitionColumnNames.isEmpty()) {
+            return;
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<String> partitionKeys = hiveHandle.getPartitionKeyNames();
+        if (partitionKeys.isEmpty()) {
+            throw new DorisConnectorException(String.format(
+                    "Table %s is not a partitioned table, cannot use static partition syntax",
+                    hiveHandle.getTableName()));
+        }
+        Set<String> lowerPartitionKeys = partitionKeys.stream()
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        for (String colName : staticPartitionColumnNames) {
+            if (!lowerPartitionKeys.contains(colName.toLowerCase(Locale.ROOT))) {
+                throw new DorisConnectorException(String.format(
+                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                        colName, hiveHandle.getTableName(), partitionKeys));
+            }
+        }
     }
 
     /**
