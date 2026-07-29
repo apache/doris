@@ -22,6 +22,7 @@ suite("test_iceberg_varbinary", "p0,external") {
         logger.info("disable iceberg test.")
         return
     }
+    sql "SET ENABLE_VARIANT_V2=true"
 
     String catalog_name_no_mapping = "test_iceberg_no_mapping"
     String catalog_name_with_mapping = "test_iceberg_with_mapping"

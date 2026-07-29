@@ -23,6 +23,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <mutex>
+#include <optional>
 #include <string_view>
 
 #include "common/exception.h"
@@ -261,14 +263,14 @@ void append_typed_value(const ParquetColumnSchema& schema, const IColumn& column
                         VariantBatchBuilder::Row& builder) {
     switch (schema.kind) {
     case ParquetColumnSchemaKind::PRIMITIVE:
-        if (residual != nullptr) {
+        if (static_cast<bool>(residual)) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant scalar typed_value cannot have residual value bytes");
         }
         append_typed_scalar(schema, column, row, builder);
         return;
     case ParquetColumnSchemaKind::STRUCT: {
-        if (residual != nullptr && residual->basic_type() != VariantBasicType::OBJECT) {
+        if (static_cast<bool>(residual) && residual->basic_type() != VariantBasicType::OBJECT) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant object typed_value has non-object residual value");
         }
@@ -278,7 +280,7 @@ void append_typed_value(const ParquetColumnSchema& schema, const IColumn& column
                             "Parquet Variant object {} physical field count mismatch", schema.name);
         }
         auto object = builder.start_object();
-        if (residual != nullptr) {
+        if (static_cast<bool>(residual)) {
             for (uint32_t i = 0; i < residual->num_elements(); ++i) {
                 uint32_t field_id = 0;
                 const VariantRef child = residual->object_value_at(i, &field_id);
@@ -316,7 +318,7 @@ void append_typed_value(const ParquetColumnSchema& schema, const IColumn& column
         return;
     }
     case ParquetColumnSchemaKind::LIST: {
-        if (residual != nullptr) {
+        if (static_cast<bool>(residual)) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Parquet Variant array typed_value cannot have residual value bytes");
         }
@@ -431,7 +433,8 @@ void encode_variant_range(const ParquetColumnSchema& schema, const IColumn& wrap
     }
 }
 
-MutableColumnPtr build_variant_column(const ParquetColumnSchema& schema, const IColumn& physical) {
+ColumnVariantV2::MutablePtr encode_variant_column(const ParquetColumnSchema& schema,
+                                                  const IColumn& physical) {
     if (schema.kind != ParquetColumnSchemaKind::VARIANT) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Parquet column {} is not Variant",
                         schema.name);
@@ -452,25 +455,181 @@ MutableColumnPtr build_variant_column(const ParquetColumnSchema& schema, const I
                              std::min(physical.size(), begin + MAX_RECONSTRUCTION_BATCH_ROWS),
                              *variants);
     }
+    return variants;
+}
+
+std::unique_ptr<ParquetColumnSchema> clone_schema(const ParquetColumnSchema& source) {
+    auto result = std::make_unique<ParquetColumnSchema>();
+    result->local_id = source.local_id;
+    result->parquet_field_id = source.parquet_field_id;
+    result->name = source.name;
+    result->type = source.type;
+    result->variant_physical_type = source.variant_physical_type;
+    result->leaf_column_id = source.leaf_column_id;
+    result->type_descriptor = source.type_descriptor;
+    result->kind = source.kind;
+    result->max_definition_level = source.max_definition_level;
+    result->max_repetition_level = source.max_repetition_level;
+    result->nullable_definition_level = source.nullable_definition_level;
+    result->definition_level = source.definition_level;
+    result->repetition_level = source.repetition_level;
+    result->repeated_ancestor_definition_level = source.repeated_ancestor_definition_level;
+    result->repeated_repetition_level = source.repeated_repetition_level;
+    result->children.reserve(source.children.size());
+    for (const auto& child : source.children) {
+        result->children.push_back(clone_schema(*child));
+    }
+    return result;
+}
+
+ColumnPtr unwrap_nullable(ColumnPtr column) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        return nullable->get_nested_column_ptr();
+    }
+    return column;
+}
+
+ColumnPtr struct_child(const ParquetColumnSchema& schema, ColumnPtr column, std::string_view name,
+                       const ParquetColumnSchema** child_schema) {
+    column = unwrap_nullable(std::move(column));
+    const auto* structure = check_and_get_column<ColumnStruct>(*column);
+    if (structure == nullptr) {
+        return nullptr;
+    }
+    size_t index = 0;
+    const auto* child = find_child(schema, name, &index);
+    if (child == nullptr || index >= structure->tuple_size()) {
+        return nullptr;
+    }
+    if (child_schema != nullptr) {
+        *child_schema = child;
+    }
+    return structure->get_column_ptr(index);
+}
+
+bool has_present_value(const ColumnPtr& column) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        return std::ranges::any_of(nullable->get_null_map_data(),
+                                   [](uint8_t is_null) { return is_null == 0; });
+    }
+    return !column->empty();
+}
+
+class ParquetVariantShreddedState final : public VariantShreddedState {
+public:
+    ParquetVariantShreddedState(const ParquetColumnSchema& schema, ColumnPtr physical)
+            : _schema(clone_schema(schema)), _physical(std::move(physical)) {
+        DORIS_CHECK(static_cast<bool>(_physical));
+        const ColumnPtr wrapper = unwrap_nullable(_physical);
+        const auto* structure = check_and_get_column<ColumnStruct>(*wrapper);
+        if (structure == nullptr || structure->tuple_size() != _schema->children.size()) {
+            throw Exception(ErrorCode::CORRUPTION,
+                            "Parquet Variant {} physical field count mismatch", _schema->name);
+        }
+    }
+
+    size_t size() const override { return _physical->size(); }
+    size_t byte_size() const override { return _physical->byte_size(); }
+    size_t allocated_bytes() const override { return _physical->allocated_bytes(); }
+    void sanity_check() const override { _physical->sanity_check(); }
+
+    void for_each_subcolumn(const IColumn::ColumnCallback& callback) const override {
+        callback(*_physical);
+    }
+
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment> path) const override {
+        if (path.empty()) {
+            return std::nullopt;
+        }
+
+        const ParquetColumnSchema* typed_schema = nullptr;
+        ColumnPtr typed = struct_child(*_schema, _physical, "typed_value", &typed_schema);
+        if (!typed || typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
+            return std::nullopt;
+        }
+
+        for (size_t position = 0; position < path.size(); ++position) {
+            if (path[position].kind != VariantShreddedPathSegment::Kind::OBJECT_KEY) {
+                return std::nullopt;
+            }
+
+            const std::string_view key(path[position].key.data, path[position].key.size);
+            const ParquetColumnSchema* wrapper_schema = nullptr;
+            ColumnPtr wrapper = struct_child(*typed_schema, typed, key, &wrapper_schema);
+            if (!wrapper) {
+                return std::nullopt;
+            }
+
+            if (ColumnPtr residual = struct_child(*wrapper_schema, wrapper, "value", nullptr);
+                static_cast<bool>(residual) && has_present_value(residual)) {
+                // A residual value can contribute data to the same logical object. Reconstructing
+                // is required in that case; returning only the typed leaf would drop information.
+                return std::nullopt;
+            }
+
+            typed = struct_child(*wrapper_schema, wrapper, "typed_value", &typed_schema);
+            if (!typed) {
+                return std::nullopt;
+            }
+            if (position + 1 == path.size()) {
+                if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
+                    check_and_get_column<ColumnNullable>(*typed) == nullptr) {
+                    return std::nullopt;
+                }
+                return VariantShreddedTypedValue {.column = std::move(typed),
+                                                  .type = remove_nullable(typed_schema->type)};
+            }
+            if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+
+    const ColumnVariantV2& materialized_column() const override {
+        std::lock_guard lock(_materialization_lock);
+        if (!_materialized) {
+            _materialized = encode_variant_column(*_schema, *_physical);
+        }
+        return *_materialized;
+    }
+
+private:
+    std::unique_ptr<ParquetColumnSchema> _schema;
+    ColumnPtr _physical;
+    mutable std::mutex _materialization_lock;
+    mutable ColumnVariantV2::MutablePtr _materialized;
+};
+
+MutableColumnPtr build_variant_column(const ParquetColumnSchema& schema, ColumnPtr physical) {
+    if (schema.kind != ParquetColumnSchemaKind::VARIANT) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Parquet column {} is not Variant",
+                        schema.name);
+    }
+
+    const auto* outer_nullable = check_and_get_column<ColumnNullable>(*physical);
+    MutableColumnPtr variants = ColumnVariantV2::create_shredded(
+            std::make_shared<ParquetVariantShreddedState>(schema, physical));
     if (outer_nullable == nullptr) {
         return variants;
     }
-    auto nulls = outer_nullable->get_null_map_column().clone_resized(physical.size());
+    auto nulls = outer_nullable->get_null_map_column().clone_resized(physical->size());
     return ColumnNullable::create(std::move(variants), std::move(nulls));
 }
 
-MutableColumnPtr transform_node(const VariantMaterializationNode& plan, const IColumn& physical);
+MutableColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physical);
 
 MutableColumnPtr transform_non_nullable(const VariantMaterializationNode& plan,
-                                        const IColumn& physical) {
+                                        ColumnPtr physical) {
     const auto& schema = *plan.schema;
     switch (schema.kind) {
     case ParquetColumnSchemaKind::PRIMITIVE:
-        return physical.clone_resized(physical.size());
+        return physical->clone_resized(physical->size());
     case ParquetColumnSchemaKind::VARIANT:
-        return build_variant_column(schema, physical);
+        return build_variant_column(schema, std::move(physical));
     case ParquetColumnSchemaKind::STRUCT: {
-        const auto& structure = assert_cast<const ColumnStruct&>(physical);
+        const auto& structure = assert_cast<const ColumnStruct&>(*physical);
         if (structure.tuple_size() != plan.children.size()) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Projected Parquet STRUCT {} field count mismatch", schema.name);
@@ -478,26 +637,26 @@ MutableColumnPtr transform_non_nullable(const VariantMaterializationNode& plan,
         MutableColumns fields;
         fields.reserve(plan.children.size());
         for (size_t i = 0; i < plan.children.size(); ++i) {
-            fields.push_back(transform_node(*plan.children[i], structure.get_column(i)));
+            fields.push_back(transform_node(*plan.children[i], structure.get_column_ptr(i)));
         }
         return ColumnStruct::create(std::move(fields));
     }
     case ParquetColumnSchemaKind::LIST: {
-        const auto& array = assert_cast<const ColumnArray&>(physical);
+        const auto& array = assert_cast<const ColumnArray&>(*physical);
         if (plan.children.size() != 1) {
             throw Exception(ErrorCode::CORRUPTION, "Projected Parquet ARRAY plan is invalid");
         }
-        auto values = transform_node(*plan.children[0], array.get_data());
+        auto values = transform_node(*plan.children[0], array.get_data_ptr());
         auto offsets = array.get_offsets_column().clone_resized(array.size());
         return ColumnArray::create(std::move(values), std::move(offsets));
     }
     case ParquetColumnSchemaKind::MAP: {
-        const auto& map = assert_cast<const ColumnMap&>(physical);
+        const auto& map = assert_cast<const ColumnMap&>(*physical);
         if (plan.children.size() != 2) {
             throw Exception(ErrorCode::CORRUPTION, "Projected Parquet MAP plan is invalid");
         }
-        auto keys = transform_node(*plan.children[0], map.get_keys());
-        auto values = transform_node(*plan.children[1], map.get_values());
+        auto keys = transform_node(*plan.children[0], map.get_keys_ptr());
+        auto values = transform_node(*plan.children[1], map.get_values_ptr());
         auto offsets = map.get_offsets_ptr()->clone_resized(map.size());
         return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     }
@@ -505,19 +664,19 @@ MutableColumnPtr transform_non_nullable(const VariantMaterializationNode& plan,
     throw Exception(ErrorCode::INTERNAL_ERROR, "Unknown Parquet schema kind");
 }
 
-MutableColumnPtr transform_node(const VariantMaterializationNode& plan, const IColumn& physical) {
+MutableColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physical) {
     if (plan.schema == nullptr) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "Parquet Variant materialization plan is null");
     }
     if (plan.schema->kind == ParquetColumnSchemaKind::VARIANT) {
-        return build_variant_column(*plan.schema, physical);
+        return build_variant_column(*plan.schema, std::move(physical));
     }
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(physical)) {
-        auto nested = transform_non_nullable(plan, nullable->get_nested_column());
-        auto nulls = nullable->get_null_map_column().clone_resized(physical.size());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*physical)) {
+        auto nested = transform_non_nullable(plan, nullable->get_nested_column_ptr());
+        auto nulls = nullable->get_null_map_column().clone_resized(physical->size());
         return ColumnNullable::create(std::move(nested), std::move(nulls));
     }
-    return transform_non_nullable(plan, physical);
+    return transform_non_nullable(plan, std::move(physical));
 }
 
 void append_compatible_column(IColumn& output, const IColumn& converted) {
@@ -594,6 +753,16 @@ void append_compatible_column(IColumn& output, const IColumn& converted) {
         return;
     }
 
+    if (auto* output_variant = check_and_get_column<ColumnVariantV2>(output)) {
+        const auto* converted_variant = check_and_get_column<ColumnVariantV2>(converted);
+        if (converted_variant == nullptr) {
+            throw Exception(ErrorCode::CORRUPTION,
+                            "Parquet Variant materialization produced an incompatible column");
+        }
+        output_variant->insert_range_from(*converted_variant, 0, converted_variant->size());
+        return;
+    }
+
     if (output.get_name() != converted.get_name()) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Parquet Variant materialization produced {} for {} destination",
@@ -607,18 +776,23 @@ void append_materialized_column(MutableColumnPtr& output, MutableColumnPtr conve
     // without leaving a partially appended external scan block behind.
     auto compatible = output->clone_empty();
     append_compatible_column(*compatible, *converted);
-    output->insert_range_from(*compatible, 0, compatible->size());
+    append_compatible_column(*output, *compatible);
 }
 
 } // namespace
 
 Status materialize_variant_rows(const ParquetColumnSchema& schema, const IColumn& physical,
                                 MutableColumnPtr& output) {
+    return materialize_variant_rows(schema, physical.get_ptr(), output);
+}
+
+Status materialize_variant_rows(const ParquetColumnSchema& schema, ColumnPtr physical,
+                                MutableColumnPtr& output) {
     if (!output) {
         return Status::InvalidArgument("Parquet Variant output column is null");
     }
     RETURN_IF_CATCH_EXCEPTION({
-        auto converted = build_variant_column(schema, physical);
+        auto converted = build_variant_column(schema, std::move(physical));
         append_materialized_column(output, std::move(converted));
     });
     return Status::OK();
@@ -626,11 +800,16 @@ Status materialize_variant_rows(const ParquetColumnSchema& schema, const IColumn
 
 Status materialize_variant_columns(const VariantMaterializationNode& plan, const IColumn& physical,
                                    MutableColumnPtr& output) {
+    return materialize_variant_columns(plan, physical.get_ptr(), output);
+}
+
+Status materialize_variant_columns(const VariantMaterializationNode& plan, ColumnPtr physical,
+                                   MutableColumnPtr& output) {
     if (!output) {
         return Status::InvalidArgument("Parquet Variant output column is null");
     }
     RETURN_IF_CATCH_EXCEPTION({
-        auto converted = transform_node(plan, physical);
+        auto converted = transform_node(plan, std::move(physical));
         append_materialized_column(output, std::move(converted));
     });
     return Status::OK();

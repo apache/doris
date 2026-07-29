@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/function_variant_element_v2.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 
 namespace doris::format::parquet {
@@ -156,6 +157,7 @@ TEST(VariantColumnReaderTest, UnshreddedRowsPreserveSqlNullAndVariantNull) {
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
     EXPECT_EQ(nullable.get_null_map_data(), (NullMap {0, 1, 0}));
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    EXPECT_TRUE(variants.is_shredded());
     EXPECT_EQ(variants.get_value_ref(0).get_int(), 7);
     EXPECT_TRUE(variants.get_value_ref(2).is_null());
 }
@@ -287,6 +289,71 @@ TEST(VariantColumnReaderTest, ShreddedObjectFieldMayOmitResidualValueColumn) {
     ASSERT_TRUE(variants.get_value_ref(0).object_find(StringRef("a"), &field));
     EXPECT_EQ(field.get_int(), 9);
     EXPECT_EQ(field.primitive_id(), VariantPrimitiveId::INT64);
+}
+
+TEST(VariantColumnReaderTest, ShreddedTypedPathReusesDecodedLeafColumn) {
+    const std::array<char, 1> ignored {0};
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+
+    auto integers = ColumnInt64::create();
+    integers->get_data().push_back(9);
+    auto integer_nulls = ColumnUInt8::create();
+    integer_nulls->get_data().push_back(0);
+    MutableColumnPtr typed_leaf =
+            ColumnNullable::create(std::move(integers), std::move(integer_nulls));
+    const IColumn* const decoded_typed_leaf = typed_leaf.get();
+
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(std::move(typed_leaf));
+    auto wrapper = ColumnStruct::create(std::move(wrapper_fields));
+    auto wrapper_nulls = ColumnUInt8::create();
+    wrapper_nulls->get_data().push_back(0);
+    MutableColumns object_fields;
+    object_fields.push_back(ColumnNullable::create(std::move(wrapper), std::move(wrapper_nulls)));
+    auto object = ColumnStruct::create(std::move(object_fields));
+    auto object_nulls = ColumnUInt8::create();
+    object_nulls->get_data().push_back(0);
+
+    MutableColumns root_fields;
+    root_fields.push_back(nullable_strings({metadata}, {0}));
+    root_fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+    root_fields.push_back(ColumnNullable::create(std::move(object), std::move(object_nulls)));
+    auto root = ColumnStruct::create(std::move(root_fields));
+    auto root_nulls = ColumnUInt8::create();
+    root_nulls->get_data().push_back(0);
+    auto physical = ColumnNullable::create(std::move(root), std::move(root_nulls));
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const auto status = materialize_variant_rows(shredded_object_schema(), *physical, output);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ASSERT_TRUE(variants.is_shredded());
+
+    const std::array shredded_path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    const auto match = variants.find_shredded_typed_value(shredded_path);
+    ASSERT_TRUE(match.has_value());
+    EXPECT_EQ(match->column.get(), decoded_typed_leaf);
+
+    const std::array path_segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(path_segments, &path).ok());
+    ColumnPtr extracted;
+    ASSERT_TRUE(
+            extract_variant_element_v2(variants, *path, nullable.get_null_map_data(), &extracted)
+                    .ok());
+
+    const auto& extracted_nullable = assert_cast<const ColumnNullable&>(*extracted);
+    const auto& extracted_variant =
+            assert_cast<const ColumnVariantV2&>(extracted_nullable.get_nested_column());
+    ASSERT_TRUE(extracted_variant.is_typed());
+    EXPECT_EQ(&extracted_variant.typed_column(), decoded_typed_leaf);
+    const auto& extracted_typed =
+            assert_cast<const ColumnNullable&>(extracted_variant.typed_column());
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(extracted_typed.get_nested_column()).get_data()[0],
+              9);
+    EXPECT_TRUE(variants.is_shredded());
 }
 
 TEST(VariantColumnReaderTest, MissingShreddedObjectWrapperMeansAbsentField) {

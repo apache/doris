@@ -404,13 +404,16 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
         *rows_read += static_cast<int64_t>(loop_rows);
     }
     if (materialize_variant) {
-        _variant_physical_column = IColumn::mutate(std::move(native_column));
         if (*rows_read != rows) {
+            _variant_physical_column = IColumn::mutate(std::move(native_column));
             return Status::Corruption("Native parquet reader returned {} rows, expected {} for {}",
                                       *rows_read, rows, _name);
         }
+        // The shredded state owns this decoded batch. Replace scanner scratch before handing the
+        // pointer off so typed path expressions can retain its physical leaves without a copy.
+        _variant_physical_column = _native_type->create_column();
         RETURN_IF_ERROR(
-                materialize_variant_columns(*_variant_plan, *_variant_physical_column, column));
+                materialize_variant_columns(*_variant_plan, std::move(native_column), column));
     } else {
         column = IColumn::mutate(std::move(native_column));
     }
