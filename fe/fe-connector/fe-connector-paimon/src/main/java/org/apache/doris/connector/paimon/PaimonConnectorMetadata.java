@@ -928,13 +928,15 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * Creates a Paimon table from the full {@link ConnectorCreateTableRequest}.
      *
      * <p>fe-core already pre-probes existence (via {@code getTableHandle}) and short-circuits the
-     * {@code IF NOT EXISTS} case, so this body has no redundant existence check — it mirrors the
-     * legacy {@code PaimonMetadataOps.performCreateTable}, which simply delegated to
-     * {@code catalog.createTable(id, schema, ignoreIfExists)}. Passing
-     * {@link ConnectorCreateTableRequest#isIfNotExists()} as paimon's {@code ignoreIfExists} keeps
-     * it idempotent: paimon no-ops when {@code ifNotExists && exists}, and throws
-     * {@code TableAlreadyExistException} (wrapped here as {@link DorisConnectorException}) when
-     * {@code !ifNotExists && exists}.
+     * {@code IF NOT EXISTS} case, so this body has no redundant existence check. The remote create is
+     * therefore issued with {@code ignoreIfExists = false} <em>regardless</em> of
+     * {@link ConnectorCreateTableRequest#isIfNotExists()} (upstream #66112 made the legacy
+     * {@code PaimonMetadataOps.performCreateTable} do the same): the only way to reach an existing table
+     * here is a creator that won the race after fe-core's probe, and paimon must REPORT that instead of
+     * silently no-opping. Swallowing it would make this statement look like the creator, so a
+     * {@code CREATE TABLE IF NOT EXISTS ... AS SELECT} would INSERT into — and on failure roll back — a
+     * table the winner owns. {@code TableAlreadyExistException} is wrapped as a
+     * {@link DorisConnectorException}, which fe-core's bridge turns back into an IF NOT EXISTS no-op.
      *
      * <p>Per D7=B (legacy parity) the remote call is wrapped in
      * {@link ConnectorContext#executeAuthenticated} so the FE-injected auth context (e.g. Kerberos
@@ -949,7 +951,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Schema schema = PaimonSchemaBuilder.build(request);
         try {
             context.executeAuthenticated(() -> {
-                catalogOps.createTable(id, schema, request.isIfNotExists());
+                catalogOps.createTable(id, schema, false);
                 return null;
             });
         } catch (Exception e) {

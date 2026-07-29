@@ -99,7 +99,7 @@ public class PaimonConnectorMetadataDdlTest {
     // ==================== createTable ====================
 
     @Test
-    public void createTableDelegatesToSeamWithBuiltSchemaAndIfNotExists() {
+    public void createTableDelegatesToSeamWithBuiltSchemaAndNeverIgnoresAnExistingTable() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
 
@@ -107,15 +107,20 @@ public class PaimonConnectorMetadataDdlTest {
 
         // WHY: createTable is the only path that materializes a Doris CREATE TABLE on the remote
         // Paimon catalog; it must call the seam exactly once with the request's Identifier and the
-        // PaimonSchemaBuilder-built Schema, and forward request.isIfNotExists() as paimon's
-        // ignoreIfExists so paimon's idempotency semantics (no-op vs throw) match the user's clause.
-        // MUTATION: dropping the createTable delegation, or passing a wrong Identifier / false
-        // instead of request.isIfNotExists(), flips one of these assertions red.
+        // PaimonSchemaBuilder-built Schema.
+        // WHY ignoreIfExists=false even though the user wrote IF NOT EXISTS (#66112): fe-core already
+        // probed and short-circuited the "table exists" case, so the ONLY way paimon can find the table
+        // here is a creator that won the race after that probe. Forwarding isIfNotExists() would make
+        // paimon silently no-op, this statement would look like the creator, and a CTAS would then INSERT
+        // into — and on failure roll back — the winner's table. Reporting it lets fe-core answer
+        // "already existed" instead.
+        // MUTATION: dropping the createTable delegation, passing a wrong Identifier, or restoring
+        // request.isIfNotExists() as ignoreIfExists flips one of these assertions red.
         Assertions.assertEquals(Collections.singletonList("createTable:db1.t1"), ops.log);
         Assertions.assertEquals("db1", ops.lastCreatedTableId.getDatabaseName());
         Assertions.assertEquals("t1", ops.lastCreatedTableId.getObjectName());
-        Assertions.assertTrue(ops.lastCreateTableIgnoreIfExists,
-                "request.isIfNotExists()==true must be forwarded as paimon ignoreIfExists");
+        Assertions.assertFalse(ops.lastCreateTableIgnoreIfExists,
+                "a race winner must be REPORTED, so paimon is never told to ignore an existing table");
 
         // Schema must reflect the request: 2 columns in order, identity partition key id, pk id.
         Schema schema = ops.lastCreatedSchema;
@@ -138,6 +143,24 @@ public class PaimonConnectorMetadataDdlTest {
         // pre-existing table surfaces as TableAlreadyExistException rather than being silently
         // no-op'd. MUTATION: hardcoding true (always-idempotent) makes this red.
         Assertions.assertFalse(ops.lastCreateTableIgnoreIfExists);
+    }
+
+    @Test
+    public void createTableWithIfNotExistsStillReportsAConcurrentWinner() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.throwTableAlreadyExist = true;
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+
+        // WHY (#66112): IF NOT EXISTS is short-circuited by fe-core BEFORE this call, so an existing
+        // table here means a concurrent creator won the race. The connector must surface it (fe-core's
+        // bridge re-probes and answers "already existed"); swallowing it would report this statement as
+        // the creator and let a CTAS write into someone else's table.
+        // MUTATION: restoring ignoreIfExists=request.isIfNotExists() makes paimon no-op instead of throw
+        // -> assertThrows red.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).createTable(null, request(true)));
+        Assertions.assertTrue(ex.getMessage().contains("db1.t1"),
+                "wrapped message must name the table");
     }
 
     @Test

@@ -19,6 +19,8 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
@@ -57,6 +59,24 @@ public class UnboundTableSinkCreator {
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
+            // #66112: this overload is the CTAS seam -- CreateTableCommand calls it BEFORE publishing the
+            // table metadata precisely so an unsupported destination is rejected while nothing has been
+            // created yet. A connector that declares no INSERT is such a destination, and the generic
+            // plugin sink cannot tell on its own (every PluginDrivenExternalCatalog builds the same
+            // UnboundConnectorTableSink), so the refusal that PhysicalPlanTranslator would otherwise raise
+            // at translation time -- long after the remote table exists -- is raised here instead. Without
+            // it, CTAS falls back to dropping the just-created table BY NAME, which cannot tell this
+            // statement's table from a concurrent creator's table of the same name.
+            // The connector-level (table-free) provider is the only one available here: the CTAS target
+            // does not exist yet, so there is no handle to ask the per-table overload with. A
+            // heterogeneous gateway still answers it (its connector-level provider is non-null), so this
+            // only rejects connectors with no write path at all (paimon / es / hudi / trino).
+            ConnectorWritePlanProvider writeProvider =
+                    ((PluginDrivenExternalCatalog) curCatalog).getConnector().getWritePlanProvider();
+            if (writeProvider == null || !writeProvider.supportedOperations().contains(WriteOperation.INSERT)) {
+                throw new UserException("Connector '" + curCatalog.getName() + "' (type: "
+                        + curCatalog.getType() + ") does not support INSERT operations");
+            }
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");

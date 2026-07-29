@@ -764,7 +764,66 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                 "IF NOT EXISTS on an existing table must return true so CTAS short-circuits (no INSERT)");
         Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
         Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
-        Mockito.verify(replayDb, Mockito.never()).resetMetaCacheNames();
+        // WHY (#66112): the no-op returns BEFORE the created-here bookkeeping, so without an explicit
+        // reset this FE keeps a table-name cache that predates the table -- a table created out-of-band
+        // (another engine / another FE) stays invisible to SHOW TABLES and to a following SELECT. No edit
+        // log though: nothing changed on the remote, so followers have nothing to replay.
+        Mockito.verify(replayDb).resetMetaCacheNames();
+    }
+
+    @Test
+    public void testCreateTableIfNotExistsLosingTheCreateRaceReturnsTrueWithoutEditLog() throws Exception {
+        // The existence probe and the remote create are not atomic: here the probe says ABSENT and the
+        // connector then fails because a concurrent creator won the race in between.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        // absent on the pre-probe, present on the post-failure re-probe.
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1"))
+                .thenReturn(Optional.empty(), Optional.of(handle));
+        Mockito.doThrow(new DorisConnectorException("table already exists"))
+                .when(metadata).createTable(Mockito.any(), Mockito.any());
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(true);
+
+        boolean res = catalog.createTable(info);
+
+        // WHY (#66112): IF NOT EXISTS means "ensure it is there", so losing the race is a successful
+        // no-op -- and it must answer TRUE, not false: false would tell CreateTableCommand that THIS
+        // statement created the table, so a CTAS would INSERT into the winner's table and, on failure,
+        // drop it. No edit log / no connector-cache invalidation: this statement changed nothing remotely.
+        Assertions.assertTrue(res, "losing the create race under IF NOT EXISTS must return true");
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
+        Mockito.verify(connector, Mockito.never()).invalidateTable(Mockito.any(), Mockito.any());
+        Mockito.verify(replayDb).resetMetaCacheNames();
+    }
+
+    @Test
+    public void testCreateTableWithoutIfNotExistsLosingTheCreateRaceStillThrows() {
+        // Same race, but the user did NOT write IF NOT EXISTS: the failure must surface, never be
+        // laundered into a success by the re-probe.
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        catalog.dbNullableResult = db;
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "t1"))
+                .thenReturn(Optional.empty(), Optional.of(handle));
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).createTable(Mockito.any(), Mockito.any());
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(false);
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
     }
 
     @Test

@@ -513,6 +513,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
                         getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
+                // #66112 (ported from the legacy paimon arm): an existing-table success returns BEFORE the
+                // post-create cache invalidation below, so this FE would keep a table-name cache that predates
+                // the table -- a table created out-of-band (another engine / another FE) stays invisible to
+                // SHOW TABLES and to a subsequent SELECT until an unrelated refresh. Every successful no-op
+                // must refresh the names, exactly like the created-here path.
+                getDbForReplay(createTableInfo.getDbName()).ifPresent(d -> d.resetMetaCacheNames());
                 return true;
             }
             // !IF NOT EXISTS: a table that already exists -- whether remotely (connector) OR only in the
@@ -532,6 +538,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         try {
             metadata.createTable(session, request);
         } catch (DorisConnectorException e) {
+            // #66112: the existence probe above and the remote create are not atomic, so a concurrent
+            // creator (another FE, another engine) can win the race in between and the connector then
+            // fails with its own already-exists error. Under IF NOT EXISTS the statement's contract is
+            // "ensure it is there", so a re-probe that finds the table makes this a successful no-op.
+            // Returning TRUE (not false) is the load-bearing part: it tells CreateTableCommand that this
+            // statement did not create the table, so a CTAS neither INSERTs into the winner's table nor
+            // claims rollback ownership of it.
+            if (createTableInfo.isIfNotExists()
+                    && metadata.getTableHandle(session, db.getRemoteName(),
+                            createTableInfo.getTableName()).isPresent()) {
+                LOG.info("create table[{}.{}.{}] lost the race to a concurrent creator; "
+                                + "treating as an IF NOT EXISTS no-op", getName(),
+                        createTableInfo.getDbName(), createTableInfo.getTableName());
+                getDbForReplay(createTableInfo.getDbName()).ifPresent(d -> d.resetMetaCacheNames());
+                return true;
+            }
             throw new DdlException(e.getMessage(), e);
         }
         // Drop any stale connector-owned cache entry for this name before the new table goes live
