@@ -863,8 +863,11 @@ if (ENABLE_PCH)
     find_package(OpenMP QUIET)
     if (OpenMP_CXX_FOUND OR OpenMP_FOUND)
         if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
+            separate_arguments(OPENMP_CXX_FLAG_LIST NATIVE_COMMAND "${OpenMP_CXX_FLAGS}")
             # Apply the OpenMP flags to all C++ compilations so PCH and all TUs match.
-            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>)
+            foreach(OPENMP_CXX_FLAG IN LISTS OPENMP_CXX_FLAG_LIST)
+                add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${OPENMP_CXX_FLAG}>)
+            endforeach()
         endif()
         # Ensure final link includes the OpenMP runtime when needed.
         if (TARGET OpenMP::OpenMP_CXX)
@@ -884,7 +887,7 @@ if (ENABLE_PCH)
         target_link_libraries(pch PUBLIC OpenMP::OpenMP_CXX)
         # Also add flags explicitly to be robust if usage requirements don’t apply during PCH.
         if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
-            target_compile_options(pch PUBLIC ${OpenMP_CXX_FLAGS})
+            target_compile_options(pch PUBLIC ${OPENMP_CXX_FLAG_LIST})
         endif()
         # Copy usage requirements from the imported OpenMP target onto PCH.
         if (TARGET OpenMP::OpenMP_CXX)
