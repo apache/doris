@@ -81,6 +81,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -274,10 +275,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = desc.getTable().getFullSchema();
-        Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
-        for (int i = 0; i < columns.size(); i++) {
-            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+        List<String> columnNames = getFileColumnNames();
+        Map<String, Integer> columnNameMap = new HashMap<>(columnNames.size());
+        for (int i = 0; i < columnNames.size(); i++) {
+            columnNameMap.putIfAbsent(columnNames.get(i), i);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
@@ -297,6 +298,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             columnIdxs.add(idx);
         }
         params.setColumnIdxs(columnIdxs);
+    }
+
+    protected List<String> getFileColumnNames() {
+        return desc.getTable().getFullSchema().stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
     }
 
     public TFileScanRangeParams getFileScanRangeParams() {

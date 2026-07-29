@@ -138,6 +138,12 @@ public class IcebergScanNodeTest {
             enableCurrentIcebergScanSemantics();
             return params.getIcebergScanSemanticsVersion();
         }
+
+        TFileScanRangeParams initializeAndGetIcebergSchemaInfo() throws UserException {
+            params = new TFileScanRangeParams();
+            initializeIcebergSchemaInfo(Optional.empty());
+            return params;
+        }
     }
 
     @Test
@@ -146,6 +152,33 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION,
                 node.enableAndGetIcebergScanSemanticsVersion());
+    }
+
+    @Test
+    public void testPartitionEvolutionKeepsNonFileSlotInReaderSchema() throws Exception {
+        Column evolvedIdentityColumn = new Column("int_col", Type.BIGINT, true);
+        evolvedIdentityColumn.setUniqueId(1);
+        Column projectedColumn = new Column("payload", Type.STRING, true);
+        projectedColumn.setUniqueId(2);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(targetTable.getColumns()).thenReturn(
+                List.of(evolvedIdentityColumn, projectedColumn));
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        node.addSlot(1, projectedColumn);
+        setIcebergSource(node, source);
+        Mockito.doReturn(Collections.emptyMap()).when(node).getBase64EncodedInitialDefaultsForScan();
+
+        TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo();
+
+        Assert.assertEquals(2, scanParams.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assert.assertEquals("int_col", scanParams.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+        Assert.assertEquals("payload", scanParams.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
     }
 
     @Test

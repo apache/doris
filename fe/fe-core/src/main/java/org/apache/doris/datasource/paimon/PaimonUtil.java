@@ -349,6 +349,39 @@ public class PaimonUtil {
         updatePaimonColumnUniqueId(column, field.type());
     }
 
+    public static void updatePaimonColumnMetadata(Column column, DataField field) {
+        updatePaimonColumnUniqueId(column, field);
+        updatePaimonColumnTimezone(column, field.type());
+    }
+
+    private static void updatePaimonColumnTimezone(Column column, DataType dataType) {
+        if (dataType.getTypeRoot() == org.apache.paimon.types.DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            column.setWithTZExtraInfo();
+        }
+        List<Column> children = column.getChildren();
+        if (children == null) {
+            return;
+        }
+        switch (dataType.getTypeRoot()) {
+            case ARRAY:
+                updatePaimonColumnTimezone(children.get(0), ((ArrayType) dataType).getElementType());
+                break;
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                updatePaimonColumnTimezone(children.get(0), mapType.getKeyType());
+                updatePaimonColumnTimezone(children.get(1), mapType.getValueType());
+                break;
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                for (int idx = 0; idx < children.size(); idx++) {
+                    updatePaimonColumnTimezone(children.get(idx), rowType.getFields().get(idx).type());
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
     public static TField getSchemaInfo(DataType dataType, boolean enableVarbinaryMapping,
             boolean enableTimestampTzMapping) {
         TField field = new TField();
@@ -507,14 +540,18 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name(),
+            Column column = new Column(field.name(),
                     PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
                     field.type().isNullable(),
                     field.description(),
                     true,
-                    field.id()));
+                    field.id());
+            // Schema selected by relation-local options must expose the same recursive metadata
+            // as the normal schema cache, otherwise nested predicates bind to different field IDs.
+            updatePaimonColumnMetadata(column, field);
+            resSchema.add(column);
         });
         return resSchema;
     }

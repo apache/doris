@@ -258,7 +258,7 @@ jobs:
               echo "Skipping invalid Codex auth object: ${candidate##*/}"
             fi
           done < <(
-            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.[0-9]+$/ { print }' "$auth_listing" | sort
+            awk '$0 ~ /^oss:\/\/doris-community-ci\/codex\/auth\.json\.([2-9]|[1-9][0-9]+)$/ { print }' "$auth_listing" | sort
           )
 
           if [ ! -s "$auth_objects_file" ]; then

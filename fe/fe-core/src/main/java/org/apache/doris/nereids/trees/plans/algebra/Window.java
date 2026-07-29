@@ -76,7 +76,7 @@ public interface Window {
         Expr e = null;
         if (boundary.hasOffset()) {
             Expression boundOffset = boundary.getBoundOffset().get();
-            offsetValue = new BigDecimal(((Literal) boundOffset).getDouble());
+            offsetValue = new BigDecimal(((Literal) boundOffset).getStringValue());
             e = ExpressionTranslator.translate(boundOffset, context);
         }
 

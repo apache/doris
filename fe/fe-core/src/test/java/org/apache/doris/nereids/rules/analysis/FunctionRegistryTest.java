@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -28,13 +30,19 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -106,6 +114,70 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         Expression canonicalFunction = canonicalBuilder.build("bitmap_and_not_count", arguments).first;
         Assertions.assertInstanceOf(BitmapAndNotCount.class, canonicalFunction);
         Assertions.assertFalse(canonicalFunction.nullable());
+    }
+
+    @Test
+    public void testVariantParseFunctions() {
+        PlanChecker.from(connectContext)
+                .analyze("select parse_to_variant('{\"a\":1}'), try_parse_to_variant('{')")
+                .matches(
+                        logicalOneRowRelation().when(oneRowRelation -> {
+                            Expression fail = oneRowRelation.getProjects().get(0).child(0);
+                            Expression errorToNull = oneRowRelation.getProjects().get(1).child(0);
+                            Assertions.assertInstanceOf(ParseToVariant.class, fail);
+                            Assertions.assertInstanceOf(TryParseToVariant.class, errorToNull);
+                            Assertions.assertTrue(fail.getDataType().isVariantType());
+                            Assertions.assertTrue(errorToNull.getDataType().isVariantType());
+                            Assertions.assertFalse(((VariantType) fail.getDataType()).isComputeV2());
+                            Assertions.assertFalse(((VariantType) errorToNull.getDataType()).isComputeV2());
+                            Assertions.assertFalse(fail.nullable());
+                            Assertions.assertTrue(errorToNull.nullable());
+                            return true;
+                        })
+                );
+    }
+
+    @Test
+    public void testVariantV2SessionSelectsComputeResultType() {
+        connectContext.getSessionVariable().enableVariantV2 = true;
+        try {
+            Cast parsedCast = (Cast) new NereidsParser().parseExpression("cast(1 as variant)");
+            Assertions.assertFalse(((VariantType) parsedCast.getDataType()).isComputeV2());
+
+            PlanChecker.from(connectContext)
+                    .analyze("select parse_to_variant('{\"a\":1}'), cast(1 as variant), "
+                            + "cast(parse_to_variant('[1]') as array<variant>), "
+                            + "try_cast(1 as variant), convert(1, variant), "
+                            + "cast('{}' as map<string, variant>), "
+                            + "cast('{}' as struct<a:variant>)")
+                    .matches(
+                            logicalOneRowRelation().when(oneRowRelation -> {
+                                VariantType parsed = (VariantType) oneRowRelation.getProjects().get(0)
+                                        .child(0).getDataType();
+                                VariantType cast = (VariantType) oneRowRelation.getProjects().get(1)
+                                        .child(0).getDataType();
+                                ArrayType array = (ArrayType) oneRowRelation.getProjects().get(2)
+                                        .child(0).getDataType();
+                                Assertions.assertTrue(parsed.isComputeV2());
+                                Assertions.assertTrue(cast.isComputeV2());
+                                Assertions.assertTrue(((VariantType) array.getItemType()).isComputeV2());
+                                Assertions.assertTrue(((VariantType) oneRowRelation.getProjects().get(3)
+                                        .child(0).getDataType()).isComputeV2());
+                                Assertions.assertTrue(((VariantType) oneRowRelation.getProjects().get(4)
+                                        .child(0).getDataType()).isComputeV2());
+                                MapType map = (MapType) oneRowRelation.getProjects().get(5)
+                                        .child(0).getDataType();
+                                Assertions.assertTrue(((VariantType) map.getValueType()).isComputeV2());
+                                StructType struct = (StructType) oneRowRelation.getProjects().get(6)
+                                        .child(0).getDataType();
+                                Assertions.assertTrue(((VariantType) struct.getFields().get(0)
+                                        .getDataType()).isComputeV2());
+                                return true;
+                            })
+                    );
+        } finally {
+            connectContext.getSessionVariable().enableVariantV2 = false;
+        }
     }
 
     @Test
