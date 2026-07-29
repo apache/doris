@@ -40,6 +40,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -666,17 +667,14 @@ static Status normalize_iceberg_nullable_column(const ColumnPtr& column, const D
 
 static Status normalize_iceberg_uuid_column(const ColumnPtr& column, ColumnPtr* normalized_column,
                                             const NullMap* skipped_rows) {
-    const auto* string_column = check_and_get_column<ColumnString>(*column);
-    if (string_column == nullptr) {
-        return Status::InvalidArgument("Iceberg UUID ORC conversion expects string column, got {}",
-                                       column->get_name());
-    }
-    auto binary_column = ColumnString::create();
-    binary_column->reserve(string_column->size());
-    for (size_t row = 0; row < string_column->size(); ++row) {
+    DORIS_CHECK(check_and_get_column<ColumnString>(*column) != nullptr ||
+                check_and_get_column<ColumnVarbinary>(*column) != nullptr);
+    auto binary_column = column->clone_empty();
+    binary_column->reserve(column->size());
+    for (size_t row = 0; row < column->size(); ++row) {
         std::array<uint8_t, 16> bytes;
         if (skipped_rows == nullptr || (*skipped_rows)[row] == 0) {
-            RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(string_column->get_data_at(row), &bytes));
+            RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(column->get_data_at(row), &bytes));
         } else {
             bytes.fill(0);
         }
