@@ -110,6 +110,11 @@ add_thirdparty(arrow_flight_sql LIB64)
 add_thirdparty(arrow_dataset LIB64)
 add_thirdparty(arrow_acero LIB64)
 add_thirdparty(parquet LIB64)
+# libpaimon_c.a (built from paimon-rust) brings in Rust compiler_builtins that
+# would otherwise steal libm symbols. Place libm before it so the final linker
+# resolves C math symbols from the system library first.
+add_thirdparty(paimon_c LIB64 NOTADD)
+list(APPEND COMMON_THIRDPARTY m paimon_c)
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb)
 add_thirdparty(cyrus-sasl LIBNAME "lib/libsasl2.a")
