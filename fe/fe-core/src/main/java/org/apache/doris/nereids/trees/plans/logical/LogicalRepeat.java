@@ -96,7 +96,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             RepeatType type,
             CHILD_TYPE child) {
         this(groupingSets, outputExpressions, Optional.empty(), Optional.empty(),
-                Optional.ofNullable(groupingId), Optional.of(ImmutableList.copyOf(groupingIdValues)), true,
+                Optional.ofNullable(groupingId), Optional.of(groupingIdValues), true,
                 type, child);
     }
 
@@ -311,12 +311,6 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Plan child) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, groupingIdValues, type, child));
-    }
-
-    public LogicalRepeat<Plan> withAggOutputAndChild(List<NamedExpression> newOutput, Plan child) {
-        return AbstractPlan.copyWithSameId(this, () ->
-                new LogicalRepeat<>(groupingSets, newOutput, Optional.empty(), Optional.empty(), groupingId,
-                        groupingIdValues, true, type, child));
     }
 
     public LogicalRepeat<CHILD_TYPE> withInProjection(boolean withInProjection) {
