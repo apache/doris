@@ -30,17 +30,15 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                        size_t row_num, std::string& prompt) const {
+Status FunctionAIClassify::build_prompt(const Columns& prompt_columns, size_t row_num,
+                                        std::string& prompt) const {
     // Get the text column
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text = text_column.column->get_data_at(row_num);
+    StringRef text = prompt_columns[0]->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
 
     // Get the labels array column
-    const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
     const auto& [array_column, array_row_num] =
-            check_column_const_set_readability(*labels_column.column, row_num);
+            check_column_const_set_readability(*prompt_columns[1], row_num);
     const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
     if (col_array == nullptr) {
         return Status::InternalError(
@@ -72,17 +70,15 @@ Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers&
     return Status::OK();
 }
 
-Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                       size_t row_num, std::string& prompt) const {
+Status FunctionAIExtract::build_prompt(const Columns& prompt_columns, size_t row_num,
+                                       std::string& prompt) const {
     // Get the text column
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text = text_column.column->get_data_at(row_num);
+    StringRef text = prompt_columns[0]->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
 
     // Get the labels array column
-    const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
     const auto& [array_column, array_row_num] =
-            check_column_const_set_readability(*labels_column.column, row_num);
+            check_column_const_set_readability(*prompt_columns[1], row_num);
     const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
     if (col_array == nullptr) {
         return Status::InternalError(
@@ -114,26 +110,23 @@ Status FunctionAIExtract::build_prompt(const Block& block, const ColumnNumbers& 
     return Status::OK();
 }
 
-Status FunctionAIGenerate::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                        size_t row_num, std::string& prompt) const {
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text_ref = text_column.column->get_data_at(row_num);
+Status FunctionAIGenerate::build_prompt(const Columns& prompt_columns, size_t row_num,
+                                        std::string& prompt) const {
+    StringRef text_ref = prompt_columns[0]->get_data_at(row_num);
     prompt = std::string(text_ref.data, text_ref.size);
 
     return Status::OK();
 }
 
-Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                    size_t row_num, std::string& prompt) const {
+Status FunctionAIMask::build_prompt(const Columns& prompt_columns, size_t row_num,
+                                    std::string& prompt) const {
     // Get the text column
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text = text_column.column->get_data_at(row_num);
+    StringRef text = prompt_columns[0]->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
 
     // Get the labels array column
-    const ColumnWithTypeAndName& labels_column = block.get_by_position(arguments[2]);
     const auto& [array_column, array_row_num] =
-            check_column_const_set_readability(*labels_column.column, row_num);
+            check_column_const_set_readability(*prompt_columns[1], row_num);
     const auto* col_array = check_and_get_column<ColumnArray>(*array_column);
     if (col_array == nullptr) {
         return Status::InternalError(
@@ -165,16 +158,14 @@ Status FunctionAIMask::build_prompt(const Block& block, const ColumnNumbers& arg
     return Status::OK();
 }
 
-Status FunctionAISimilarity::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                          size_t row_num, std::string& prompt) const {
+Status FunctionAISimilarity::build_prompt(const Columns& prompt_columns, size_t row_num,
+                                          std::string& prompt) const {
     // text1
-    const ColumnWithTypeAndName& text_column_1 = block.get_by_position(arguments[1]);
-    StringRef text_1 = text_column_1.column.get()->get_data_at(row_num);
+    StringRef text_1 = prompt_columns[0]->get_data_at(row_num);
     std::string text_str_1 = std::string(text_1.data, text_1.size);
 
     // text2
-    const ColumnWithTypeAndName& text_column_2 = block.get_by_position(arguments[2]);
-    StringRef text_2 = text_column_2.column.get()->get_data_at(row_num);
+    StringRef text_2 = prompt_columns[1]->get_data_at(row_num);
     std::string text_str_2 = std::string(text_2.data, text_2.size);
 
     prompt = "Text 1: " + text_str_1 + "\nText 2: " + text_str_2;
@@ -182,16 +173,14 @@ Status FunctionAISimilarity::build_prompt(const Block& block, const ColumnNumber
     return Status::OK();
 }
 
-Status FunctionAITranslate::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                         size_t row_num, std::string& prompt) const {
+Status FunctionAITranslate::build_prompt(const Columns& prompt_columns, size_t row_num,
+                                         std::string& prompt) const {
     // text
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text = text_column.column.get()->get_data_at(row_num);
+    StringRef text = prompt_columns[0]->get_data_at(row_num);
     std::string text_str = std::string(text.data, text.size);
 
     // target language
-    const ColumnWithTypeAndName& lang_column = block.get_by_position(arguments[2]);
-    StringRef lang = lang_column.column.get()->get_data_at(row_num);
+    StringRef lang = prompt_columns[1]->get_data_at(row_num);
     std::string target_lang = std::string(lang.data, lang.size);
 
     prompt = "Translate the following text to " + target_lang + ".\nText: " + text_str;
