@@ -23,8 +23,6 @@ package org.apache.doris.datasource.property.common;
 
 
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
@@ -43,30 +41,6 @@ public final class AwsCredentialsProviderFactory {
      * AWS SDK V2
      * ========================= */
 
-    public static AwsCredentialsProvider createV2(
-            AwsCredentialsProviderMode mode,
-            boolean includeAnonymousInDefault) {
-        switch (mode) {
-            case ENV:
-                return EnvironmentVariableCredentialsProvider.create();
-            case SYSTEM_PROPERTIES:
-                return SystemPropertyCredentialsProvider.create();
-            case WEB_IDENTITY:
-                return WebIdentityTokenFileCredentialsProvider.create();
-            case CONTAINER:
-                return ContainerCredentialsProvider.create();
-            case INSTANCE_PROFILE:
-                return InstanceProfileCredentialsProvider.create();
-            case ANONYMOUS:
-                return AnonymousCredentialsProvider.create();
-            case DEFAULT:
-                return createDefaultV2(includeAnonymousInDefault);
-            default:
-                throw new UnsupportedOperationException(
-                        "AWS SDK V2 does not support credentials provider mode: " + mode);
-        }
-    }
-
     private static boolean isWebIdentityConfigured() {
         return System.getenv("AWS_ROLE_ARN") != null
                 && System.getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != null;
@@ -75,27 +49,6 @@ public final class AwsCredentialsProviderFactory {
     private static boolean isContainerCredentialsConfigured() {
         return System.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != null
                 || System.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != null;
-    }
-
-    private static AwsCredentialsProvider createDefaultV2(
-            boolean includeAnonymous) {
-
-        List<AwsCredentialsProvider> providers = new ArrayList<>();
-        providers.add(InstanceProfileCredentialsProvider.create());
-        if (isWebIdentityConfigured()) {
-            providers.add(WebIdentityTokenFileCredentialsProvider.create());
-        }
-        if (isContainerCredentialsConfigured()) {
-            providers.add(ContainerCredentialsProvider.create());
-        }
-        providers.add(EnvironmentVariableCredentialsProvider.create());
-        providers.add(SystemPropertyCredentialsProvider.create());
-        if (includeAnonymous) {
-            providers.add(AnonymousCredentialsProvider.create());
-        }
-        return AwsCredentialsProviderChain.builder()
-                .credentialsProviders(providers)
-                .build();
     }
 
     public static String getV2ClassName(AwsCredentialsProviderMode mode, boolean includeAnonymousInDefault) {
@@ -133,31 +86,4 @@ public final class AwsCredentialsProviderFactory {
         }
     }
 
-    /**
-     * Get the AWS credentials provider class name.
-     * For DEFAULT mode, returns AWS SDK native DefaultCredentialsProvider.
-     * For other modes, returns the specific provider class name.
-     */
-    public static String getV2ClassName(AwsCredentialsProviderMode mode) {
-        switch (mode) {
-            case ENV:
-                return EnvironmentVariableCredentialsProvider.class.getName();
-            case SYSTEM_PROPERTIES:
-                return SystemPropertyCredentialsProvider.class.getName();
-            case WEB_IDENTITY:
-                return WebIdentityTokenFileCredentialsProvider.class.getName();
-            case CONTAINER:
-                return ContainerCredentialsProvider.class.getName();
-            case INSTANCE_PROFILE:
-                return InstanceProfileCredentialsProvider.class.getName();
-            case ANONYMOUS:
-                return AnonymousCredentialsProvider.class.getName();
-            case DEFAULT:
-                // For Iceberg REST, use AWS SDK native DefaultCredentialsProvider
-                return "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider";
-            default:
-                throw new UnsupportedOperationException(
-                        "AWS SDK V2 does not support credentials provider mode: " + mode);
-        }
-    }
 }

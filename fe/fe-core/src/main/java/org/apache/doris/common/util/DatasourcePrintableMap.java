@@ -66,8 +66,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         // authoritative copy now lives connector-side (fe-connector-metastore-iceberg
         // IcebergRestMetaStoreProperties), which fe-core cannot depend on. SHOW CREATE CATALOG masking must
         // still hide these, so all four former IcebergRestProperties sensitive keys are enumerated explicitly,
-        // byte-identical to the former reflection result (its AbstractIcebergProperties/MetastoreProperties
-        // superclass chain carries no sensitive keys). Note the overlap with the inlined storage keys below is
+        // byte-identical to the former reflection result (nothing in its now-retired fe-core superclass chain
+        // carried sensitive keys). Note the overlap with the inlined storage keys below is
         // uneven and must NOT be relied on: iceberg.rest.secret-access-key aliases the (sensitive) S3 secret
         // key, but iceberg.rest.session-token aliases the S3 session-token field which is NOT sensitive, so
         // omitting it here would silently unmask it. Keep in sync with the connector's sensitive REST keys.
