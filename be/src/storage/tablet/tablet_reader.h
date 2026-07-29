@@ -225,6 +225,12 @@ public:
 
         uint64_t condition_cache_digest = 0;
 
+        // Multi-stage predicate lazy materialization (experimental)
+        bool enable_multi_stage_predicate_lazy_materialization = false;
+        std::vector<ColumnId> predicate_lm_stage1_column_ids;
+        double predicate_lm_stage1_survival_ratio_threshold = 0.1;
+        int64_t predicate_lm_min_scan_rows = 65536;
+
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;

@@ -912,6 +912,13 @@ public class SessionVariable implements Serializable, Writable {
             = "decompose_repeat_shuffle_index_in_max_group";
     public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
+    public static final String ENABLE_MULTI_STAGE_PREDICATE_LM = "enable_multi_stage_predicate_lm";
+    public static final String PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD =
+            "predicate_lm_stage1_survival_ratio_threshold";
+    public static final String PREDICATE_LM_MIN_SCAN_ROWS = "predicate_lm_min_scan_rows";
+    public static final String PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES =
+            "predicate_lm_min_estimated_saved_bytes";
+
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
                 description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为 hot value",
@@ -3113,6 +3120,57 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SHUFFLE_KEY_PRUNE)
     public boolean enableShuffleKeyPrune = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_MULTI_STAGE_PREDICATE_LM,
+            fuzzy = true,
+            description = {"是否允许 FE 自动选择 stage1 列并启用多阶段谓词延迟物化(实验特性)。默认为 false。",
+                    "Whether to allow FE to automatically select stage1 columns and enable multi-stage "
+                        + "predicate lazy materialization (experimental). The default value is false."},
+            needForward = true)
+    public boolean enableMultiStagePredicateLm = false;
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD,
+            fuzzy = true,
+            description = {"多阶段谓词延迟物化中 stage1 的存活率阈值，用于选择 stage2 策略。"
+                    + "当 stage1 存活率 <= 阈值时倾向按 rowids 读取 stage2 谓词列；"
+                    + "当 stage1 存活率 > 阈值时倾向读全量行以避免随机读。范围 [0,1]，默认 0.1。",
+                    "Stage1 survival ratio threshold for multi-stage predicate LM. "
+                        + "If survival_ratio <= threshold, stage2 prefers by-rowids; otherwise by-all-rows. "
+                        + "Range [0,1], default 0.1."},
+            needForward = true,
+            checker = "checkPredicateLmStage1SurvivalRatioThreshold")
+    public double predicateLmStage1SurvivalRatioThreshold = 0.1;
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_MIN_SCAN_ROWS,
+            fuzzy = true,
+            description = {"启用多阶段谓词延迟物化所需的单个 SegmentIterator 最小预计扫描行数。"
+                    + "当当前 segment 预计扫描行数小于该值时，BE 会自动回退到普通谓词延迟物化以避免小扫描性能回退。"
+                    + "默认 65536，设置为 0 表示不启用该保护。",
+                    "Minimum per-SegmentIterator estimated scan rows required to enable multi-stage "
+                        + "predicate LM. If the current segment's estimated scan rows are smaller "
+                        + "than this value, BE falls back to regular predicate lazy materialization "
+                        + "to avoid regressions on small scans. "
+                        + "Default 65536, and 0 disables this guard."},
+            needForward = true,
+            checker = "checkPredicateLmMinScanRows")
+    public long predicateLmMinScanRows = 65536;
+
+    @VarAttrDef.VarAttr(
+            name = PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES,
+            fuzzy = true,
+            description = {
+                    "FE 自动选择多阶段谓词延迟物化 stage1 列所需的最小预估节省字节数。"
+                            + "该值仅用于 FE 收益判断，默认 1073741824（1 GiB），"
+                            + "设置为 0 表示不启用固定字节数门槛。",
+                    "Minimum estimated saved bytes required for FE to automatically select stage1 columns "
+                            + "for multi-stage predicate LM. This value is only used by the FE benefit gate. "
+                            + "Default 1073741824 (1 GiB), and 0 disables the fixed saved-bytes threshold."},
+            needForward = true,
+            checker = "checkPredicateLmMinEstimatedSavedBytes")
+    public long predicateLmMinEstimatedSavedBytes = 1L << 30;
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -5888,6 +5946,11 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAnnIndexCandidateRowsThreshold(annIndexCandidateRowsThreshold);
         tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
+
+        tResult.setEnableMultiStagePredicateLm(enableMultiStagePredicateLm);
+        tResult.setPredicateLmStage1SurvivalRatioThreshold(predicateLmStage1SurvivalRatioThreshold);
+        tResult.setPredicateLmMinScanRows(predicateLmMinScanRows);
+
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
@@ -6457,6 +6520,42 @@ public class SessionVariable implements Serializable, Writable {
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(
                     SKEW_REWRITE_AGG_BUCKET_NUM + " must be a valid number between 1 and 65535");
+        }
+    }
+
+    public void checkPredicateLmStage1SurvivalRatioThreshold(String value) {
+        final double v;
+        try {
+            v = Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " must be a valid number in range [0, 1]");
+        }
+        if (Double.isNaN(v) || v < 0.0 || v > 1.0) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " should be in range [0, 1], got " + v);
+        }
+    }
+
+    public void checkPredicateLmMinScanRows(String value) {
+        checkNonNegativeLongVariable(value, PREDICATE_LM_MIN_SCAN_ROWS);
+    }
+
+    public void checkPredicateLmMinEstimatedSavedBytes(String value) {
+        checkNonNegativeLongVariable(value, PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES);
+    }
+
+    private void checkNonNegativeLongVariable(String value, String variableName) {
+        final long v;
+        try {
+            v = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                variableName + " must be a valid non-negative integer");
+        }
+        if (v < 0) {
+            throw new InvalidParameterException(
+                variableName + " should be non-negative, got " + v);
         }
     }
 

@@ -67,6 +67,7 @@
 #include "util/debug_points.h"
 #endif
 #include "util/json/path_in_data.h"
+#include "util/string_util.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -103,6 +104,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
+                                 .predicate_lm_stage1_column_ids {},
                                  .binlog_scan_type = params.binlog_scan_type}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
@@ -232,6 +234,42 @@ Status OlapScanner::_prepare_impl() {
         }
         if (olap_scan_node.__isset.indexes_desc) {
             tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
+        }
+
+        const auto& qopts = _state->query_options();
+
+        // Map FE session variable enable_multi_stage_predicate_lm -> storage read option flag.
+        // This flag is what SegmentIterator actually checks.
+        if (qopts.__isset.enable_multi_stage_predicate_lm) {
+            _tablet_reader_params.enable_multi_stage_predicate_lazy_materialization =
+                    qopts.enable_multi_stage_predicate_lm;
+        }
+
+        // Map FE session variable predicate_lm_stage1_survival_ratio_threshold -> stage2 strategy threshold.
+        if (qopts.__isset.predicate_lm_stage1_survival_ratio_threshold) {
+            _tablet_reader_params.predicate_lm_stage1_survival_ratio_threshold =
+                    qopts.predicate_lm_stage1_survival_ratio_threshold;
+        }
+
+        // Map FE session variable predicate_lm_min_scan_rows -> scan-level multi-stage guard.
+        if (qopts.__isset.predicate_lm_min_scan_rows) {
+            _tablet_reader_params.predicate_lm_min_scan_rows = qopts.predicate_lm_min_scan_rows;
+        }
+
+        // Use per-scan stage1 column ids selected by FE.
+        // NOTE: only meaningful when multi-stage predicate LM is enabled.
+        if (_tablet_reader_params.enable_multi_stage_predicate_lazy_materialization) {
+            if (olap_scan_node.__isset.predicate_lm_stage1_column_ids &&
+                !olap_scan_node.predicate_lm_stage1_column_ids.empty()) {
+                std::vector<ColumnId> stage1_column_ids;
+                stage1_column_ids.reserve(olap_scan_node.predicate_lm_stage1_column_ids.size());
+                for (const auto column_id : olap_scan_node.predicate_lm_stage1_column_ids) {
+                    DCHECK_GE(column_id, 0);
+                    DCHECK_LT(static_cast<size_t>(column_id), tablet_schema->num_columns());
+                    stage1_column_ids.emplace_back(static_cast<ColumnId>(column_id));
+                }
+                _tablet_reader_params.predicate_lm_stage1_column_ids = std::move(stage1_column_ids);
+            }
         }
 
         if (_tablet_reader_params.rs_splits.empty()) {
@@ -964,6 +1002,30 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
+
+    COUNTER_UPDATE(local_state->_predicate_lm_stage1_input_rows_counter,
+                   stats.predicate_lm_stage1_input_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage1_output_rows_counter,
+                   stats.predicate_lm_stage1_output_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_by_rowids_batches_counter,
+                   stats.predicate_lm_stage2_by_rowids_batches);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_by_all_rows_batches_counter,
+                   stats.predicate_lm_stage2_by_all_rows_batches);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_rows_read_counter,
+                   stats.predicate_lm_stage2_rows_read);
+    COUNTER_UPDATE(local_state->_predicate_lm_candidate_segments_counter,
+                   stats.predicate_lm_candidate_segments);
+    COUNTER_UPDATE(local_state->_predicate_lm_candidate_rows_counter,
+                   stats.predicate_lm_candidate_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_executed_segments_counter,
+                   stats.predicate_lm_executed_segments);
+    COUNTER_UPDATE(local_state->_predicate_lm_min_scan_rows_counter,
+                   stats.predicate_lm_min_scan_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_min_scan_rows_skipped_counter,
+                   stats.predicate_lm_min_scan_rows_skipped);
+    COUNTER_UPDATE(local_state->_predicate_lm_min_scan_rows_skipped_rows_counter,
+                   stats.predicate_lm_min_scan_rows_skipped_rows);
+
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
     COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,

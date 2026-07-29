@@ -391,6 +391,41 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testMultiStagePredicateLmSessionVariablesForwardToThrift() throws Exception {
+        connectContext.setThreadLocalInfo();
+        SessionVariable sv = connectContext.getSessionVariable();
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_MULTI_STAGE_PREDICATE_LM, new StringLiteral("true")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD, new StringLiteral("0.9")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.PREDICATE_LM_MIN_SCAN_ROWS, new StringLiteral("131072")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES,
+                new StringLiteral("536870912")));
+
+        Map<String, String> forwardVars = sv.getForwardVariables();
+        Assertions.assertEquals("true",
+                forwardVars.get(SessionVariable.ENABLE_MULTI_STAGE_PREDICATE_LM));
+        Assertions.assertEquals("0.9",
+                forwardVars.get(SessionVariable.PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD));
+        Assertions.assertEquals("131072",
+                forwardVars.get(SessionVariable.PREDICATE_LM_MIN_SCAN_ROWS));
+        Assertions.assertEquals(536870912L, sv.predicateLmMinEstimatedSavedBytes);
+        Assertions.assertEquals("536870912",
+                forwardVars.get(SessionVariable.PREDICATE_LM_MIN_ESTIMATED_SAVED_BYTES));
+
+        TQueryOptions opts = sv.toThrift();
+        Assertions.assertTrue(opts.isSetEnableMultiStagePredicateLm());
+        Assertions.assertTrue(opts.isEnableMultiStagePredicateLm());
+        Assertions.assertTrue(opts.isSetPredicateLmStage1SurvivalRatioThreshold());
+        Assertions.assertEquals(0.9, opts.getPredicateLmStage1SurvivalRatioThreshold());
+        Assertions.assertTrue(opts.isSetPredicateLmMinScanRows());
+        Assertions.assertEquals(131072, opts.getPredicateLmMinScanRows());
+    }
+
+    @Test
     public void testFileCacheQueryLimitBytesToThrift() throws Exception {
         SessionVariable variable = new SessionVariable();
         VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
