@@ -4570,5 +4570,74 @@ TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
     EXPECT_TRUE(root.children[0].children[0].children[0].project_all_children);
 }
 
+TEST(ColumnMapperTest, VariantLeafProjectionRequiresLosslessObjectPath) {
+    auto field_wrapper = struct_name_col(
+            "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto dotted_wrapper = struct_name_col(
+            "a.b", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 1);
+    auto numeric_wrapper = struct_name_col(
+            "1", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 2);
+    auto null_wrapper = struct_name_col(
+            "NULL", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 3);
+    auto typed_value = struct_name_col("typed_value",
+                                       {std::move(field_wrapper), std::move(dotted_wrapper),
+                                        std::move(numeric_wrapper), std::move(null_wrapper)},
+                                       2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+
+    for (const std::vector<std::string>& path :
+         {std::vector<std::string> {"a.b"}, std::vector<std::string> {"a", "b"},
+          std::vector<std::string> {"1"}, std::vector<std::string> {"NULL"}}) {
+        auto table_variant = field_id_col("v", 10, variant_v2());
+        table_variant.variant_access_paths = {path};
+        ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+        ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+        FileScanRequest request;
+        ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+        ASSERT_EQ(request.non_predicate_columns.size(), 1);
+        EXPECT_TRUE(request.non_predicate_columns[0].project_all_children)
+                << "unsafe Variant path must fall back to the complete physical subtree";
+    }
+}
+
+TEST(ColumnMapperTest, VariantLeafProjectionRequiresObjectTypedValue) {
+    auto element_wrapper = struct_name_col(
+            "element", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto array_typed_value = array_col("typed_value", -1, std::move(element_wrapper), 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(array_typed_value)};
+
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"element"}};
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+}
+
+TEST(ColumnMapperTest, VariantLeafProjectionDeclinesAmbiguousPrimitiveIdentity) {
+    auto field_wrapper = struct_name_col(
+            "binary_col",
+            {name_col("value", varbinary(), 0), name_col("typed_value", varbinary(), 1)}, 0);
+    auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"binary_col"}};
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+}
+
 } // namespace
 } // namespace doris::format

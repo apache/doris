@@ -392,10 +392,14 @@ void ColumnVariantV2::ensure_encoded() {
         const ColumnVariantV2& materialized = _shredded->materialized_column();
         DORIS_CHECK(!materialized.is_shredded())
                 << "shredded state materializer returned another shredded column";
-        _metadatas = materialized._metadatas;
-        _meta_ids = materialized._meta_ids;
-        _values = materialized._values;
-        _typed = materialized._typed;
+        // The shredded state may cache and share its canonical materialization across readers.
+        // Detach every mutable buffer before dropping that owner so later COW mutations stay legal.
+        _metadatas = materialized._metadatas->clone_resized(materialized._metadatas->size());
+        _meta_ids = materialized._meta_ids->clone_resized(materialized._meta_ids->size());
+        _values = materialized._values->clone_resized(materialized._values->size());
+        _typed = materialized._typed == nullptr
+                         ? nullptr
+                         : materialized._typed->clone_resized(materialized._typed->size());
         _typed_type = materialized._typed_type;
         _shredded.reset();
     }

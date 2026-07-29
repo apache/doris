@@ -185,7 +185,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DORIS_CHECK(output_tuple_desc != nullptr);
-    if (!is_load && !use_file_scanner_v2 &&
+    if (!is_load && !use_file_scanner_v2 && !is_count_star_pushdown() &&
         std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
             return contains_variant_type(slot->get_data_type_ptr());
         })) {

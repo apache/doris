@@ -736,6 +736,7 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<IcebergExternalDatabase, IcebergExternalTable> pair = bind(ctx.cascadesContext, sink);
         IcebergExternalDatabase database = pair.first;
         IcebergExternalTable table = pair.second;
+        IcebergUtils.validateWriteSchema(table.getFullSchema());
         LogicalPlan child = ((LogicalPlan) sink.child());
         Optional<MvccSnapshot> targetSnapshot = ctx.cascadesContext.getStatementContext()
                 .loadSnapshots(table, Optional.empty(), Optional.empty());

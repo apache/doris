@@ -18,6 +18,7 @@
 #include "format_v2/column_mapper.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -1791,16 +1792,45 @@ static const ColumnDefinition* find_file_child_by_name(
     return child_it == children.end() ? nullptr : &*child_it;
 }
 
+static bool variant_leaf_type_preserves_physical_identity(const ColumnDefinition& leaf) {
+    if (!leaf.children.empty() || leaf.type == nullptr) {
+        return false;
+    }
+    // ColumnDefinition does not transport Parquet's raw-binary/UUID and timestamp-unit tags.
+    // Limit direct leaves to identities fully described by the Doris scalar type; every ambiguous
+    // identity must retain the complete wrapper so reconstruction can inspect its physical schema.
+    switch (remove_nullable(leaf.type)->get_primitive_type()) {
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+    case TYPE_DECIMAL128I:
+    case TYPE_DATEV2:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
                                                const std::vector<std::string>& path,
                                                LocalColumnIndex* root_projection) {
     DORIS_CHECK(root_projection != nullptr);
-    if (path.empty() || !mapping.file_local_id.has_value()) {
+    if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
+        path[0].find('.') != std::string::npos ||
+        std::ranges::all_of(path[0], [](unsigned char value) { return std::isdigit(value); }) ||
+        !mapping.file_local_id.has_value()) {
+        // Thrift currently carries access paths as strings without segment-kind or escaping
+        // metadata. Only a single unambiguous object key can be mapped losslessly to a leaf.
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
     const auto* root_typed = find_file_child_by_name(mapping.original_file_children, "typed_value");
-    if (root_typed == nullptr || root_typed->children.empty()) {
+    if (root_typed == nullptr || root_typed->children.empty() || root_typed->type == nullptr ||
+        remove_nullable(root_typed->type)->get_primitive_type() != TYPE_STRUCT) {
         return false;
     }
     root_projection->children.push_back(
@@ -1824,7 +1854,7 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         if (leaf) {
             // Only primitive typed values can be returned as a direct vector. Complex shredded
             // values still need their wrapper shape and therefore keep the full Variant fallback.
-            if (!typed->children.empty()) {
+            if (!variant_leaf_type_preserves_physical_identity(*typed)) {
                 return false;
             }
             typed_projection.project_all_children = true;

@@ -1070,4 +1070,23 @@ public class IcebergScanNodeTest {
             Assert.assertTrue(e.getMessage().contains("backend 10001 is a smooth upgrade source"));
         }
     }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForVariantProjection() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10002L);
+        List<Backend> backends = List.of(currentBackend, smoothUpgradeSource);
+
+        IcebergScanNode.checkVariantBackendCompatibility(false, backends);
+        try {
+            IcebergScanNode.checkVariantBackendCompatibility(true, backends);
+            Assert.fail("semantic Variant projection must not be assigned to an old backend");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
+            Assert.assertTrue(e.getMessage().contains("Variant"));
+        }
+    }
 }

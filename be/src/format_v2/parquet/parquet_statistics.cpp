@@ -713,9 +713,15 @@ std::optional<ResolvedVariantShredding> resolve_variant_shredding(
     }
     const auto* fallback = child_named(*wrapper, "value");
     const auto* typed = child_named(*wrapper, "typed_value");
+    const auto typed_primitive = typed == nullptr || typed->type == nullptr
+                                         ? INVALID_TYPE
+                                         : remove_nullable(typed->type)->get_primitive_type();
     if (fallback == nullptr || typed == nullptr ||
         fallback->kind != ParquetColumnSchemaKind::PRIMITIVE ||
         typed->kind != ParquetColumnSchemaKind::PRIMITIVE || typed->max_repetition_level != 0 ||
+        // Parquet float statistics do not prove that a page contains no NaN. Min/max pruning in
+        // the presence of NaN is not order preserving, so keep those pages until such proof exists.
+        typed_primitive == TYPE_FLOAT || typed_primitive == TYPE_DOUBLE ||
         !metadata_cast_is_order_preserving(typed->type, predicate.comparison_type) ||
         !expr_zonemap::data_types_compatible(predicate.comparison_type, predicate.literal_type)) {
         return std::nullopt;
@@ -927,16 +933,13 @@ void collect_filtered_leaf_ids(const ParquetColumnSchema& column_schema,
         return;
     }
     for (const auto& child_schema : column_schema.children) {
-        if (column_schema.kind != ParquetColumnSchemaKind::VARIANT &&
-            !format::is_child_projected(projection, child_schema->local_id)) {
+        if (!format::is_child_projected(projection, child_schema->local_id)) {
             continue;
         }
-        // Variant reconstruction reads every physical sibling, so filtered-byte accounting must
-        // use that same leaf set even when the logical projection names only one access path.
+        // The leaf set must match the physical projection. A complete Variant projection naturally
+        // reaches every sibling; a validated typed-leaf projection reads only retained children.
         const auto* child_projection =
-                column_schema.kind == ParquetColumnSchemaKind::VARIANT
-                        ? nullptr
-                        : format::find_child_projection(projection, child_schema->local_id);
+                format::find_child_projection(projection, child_schema->local_id);
         collect_filtered_leaf_ids(*child_schema, child_projection, leaf_column_ids);
     }
 }
