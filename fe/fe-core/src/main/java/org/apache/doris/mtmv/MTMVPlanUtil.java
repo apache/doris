@@ -39,7 +39,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -74,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
@@ -269,8 +269,32 @@ public class MTMVPlanUtil {
                 oneLevelViews);
     }
 
-    // return allLevelTables:oneLevelTables
-    public static Pair<Set<TableIf>, Set<TableIf>> getBaseTableFromQuery(String querySql, ConnectContext ctx) {
+    public static class QueryAnalysisResult {
+        private final Set<TableIf> allLevelTables;
+        private final Set<TableIf> oneLevelTables;
+        private final boolean containsOneRowRelation;
+
+        public QueryAnalysisResult(Set<TableIf> allLevelTables, Set<TableIf> oneLevelTables,
+                boolean containsOneRowRelation) {
+            this.allLevelTables = allLevelTables;
+            this.oneLevelTables = oneLevelTables;
+            this.containsOneRowRelation = containsOneRowRelation;
+        }
+
+        public Set<TableIf> getAllLevelTables() {
+            return allLevelTables;
+        }
+
+        public Set<TableIf> getOneLevelTables() {
+            return oneLevelTables;
+        }
+
+        public boolean containsOneRowRelation() {
+            return containsOneRowRelation;
+        }
+    }
+
+    public static QueryAnalysisResult getBaseTableFromQuery(String querySql, ConnectContext ctx) {
         List<StatementBase> statements;
         try {
             statements = new NereidsParser().parseSQL(querySql);
@@ -285,8 +309,9 @@ public class MTMVPlanUtil {
             try {
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
                 planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-                return Pair.of(Sets.newHashSet(ctx.getStatementContext().getTables().values()),
-                        Sets.newHashSet(ctx.getStatementContext().getOneLevelTables().values()));
+                return new QueryAnalysisResult(Sets.newHashSet(ctx.getStatementContext().getTables().values()),
+                        Sets.newHashSet(ctx.getStatementContext().getOneLevelTables().values()),
+                        planner.getAnalyzedPlan().containsType(LogicalOneRowRelation.class));
             } finally {
                 ctx.setStatementContext(original);
             }

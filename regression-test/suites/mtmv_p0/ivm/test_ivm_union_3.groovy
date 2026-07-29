@@ -239,39 +239,4 @@ suite("test_ivm_union_3") {
         exception "UNION DISTINCT"
     }
 
-    // =========================================================
-    // Part 14: Constant expression arm rejection
-    // UNION ALL with constant SELECT (no base table) is not supported for IVM.
-    // =========================================================
-    sql """drop materialized view if exists test_ivm_union_3_const_mv;"""
-    sql """drop table if exists test_ivm_union_3_const_t1;"""
-
-    sql """
-        CREATE TABLE test_ivm_union_3_const_t1 (
-            k1 INT,
-            v1 INT
-        )
-        UNIQUE KEY(k1)
-        DISTRIBUTED BY HASH(k1) BUCKETS 2
-        PROPERTIES (
-            "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
-            "enable_unique_key_merge_on_write" = "true"
-        );
-    """
-
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW test_ivm_union_3_const_mv
-            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            SELECT k1, v1 FROM test_ivm_union_3_const_t1
-            UNION ALL
-            SELECT 1, 2;
-        """
-        exception "IVM"
-    }
 }

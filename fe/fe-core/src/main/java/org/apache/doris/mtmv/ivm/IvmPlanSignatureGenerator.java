@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -150,6 +151,11 @@ public class IvmPlanSignatureGenerator {
         return CanonicalNode.node("UNION")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(union.getOutputs()))
                 .field("arms", arms);
+    }
+
+    private CanonicalNode canonicalOneRowRelation(LogicalOneRowRelation oneRowRelation) {
+        return CanonicalNode.node("ONE_ROW_RELATION")
+                .field("projects", canonicalExpressions(oneRowRelation.getProjects()));
     }
 
     private CanonicalList canonicalHiddenNamedExpressions(List<? extends NamedExpression> expressions) {
@@ -432,6 +438,11 @@ public class IvmPlanSignatureGenerator {
         @Override
         public CanonicalNode visitLogicalOlapScan(LogicalOlapScan scan, Void context) {
             return canonicalScan(scan);
+        }
+
+        @Override
+        public CanonicalNode visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
+            return canonicalOneRowRelation(oneRowRelation);
         }
 
         @Override
