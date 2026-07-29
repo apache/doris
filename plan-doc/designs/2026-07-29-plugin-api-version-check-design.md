@@ -337,9 +337,131 @@ resources` 下的录制基线逐字节比对。
 
 ---
 
-## 12. 未决 / 后续
+## 12. 版本变更流程（runbook）
+
+以 CONNECTOR 族为例，其余三族把 `connector` 换成对应族名即可。
+
+### 12.1 第一步：判定 major 还是 minor
+
+```
+改动是否让 SPI 表面发生任何变化？
+（新增/删除接口类型、新增/删除方法、改参数或返回类型）
+   │
+   ├─ 是 ──► major + 1，minor 归零        1.3 → 2.0
+   │
+   └─ 否 ──► 接口表面不变，只是实现变了？
+              │
+              ├─ 是（行为/性能/内部重构）──► minor + 1     1.3 → 1.4
+              │
+              └─ 只是 bugfix，行为不变 ──► patch + 1（可选）1.3 → 1.3.1
+```
+
+判据只有一条：**SPI 表面动没动**。拿不准时看表面基线测试红不红——它红了就是 major。
+
+### 12.2 Doris 侧：一次 major 变更的完整步骤
+
+1. 改 SPI 代码，例如给 `ConnectorProvider` 加一个方法。
+2. 跑该模块测试 → 表面基线测试变红，失败信息提示"这是 major 变更"。
+3. 刷新基线文件（把失败信息里的 actual 集合抄进 `src/test/resources` 下对应的 `.txt`）。
+4. **bump 一个数字**：`fe/fe-connector/pom.xml` 的
+   `<connector.plugin.api.version>` 由 `1.3` 改成 `2.0`。
+5. 重新构建。这一步之后**自动发生**两件事，无需人工干预：
+   - `fe-connector-spi` 的 filtered resource 变成 `2.0` → 内核期望值更新；
+   - 8 个连接器 jar 的 MANIFEST 变成 `2.0` → 插件声明值更新（它们继承父 pom）。
+6. 全反应堆 `test-compile` 验证（记得 `-Dcheckstyle.skip=true`）。
+
+**树内 8 个连接器的 pom 一个都不用改。** 这是 property 继承的直接结果——版本号只在父 pom
+里出现一次。
+
+唯一需要改连接器代码的情况：新增的 SPI 方法是**抽象**的（无 default）。那是编译错误驱动的
+代码改动，与版本机制无关。
+
+### 12.3 Doris 侧：minor / patch 变更
+
+只改 §12.1 判出的那一位数字，其余同 §12.2 的第 5、6 步。表面基线不会红（表面没变），
+所以**没有自动信号提醒你 bump minor**——minor 不参与校验，漏 bump 只影响
+`information_schema.extensions` 的展示，不影响正确性。
+
+### 12.4 第三方插件：要做什么
+
+**查出内核期望哪个版本**，两个途径：
+
+```bash
+# 途径一：读 SPI jar 里的声明
+unzip -p fe-connector-spi-*.jar META-INF/doris/connector-plugin-api-version.properties
+
+# 途径二：被拒时 FE 日志的 ERROR 行会同时打印声明值与内核期望值
+```
+
+**在插件 pom 里声明**（首次接入时加，之后每次 Doris major 变更时更新这一个数字）：
+
+```xml
+<properties>
+  <!-- 取值 = 你编译所用 fe-connector-spi 版本对应的 connector.plugin.api.version -->
+  <doris.connector.plugin.api.version>1.0</doris.connector.plugin.api.version>
+</properties>
+
+<build>
+  <plugins>
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-jar-plugin</artifactId>
+      <configuration>
+        <archive>
+          <manifestEntries>
+            <Doris-Connector-Plugin-Api-Version>${doris.connector.plugin.api.version}</Doris-Connector-Plugin-Api-Version>
+          </manifestEntries>
+        </archive>
+      </configuration>
+    </plugin>
+  </plugins>
+</build>
+```
+
+**打包时必须排除**内核提供的契约 artifact（否则插件 zip 里会带重复副本）：
+`fe-connector-api`、`fe-connector-spi`、`fe-extension-spi`、`fe-filesystem-api`。
+参照树内任一连接器的 `src/main/assembly/plugin-zip.xml`。
+
+**Doris 升 major 之后的适配顺序**：
+
+1. 依赖升到新版 `fe-connector-spi` / `fe-connector-api`；
+2. 修编译错误（新 major 可能删了或改了你用的接口）；
+3. 把 pom 里那个 property 改成新值；
+4. 重新打包、替换 plugin 目录、重启 FE。
+
+**写错版本号会怎样**：写小了（声明 1.0、实际按 2.0 编译）→ 被拒，安全失败。写大了
+（声明 2.0、实际按 1.0 编译）→ 放行，但运行期可能报 `NoSuchMethodError`。后者属于主动
+谎报，本机制不防；§5.2 的 fail-closed 只保证"什么都不写"不能通过。
+
+### 12.5 部署与运维
+
+- **内核与插件必须同批升级**。major 严格相等，没有过渡期、没有兼容窗口。
+- 树内插件天然同步：`build.sh` 把它们装进 `output/fe/plugins/<family>/`，与 FE 同批产出。
+- 升级前的检查清单：所有**第三方**插件是否已有对应新 major 的版本。
+- 升级后的验证：
+  - 查 FE 日志有无 `STAGE_API_VERSION` 的拒绝记录；
+  - 查 `information_schema.extensions`，**被拒的插件不会出现在这张表里**——某个插件消失
+    就是它被拒了。
+
+### 12.6 诊断：插件没加载出来
+
+| 症状 | 查什么 |
+| --- | --- |
+| `CREATE CATALOG` 报未知类型 | FE 日志搜该插件目录名 + `STAGE_API_VERSION` |
+| `extensions` 表里少了某插件 | 同上；ERROR 行会打印声明值 vs 内核期望值 |
+| 认证类型报 "No authentication plugin factory found" | 该消息已带版本拒绝原因（§5.3）；否则是真的没装 |
+| 日志说"缺少版本声明" | 插件 jar 的 MANIFEST 没有对应属性，按 §12.4 补 |
+
+---
+
+## 13. 未决 / 后续
 
 1. §8 的 `Implementation-Version` 顺带项，待 owner 明示做或不做。
 2. 被拒插件是否要出现在 `information_schema.extensions`（带状态列）——本次不做，
    若运维反馈诊断困难再议。
-3. 第三方插件作者文档：需说明 §3.2 的 bump 纪律与"SPI 表面变化必须重编"的预期。
+3. 第三方插件作者文档：需说明 §3.2 的 bump 纪律与"SPI 表面变化必须重编"的预期，
+   §12.4 的 pom 片段可直接作为素材。
+4. 考虑发布一个插件 parent pom（如 `doris-connector-plugin-parent`），预置 property 与
+   `manifestEntries` 配置，第三方继承即自动正确，免去 §12.4 手写和写错的风险。
+   Trino 的 `trino-plugin` packaging 是同一思路。本次不做——它是新增发布物，
+   且要先有真实的第三方插件需求才能定其形态。
