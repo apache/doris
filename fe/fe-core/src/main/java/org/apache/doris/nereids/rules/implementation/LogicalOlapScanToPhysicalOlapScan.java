@@ -86,7 +86,13 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         boolean isBelongStableCG = Utils.isBelongStableCG(olapTable);
         boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, olapScan.getSelectedPartitionIds());
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
-        if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
+        // FIXME: read optimization
+        // Distribution optimization (colocate / bucket-shuffle via NATURAL spec) is only sound for the
+        // CRC32 bucketing hash. Non-crc32 (e.g. identity) tables fall through to StorageAny so they do
+        // not advertise a hash distribution to the optimizer.
+        boolean isCrc32Bucketed = distributionInfo instanceof HashDistributionInfo
+                && ((HashDistributionInfo) distributionInfo).getHashType() == HashDistributionInfo.HashType.CRC32;
+        if (isCrc32Bucketed && (isBelongStableCG || isSelectUnpartition)) {
             if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();

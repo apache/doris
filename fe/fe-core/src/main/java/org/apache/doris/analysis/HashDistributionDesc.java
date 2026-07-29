@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -33,15 +34,25 @@ import java.util.Set;
 
 public class HashDistributionDesc extends DistributionDesc {
     private List<String> distributionColumnNames;
+    private HashType hashType;
 
     public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
         super(numBucket);
         this.distributionColumnNames = distributionColumnNames;
+        this.hashType = HashType.CRC32;
     }
 
     public HashDistributionDesc(int numBucket, boolean autoBucket, List<String> distributionColumnNames) {
         super(numBucket, autoBucket);
         this.distributionColumnNames = distributionColumnNames;
+        this.hashType = HashType.CRC32;
+    }
+
+    public HashDistributionDesc(int numBucket, boolean autoBucket, List<String> distributionColumnNames,
+            HashType hashType) {
+        super(numBucket, autoBucket);
+        this.distributionColumnNames = distributionColumnNames;
+        this.hashType = hashType;
     }
 
     @Override
@@ -126,8 +137,22 @@ public class HashDistributionDesc extends DistributionDesc {
             }
         }
 
-        HashDistributionInfo hashDistributionInfo =
-                                new HashDistributionInfo(numBucket, autoBucket, distributionColumns);
+        if (hashType == HashType.IDENTITY) {
+            if (distributionColumns.size() != 1) {
+                throw new DdlException(
+                        "Only supports one distribution column when distribution_hash_type is 'identity', " + "but got "
+                                + distributionColumns.size());
+            }
+            if (!distributionColumns.get(0).getType().isFixedPointType()) {
+                throw new DdlException(
+                        "Only supports integer distribution column when distribution_hash_type is 'identity', "
+                                + "but column[" + distributionColumns.get(0).getName() + "] is "
+                                + distributionColumns.get(0).getType() + ".");
+            }
+        }
+
+        HashDistributionInfo hashDistributionInfo
+                = new HashDistributionInfo(numBucket, autoBucket, distributionColumns, hashType);
         return hashDistributionInfo;
     }
 

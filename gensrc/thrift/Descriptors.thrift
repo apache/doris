@@ -300,6 +300,12 @@ struct TOlapTablePartition {
     16: optional list<i32> local_bucket_seqs
 }
 
+// hash function type used by HASH distribution to map rows to buckets
+enum TDistributionHashType {
+    CRC32 = 0,
+    IDENTITY = 1
+}
+
 struct TOlapTablePartitionParam {
     1: required i64 db_id
     2: required i64 table_id
@@ -325,6 +331,8 @@ struct TOlapTablePartitionParam {
     13: optional bool partitions_is_fake = false
     // remote insert fe master address
     14: optional Types.TNetworkAddress master_address
+    // hash function type; CRC32 (legacy behavior) is the default for backward compatibility
+    15: optional TDistributionHashType distribution_hash_type = TDistributionHashType.CRC32
 }
 
 struct TOlapTableIndex {

@@ -426,7 +426,8 @@ public class OlapScanNode extends ScanNode {
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
-                        getSelectedIndexId() == olapTable.getBaseIndexId());
+                        getSelectedIndexId() == olapTable.getBaseIndexId(),
+                        info.getHashType());
                 return new ArrayList<>(distributionPruner.prune());
             }
             case RANDOM: {

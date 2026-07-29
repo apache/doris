@@ -91,6 +91,13 @@ public class ColocateGroupSchema implements Writable {
     public void checkDistribution(DistributionInfo distributionInfo) throws DdlException {
         if (distributionInfo instanceof HashDistributionInfo) {
             HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
+            // FIXME: read optimization
+            // colocate join is only sound for the CRC32 bucketing hash; identity (or any
+            // non-crc32) bucketing must not participate in a colocation group.
+            if (info.getHashType() != HashDistributionInfo.HashType.CRC32) {
+                throw new DdlException(
+                        "Colocate table must use crc32 distribution_hash_type, but got " + info.getHashType());
+            }
             // buckets num
             if (info.getBucketNum() != bucketsNum) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM,
