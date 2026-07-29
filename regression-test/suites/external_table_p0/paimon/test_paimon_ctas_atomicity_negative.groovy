@@ -71,6 +71,16 @@ suite("test_paimon_ctas_atomicity_negative",
         """
         assertEquals(1, (sql """show tables like 'ctas_target'""").size())
         assertEquals(0, (sql """select * from ctas_target""").size())
+
+        // An existing non-idempotent target must keep catalog error precedence; no sink can own it.
+        test {
+            sql """
+                create table ctas_target engine=paimon
+                as select cast(2 as int) as id, cast('replacement' as string) as payload
+            """
+            exception "already exists"
+        }
+        assertEquals(0, (sql """select * from ctas_target""").size())
     } finally {
         spark_paimon """drop table if exists paimon.${dbName}.ctas_target"""
         sql """drop catalog if exists ${catalogName}"""

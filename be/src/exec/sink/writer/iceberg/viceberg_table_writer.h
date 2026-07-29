@@ -64,6 +64,10 @@ public:
 
     Status close(Status) override;
 
+    void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
+
+    void finish_deferred_file_cleanup(Status outer_status);
+
     bool is_rewrite_compaction() const { return _write_type == TIcebergWriteType::REWRITE; }
 
     TIcebergWriteType::type write_type() const { return _write_type; }
@@ -178,6 +182,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<IPartitionWriterBase>> _partitions_to_writers;
     // Rolled writers are no longer active, so retain their physical paths until statement outcome is known.
     std::vector<std::pair<std::shared_ptr<io::FileSystem>, std::string>> _closed_files;
+    bool _defer_file_cleanup_until_outer_close = false;
     VExprContextSPtrs _write_output_vexpr_ctxs;
     size_t _row_count = 0;
     const RowDescriptor* _row_desc = nullptr;

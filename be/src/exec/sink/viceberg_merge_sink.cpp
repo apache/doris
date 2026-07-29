@@ -57,8 +57,10 @@ Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor&
 
     _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
                                                           nullptr, nullptr);
+    _table_writer->defer_file_cleanup_until_outer_close();
     _delete_writer = std::make_unique<VIcebergDeleteSink>(_delete_sink, _delete_output_expr_ctxs,
                                                           nullptr, nullptr);
+    _delete_writer->defer_file_cleanup_until_outer_close();
     RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
     RETURN_IF_ERROR(_delete_writer->init_properties(pool));
     return Status::OK();
@@ -320,10 +322,14 @@ Status VIcebergMergeSink::close(Status close_status) {
         COUNTER_SET(_delete_rows_counter, static_cast<int64_t>(_delete_row_count));
     }
 
-    if (!table_status.ok()) {
-        return table_status;
+    Status result_status = table_status.ok() ? delete_status : table_status;
+    if (_table_writer) {
+        _table_writer->finish_deferred_file_cleanup(result_status);
     }
-    return delete_status;
+    if (_delete_writer) {
+        _delete_writer->finish_deferred_file_cleanup(result_status);
+    }
+    return result_status;
 }
 
 Status VIcebergMergeSink::_build_inner_sinks() {

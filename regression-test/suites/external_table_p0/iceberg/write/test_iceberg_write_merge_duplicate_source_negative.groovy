@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_iceberg_write_merge_duplicate_source_negative",
-        "p0,external,iceberg,external_docker,external_docker_iceberg") {
+        "p0,external,iceberg,external_docker,external_docker_iceberg,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test")
@@ -28,16 +28,15 @@ suite("test_iceberg_write_merge_duplicate_source_negative",
     String catalogName = "test_iceberg_write_merge_duplicate_source_negative"
     String dbName = "iceberg_write_merge_duplicate_source_negative_db"
     String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
-    String minioContainer = context.config.otherConfigs.get("icebergMinioContainer") ?: "doris--iceberg-minio"
     String mcImage = "minio/mc:RELEASE.2025-01-17T23-25-50Z"
 
     def countDataObjects = { String objectPath ->
         def stdout = new StringBuilder()
         def stderr = new StringBuilder()
         def process = new ProcessBuilder("/bin/bash", "-c",
-                "${dockerCommand} run --rm --network container:${minioContainer} "
-                        + "--entrypoint /bin/sh ${mcImage} -c "
-                        + "'/usr/bin/mc alias set minio http://127.0.0.1:9000 admin password >/dev/null "
+                "${dockerCommand} run --rm --entrypoint /bin/sh ${mcImage} -c "
+                        + "'/usr/bin/mc alias set minio http://${externalEnvIp}:${minioPort} "
+                        + "admin password >/dev/null "
                         + "&& /usr/bin/mc find ${objectPath} --type f | wc -l'").start()
         process.consumeProcessOutput(stdout, stderr)
         process.waitForOrKill(30000)
@@ -129,6 +128,42 @@ suite("test_iceberg_write_merge_duplicate_source_negative",
             (sql """select count(*) from duplicate_source_target\$files""")[0][0] as long)
     assertEquals(objectsBefore, countDataObjects(dataObjectPath))
     order_qt_duplicate_source_atomic_state """
+        select id, region, payload
+        from duplicate_source_target
+        order by id
+    """
+
+    // A sibling delete close can fail only after the data side has closed successfully. The outer
+    // MERGE still owns and must remove those unpublished data objects.
+    long siblingFailureObjectsBefore = countDataObjects(dataObjectPath)
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("VIcebergDeleteSink.close.inject_failure")
+        test {
+            sql """
+                merge into duplicate_source_target t
+                using (
+                    select 1 as id, 'B' as region, 'updated' as payload
+                    union all
+                    select 3, 'C', 'inserted'
+                ) s
+                on t.id = s.id
+                when matched then update set
+                    region = s.region,
+                    payload = s.payload
+                when not matched then insert (id, region, payload)
+                    values (s.id, s.region, s.payload)
+            """
+            exception "injected Iceberg delete close failure"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("VIcebergDeleteSink.close.inject_failure")
+    }
+    assertEquals(snapshotsBefore,
+            (sql """select count(*) from duplicate_source_target\$snapshots""")[0][0] as long)
+    assertEquals(filesBefore,
+            (sql """select count(*) from duplicate_source_target\$files""")[0][0] as long)
+    assertEquals(siblingFailureObjectsBefore, countDataObjects(dataObjectPath))
+    order_qt_sibling_close_atomic_state """
         select id, region, payload
         from duplicate_source_target
         order by id

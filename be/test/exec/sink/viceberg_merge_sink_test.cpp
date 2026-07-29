@@ -23,6 +23,7 @@
 #include <fstream>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
@@ -32,6 +33,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exprs/vexpr_context.h"
 #include "gen_cpp/DataSinks_types.h"
@@ -41,6 +43,7 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -462,6 +465,56 @@ TEST_F(VIcebergMergeSinkTest, TestErrorCloseRemovesRolledDataFiles) {
     Status failure = Status::InvalidArgument("late duplicate");
     EXPECT_FALSE(sink->close(failure).ok());
     EXPECT_FALSE(std::filesystem::exists(path));
+}
+
+TEST_F(VIcebergMergeSinkTest, TestDeleteCloseFailureRemovesBothInnerSinkFiles) {
+    ObjectPool pool;
+    MockRuntimeState state;
+
+    DataTypes types {std::make_shared<DataTypeInt8>(),
+                     std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
+                                                                 std::make_shared<DataTypeInt64>()},
+                                                      Strings {"file_path", "row_position"}),
+                     std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()};
+    MockRowDescriptor row_desc(types, &pool);
+    auto output_exprs = build_output_exprs(&pool, &state, row_desc);
+    auto sink = std::make_shared<VIcebergMergeSink>(build_sink(), output_exprs, nullptr, nullptr);
+    sink->set_skip_io(true);
+
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
+    RuntimeProfile profile("iceberg_merge_delete_close_cleanup_sink");
+    ASSERT_TRUE(sink->open(&state, &profile).ok());
+
+    std::filesystem::path data_path = std::filesystem::temp_directory_path() /
+                                      "doris_iceberg_merge_delete_close_data.parquet";
+    std::filesystem::path delete_path = std::filesystem::temp_directory_path() /
+                                        "doris_iceberg_merge_delete_close_position.parquet";
+    {
+        std::ofstream output(data_path);
+        output << "closed-data";
+    }
+    {
+        std::ofstream output(delete_path);
+        output << "closed-delete";
+    }
+    ASSERT_TRUE(std::filesystem::exists(data_path));
+    ASSERT_TRUE(std::filesystem::exists(delete_path));
+    sink->_table_writer->_closed_files.emplace_back(io::global_local_filesystem(),
+                                                    data_path.string());
+    sink->_delete_writer->_created_files.emplace_back(io::global_local_filesystem(),
+                                                      delete_path.string());
+
+    bool previous_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("VIcebergDeleteSink.close.inject_failure");
+    Status status = sink->close(Status::OK());
+    DebugPoints::instance()->clear();
+    config::enable_debug_points = previous_enable_debug_points;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("injected Iceberg delete close failure"));
+    EXPECT_FALSE(std::filesystem::exists(data_path));
+    EXPECT_FALSE(std::filesystem::exists(delete_path));
 }
 
 TEST_F(VIcebergMergeSinkTest, TestMatchedRowIdsUseCompactRetainedState) {

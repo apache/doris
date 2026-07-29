@@ -77,6 +77,7 @@ class CreateTableCommandTest {
         CreateTableCommand command = Mockito.spy(
                 new CreateTableCommand(Optional.of(query), createTableInfo));
         Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+        Mockito.doReturn(false).when(command).targetTableExists(context);
 
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
                 MockedStatic<UnboundTableSinkCreator> sinkMock =
@@ -89,6 +90,39 @@ class CreateTableCommandTest {
             org.junit.jupiter.api.Assertions.assertThrows(
                     Exception.class, () -> command.run(context, executor));
 
+            Mockito.verify(env, Mockito.never()).createTable(createTableInfo);
+            Mockito.verify(env, Mockito.never()).dropTable(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean(),
+                    Mockito.anyBoolean(), Mockito.anyBoolean(), Mockito.anyBoolean());
+        }
+    }
+
+    @Test
+    void existingCtasTargetPrecedesUnsupportedSinkValidation() throws Exception {
+        LogicalPlan query = Mockito.mock(LogicalPlan.class);
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Env env = Mockito.mock(Env.class);
+        List<String> tableNameParts = ImmutableList.of("catalog", "database", "target");
+
+        Mockito.when(createTableInfo.getTableNameParts()).thenReturn(tableNameParts);
+        Mockito.when(createTableInfo.getTableName()).thenReturn("target");
+        CreateTableCommand command = Mockito.spy(
+                new CreateTableCommand(Optional.of(query), createTableInfo));
+        Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+        Mockito.doReturn(true).when(command).targetTableExists(context);
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<UnboundTableSinkCreator> sinkMock =
+                        Mockito.mockStatic(UnboundTableSinkCreator.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            Exception exception = org.junit.jupiter.api.Assertions.assertThrows(
+                    Exception.class, () -> command.run(context, executor));
+
+            org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("already exists"));
+            sinkMock.verifyNoInteractions();
             Mockito.verify(env, Mockito.never()).createTable(createTableInfo);
             Mockito.verify(env, Mockito.never()).dropTable(
                     Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),

@@ -488,10 +488,21 @@ Status VIcebergTableWriter::close(Status status) {
     }
     if (!status.ok() || !result_status.ok()) {
         _cleanup_closed_files();
-    } else {
+    } else if (!_defer_file_cleanup_until_outer_close) {
         _closed_files.clear();
     }
     return result_status;
+}
+
+void VIcebergTableWriter::finish_deferred_file_cleanup(Status outer_status) {
+    // A successful inner close does not publish MERGE files; the sibling delete close still
+    // decides whether these data objects must be removed or released to the transaction.
+    if (!outer_status.ok()) {
+        _cleanup_closed_files();
+    } else {
+        _closed_files.clear();
+    }
+    _defer_file_cleanup_until_outer_close = false;
 }
 
 void VIcebergTableWriter::_cleanup_closed_files() {
