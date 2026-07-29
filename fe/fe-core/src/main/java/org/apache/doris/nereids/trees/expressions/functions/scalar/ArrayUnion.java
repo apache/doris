@@ -78,15 +78,18 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
             }
 
             DataType itemType = ((ArrayType) argType).getItemType();
-            boolean unsupported = (itemType.isComplexType() && !itemType.isArrayType())
-                || itemType.isVariantType()
-                || itemType.isJsonType();
-
-            if (unsupported) {
+            if(isUnsupportedNestedArrayItemType(itemType)) {
                 throw new AnalysisException(
                     "array_union does not support types: " + argType.toSql());
             }
         }
+    }
+
+    private boolean isUnsupportedNestedArrayItemType(DataType type) {
+        if(type.isArrayType()) {
+            return isUnsupportedNestedArrayItemType(((ArrayType) type).getItemType());
+        }
+        return type.isComplexType() || type.isVariantType() || type.isJsonType();
     }
 
     @Override

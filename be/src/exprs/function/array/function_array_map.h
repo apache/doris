@@ -168,7 +168,7 @@ public:
                           std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         ColumnArrayMutableData dst =
                 create_mutable_data(datas[0].nested_col.get(), datas[0].nested_nullmap_data);
-      
+
         bool executed =
                 _execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row);
         if constexpr (operation == MapOperation::UNION) {
@@ -209,17 +209,9 @@ private:
         }
 
         size_t result_offset = 0;
-        phmap::flat_hash_set<StringRef, StringRefHash> seen;
-        std::vector<StringRef> distinct_elements;
-        Arena arena;
-
         for (size_t row = start_row; row < end_row; ++row) {
-            seen.clear();
-            distinct_elements.clear();
-            arena.clear();
-
             bool has_null = false;
-            for (size_t arg_idx = 0; arg_idx < datas.size(); ++arg_idx) {
+            for (size_t arg_idx = 0; arg_idx < datas.size() && !has_null; ++arg_idx) {
                 const auto& data = datas[arg_idx];
                 const size_t input_row = index_check_const(row, col_const[arg_idx]);
                 const size_t begin = (*data.offsets_ptr)[input_row - 1];
@@ -228,19 +220,12 @@ private:
                 for (size_t off = begin; off < end; ++off) {
                     if (data.nested_nullmap_data && data.nested_nullmap_data[off]) {
                         has_null = true;
-                        continue;
-                    }
-
-                    const char* serialized_begin = nullptr;
-                    StringRef key = data.nested_col->serialize_value_into_arena(off, arena,
-                                                                                serialized_begin);
-
-                    if (seen.emplace(key).second) {
-                        distinct_elements.emplace_back(key);
+                        break;
                     }
                 }
             }
 
+            const size_t row_result_begin = result_offset;
             if (has_null) {
                 dst.nested_col->insert_default();
                 if (dst.nested_nullmap_data) {
@@ -249,12 +234,38 @@ private:
                 ++result_offset;
             }
 
-            for (const auto& key : distinct_elements) {
-                dst.nested_col->deserialize_and_insert_from_arena(key.data);
-                if (dst.nested_nullmap_data) {
-                    dst.nested_nullmap_data->push_back(0);
+            for (size_t arg_idx = 0; arg_idx < datas.size(); ++arg_idx) {
+                const auto& data = datas[arg_idx];
+                const size_t input_row = index_check_const(row, col_const[arg_idx]);
+                const size_t begin = (*data.offsets_ptr)[input_row - 1];
+                const size_t end = (*data.offsets_ptr)[input_row];
+
+                for (size_t off = begin; off < end; ++off) {
+                    if (data.nested_nullmap_data && data.nested_nullmap_data[off]) {
+                        continue;
+                    }
+
+                    bool duplicated = false;
+                    for (size_t result_pos = row_result_begin; result_pos < result_offset;
+                         ++result_pos) {
+                        if (dst.nested_nullmap_data && (*dst.nested_nullmap_data)[result_pos]) {
+                            continue;
+                        }
+
+                        if (data.nested_col->compare_at(off, result_pos, *dst.nested_col, 1) == 0) {
+                            duplicated = true;
+                            break;
+                        }
+                    }
+
+                    if (!duplicated) {
+                        dst.nested_col->insert_from(*data.nested_col, off);
+                        if (dst.nested_nullmap_data) {
+                            dst.nested_nullmap_data->push_back(0);
+                        }
+                        ++result_offset;
+                    }
                 }
-                ++result_offset;
             }
 
             dst.offsets_ptr->push_back(result_offset);
