@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,6 +89,27 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
+    }
+
+    @Test
+    void rejectOptionsOnUnsupportedTableType() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT * FROM db1.t@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertEquals(
+                "OPTIONS scan params are only supported for Paimon tables.", exception.getMessage());
+    }
+
+    @Test
+    void rejectOptionsOnCteReference() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("WITH c AS (SELECT * FROM db1.t) "
+                                + "SELECT * FROM c@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertEquals(
+                "Table scan parameters are not supported on CTE references.", exception.getMessage());
     }
 
     @Test
