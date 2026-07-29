@@ -217,18 +217,27 @@ under the License.
     <build>
         <plugins>
             <!-- Pure-shade module (no src/main): under a parallel reactor (build.sh's default -T 1C)
-                 the package-phase shade goal can start before this module's main jar is created and
-                 attached, failing with "Failed to create shaded artifact, project main artifact does
-                 not exist". Pin maven-jar-plugin's default-jar to the package phase and force it to
-                 always (re)create the jar, so the main artifact is guaranteed present before shade —
-                 keeping parallel (-T) builds reliable without falling back to single-threaded. -->
+                 the shade goal can start before this module's main jar is created and attached,
+                 failing with "Failed to create shaded artifact, project main artifact does not
+                 exist". Pin maven-jar-plugin's default-jar ahead of shade in the SAME phase (within
+                 one phase the declaration order here decides) and force it to always (re)create the
+                 jar, so the main artifact is guaranteed present before shade — keeping parallel (-T)
+                 builds reliable without falling back to single-threaded.
+
+                 That shared phase is process-classes, NOT package: this module carries no sources,
+                 so its Hive metastore content exists only once shade has run. fe-connector-paimon
+                 compiles against it (org.apache.hadoop.hive.conf.HiveConf), and run-fe-ut.sh builds
+                 with `mvn test`, which stops before package — the reactor would then hand
+                 fe-connector-paimon this module's (empty) target/classes and the HiveConf import
+                 would fail to resolve. process-classes is the last phase still ahead of
+                 test-compile. Mirrors fe-connector-hms-hive-shade. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
                         <id>default-jar</id>
-                        <phase>package</phase>
+                        <phase>process-classes</phase>
                         <goals>
                             <goal>jar</goal>
                         </goals>
@@ -246,7 +255,7 @@ under the License.
                         <goals>
                             <goal>shade</goal>
                         </goals>
-                        <phase>package</phase>
+                        <phase>process-classes</phase>
                         <configuration>
                             <!-- Resolved at runtime from the plugin's own child-first lib (hadoop,
                                  paimon-core/common/format) or the host (slf4j/log4j/guava/protobuf/
