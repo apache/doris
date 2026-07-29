@@ -24,6 +24,8 @@ suite("check_meta", "check_meta") {
     def status = 200
     def recyclerLastSuccessTime = -1
     def recyclerLastFinishTime = -1
+    def waitTimeoutMs = 30 * 60 * 1000L
+    def recyclerWaitDeadline = caseStartTime + waitTimeoutMs
 
     String jdbcUrl = context.config.jdbcUrl
     String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
@@ -88,6 +90,12 @@ suite("check_meta", "check_meta") {
         logger.info("caseStartTime=${caseStartTime}, recyclerLastSuccessTime=${recyclerLastSuccessTime}")
         if (recyclerLastSuccessTime > caseStartTime) {
             break
+        }
+        if (System.currentTimeMillis() >= recyclerWaitDeadline) {
+            throw new IllegalStateException(
+                    "Timed out waiting for recycler job after ${waitTimeoutMs / 1000}s: " +
+                    "caseStartTime=${caseStartTime}, recyclerLastFinishTime=${recyclerLastFinishTime}, " +
+                    "recyclerLastSuccessTime=${recyclerLastSuccessTime}")
         }
     } while (true)
     assertEquals(recyclerLastFinishTime, recyclerLastSuccessTime)
