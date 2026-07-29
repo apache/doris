@@ -98,37 +98,7 @@ private:
     int64_t _wait_us {0};
 };
 
-bool is_valid_queue_full_policy(AsyncCacheWriteQueueFullPolicy policy) {
-    switch (policy) {
-    case AsyncCacheWriteQueueFullPolicy::REJECT_NEW:
-    case AsyncCacheWriteQueueFullPolicy::DROP_OLDEST:
-        return true;
-    }
-    return false;
-}
-
 } // namespace
-
-AsyncCacheWriteQueueFullPolicy async_cache_write_queue_full_policy_from_string(
-        std::string_view policy) {
-    if (policy == "reject_new") {
-        return AsyncCacheWriteQueueFullPolicy::REJECT_NEW;
-    }
-    DORIS_CHECK(policy == "drop_oldest");
-    return AsyncCacheWriteQueueFullPolicy::DROP_OLDEST;
-}
-
-std::string_view async_cache_write_queue_full_policy_to_string(
-        AsyncCacheWriteQueueFullPolicy policy) {
-    switch (policy) {
-    case AsyncCacheWriteQueueFullPolicy::REJECT_NEW:
-        return "reject_new";
-    case AsyncCacheWriteQueueFullPolicy::DROP_OLDEST:
-        return "drop_oldest";
-    }
-    DORIS_CHECK(false);
-    return {};
-}
 
 AsyncCacheWriteBuffer::AsyncCacheWriteBuffer(size_t size,
                                              std::shared_ptr<MemTrackerLimiter> tracker)
@@ -154,7 +124,6 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
     DORIS_CHECK(options.batch_size > 0);
     DORIS_CHECK(options.watchdog_warn_secs >= 0);
     DORIS_CHECK(options.watchdog_drop_secs > options.watchdog_warn_secs);
-    DORIS_CHECK(is_valid_queue_full_policy(options.queue_full_policy));
 
     const char* prefix = _cache->get_base_path().c_str();
     _mem_tracker = MemTrackerLimiter::create_shared(
@@ -392,8 +361,6 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
             }
         } else if (pending > max_pending) {
             result = SubmitResult::REJECT_ABOVE_CURRENT_LIMIT;
-        } else if (options->queue_full_policy == AsyncCacheWriteQueueFullPolicy::REJECT_NEW) {
-            result = SubmitResult::REJECT_BACKPRESSURE;
         } else if (_queue.empty()) {
             result = SubmitResult::REJECT_NO_QUEUED_VICTIM;
         } else if (push_task()) {
@@ -767,10 +734,6 @@ Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOption
         return Status::InvalidArgument(
                 "async file cache write watchdog thresholds must satisfy 0 <= warn < drop");
     }
-    if (!is_valid_queue_full_policy(options.queue_full_policy)) {
-        return Status::InvalidArgument("invalid async file cache write queue full policy");
-    }
-
     auto next_options = std::make_shared<const AsyncCacheWriteServiceOptions>(options);
     RETURN_IF_ERROR(resize_workers(options.worker_count));
     {
