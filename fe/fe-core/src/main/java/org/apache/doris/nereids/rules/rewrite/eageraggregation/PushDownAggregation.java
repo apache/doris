@@ -37,9 +37,9 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -164,7 +164,10 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     // of an outer join produces wrong results: null-extended rows make "col IS NULL"
                     // TRUE at the top level, but the pre-aggregated count slot becomes NULL after
                     // null-extension, and ifnull(sum(NULL), 0) = 0 instead of the correct 1.
-                    if (!hasCaseWhen && aggFunction.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
+                    if (!hasCaseWhen
+                            && aggFunction.children().stream().anyMatch(
+                                    arg -> arg.anyMatch(e ->
+                                            NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
                         hasCaseWhen = true;
                     }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
