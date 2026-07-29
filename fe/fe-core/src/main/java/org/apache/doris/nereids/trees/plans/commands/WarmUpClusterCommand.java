@@ -33,6 +33,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -176,6 +177,11 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
      * validate
      */
     public void validate(ConnectContext connectContext) throws UserException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
         if (!Config.isCloudMode()) {
             throw new UserException("The sql is just support in cloud mode");
         }

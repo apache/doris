@@ -22,8 +22,11 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -74,6 +77,14 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
             LOG.warn("Table resolution failed for dropping constraint {}, "
                     + "falling back to name-based lookup: {}", name, e.getMessage());
             tableNameInfo = extractTableNameFromPlan(ctx);
+        }
+        // must be checked on both paths above: table resolution failing (which includes an
+        // authorization failure) falls back to a name-only lookup that binds nothing.
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableNameInfo.getCtl(),
+                tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
+                    tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
         Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
         if (constraint == null) {
