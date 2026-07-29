@@ -409,6 +409,53 @@ SniiIndexInput common_grams_input(uint64_t index_id, std::string suffix) {
     return input;
 }
 
+// Block-boundary padding on the STREAMED path. This is the compaction merge output -- in
+// production the largest container in the system, hence always past the size floor and padded
+// unconditionally -- yet it was the one write path with no padding coverage. Both paths share
+// write_tail(), and the point of the test is to keep it that way: a divergence here would mean
+// compaction and load produce different images for the same input.
+TEST(SniiStreamedWriterSessionTest, StreamedContainerPadsIdenticallyToOrdinary) {
+    const int64_t saved_block = doris::config::file_cache_each_block_size;
+    const bool saved_cache = doris::config::enable_file_cache;
+    doris::Defer restore {[&] {
+        doris::config::file_cache_each_block_size = saved_block;
+        doris::config::enable_file_cache = saved_cache;
+    }};
+
+    // Measure the unpadded size first, then pick a block the gate must accept: the container spans
+    // 2*kMinPaddingLeverage blocks, and pad is asserted to be both due and worth paying.
+    doris::config::enable_file_cache = false;
+    MemoryFile unpadded_file;
+    assert_ok(write_streamed_index(representative_input(true), &unpadded_file));
+    const size_t unpadded = unpadded_file.data().size();
+    const auto block = static_cast<int64_t>(unpadded / (2 * writer::kMinPaddingLeverage));
+    ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
+    const auto block_size = static_cast<size_t>(block);
+    const size_t pad = (block_size - unpadded % block_size) % block_size;
+    ASSERT_GT(pad, 0U) << "fixture is an exact multiple of block " << block
+                       << "; nothing would be padded and this test would pass vacuously";
+    ASSERT_LT(2 * pad, block_size) << "the gate would decline this padding as not worth its cost";
+
+    doris::config::enable_file_cache = true;
+    doris::config::file_cache_each_block_size = block;
+    MemoryFile ordinary;
+    MemoryFile streamed;
+    assert_ok(write_ordinary_index(representative_input(true), &ordinary));
+    assert_ok(write_streamed_index(representative_input(true), &streamed));
+
+    EXPECT_EQ(streamed.data().size(), unpadded + pad);
+    EXPECT_EQ(streamed.data().size() % block_size, 0U);
+    EXPECT_EQ(streamed.data(), ordinary.data())
+            << "padding must not make the streamed and ordinary images diverge";
+
+    // The tail must still be locatable: padding sits before it, so EOF still holds the footer.
+    reader::SniiSegmentReader segment;
+    reader::LogicalIndexReader index;
+    assert_ok(reader::SniiSegmentReader::open(&streamed, &segment));
+    assert_ok(segment.open_index(71, "body", &index));
+    EXPECT_GT(index.n_dict_blocks(), 1U);
+}
+
 TEST(SniiStreamedWriterSessionTest, OrdinaryAndStreamedImagesAreByteIdentical) {
     for (bool write_freq : {false, true}) {
         MemoryFile ordinary;

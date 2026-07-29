@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/snii.pb.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
@@ -56,6 +57,7 @@
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/writer/logical_index_writer.h"
+#include "util/defer_op.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
@@ -1341,6 +1343,153 @@ TEST(SniiCompoundWriter, PacksEachIndexSectionsContiguouslyWithoutInterleaving) 
             << index1.begin << "," << index1.end << ")";
     // And nothing of either index may spill into the tail metadata region.
     EXPECT_LE(index1.end, tail.directory_offset);
+}
+
+namespace {
+
+// Writes the standard two-index fixture at the given cache block size and returns the bytes.
+// The file cache is forced on by default: padding is gated on it and it defaults to OFF, so a
+// fixture that left it alone would exercise only the not-padded branch whatever block size it picks.
+std::vector<uint8_t> WriteFixtureAtBlockSize(int64_t block_size, bool file_cache_on = true) {
+    const int64_t saved_block = doris::config::file_cache_each_block_size;
+    const bool saved_cache = doris::config::enable_file_cache;
+    doris::config::file_cache_each_block_size = block_size;
+    doris::config::enable_file_cache = file_cache_on;
+    doris::Defer restore {[&] {
+        doris::config::file_cache_each_block_size = saved_block;
+        doris::config::enable_file_cache = saved_cache;
+    }};
+
+    const std::string path = TempPath();
+    {
+        io::LocalFileWriter w;
+        EXPECT_TRUE(w.open(path).ok());
+        SniiCompoundWriter cw(&w);
+        EXPECT_TRUE(cw.add_logical_index(MakeIndex(10, "title", 30)).ok());
+        EXPECT_TRUE(cw.add_logical_index(MakeIndex(11, "body", 30)).ok());
+        EXPECT_TRUE(cw.finish().ok());
+    }
+    return ReadAll(path);
+}
+
+// Every index in the fixture must still be locatable and parseable. Padding that aligns the
+// container but displaces the tail would be worse than no padding at all: the reader finds
+// everything by reading the tail pointer at EOF.
+void ExpectFixtureReadable(const std::vector<uint8_t>& file) {
+    TailFields tail;
+    MetadataDirectory directory;
+    ASSERT_TRUE(ParseDirectory(file, &tail, &directory).ok());
+    EXPECT_EQ(directory.size(), 2U);
+    for (const auto& e :
+         std::vector<std::pair<uint64_t, std::string>> {{10, "title"}, {11, "body"}}) {
+        const LogicalIndexMetadataRef* ref = directory.find(e.first, e.second);
+        ASSERT_NE(ref, nullptr) << "index " << e.first;
+        CoreMetadata core;
+        SampledTermIndexReader sti;
+        DictBlockDirectoryReader dbd;
+        ASSERT_TRUE(ParseMetadataGroup(file, *ref, &core, &sti, &dbd).ok())
+                << "index " << e.first << " unreadable";
+    }
+}
+
+} // namespace
+
+// A read confined to a file's last PARTIAL block costs a whole extra block: s_align_size clamps
+// the aligned window to the file end and back-pads by a full block when that clamp leaves it
+// short. Ending on a boundary makes the condition false.
+//
+// The block size is derived from the container's own unpadded size rather than hard-coded, so
+// the padded branch stays exercised no matter how the fixture's size drifts. Hard-coding it is
+// how this test would rot into silently asserting the skipped branch instead.
+TEST(SniiCompoundWriter, PadsToBlockBoundaryWhenPaddingIsCheapRelativeToContainer) {
+    const size_t unpadded = WriteFixtureAtBlockSize(0).size();
+    // At this block size the container spans 2*kMinPaddingLeverage blocks, comfortably clearing
+    // the floor, so the gate cannot be what decides this test.
+    const auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
+
+    // Without this the test can pass VACUOUSLY: if the fixture happens to be an exact multiple of
+    // the derived block, pad is 0, the writer appends nothing, and "size % block == 0" is true for
+    // the wrong reason. The margin is thin -- at the current 1904 B fixture, +10 B or -19 B lands
+    // on such a multiple, and so does setting kMinPaddingLeverage to 64. Assert the padding was
+    // actually due, then assert its EXACT size so an over-pad (a whole spurious block) also fails.
+    const auto block_size = static_cast<size_t>(block);
+    const size_t pad = (block_size - unpadded % block_size) % block_size;
+    ASSERT_GT(pad, 0U) << "fixture (" << unpadded << " B) is an exact multiple of block " << block
+                       << ", so nothing would be padded and this test would pass vacuously";
+    ASSERT_LT(2 * pad, block_size) << "padding costs more than it saves here, so the gate should "
+                                      "decline it and this test would pass for the wrong reason";
+
+    const std::vector<uint8_t> file = WriteFixtureAtBlockSize(block);
+    EXPECT_EQ(file.size(), unpadded + pad)
+            << "expected exactly " << pad << " B of padding on a " << unpadded << " B container";
+    EXPECT_EQ(file.size() % block_size, 0U)
+            << "container size " << file.size() << " is not a multiple of block " << block;
+    ExpectFixtureReadable(file);
+}
+
+// The other side of the gate. Padding buys at most one block of avoided back-pad, once; it costs
+// filler that any query touching the final block then reads. When the padding is a large fraction
+// of the container that trade is a loss -- measured at +13.3% bytes fetched on ~4 MiB containers
+// -- so the writer must decline it and leave the container unaligned.
+TEST(SniiCompoundWriter, SkipsPaddingWhenItWouldBeLargeRelativeToContainer) {
+    const size_t unpadded = WriteFixtureAtBlockSize(0).size();
+    // Sized so the container spans ~3.5 blocks with a ~half-block remainder -- the shape that was
+    // measured regressing, rather than the trivially-rejected smaller-than-one-block case.
+    const auto block = static_cast<int64_t>(2 * unpadded / 7);
+    ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
+
+    // Assert the preconditions rather than trusting the arithmetic above: this test is only
+    // meaningful if a padding is genuinely due AND the gate is what declines it.
+    const auto block_size = static_cast<size_t>(block);
+    const size_t pad = (block_size - unpadded % block_size) % block_size;
+    ASSERT_GT(pad, 0U) << "container already ends on a boundary; nothing for the gate to decline";
+    ASSERT_LT(unpadded / block_size, kMinPaddingLeverage)
+            << "fixture no longer straddles the gate: it spans enough blocks to be accepted, so "
+               "this test would pass for the wrong reason. Resize the block.";
+
+    const std::vector<uint8_t> file = WriteFixtureAtBlockSize(block);
+    EXPECT_EQ(file.size(), unpadded) << "padding was written despite costing " << pad << " B on a "
+                                     << unpadded << " B container";
+    ExpectFixtureReadable(file);
+}
+
+// Padding is repaid only by CachedRemoteFileReader's block alignment. enable_file_cache defaults
+// to OFF, and with it off there is no block cache in the read path at all -- so a container that
+// qualifies on every other count must still come out unpadded.
+TEST(SniiCompoundWriter, SkipsPaddingWhenTheFileCacheIsOff) {
+    const size_t unpadded = WriteFixtureAtBlockSize(0).size();
+    const auto block = static_cast<int64_t>(unpadded / (2 * kMinPaddingLeverage));
+    ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
+    // Same block size the acceptance test uses, so the cache flag is the only difference.
+    ASSERT_NE(WriteFixtureAtBlockSize(block, /*file_cache_on=*/true).size(), unpadded)
+            << "precondition: this block size must pad when the cache is on";
+
+    const std::vector<uint8_t> file = WriteFixtureAtBlockSize(block, /*file_cache_on=*/false);
+    EXPECT_EQ(file.size(), unpadded) << "padded despite there being no block cache to repay it";
+    ExpectFixtureReadable(file);
+}
+
+// Guards the arithmetic in the other direction: with the block size disabled the writer must not
+// consult it at all, rather than treating 0 as "align to everything".
+TEST(SniiCompoundWriter, AddsNoPaddingWhenBlockSizeIsDisabled) {
+    const int64_t saved_block = doris::config::file_cache_each_block_size;
+    doris::config::file_cache_each_block_size = 0;
+    doris::Defer restore {[&] { doris::config::file_cache_each_block_size = saved_block; }};
+
+    const std::string path = TempPath();
+    {
+        io::LocalFileWriter w;
+        ASSERT_TRUE(w.open(path).ok());
+        SniiCompoundWriter cw(&w);
+        ASSERT_TRUE(cw.add_logical_index(MakeIndex(10, "title", 30)).ok());
+        ASSERT_TRUE(cw.finish().ok());
+    }
+    std::vector<uint8_t> file = ReadAll(path);
+    TailFields tail;
+    MetadataDirectory directory;
+    ASSERT_TRUE(ParseDirectory(file, &tail, &directory).ok());
+    EXPECT_EQ(directory.size(), 1U);
 }
 
 // Three indexes, not two: with two, "index 0 ends before index 1 begins" also holds

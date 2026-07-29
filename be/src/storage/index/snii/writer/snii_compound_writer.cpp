@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "common/config.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/crc32c.h"
@@ -619,7 +620,75 @@ Status SniiCompoundWriter::write_tail() {
     tp.directory_crc32c = crc32c(directory_sink.view());
     ByteSink tail_sink;
     RETURN_IF_ERROR(format::encode_tail_pointer(tp, &tail_sink));
-    return append(tail_sink.buffer());
+
+    // Pad the container up to a file-cache block boundary, but only when that padding is small
+    // relative to the container.
+    //
+    // Padding at all: s_align_size clamps the aligned window to the file end, and back-pads by a
+    // whole block when the clamp leaves it short (io/cache/cached_remote_file_reader.cpp). Ending
+    // on a boundary makes that condition false, so a read confined to the final block fetches one
+    // block instead of two.
+    //
+    // Only sometimes: the back-pad costs nothing when the query already fetches the preceding
+    // block for other reasons. So the saving is one-shot and bounded (at most last_partial per
+    // container) while the cost -- filler that every tail read pulls in -- scales with how much of
+    // the container a query touches. Both signs are measured, on the same wikipedia corpus:
+    //
+    //   53-62 MiB containers, pad 0.09%-1.28%: -2.2% bytes fetched over a 13-case sweep,
+    //     -21% when the sweep is one targeted case
+    //   ~4 MiB containers, pad 13.3%: the sweep reads nearly the whole container, so the back-pad
+    //     was already free and the filler is pure addition -> +13.3%
+    //
+    // kMinPaddingLeverage is a judgement call, not a derived constant: it admits the measured
+    // 1.28% case with margin and rejects the 13.3% one.
+    //
+    // Expressed as a floor on the CONTAINER rather than a ratio on the padding. Since pad < block
+    // the two bound the cost identically, but the floor cannot overflow, and it keeps containers
+    // small enough to be PACKED out of the deal: in cloud mode a container below
+    // cloud::config::small_file_threshold_bytes (1 MiB) is appended into a shared object at an
+    // arbitrary offset (RowsetWriterContext wraps the fs in io::PackedFileSystem), where
+    // s_align_size works in packed coordinates and aligning the sub-file buys nothing at all.
+    // A 32-block floor clears that threshold by 32x.
+    //
+    // The padding goes BEFORE the tail pointer, which must stay the last thing in the file for the
+    // reader to find it.
+    //
+    // Caveat: the block size is read at WRITE time but the saving is realised at READ time. If a
+    // deployment changes file_cache_each_block_size afterwards, nothing breaks and no index becomes
+    // unreadable -- but the outcome is not symmetric, so "neutral" would be the wrong word.
+    // SHRINKING it is safe when the new size divides the old (256 KiB into 1 MiB keeps alignment).
+    // GROWING it (1 MiB -> 4 MiB, a normal S3 throughput tuning move) brings the back-pad back
+    // while the filler bytes stay on disk: strictly worse than never having padded, until
+    // compaction rewrites the container.
+    //
+    // Gated on enable_file_cache because the saving is realised only by CachedRemoteFileReader.
+    // That flag defaults to FALSE; without this check a storage-compute-coupled or local-filesystem
+    // deployment appends up to a block of zeros per container and never reads through a block cache
+    // at all. (exec_env_init only validates file_cache_each_block_size when the cache is on, so in
+    // that configuration the value here would also be entirely unvalidated.)
+    const int64_t block = config::file_cache_each_block_size;
+    if (config::enable_file_cache && block > 0) {
+        const uint64_t unpadded = out_->bytes_written() + tail_sink.buffer().size();
+        const auto block_size = static_cast<uint64_t>(block);
+        const uint64_t pad = (block_size - unpadded % block_size) % block_size;
+        // 2*pad < block is the cost/benefit test itself, and it is exact rather than a proxy.
+        // Measured in §6.7.1 of the design doc: the saving equals sum(last_partial) (2,290,341 vs
+        // 2,290,330 predicted) and the cost equals the bytes added to disk (+45,207,390 written vs
+        // +45,199,729 fetched). Since last_partial + pad == block, benefit = block - pad and
+        // cost ~ pad -- perfectly anticorrelated, and NEITHER depends on the container size. A
+        // 40 MiB container that overshoots a boundary by 100 B has last_partial = 100 and
+        // pad = 1,048,476: it clears any size-based gate while saving 100 bytes for a megabyte.
+        // On this project's own four measured containers the extra term trades 29% of the saving
+        // for a 76% cut in padding written (1.20:1 -> 3.55:1 benefit:cost).
+        if (pad > 0 && 2 * pad < block_size && unpadded / block_size >= kMinPaddingLeverage) {
+            // Never referenced by any SectionRef, so no reader ever reads it.
+            const std::vector<uint8_t> filler(pad, 0);
+            RETURN_IF_ERROR(append(filler));
+        }
+    }
+
+    RETURN_IF_ERROR(append(tail_sink.buffer()));
+    return Status::OK();
 }
 
 Status SniiCompoundWriter::finish() {

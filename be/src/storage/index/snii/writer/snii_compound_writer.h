@@ -55,6 +55,14 @@ class SniiRewriteSnapshot;
 //   for each logical index, in add order:
 //     [Core metadata][SampledTermIndex blob][DICT block directory blob]
 //   [metadata directory]     raw SniiMetadataDirectoryPB bytes
+//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only for
+//                            containers of >= kMinPaddingLeverage cache blocks, and only when the
+//                            file cache is on, so that the container ends on a block boundary.
+//                            Referenced by nothing and read by nobody -- but it means the metadata
+//                            directory is NOT necessarily adjacent to the tail pointer, and that
+//                            container length is not a pure function of the indexed content (two
+//                            BEs with different file_cache_each_block_size produce different
+//                            lengths for identical input).
 //   [tail_pointer]           encode_tail_pointer at EOF
 //
 // (The posting region is streamed BEFORE the DICT region per index: postings are
@@ -75,6 +83,11 @@ class SniiRewriteSnapshot;
 //     against the SAME region (prx_base == frq_base).
 //   - tail_pointer.directory_offset/length point at the raw metadata directory.
 namespace doris::snii::writer {
+
+// A container is padded up to a file-cache block boundary only when it spans at least this many
+// blocks -- see the reasoning at the padding site in write_tail(). Exposed so tests can size their
+// fixtures against the real threshold instead of a copy of it.
+inline constexpr uint64_t kMinPaddingLeverage = 32;
 
 class SniiCompoundWriter;
 
