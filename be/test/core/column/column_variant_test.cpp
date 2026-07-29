@@ -1817,10 +1817,11 @@ TEST_F(ColumnVariantTest, is_scalar_variant) {
 }
 
 TEST_F(ColumnVariantTest, is_exclusive) {
-    EXPECT_GT(column_variant->size(), 0);
-    EXPECT_TRUE(column_variant->is_exclusive());
+    auto variant = VariantUtil::construct_basic_varint_column();
+    EXPECT_GT(variant->size(), 0);
+    EXPECT_TRUE(variant->is_exclusive());
 
-    const auto& subcolumns = column_variant->get_subcolumns();
+    const auto& subcolumns = variant->get_subcolumns();
     const auto* root = subcolumns.get_root();
     ColumnPtr shared_subcolumn;
     for (const auto& entry : subcolumns) {
@@ -1830,22 +1831,22 @@ TEST_F(ColumnVariantTest, is_exclusive) {
         }
     }
     ASSERT_TRUE(shared_subcolumn);
-    EXPECT_FALSE(column_variant->is_exclusive());
+    EXPECT_FALSE(variant->is_exclusive());
 
     shared_subcolumn.reset();
-    EXPECT_TRUE(column_variant->is_exclusive());
+    EXPECT_TRUE(variant->is_exclusive());
 
-    auto shared_sparse_column = column_variant->get_sparse_column();
-    EXPECT_FALSE(column_variant->is_exclusive());
+    auto shared_sparse_column = variant->get_sparse_column();
+    EXPECT_FALSE(variant->is_exclusive());
 
     shared_sparse_column.reset();
-    EXPECT_TRUE(column_variant->is_exclusive());
+    EXPECT_TRUE(variant->is_exclusive());
 
-    auto shared_doc_value_column = column_variant->get_doc_value_column();
-    EXPECT_FALSE(column_variant->is_exclusive());
+    auto shared_doc_value_column = variant->get_doc_value_column();
+    EXPECT_FALSE(variant->is_exclusive());
 
     shared_doc_value_column.reset();
-    EXPECT_TRUE(column_variant->is_exclusive());
+    EXPECT_TRUE(variant->is_exclusive());
 }
 
 TEST_F(ColumnVariantTest, get_root_type) {
