@@ -182,6 +182,84 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
         hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
     }
 
+    // Hybrid static/dynamic partition write: the PARTITION clause fixes only a prefix of the
+    // partition columns (dt), while the remaining partition column (region) stays dynamic and is
+    // sourced from the query output. A single statement can therefore emit multiple dynamic
+    // partition values (region) under the same static prefix (dt). This exercises a distinct sink
+    // routing path (synthesized dt slot + child-sourced region slot).
+    def testHybridStaticDynamicPartitionWrite = { String catalog_name ->
+        String tableName = "hive_hybrid_par_tbl"
+
+        hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
+        hive_docker """
+            CREATE TABLE ${tableName} (
+                tag_value string,
+                user_id   string,
+                ts        int
+            )
+            PARTITIONED BY (dt string, region string)
+            STORED AS parquet;
+        """
+        sql """ refresh catalog ${catalog_name}; """
+
+        // 1. One INSERT with static dt='2026-07-24' emitting TWO dynamic regions (bj, sh).
+        //    The SELECT only supplies non-static columns: tag_value, user_id, ts, region.
+        sql """
+            INSERT INTO ${tableName} PARTITION(dt='2026-07-24')
+            SELECT 'h_bj', 'u1', 10, 'bj'
+            UNION ALL
+            SELECT 'h_sh', 'u2', 20, 'sh';
+        """
+        // 2. A sibling static prefix dt='2026-07-25', also emitting two dynamic regions.
+        sql """
+            INSERT INTO ${tableName} PARTITION(dt='2026-07-25')
+            SELECT 's_bj', 'u3', 30, 'bj'
+            UNION ALL
+            SELECT 's_gz', 'u4', 40, 'gz';
+        """
+        sql """ refresh catalog ${catalog_name}; """
+
+        def all = sql """
+            select tag_value, user_id, ts, dt, region from ${tableName}
+            order by dt, region;
+        """
+        assertEquals(4, all.size())
+        assertEquals("h_bj", all[0][0]); assertEquals(10, all[0][2]); assertEquals("2026-07-24", all[0][3]); assertEquals("bj", all[0][4])
+        assertEquals("h_sh", all[1][0]); assertEquals(20, all[1][2]); assertEquals("2026-07-24", all[1][3]); assertEquals("sh", all[1][4])
+        assertEquals("s_bj", all[2][0]); assertEquals(30, all[2][2]); assertEquals("2026-07-25", all[2][3]); assertEquals("bj", all[2][4])
+        assertEquals("s_gz", all[3][0]); assertEquals(40, all[3][2]); assertEquals("2026-07-25", all[3][3]); assertEquals("gz", all[3][4])
+
+        // Partition pruning should work on both the static and the dynamic partition columns.
+        def bjRows = sql """ select tag_value from ${tableName} where region='bj' order by dt; """
+        assertEquals(2, bjRows.size())
+        assertEquals("h_bj", bjRows[0][0]); assertEquals("s_bj", bjRows[1][0])
+
+        // 3. Hybrid INSERT OVERWRITE under static dt='2026-07-24' re-emitting the same two regions.
+        //    It must only replace the dt='2026-07-24' partitions and leave the dt='2026-07-25'
+        //    sibling prefix completely untouched.
+        sql """
+            INSERT OVERWRITE TABLE ${tableName} PARTITION(dt='2026-07-24')
+            SELECT 'o_bj', 'u5', 50, 'bj'
+            UNION ALL
+            SELECT 'o_sh', 'u6', 60, 'sh';
+        """
+        sql """ refresh catalog ${catalog_name}; """
+
+        def afterOverwrite = sql """
+            select tag_value, user_id, ts, dt, region from ${tableName}
+            order by dt, region;
+        """
+        assertEquals(4, afterOverwrite.size())
+        // dt='2026-07-24' partitions replaced with new values.
+        assertEquals("o_bj", afterOverwrite[0][0]); assertEquals(50, afterOverwrite[0][2]); assertEquals("2026-07-24", afterOverwrite[0][3]); assertEquals("bj", afterOverwrite[0][4])
+        assertEquals("o_sh", afterOverwrite[1][0]); assertEquals(60, afterOverwrite[1][2]); assertEquals("2026-07-24", afterOverwrite[1][3]); assertEquals("sh", afterOverwrite[1][4])
+        // dt='2026-07-25' sibling prefix untouched.
+        assertEquals("s_bj", afterOverwrite[2][0]); assertEquals(30, afterOverwrite[2][2]); assertEquals("2026-07-25", afterOverwrite[2][3]); assertEquals("bj", afterOverwrite[2][4])
+        assertEquals("s_gz", afterOverwrite[3][0]); assertEquals(40, afterOverwrite[3][2]); assertEquals("2026-07-25", afterOverwrite[3][3]); assertEquals("gz", afterOverwrite[3][4])
+
+        hive_docker """ DROP TABLE IF EXISTS ${tableName}; """
+    }
+
     // Error cases for static partition validation.
     def testStaticPartitionErrors = { String catalog_name ->
         String tableName = "hive_static_par_err_tbl"
@@ -295,6 +373,7 @@ suite("test_hive_write_static_partition", "p0,external,hive,external_docker,exte
 
             testStaticPartitionWrite(catalog_name)
             testStaticPartitionMultiColumnWrite(catalog_name)
+            testHybridStaticDynamicPartitionWrite(catalog_name)
             testStaticPartitionErrors(catalog_name)
 
             sql """drop catalog if exists ${catalog_name}"""
