@@ -131,10 +131,10 @@ private:
     Status _append_row_position_output_column(format::FileScanRequest* request);
     // Append equality delete predicates to file scan request based on the delete files in iceberg
     // params. DeleteVector and position delete files use the common DeleteRows path in TableReader.
+    using EqualityDeleteColumnPath = std::vector<const format::ColumnDefinition*>;
     Status _append_equality_delete_predicates(format::FileScanRequest* request);
-    const format::ColumnDefinition* _find_equality_delete_data_field(
-            const EqualityDeleteFilter& filter, size_t key_idx,
-            const format::ColumnDefinition* table_field) const;
+    Status _find_equality_delete_data_field(const EqualityDeleteFilter& filter, size_t key_idx,
+                                            EqualityDeleteColumnPath* data_path) const;
     Status _find_equality_delete_table_field(const EqualityDeleteFilter& filter, size_t key_idx,
                                              format::ColumnDefinition* table_field) const;
     void _append_equality_delete_row_count_carrier(format::FileScanRequest* request);
@@ -157,7 +157,7 @@ private:
                                       EqualityDeleteFilter* result);
     Status _resolve_equality_delete_fields(const TIcebergDeleteFileDesc& delete_file,
                                            const std::vector<format::ColumnDefinition>& schema,
-                                           std::vector<format::ColumnDefinition>* delete_fields,
+                                           std::vector<EqualityDeleteColumnPath>* delete_paths,
                                            EqualityDeleteFilter* result) const;
     Status _read_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
                                       const TFileScanRangeParams& scan_params,

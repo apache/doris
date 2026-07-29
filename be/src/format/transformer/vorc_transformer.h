@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/vparquet_transformer.h"
 #include "orc/Type.hh"

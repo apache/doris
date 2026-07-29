@@ -194,6 +194,11 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
+    const orc::Type* get_file_root_type() const {
+        DORIS_CHECK(_reader != nullptr);
+        return &_reader->getType();
+    }
+
     void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }

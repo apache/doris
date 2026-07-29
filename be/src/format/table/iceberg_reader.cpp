@@ -76,9 +76,9 @@ class VExprContext;
 } // namespace doris
 
 namespace doris {
-const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
-
 namespace {
+
+constexpr auto kIcebergOrcAttribute = "iceberg.id";
 
 bool orc_subtree_has_iceberg_id(const orc::Type* type, const std::string& attribute) {
     if (type->hasAttributeKey(attribute)) {
@@ -92,7 +92,82 @@ bool orc_subtree_has_iceberg_id(const orc::Type* type, const std::string& attrib
     return false;
 }
 
+struct ParquetEqualityFieldPath {
+    std::vector<const FieldSchema*> fields;
+    std::vector<size_t> child_indexes;
+};
+
+bool find_parquet_equality_field_path_by_id(const FieldDescriptor* descriptor, int32_t field_id,
+                                            ParquetEqualityFieldPath* result) {
+    DORIS_CHECK(descriptor != nullptr);
+    DORIS_CHECK(result != nullptr);
+    const auto find = [field_id](const auto& self, const FieldSchema* field,
+                                 ParquetEqualityFieldPath* path) -> bool {
+        DORIS_CHECK(field != nullptr);
+        path->fields.push_back(field);
+        if (field->field_id == field_id) {
+            return true;
+        }
+        for (size_t index = 0; index < field->children.size(); ++index) {
+            path->child_indexes.push_back(index);
+            if (self(self, &field->children[index], path)) {
+                return true;
+            }
+            path->child_indexes.pop_back();
+        }
+        path->fields.pop_back();
+        return false;
+    };
+    for (int index = 0; index < descriptor->size(); ++index) {
+        if (find(find, descriptor->get_column(index), result)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+struct OrcEqualityFieldPath {
+    std::vector<const orc::Type*> fields;
+    std::vector<std::string> names;
+    std::vector<size_t> child_indexes;
+};
+
+bool find_orc_equality_field_path_by_id(const orc::Type* root, int32_t field_id,
+                                        OrcEqualityFieldPath* result) {
+    DORIS_CHECK(root != nullptr);
+    DORIS_CHECK(result != nullptr);
+    const auto find = [field_id](const auto& self, const orc::Type* field,
+                                 const std::string& field_name,
+                                 OrcEqualityFieldPath* path) -> bool {
+        DORIS_CHECK(field != nullptr);
+        path->fields.push_back(field);
+        path->names.push_back(field_name);
+        if (field->hasAttributeKey(kIcebergOrcAttribute) &&
+            std::stoi(field->getAttributeValue(kIcebergOrcAttribute)) == field_id) {
+            return true;
+        }
+        for (size_t index = 0; index < field->getSubtypeCount(); ++index) {
+            path->child_indexes.push_back(index);
+            if (self(self, field->getSubtype(index), field->getFieldName(index), path)) {
+                return true;
+            }
+            path->child_indexes.pop_back();
+        }
+        path->fields.pop_back();
+        path->names.pop_back();
+        return false;
+    };
+    for (size_t index = 0; index < root->getSubtypeCount(); ++index) {
+        if (find(find, root->getSubtype(index), root->getFieldName(index), result)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
+
+const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = kIcebergOrcAttribute;
 
 bool IcebergTableReader::_is_fully_dictionary_encoded(
         const tparquet::ColumnMetaData& column_metadata) {
@@ -259,7 +334,6 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     // - Prefix with __equality_delete_column__ to avoid name conflicts
     // - Correctly map table_col_name → file_col_name in table_info_node
     const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
-    std::unordered_map<int, const FieldSchema*> field_id_to_file_column;
     bool all_file_columns_have_field_ids = true;
     bool any_file_column_has_field_id = false;
     for (int i = 0; i < field_desc->size(); ++i) {
@@ -269,7 +343,6 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                 all_file_columns_have_field_ids = false;
             } else {
                 any_file_column_has_field_id = true;
-                field_id_to_file_column[field_schema->field_id] = field_schema;
             }
         }
     }
@@ -296,10 +369,10 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         const int32_t field_id = _expand_col_field_ids[i];
 
         const FieldSchema* file_column = nullptr;
+        ParquetEqualityFieldPath file_path;
         if (use_field_ids_for_hidden_keys) {
-            auto id_it = field_id_to_file_column.find(field_id);
-            if (id_it != field_id_to_file_column.end()) {
-                file_column = id_it->second;
+            if (find_parquet_equality_field_path_by_id(field_desc, field_id, &file_path)) {
+                file_column = file_path.fields.front();
             }
         } else {
             const auto* table_field = _find_schema_field(field_id);
@@ -327,8 +400,14 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
         }
 
+        std::string leaf_name = old_name;
+        if (!file_path.fields.empty()) {
+            leaf_name = file_path.fields.back()->name;
+        } else if (file_column != nullptr) {
+            leaf_name = file_column->name;
+        }
         const std::string file_col_name = file_column == nullptr ? old_name : file_column->name;
-        std::string table_col_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + file_col_name;
+        std::string table_col_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + leaf_name;
 
         // Update _id_to_block_column_name
         if (field_id >= 0) {
@@ -350,8 +429,23 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
         new_expand_col_names.push_back(table_col_name);
 
-        // Add column IDs
-        ctx->column_ids.insert(file_column->get_column_id());
+        if (!file_path.child_indexes.empty()) {
+            _nested_equality_delete_columns.push_back({
+                    .field_id = field_id,
+                    .block_name = table_col_name,
+                    .leaf_type = _expand_columns[i].type,
+                    .child_indexes = file_path.child_indexes,
+            });
+            _expand_columns[i].type = make_nullable(file_column->data_type);
+            _expand_columns[i].column = _expand_columns[i].type->create_column();
+        }
+
+        // A hidden nested key is read through its containing top-level struct. V1 column IDs are
+        // pre-order ranges, so include the complete subtree before extracting the primitive leaf.
+        for (uint64_t column_id = file_column->get_column_id();
+             column_id <= file_column->get_max_column_id(); ++column_id) {
+            ctx->column_ids.insert(column_id);
+        }
 
         // Register in table_info_node: table_col_name → file_col_name
         ctx->column_names.push_back(table_col_name);
@@ -615,14 +709,10 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Add expand column IDs for equality delete and remap expand column names
     // (matching master's behavior with __equality_delete_column__ prefix)
     const static std::string EQ_DELETE_PRE = "__equality_delete_column__";
-    std::unordered_map<int, const orc::Type*> field_id_to_file_column;
     bool all_file_columns_have_field_ids = true;
     for (uint64_t i = 0; i < orc_type_ptr->getSubtypeCount(); ++i) {
         const orc::Type* sub_type = orc_type_ptr->getSubtype(i);
-        if (sub_type->hasAttributeKey(ICEBERG_ORC_ATTRIBUTE)) {
-            int fid = std::stoi(sub_type->getAttributeValue(ICEBERG_ORC_ATTRIBUTE));
-            field_id_to_file_column[fid] = sub_type;
-        } else {
+        if (!sub_type->hasAttributeKey(ICEBERG_ORC_ATTRIBUTE)) {
             all_file_columns_have_field_ids = false;
         }
     }
@@ -647,10 +737,10 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         const int32_t field_id = _expand_col_field_ids[i];
 
         const orc::Type* file_column = nullptr;
+        OrcEqualityFieldPath file_path;
         if (use_field_ids_for_hidden_keys) {
-            auto id_it = field_id_to_file_column.find(field_id);
-            if (id_it != field_id_to_file_column.end()) {
-                file_column = id_it->second;
+            if (find_orc_equality_field_path_by_id(orc_type_ptr, field_id, &file_path)) {
+                file_column = file_path.fields.front();
             }
         } else {
             const auto* table_field = _find_schema_field(field_id);
@@ -676,15 +766,20 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
 
         std::string file_col_name = old_name;
-        if (file_column != nullptr) {
+        std::string leaf_name = old_name;
+        if (!file_path.fields.empty()) {
+            file_col_name = file_path.names.front();
+            leaf_name = file_path.names.back();
+        } else if (file_column != nullptr) {
             for (uint64_t j = 0; j < orc_type_ptr->getSubtypeCount(); ++j) {
                 if (orc_type_ptr->getSubtype(j) == file_column) {
                     file_col_name = orc_type_ptr->getFieldName(j);
+                    leaf_name = file_col_name;
                     break;
                 }
             }
         }
-        std::string table_col_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + file_col_name;
+        std::string table_col_name = EQ_DELETE_PRE + std::to_string(field_id) + "_" + leaf_name;
 
         if (field_id >= 0) {
             _id_to_block_column_name[field_id] = table_col_name;
@@ -702,8 +797,21 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         }
         new_expand_col_names.push_back(table_col_name);
 
-        // Add column IDs
-        ctx->column_ids.insert(file_column->getColumnId());
+        if (!file_path.child_indexes.empty()) {
+            _nested_equality_delete_columns.push_back({
+                    .field_id = field_id,
+                    .block_name = table_col_name,
+                    .leaf_type = _expand_columns[i].type,
+                    .child_indexes = file_path.child_indexes,
+            });
+            _expand_columns[i].type = make_nullable(convert_to_doris_type(file_column));
+            _expand_columns[i].column = _expand_columns[i].type->create_column();
+        }
+
+        for (uint64_t column_id = file_column->getColumnId();
+             column_id <= file_column->getMaximumColumnId(); ++column_id) {
+            ctx->column_ids.insert(column_id);
+        }
 
         ctx->column_names.push_back(table_col_name);
         ctx->table_info_node->add_children(table_col_name, file_col_name,

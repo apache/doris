@@ -386,6 +386,8 @@ protected:
 
     std::optional<ColumnDefinition> _find_table_column_by_field_id(
             int32_t field_id, DataTypePtr type, bool include_historical_schemas) const;
+    std::optional<std::vector<ColumnDefinition>> _find_table_column_identity_path_by_field_id(
+            int32_t field_id, bool include_historical_schemas) const;
 
     // Parse deletion vector information from table format specific file description.
     virtual Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,

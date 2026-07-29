@@ -147,6 +147,74 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
     return field_ptr.field_ptr.get();
 }
 
+const schema::external::TField* find_external_field_by_id(
+        const schema::external::TStructField* root, int32_t field_id) {
+    if (root == nullptr || !root->__isset.fields) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : root->fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field == nullptr) {
+            continue;
+        }
+        if (field->__isset.id && field->id == field_id) {
+            return field;
+        }
+        if (!field->__isset.nestedField) {
+            continue;
+        }
+        if (field->nestedField.__isset.struct_field) {
+            if (const auto* result =
+                        find_external_field_by_id(&field->nestedField.struct_field, field_id);
+                result != nullptr) {
+                return result;
+            }
+        } else if (field->nestedField.__isset.array_field &&
+                   field->nestedField.array_field.__isset.item_field) {
+            const auto* child = get_field_ptr(field->nestedField.array_field.item_field);
+            if (child != nullptr) {
+                schema::external::TStructField child_root;
+                child_root.__set_fields({field->nestedField.array_field.item_field});
+                if (const auto* result = find_external_field_by_id(&child_root, field_id);
+                    result != nullptr) {
+                    return result;
+                }
+            }
+        } else if (field->nestedField.__isset.map_field) {
+            schema::external::TStructField child_root;
+            std::vector<schema::external::TFieldPtr> children;
+            if (field->nestedField.map_field.__isset.key_field) {
+                children.push_back(field->nestedField.map_field.key_field);
+            }
+            if (field->nestedField.map_field.__isset.value_field) {
+                children.push_back(field->nestedField.map_field.value_field);
+            }
+            child_root.__set_fields(children);
+            if (const auto* result = find_external_field_by_id(&child_root, field_id);
+                result != nullptr) {
+                return result;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool find_column_identity_path_by_id(const std::vector<ColumnDefinition>& fields, int32_t field_id,
+                                     std::vector<ColumnDefinition>* path) {
+    DORIS_CHECK(path != nullptr);
+    for (const auto& field : fields) {
+        path->push_back(field);
+        if (field.has_identifier_field_id() && field.get_identifier_field_id() == field_id) {
+            return true;
+        }
+        if (find_column_identity_path_by_id(field.children, field_id, path)) {
+            return true;
+        }
+        path->pop_back();
+    }
+    return false;
+}
+
 ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
     ColumnDefinition identity;
     if (field.__isset.id) {
@@ -640,16 +708,8 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
         return std::nullopt;
     }
     const auto find_field = [field_id](const schema::external::TSchema& schema) {
-        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
-            return static_cast<const schema::external::TField*>(nullptr);
-        }
-        for (const auto& field_ptr : schema.root_field.fields) {
-            const auto* field = get_field_ptr(field_ptr);
-            if (field != nullptr && field->__isset.id && field->id == field_id) {
-                return field;
-            }
-        }
-        return static_cast<const schema::external::TField*>(nullptr);
+        return schema.__isset.root_field ? find_external_field_by_id(&schema.root_field, field_id)
+                                         : nullptr;
     };
 
     const auto* current_schema = &_scan_params->history_schema_info.front();
@@ -692,6 +752,70 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
     }
     return build_schema_column_from_external_field(
             *latest_field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
+}
+
+std::optional<std::vector<ColumnDefinition>>
+TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
+                                                          bool include_historical_schemas) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto find_path = [field_id](const schema::external::TSchema& schema)
+            -> std::optional<std::vector<ColumnDefinition>> {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            return std::nullopt;
+        }
+        std::vector<ColumnDefinition> roots;
+        roots.reserve(schema.root_field.fields.size());
+        for (const auto& field_ptr : schema.root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr) {
+                roots.push_back(build_schema_identity_from_external_field(*field));
+            }
+        }
+        std::vector<ColumnDefinition> path;
+        if (find_column_identity_path_by_id(roots, field_id, &path)) {
+            return path;
+        }
+        return std::nullopt;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                current_schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (auto path = find_path(*current_schema); path.has_value()) {
+        return path;
+    }
+    if (!include_historical_schemas) {
+        return std::nullopt;
+    }
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    std::optional<std::vector<ColumnDefinition>> latest_path;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        auto candidate_path = find_path(candidate_schema);
+        if (!candidate_path.has_value()) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_path = std::move(candidate_path);
+        }
+    }
+    return latest_path;
 }
 
 Status TableReader::init(TableReadOptions&& options) {

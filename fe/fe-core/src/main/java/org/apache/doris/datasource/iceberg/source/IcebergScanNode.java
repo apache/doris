@@ -529,9 +529,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
         Set<Integer> equalityDeleteFieldIds = Collections.emptySet();
         if (!isSystemTable) {
-            checkNameMappingBackendCompatibility(
-                    scanSchema, nameMapping, backendPolicy.getBackends());
             equalityDeleteFieldIds = getEqualityDeleteFieldIdsForPlanning();
+            checkNameMappingBackendCompatibility(
+                    scanSchema, desc.getSlots(), equalityDeleteFieldIds,
+                    nameMapping, backendPolicy.getBackends());
             boolean requiresCurrentSemantics = requiresRecursiveInitialDefaultMaterialization(
                     scanSchema, desc.getSlots()) || !equalityDeleteFieldIds.isEmpty();
             if (!requiresCurrentSemantics
@@ -710,12 +711,108 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private static void addHistoricalEqualityFields(List<NestedField> fields,
             Set<Integer> missingFieldIds, Schema historicalSchema) {
-        for (NestedField field : TypeUtil.indexById(historicalSchema.asStruct()).values()) {
-            if (missingFieldIds.remove(field.fieldId())) {
+        Map<Integer, NestedField> historicalFields =
+                TypeUtil.indexById(historicalSchema.asStruct());
+        Set<Integer> selectedFieldIds = new HashSet<>();
+        for (Integer fieldId : missingFieldIds) {
+            NestedField field = historicalFields.get(fieldId);
+            if (field != null) {
                 Preconditions.checkState(field.type().isPrimitiveType(),
-                        "Iceberg equality-delete field %s must be primitive", field.fieldId());
-                fields.add(field);
+                        "Iceberg equality-delete field %s must be primitive", fieldId);
+                selectedFieldIds.add(fieldId);
             }
+        }
+        if (selectedFieldIds.isEmpty()) {
+            return;
+        }
+
+        Schema selectedSchema = TypeUtil.select(historicalSchema, selectedFieldIds);
+        mergeHistoricalEqualityFields(fields, selectedSchema.columns());
+        missingFieldIds.removeAll(selectedFieldIds);
+    }
+
+    private static void mergeHistoricalEqualityFields(
+            List<NestedField> fields, List<NestedField> historicalFields) {
+        for (NestedField historicalField : historicalFields) {
+            int currentIndex = -1;
+            for (int index = 0; index < fields.size(); index++) {
+                if (fields.get(index).fieldId() == historicalField.fieldId()) {
+                    currentIndex = index;
+                    break;
+                }
+            }
+            if (currentIndex < 0) {
+                fields.add(historicalField);
+                continue;
+            }
+
+            NestedField currentField = fields.get(currentIndex);
+            Type mergedType = mergeHistoricalEqualityType(
+                    currentField.type(), historicalField.type());
+            if (mergedType != currentField.type()) {
+                fields.set(currentIndex, Types.NestedField.from(currentField)
+                        .ofType(mergedType)
+                        .build());
+            }
+        }
+    }
+
+    private static Type mergeHistoricalEqualityType(Type currentType, Type historicalType) {
+        Preconditions.checkState(currentType.typeId() == historicalType.typeId(),
+                "Iceberg equality-delete ancestor type changed from %s to %s",
+                historicalType, currentType);
+        switch (currentType.typeId()) {
+            case STRUCT:
+                List<NestedField> mergedFields =
+                        new ArrayList<>(currentType.asStructType().fields());
+                mergeHistoricalEqualityFields(
+                        mergedFields, historicalType.asStructType().fields());
+                if (mergedFields.equals(currentType.asStructType().fields())) {
+                    return currentType;
+                }
+                return Types.StructType.of(mergedFields);
+            case LIST:
+                Types.ListType currentList = currentType.asListType();
+                Types.ListType historicalList = historicalType.asListType();
+                Preconditions.checkState(currentList.elementId() == historicalList.elementId(),
+                        "Iceberg equality-delete list element id changed from %s to %s",
+                        historicalList.elementId(), currentList.elementId());
+                Type mergedElement = mergeHistoricalEqualityType(
+                        currentList.elementType(), historicalList.elementType());
+                if (mergedElement == currentList.elementType()) {
+                    return currentType;
+                }
+                return currentList.isElementOptional()
+                        ? Types.ListType.ofOptional(currentList.elementId(), mergedElement)
+                        : Types.ListType.ofRequired(currentList.elementId(), mergedElement);
+            case MAP:
+                Types.MapType currentMap = currentType.asMapType();
+                Types.MapType historicalMap = historicalType.asMapType();
+                Preconditions.checkState(currentMap.keyId() == historicalMap.keyId()
+                                && currentMap.valueId() == historicalMap.valueId(),
+                        "Iceberg equality-delete map field ids changed from (%s, %s) to (%s, %s)",
+                        historicalMap.keyId(), historicalMap.valueId(),
+                        currentMap.keyId(), currentMap.valueId());
+                Type mergedKey = mergeHistoricalEqualityType(
+                        currentMap.keyType(), historicalMap.keyType());
+                Type mergedValue = mergeHistoricalEqualityType(
+                        currentMap.valueType(), historicalMap.valueType());
+                if (mergedKey == currentMap.keyType()
+                        && mergedValue == currentMap.valueType()) {
+                    return currentType;
+                }
+                return currentMap.isValueOptional()
+                        ? Types.MapType.ofOptional(
+                                currentMap.keyId(), currentMap.valueId(),
+                                mergedKey, mergedValue)
+                        : Types.MapType.ofRequired(
+                                currentMap.keyId(), currentMap.valueId(),
+                                mergedKey, mergedValue);
+            default:
+                Preconditions.checkState(currentType.equals(historicalType),
+                        "Iceberg equality-delete field type changed from %s to %s",
+                        historicalType, currentType);
+                return currentType;
         }
     }
 
@@ -987,22 +1084,58 @@ public class IcebergScanNode extends FileQueryScanNode {
     @VisibleForTesting
     static boolean hasCurrentNameAliasCollision(
             Schema schema, Optional<Map<Integer, List<String>>> nameMapping) {
-        return nameMapping.isPresent()
-                && hasCurrentNameAliasCollision(schema.asStruct(), nameMapping.get());
+        return !getCurrentNameAliasCollisionFieldIds(schema, nameMapping).isEmpty();
     }
 
     @VisibleForTesting
     static void checkNameMappingBackendCompatibility(
             Schema schema,
+            List<SlotDescriptor> projectedSlots,
+            Set<Integer> equalityDeleteFieldIds,
             Optional<Map<Integer, List<String>>> nameMapping,
             Iterable<Backend> backends) throws UserException {
-        if (hasCurrentNameAliasCollision(schema, nameMapping)) {
+        Set<Integer> collisionFieldIds =
+                getCurrentNameAliasCollisionFieldIds(schema, nameMapping);
+        if (collisionFieldIds.isEmpty()) {
+            return;
+        }
+        boolean projectedCollision = requiresProjectedIcebergField(
+                schema, projectedSlots,
+                (field, isTopLevel) -> collisionFieldIds.contains(field.fieldId()));
+        if (!projectedCollision && !equalityDeleteFieldIds.isEmpty()) {
+            Map<Integer, Integer> parentById = TypeUtil.indexParents(schema.asStruct());
+            for (Integer equalityDeleteFieldId : equalityDeleteFieldIds) {
+                Integer fieldId = equalityDeleteFieldId;
+                while (fieldId != null) {
+                    if (collisionFieldIds.contains(fieldId)) {
+                        projectedCollision = true;
+                        break;
+                    }
+                    fieldId = parentById.get(fieldId);
+                }
+                if (projectedCollision) {
+                    break;
+                }
+            }
+        }
+        if (projectedCollision) {
             checkCurrentIcebergScanSemanticsBackendCompatibility(backends);
         }
     }
 
-    private static boolean hasCurrentNameAliasCollision(
-            Type type, Map<Integer, List<String>> nameMapping) {
+    private static Set<Integer> getCurrentNameAliasCollisionFieldIds(
+            Schema schema, Optional<Map<Integer, List<String>>> nameMapping) {
+        Set<Integer> collisionFieldIds = new HashSet<>();
+        if (nameMapping.isPresent()) {
+            collectCurrentNameAliasCollisionFieldIds(
+                    schema.asStruct(), nameMapping.get(), collisionFieldIds);
+        }
+        return collisionFieldIds;
+    }
+
+    private static void collectCurrentNameAliasCollisionFieldIds(
+            Type type, Map<Integer, List<String>> nameMapping,
+            Set<Integer> collisionFieldIds) {
         switch (type.typeId()) {
             case STRUCT:
                 List<NestedField> fields = type.asStructType().fields();
@@ -1013,24 +1146,27 @@ public class IcebergScanNode extends FileQueryScanNode {
                         for (NestedField sibling : fields) {
                             if (sibling.fieldId() != field.fieldId()
                                     && sibling.name().equalsIgnoreCase(alias)) {
-                                return true;
+                                collisionFieldIds.add(field.fieldId());
+                                collisionFieldIds.add(sibling.fieldId());
                             }
                         }
                     }
-                    if (hasCurrentNameAliasCollision(field.type(), nameMapping)) {
-                        return true;
-                    }
+                    collectCurrentNameAliasCollisionFieldIds(
+                            field.type(), nameMapping, collisionFieldIds);
                 }
-                return false;
+                return;
             case LIST:
-                return hasCurrentNameAliasCollision(
-                        type.asListType().elementType(), nameMapping);
+                collectCurrentNameAliasCollisionFieldIds(
+                        type.asListType().elementType(), nameMapping, collisionFieldIds);
+                return;
             case MAP:
-                return hasCurrentNameAliasCollision(type.asMapType().keyType(), nameMapping)
-                        || hasCurrentNameAliasCollision(
-                                type.asMapType().valueType(), nameMapping);
+                collectCurrentNameAliasCollisionFieldIds(
+                        type.asMapType().keyType(), nameMapping, collisionFieldIds);
+                collectCurrentNameAliasCollisionFieldIds(
+                        type.asMapType().valueType(), nameMapping, collisionFieldIds);
+                return;
             default:
-                return false;
+                return;
         }
     }
 

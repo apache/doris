@@ -772,6 +772,54 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSchemaCarrierKeepsDroppedNestedEqualityFieldPath() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Types.NestedField existing = Types.NestedField.optional(
+                4, "existing", Types.IntegerType.get());
+        Types.NestedField equalityKey = Types.NestedField.optional("k")
+                .withId(7)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(7)
+                .build();
+        Types.NestedField historicalPayload = Types.NestedField.optional(
+                3, "payload", Types.StructType.of(existing, equalityKey));
+        Types.NestedField currentPayload = Types.NestedField.optional(
+                3, "payload", Types.StructType.of(existing));
+        Schema historicalSchema = new Schema(1, List.of(id, historicalPayload));
+        Schema currentSchema = new Schema(2, List.of(id, currentPayload));
+        Snapshot historicalSnapshot = mockSnapshot(1000L, historicalSchema, null);
+        Snapshot currentSnapshot = mockSnapshot(1001L, currentSchema, 1000L);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(List.of(historicalSchema, currentSchema));
+        Mockito.when(metadata.schemasById()).thenReturn(Map.of(
+                historicalSchema.schemaId(), historicalSchema,
+                currentSchema.schemaId(), currentSchema));
+        Mockito.when(metadata.snapshot(1000L)).thenReturn(historicalSnapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(currentSnapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+
+        List<Types.NestedField> fields =
+                node.getSchemaFieldsForScan(currentSchema, Set.of(7));
+
+        Assert.assertEquals(2, fields.size());
+        Types.NestedField payload = fields.get(1);
+        Assert.assertEquals(3, payload.fieldId());
+        Assert.assertTrue(payload.isOptional());
+        Assert.assertEquals(List.of(4, 7), payload.type().asStructType().fields().stream()
+                .map(Types.NestedField::fieldId)
+                .collect(Collectors.toList()));
+        Assert.assertEquals("7",
+                IcebergUtils.getSerializedInitialDefaults(fields, false).get(7));
+    }
+
+    @Test
     public void testSchemaCarrierSkipsUnreferencedUnsupportedHistoricalField() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField equalityKey = Types.NestedField.optional(
@@ -1119,6 +1167,8 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testReusedNestedNameRejectsSmoothUpgradeSourceBackend() throws Exception {
+        Types.NestedField unrelated = Types.NestedField.optional(
+                8, "id", Types.IntegerType.get());
         Types.NestedField renamedPayload = Types.NestedField.optional(
                 3, "renamed_payload",
                 Types.ListType.ofOptional(4, Types.IntegerType.get()));
@@ -1126,11 +1176,18 @@ public class IcebergScanNodeTest {
                 5, "payload",
                 Types.MapType.ofOptional(
                         6, 7, Types.StringType.get(), Types.IntegerType.get()));
-        Schema schema = new Schema(Types.NestedField.optional(
-                1, "root", Types.StructType.of(renamedPayload, replacementPayload)));
+        Types.NestedField safe = Types.NestedField.optional(
+                9, "safe", Types.IntegerType.get());
+        Schema schema = new Schema(unrelated, Types.NestedField.optional(
+                1, "root", Types.StructType.of(renamedPayload, replacementPayload, safe)));
         Optional<Map<Integer, List<String>>> mapping = Optional.of(Map.of(
                 3, List.of("payload", "renamed_payload"),
                 5, Collections.singletonList("payload")));
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+        SlotDescriptor unrelatedSlot = new SlotDescriptor(new SlotId(8), new TupleId(0));
+        unrelatedSlot.setColumn(columns.get(0));
+        SlotDescriptor rootSlot = new SlotDescriptor(new SlotId(1), new TupleId(0));
+        rootSlot.setColumn(columns.get(1));
 
         Assert.assertTrue(IcebergScanNode.hasCurrentNameAliasCollision(schema, mapping));
         Assert.assertFalse(IcebergScanNode.hasCurrentNameAliasCollision(
@@ -1141,15 +1198,36 @@ public class IcebergScanNodeTest {
         Backend currentBackend = Mockito.mock(Backend.class);
         Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
         IcebergScanNode.checkNameMappingBackendCompatibility(
-                schema, mapping, Collections.singletonList(currentBackend));
+                schema, Collections.singletonList(rootSlot), Collections.emptySet(),
+                mapping, Collections.singletonList(currentBackend));
 
         Backend smoothUpgradeSource = Mockito.mock(Backend.class);
         Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
         Mockito.when(smoothUpgradeSource.getId()).thenReturn(10004L);
+        IcebergScanNode.checkNameMappingBackendCompatibility(
+                schema, Collections.singletonList(unrelatedSlot), Collections.emptySet(),
+                mapping, Collections.singletonList(smoothUpgradeSource));
+
+        rootSlot.setAllAccessPaths(Collections.singletonList(
+                ColumnAccessPath.data(List.of("1", "9"))));
+        IcebergScanNode.checkNameMappingBackendCompatibility(
+                schema, Collections.singletonList(rootSlot), Collections.emptySet(),
+                mapping, Collections.singletonList(smoothUpgradeSource));
+
+        rootSlot.setAllAccessPaths(Collections.singletonList(
+                ColumnAccessPath.data(List.of("1", "3"))));
         UserException exception = Assert.assertThrows(UserException.class,
                 () -> IcebergScanNode.checkNameMappingBackendCompatibility(
-                        schema, mapping, Collections.singletonList(smoothUpgradeSource)));
+                        schema, Collections.singletonList(rootSlot), Collections.emptySet(),
+                        mapping, Collections.singletonList(smoothUpgradeSource)));
         Assert.assertTrue(exception.getMessage().contains(
+                "backend 10004 is a smooth upgrade source"));
+
+        UserException equalityException = Assert.assertThrows(UserException.class,
+                () -> IcebergScanNode.checkNameMappingBackendCompatibility(
+                        schema, Collections.singletonList(unrelatedSlot), Set.of(7),
+                        mapping, Collections.singletonList(smoothUpgradeSource)));
+        Assert.assertTrue(equalityException.getMessage().contains(
                 "backend 10004 is a smooth upgrade source"));
     }
 

@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
@@ -134,6 +135,112 @@ TEST_F(VOrcTransformerTest, IcebergBinaryTypesOverrideLegacyStringCarrier) {
     auto binary_type = transformer._build_orc_type(string_type, fields.data() + 2);
     EXPECT_EQ(orc::BINARY, binary_type->getKind());
     EXPECT_EQ("BINARY", binary_type->getAttributeValue("iceberg.binary-type"));
+}
+
+TEST_F(VOrcTransformerTest, ConvertsNestedLegacyUuidAndValidatesFixedBeforeOrcWrite) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {
+                "id": 1,
+                "name": "payload",
+                "required": true,
+                "type": {
+                    "type": "struct",
+                    "fields": [
+                        {"id": 2, "name": "uuid_col", "required": true, "type": "uuid"},
+                        {"id": 3, "name": "fixed_col", "required": true, "type": "fixed[4]"}
+                    ]
+                }
+            }
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    auto string_type = std::make_shared<DataTypeString>();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {string_type, string_type},
+                                                        Strings {"uuid_col", "fixed_col"});
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {struct_type});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    VOrcTransformer transformer(&state, file_writer.get(), output_exprs, "", {"payload"}, false,
+                                TFileCompressType::PLAIN, schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+
+    auto uuid_column = ColumnString::create();
+    uuid_column->insert_data("00112233-4455-6677-8899-aabbccddeeff", 36);
+    auto fixed_column = ColumnString::create();
+    fixed_column->insert_data("ABCD", 4);
+    Columns children;
+    children.emplace_back(std::move(uuid_column));
+    children.emplace_back(std::move(fixed_column));
+    Block block;
+    block.insert({ColumnStruct::create(std::move(children)), struct_type, "payload"});
+
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(_fs->open_file(_file_path, &file_reader).ok());
+    auto input_stream = std::make_unique<ORCFileInputStream>(
+            _file_path, file_reader, nullptr, nullptr, 8L * 1024L * 1024L, 1L * 1024L * 1024L);
+    auto reader = orc::createReader(std::move(input_stream), orc::ReaderOptions());
+    auto row_reader = reader->createRowReader();
+    auto row_batch = row_reader->createRowBatch(1);
+    ASSERT_TRUE(row_reader->next(*row_batch));
+    const auto& root = assert_cast<const orc::StructVectorBatch&>(*row_batch);
+    const auto& payload = assert_cast<const orc::StructVectorBatch&>(*root.fields[0]);
+    const auto& uuid_batch = assert_cast<const orc::StringVectorBatch&>(*payload.fields[0]);
+    const auto& fixed_batch = assert_cast<const orc::StringVectorBatch&>(*payload.fields[1]);
+    const std::array<uint8_t, 16> expected_uuid = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                                   0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    EXPECT_EQ(uuid_batch.length[0], expected_uuid.size());
+    EXPECT_EQ(0, std::memcmp(uuid_batch.data[0], expected_uuid.data(), expected_uuid.size()));
+    EXPECT_EQ(fixed_batch.length[0], 4);
+    EXPECT_EQ(std::string_view(fixed_batch.data[0], fixed_batch.length[0]), "ABCD");
+}
+
+TEST_F(VOrcTransformerTest, RejectsInvalidLegacyUuidAndFixedValues) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {"id": 1, "name": "uuid_col", "required": true, "type": "uuid"},
+            {"id": 2, "name": "fixed_col", "required": true, "type": "fixed[4]"}
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    auto string_type = std::make_shared<DataTypeString>();
+    RuntimeState state;
+    VExprContextSPtrs output_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {string_type, string_type});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    VOrcTransformer transformer(&state, file_writer.get(), output_exprs, "",
+                                {"uuid_col", "fixed_col"}, false, TFileCompressType::PLAIN,
+                                schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+    auto uuid_column = ColumnString::create();
+    uuid_column->insert_data("not-a-uuid", 10);
+    auto fixed_column = ColumnString::create();
+    fixed_column->insert_data("ABC", 3);
+    Block block;
+    block.insert({std::move(uuid_column), string_type, "uuid_col"});
+    block.insert({std::move(fixed_column), string_type, "fixed_col"});
+
+    const auto invalid_uuid = transformer.write(block);
+    ASSERT_FALSE(invalid_uuid.ok());
+    EXPECT_NE(invalid_uuid.to_string().find("Invalid UUID string length"), std::string::npos);
+
+    auto valid_uuid_column = ColumnString::create();
+    valid_uuid_column->insert_data("00112233-4455-6677-8899-aabbccddeeff", 36);
+    block.replace_by_position(0, std::move(valid_uuid_column));
+    const auto invalid_fixed = transformer.write(block);
+    ASSERT_FALSE(invalid_fixed.ok());
+    EXPECT_NE(invalid_fixed.to_string().find("FIXED[4]"), std::string::npos);
+    ASSERT_TRUE(transformer.close().ok());
 }
 
 } // namespace doris

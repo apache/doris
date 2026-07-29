@@ -19,6 +19,7 @@
 
 #include <cctz/time_zone.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
@@ -26,6 +27,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/string_ref.h"
 
 // This file will convert Doris Block to/from Arrow's RecordBatch
 // Block is used by Doris query engine to exchange data between
@@ -40,6 +42,8 @@ class Schema;
 } // namespace arrow
 
 namespace doris {
+
+Status parse_iceberg_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes);
 
 class FromBlockToRecordBatchConverter {
 public:
