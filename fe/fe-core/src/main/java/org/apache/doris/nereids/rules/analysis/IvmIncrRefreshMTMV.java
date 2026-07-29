@@ -102,6 +102,9 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
         String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
                 + ", storedSignature=" + storedSignature
                 + ", currentSignature=" + (currentSignature == null ? "null" : currentSignature.getSha256())
+                + ", currentCanonical=" + (currentSignature == null ? "null" : currentSignature.getCanonicalString())
+                + ", currentPlan=" + (rewriteResult.getNormalizedPlan() == null
+                        ? "null" : rewriteResult.getNormalizedPlan().treeString())
                 + ". Run a full refresh to rebuild IVM layout baseline.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }

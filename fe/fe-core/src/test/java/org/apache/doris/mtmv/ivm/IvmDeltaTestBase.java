@@ -233,7 +233,7 @@ abstract class IvmDeltaTestBase {
     protected ConnectContext newConnectContext() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         StatementContext statementContext = new StatementContext(connectContext, null);
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.create()));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.create("test_mtmv")));
         connectContext.setStatementContext(statementContext);
         return connectContext;
     }
@@ -243,7 +243,7 @@ abstract class IvmDeltaTestBase {
             return connectContext;
         }
         StatementContext statementContext = new StatementContext(connectContext, null);
-        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.create()));
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.create("test_mtmv")));
         connectContext.setStatementContext(statementContext);
         return connectContext;
     }
