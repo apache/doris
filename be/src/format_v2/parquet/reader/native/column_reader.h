@@ -337,6 +337,7 @@ public:
 
 #ifdef BE_TEST
     void reserve_batch_scratch_for_test(size_t elements);
+    void reserve_level_scratch_for_test(size_t elements);
     size_t retained_batch_scratch_bytes_for_test() const;
     size_t dictionary_materialization_count_for_test() const {
         return _dictionary_materialization_count;

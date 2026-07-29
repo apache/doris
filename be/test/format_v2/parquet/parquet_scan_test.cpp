@@ -3045,6 +3045,41 @@ TEST_F(ParquetScanTest, PredicateOnlyPlainStringNullPredicatesUseDefinitionLevel
     }
 }
 
+TEST_F(ParquetScanTest, PredicateOnlyDictionaryIntNullPredicatesUseDefinitionLevels) {
+    for (const bool is_null : {true, false}) {
+        write_dictionary_int_pair_parquet_file(_file_path);
+        RuntimeProfile profile("profile");
+        auto reader = create_reader(0, -1, &profile);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        format::FileScanRequestBuilder request_builder(request.get());
+        ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+        ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+        request->predicate_only_columns.push_back(format::LocalColumnId(0));
+        auto conjunct = create_null_conjunct(0, schema[0].type, is_null);
+        ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+        ASSERT_TRUE(conjunct->open(&state).ok());
+        request->conjuncts.push_back(conjunct);
+        ASSERT_TRUE(reader->open(request).ok());
+
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(rows, is_null ? 0 : 6);
+        if (!is_null) {
+            EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
+                      (ColumnInt32::Container {10, 20, 30, 40, 50, 60}));
+        }
+        conjunct->close();
+    }
+}
+
 TEST_F(ParquetScanTest, DefinitionOnlyDatePredicatePreservesConversionSemantics) {
     for (const bool dictionary : {false, true}) {
         write_required_invalid_date_pair_parquet_file(_file_path, dictionary);
