@@ -77,6 +77,7 @@
 #include "format/table/paimon_jni_reader.h"
 #include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
+#include "format/table/paimon_rust_reader.h"
 #include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
 #include "format/table/transactional_hive_reader.h"
@@ -1111,8 +1112,61 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                if (_state->query_options().__isset.enable_paimon_cpp_reader &&
-                    _state->query_options().enable_paimon_cpp_reader) {
+                const auto& paimon_params = range.table_format_params.paimon_params;
+                bool use_paimon_rust_reader = false;
+                bool use_paimon_cpp_reader = false;
+                if (paimon_params.__isset.reader_type) {
+                    switch (paimon_params.reader_type) {
+                    case TPaimonReaderType::PAIMON_RUST:
+                        use_paimon_rust_reader = true;
+                        break;
+                    case TPaimonReaderType::PAIMON_CPP:
+                        use_paimon_cpp_reader = true;
+                        break;
+                    case TPaimonReaderType::PAIMON_JNI:
+                        break;
+                    case TPaimonReaderType::PAIMON_NATIVE:
+                        return Status::InternalError(
+                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
+                                "possibly caused by FE/BE protocol mismatch");
+                    default:
+                        return Status::InternalError(
+                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
+                                "caused by FE/BE protocol mismatch");
+                    }
+                } else {
+                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
+                    // Rust has higher priority than cpp.
+                    use_paimon_rust_reader =
+                            _state->query_options().__isset.enable_paimon_rust_reader &&
+                            _state->query_options().enable_paimon_rust_reader;
+                    if (!use_paimon_rust_reader) {
+                        use_paimon_cpp_reader =
+                                _state->query_options().__isset.enable_paimon_cpp_reader &&
+                                _state->query_options().enable_paimon_cpp_reader;
+                    }
+                }
+                // Native paimon readers (rust/cpp) push conjuncts down, but they live
+                // under FORMAT_JNI where push_down_predicates is false, so the generic
+                // parquet/orc path never ran _process_late_arrival_conjuncts() and
+                // _push_down_conjuncts is still empty here. Populate it now (same call
+                // parquet/orc make) so the predicate converters see the conjuncts.
+                if (!_is_load && (use_paimon_rust_reader || use_paimon_cpp_reader)) {
+                    RETURN_IF_ERROR(_process_late_arrival_conjuncts());
+                }
+                if (use_paimon_rust_reader) {
+                    auto rust_reader = PaimonRustReader::create_unique(_file_slot_descs, _state,
+                                                                       _profile, range, _params);
+                    rust_reader->set_push_down_agg_type(_get_push_down_agg_type());
+                    if (!_is_load && !_push_down_conjuncts.empty()) {
+                        // paimon-rust needs the live table handle to build predicates,
+                        // so the converter runs inside init_reader. Just hand over the
+                        // conjuncts here.
+                        rust_reader->set_push_down_conjuncts(_push_down_conjuncts);
+                    }
+                    init_status = rust_reader->init_reader();
+                    _cur_reader = std::move(rust_reader);
+                } else if (use_paimon_cpp_reader) {
                     auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range, _params);
                     cpp_reader->set_push_down_agg_type(_get_push_down_agg_type());

@@ -352,6 +352,7 @@ enum TPaimonReaderType {
     PAIMON_NATIVE = 0,
     PAIMON_JNI = 1,
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
