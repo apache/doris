@@ -36,6 +36,7 @@
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "exprs/aggregate/aggregate_function_percentile.h"
+#include "exprs/aggregate/aggregate_function_percentile_reservoir.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "util/tdigest.h"
 
@@ -457,6 +458,27 @@ TEST(AggregateFunctionPercentileApproxArrayTest, HandlesNonFiniteParameters) {
         expect_results_equal(read_result(function_with_compression, memory.get()), expected);
         function_with_compression->destroy(memory.get());
     }
+}
+
+TEST(AggregateFunctionPercentileTest, reservoir_state_caches_const_level_across_reset) {
+    QuantileReservoirSampler state;
+    state.init(0.5);
+    state.add(1.0);
+    state.add(3.0);
+    EXPECT_DOUBLE_EQ(state.get(), 2.0);
+
+    // Repeated rows and analytic frame resets belong to the same aggregate expression, whose
+    // level is a semantic constant. Neither path should replace or revalidate the cached level.
+    state.init(1.0);
+    state.add(5.0);
+    EXPECT_DOUBLE_EQ(state.get(), 3.0);
+
+    state.reset();
+    EXPECT_TRUE(state.is_level_initialized());
+    state.init(0.0);
+    state.add(10.0);
+    state.add(20.0);
+    EXPECT_DOUBLE_EQ(state.get(), 15.0);
 }
 
 TEST(AggregateFunctionPercentileTest, optimized_single_place_paths) {

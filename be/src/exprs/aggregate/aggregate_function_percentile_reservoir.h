@@ -38,23 +38,29 @@ class Arena;
 class BufferReadable;
 
 struct QuantileReservoirSampler {
-    void add(const double x, const double input_level) {
-        this->level = input_level;
-        data.insert(x);
+    void init(double input_level) {
+        if (!level_initialized) {
+            check_quantile(input_level);
+            level = input_level;
+            level_initialized = true;
+        }
     }
 
-    void add_batch(const double* values, size_t size, const double input_level) {
-        this->level = input_level;
-        data.insert_many(values, size);
-    }
+    bool is_level_initialized() const { return level_initialized; }
+
+    void add(const double x) { data.insert(x); }
+
+    void add_batch(const double* values, size_t size) { data.insert_many(values, size); }
 
     void merge(const QuantileReservoirSampler& rhs) {
         level = rhs.level;
+        level_initialized = rhs.level_initialized;
         data.merge(rhs.data);
     }
 
     void reset() {
-        level = 0.0;
+        // The level is a semantic constant for the aggregate expression, so keep the validated
+        // value when analytic execution resets only the samples for the next window frame.
         data.clear();
     }
 
@@ -65,6 +71,8 @@ struct QuantileReservoirSampler {
 
     void deserialize(BufferReadable& buf) {
         buf.read_binary(level);
+        check_quantile(level);
+        level_initialized = true;
         data.read(buf);
     }
 
@@ -76,6 +84,7 @@ struct QuantileReservoirSampler {
 
 private:
     double level = 0.0;
+    bool level_initialized = false;
     ReservoirSampler data;
 };
 
@@ -102,10 +111,12 @@ public:
              Arena&) const override {
         auto value = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0])
                              .get_data()[row_num];
-        const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
-        auto level = level_column.get_data()[0];
-        check_quantile(level);
-        this->data(place).add(value, level);
+        auto& state = this->data(place);
+        if (!state.is_level_initialized()) {
+            const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+            state.init(level_column.get_data()[0]);
+        }
+        state.add(value);
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
@@ -117,10 +128,12 @@ public:
                                 Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
-        auto level = level_column.get_data()[0];
-        check_quantile(level);
-        this->data(place).add_batch(sources.get_data().data(), batch_size, level);
+        auto& state = this->data(place);
+        if (!state.is_level_initialized()) {
+            const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+            state.init(level_column.get_data()[0]);
+        }
+        state.add_batch(sources.get_data().data(), batch_size);
     }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
@@ -132,11 +145,13 @@ public:
         if (frame_start < frame_end) {
             const auto& sources =
                     assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& level_column = *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
-            auto level = level_column.get_data()[0];
-            check_quantile(level);
-            this->data(place).add_batch(sources.get_data().data() + frame_start,
-                                        frame_end - frame_start, level);
+            auto& state = this->data(place);
+            if (!state.is_level_initialized()) {
+                const auto& level_column =
+                        *check_and_get_column_with_const<ColumnFloat64>(*columns[1]);
+                state.init(level_column.get_data()[0]);
+            }
+            state.add_batch(sources.get_data().data() + frame_start, frame_end - frame_start);
             *use_null_result = false;
             *could_use_previous_result = true;
         } else if (!*could_use_previous_result) {
