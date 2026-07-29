@@ -583,7 +583,8 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             if (type->timezone().empty()) {
                 RETURN_IF_ERROR(append_datetimev2_from_epoch_micros(col_data, timestamp_micros));
             } else {
-                append_datetimev2_from_utc_epoch_micros(col_data, timestamp_micros, ctz);
+                RETURN_IF_ERROR(
+                        append_datetimev2_from_utc_epoch_micros(col_data, timestamp_micros, ctz));
             }
         }
     } else {
