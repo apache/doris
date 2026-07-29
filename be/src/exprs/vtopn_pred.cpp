@@ -46,7 +46,8 @@ size_t topn_raw_value_size(PrimitiveType type) {
         RETURN_TOPN_RAW_SIZE(TYPE_DATEV2);
         RETURN_TOPN_RAW_SIZE(TYPE_DATETIMEV2);
         RETURN_TOPN_RAW_SIZE(TYPE_TIMESTAMPTZ);
-        RETURN_TOPN_RAW_SIZE(TYPE_TIME);
+        // Master no longer defines a C++ carrier for legacy TYPE_TIME; Parquet time values use
+        // TYPE_TIMEV2, so advertising the deprecated tag would make direct filtering unusable.
         RETURN_TOPN_RAW_SIZE(TYPE_TIMEV2);
         RETURN_TOPN_RAW_SIZE(TYPE_DECIMAL32);
         RETURN_TOPN_RAW_SIZE(TYPE_DECIMAL64);
@@ -160,7 +161,7 @@ Status VTopNPred::execute_on_raw_fixed_values(const uint8_t* values, size_t num_
         EXECUTE_TOPN_RAW_SCALAR(TYPE_DATEV2);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_DATETIMEV2);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_TIMESTAMPTZ);
-        EXECUTE_TOPN_RAW_SCALAR(TYPE_TIME);
+        // Keep dispatch aligned with topn_raw_value_size(): legacy TYPE_TIME has no master carrier.
         EXECUTE_TOPN_RAW_SCALAR(TYPE_TIMEV2);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_DECIMAL32);
         EXECUTE_TOPN_RAW_SCALAR(TYPE_DECIMAL64);

@@ -3150,7 +3150,8 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
     Block block = build_file_block(schema);
     size_t rows = 0;
     bool eof = false;
-    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    const auto read_status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(read_status.ok()) << read_status;
     ASSERT_EQ(rows, 3);
     EXPECT_EQ(int32_data_column(*block.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {10, 20, 30}));
@@ -3228,7 +3229,8 @@ TEST_F(ParquetScanTest, DictionaryTopNPreservesNullBeforeLateBound) {
     auto& predicate = prepared.query_context->get_runtime_predicate(10);
     ASSERT_TRUE(predicate.update(Field::create_field<TYPE_STRING>(std::string("charlie"))).ok());
     Block second = build_file_block(schema);
-    ASSERT_TRUE(reader->get_block(&second, &rows, &eof).ok());
+    const auto read_status = reader->get_block(&second, &rows, &eof);
+    ASSERT_TRUE(read_status.ok()) << read_status;
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(int32_data_column(*second.get_by_position(1).column).get_data(),
               (ColumnInt32::Container {30}));

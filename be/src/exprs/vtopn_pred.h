@@ -121,9 +121,18 @@ public:
         RETURN_IF_ERROR(_function->execute(nullptr, temp_block, arguments,
                                            num_columns_without_result, temp_block.rows()));
         result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
-        if (is_nullable() && _predicate->nulls_first()) {
-            // null values ​​are always not filtered
-            result_column = change_null_to_true(std::move(result_column));
+        if (auto mutable_result = IColumn::mutate(std::move(result_column));
+            auto* nullable = check_and_get_column<ColumnNullable>(*mutable_result)) {
+            auto& values = assert_cast<ColumnUInt8&>(*nullable->get_nested_column_ptr()).get_data();
+            const auto& null_map = nullable->get_null_map_data();
+            // Master validates execute_type() against the physical result column. Collapse SQL
+            // NULL to the filter decision here: NULLS FIRST keeps it, while NULLS LAST rejects it.
+            for (size_t row = 0; row < values.size(); ++row) {
+                values[row] = null_map[row] ? _predicate->nulls_first() : values[row];
+            }
+            result_column = nullable->get_nested_column_ptr();
+        } else {
+            result_column = std::move(mutable_result);
         }
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();
