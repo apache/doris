@@ -60,8 +60,32 @@ jobs:
             ' "$1" >/dev/null
           }
 
+          review_run_is_active() {
+            local status
+            if ! status="$(gh run view "$1" --repo "$REPO" --json status --jq '.status' 2>/dev/null)"; then
+              return 1
+            fi
+            [ "$status" = 'queued' ] || [ "$status" = 'in_progress' ] || [ "$status" = 'waiting' ]
+          }
+
+          active_runner_run_id() {
+            local request_id="$1"
+            gh run list --repo "$REPO" --workflow code-review-runner.yml --event workflow_dispatch \
+              --limit 100 --json databaseId,displayTitle,status \
+              --jq ".[] | select(.displayTitle == \"Codex review request ${request_id}\") | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\") | .databaseId" \
+              | head -n 1
+          }
+
+          bind_claim_to_runner() {
+            local claim_file="$1" claim_object="$2" runner_run_id="$3"
+            jq --arg lease_id "$runner_run_id" '.lease_id = $lease_id' "$claim_file" > "${claim_file}.runner"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f \
+              "${claim_file}.runner" "$claim_object"
+            rm -f "${claim_file}.runner"
+          }
+
           requeue_expired_claims() {
-            local claim_listing claim_object claim_file pending_object lease_expires_at
+            local claim_listing claim_object claim_file pending_object lease_id lease_expires_at request_id runner_run_id
             claim_listing="$RUNNER_TEMP/codex-review-claimed.list"
             if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" ls \
               "$OSS_CODEX_REVIEW_CLAIMED_PREFIX/" -s > "$claim_listing"; then
@@ -77,7 +101,19 @@ jobs:
                 rm -f "$claim_file"
                 continue
               fi
+              request_id="$(jq -r '.request_id' "$claim_file")"
+              runner_run_id="$(active_runner_run_id "$request_id")"
+              if [ -n "$runner_run_id" ]; then
+                bind_claim_to_runner "$claim_file" "$claim_object" "$runner_run_id"
+                rm -f "$claim_file"
+                continue
+              fi
+              lease_id="$(jq -r '.lease_id // ""' "$claim_file")"
               lease_expires_at="$(jq -r '.lease_expires_at // ""' "$claim_file")"
+              if [ -n "$lease_id" ] && review_run_is_active "$lease_id"; then
+                rm -f "$claim_file"
+                continue
+              fi
               if [ "$lease_expires_at" ">" "$now" ]; then
                 rm -f "$claim_file"
                 continue
@@ -130,10 +166,24 @@ jobs:
               continue
             fi
 
-            lease_expires_at="$(jq -r '.lease_expires_at // ""' "$pending_file")"
-            if [ -n "$(jq -r '.lease_id // ""' "$pending_file")" ] && [ "$lease_expires_at" ">" "$now" ]; then
+            request_id="$(jq -r '.request_id' "$pending_file")"
+            runner_run_id="$(active_runner_run_id "$request_id")"
+            if [ -n "$runner_run_id" ]; then
+              bind_claim_to_runner "$pending_file" "$pending_object" "$runner_run_id"
               rm -f "$pending_file"
               continue
+            fi
+            lease_id="$(jq -r '.lease_id // ""' "$pending_file")"
+            lease_expires_at="$(jq -r '.lease_expires_at // ""' "$pending_file")"
+            if [ -n "$lease_id" ]; then
+              if review_run_is_active "$lease_id"; then
+                rm -f "$pending_file"
+                continue
+              fi
+              if [ "$lease_expires_at" ">" "$now" ]; then
+                rm -f "$pending_file"
+                continue
+              fi
             fi
 
             pr_number="$(jq -r '.pr_number' "$pending_file")"
@@ -173,6 +223,19 @@ jobs:
               ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" rm -f "$claim_object"
               rm -f "$pending_file" "$claim_file"
               exit 1
+            fi
+            runner_run_id=''
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              runner_run_id="$(active_runner_run_id "$request_id")"
+              if [ -n "$runner_run_id" ]; then
+                break
+              fi
+              sleep 5
+            done
+            if [ -n "$runner_run_id" ]; then
+              bind_claim_to_runner "$claim_file" "$claim_object" "$runner_run_id"
+            else
+              echo 'Deferred runner was dispatched but its workflow run ID was not yet observable.' >&2
             fi
             post_status "$head_sha" pending 'Automated review is durably leased to a deferred runner.'
             rm -f "$pending_file" "$claim_file"
