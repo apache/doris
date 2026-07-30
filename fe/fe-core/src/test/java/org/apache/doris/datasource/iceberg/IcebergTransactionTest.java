@@ -72,6 +72,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergTransactionTest {
@@ -373,6 +374,63 @@ public class IcebergTransactionTest {
     }
 
     @Test
+    public void testRecreatedTableFailsInsertOverwriteAndUpdateMergePreflight() {
+        Schema schema = new Schema(92,
+                Collections.singletonList(Types.NestedField.optional(
+                        1, "id", Types.IntegerType.get())));
+        UUID pinnedUuid = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        IcebergWriteSchemaContext context =
+                IcebergWriteSchemaContext.forSchemaWithUuidIdentity(schema, 3, pinnedUuid);
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        SortOrder sortOrder = SortOrder.unsorted();
+        Table replacementTable = Mockito.mock(Table.class);
+        Mockito.when(replacementTable.schema()).thenReturn(schema);
+        Mockito.when(replacementTable.uuid()).thenReturn(
+                UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        Mockito.when(replacementTable.properties()).thenReturn(
+                Collections.singletonMap(
+                        org.apache.iceberg.TableProperties.FORMAT_VERSION, "3"));
+        Mockito.when(replacementTable.specs()).thenReturn(
+                Collections.singletonMap(spec.specId(), spec));
+        Mockito.when(replacementTable.sortOrders()).thenReturn(
+                Collections.singletonMap(sortOrder.orderId(), sortOrder));
+
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn("recreated_table");
+
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(replacementTable);
+            mockedStatic.when(() -> IcebergUtils.getFormatVersion(replacementTable))
+                    .thenReturn(3);
+
+            IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+            insertContext.setWriteSchemaContext(Optional.of(context));
+            UserException insertException = Assert.assertThrows(
+                    UserException.class,
+                    () -> getTxn().beginInsert(dorisTable, Optional.of(insertContext)));
+            Assert.assertTrue(insertException.getMessage().contains("identity changed"));
+
+            IcebergInsertCommandContext overwriteContext = new IcebergInsertCommandContext();
+            overwriteContext.setOverwrite(true);
+            overwriteContext.setWriteSchemaContext(Optional.of(context));
+            UserException overwriteException = Assert.assertThrows(
+                    UserException.class,
+                    () -> getTxn().beginInsert(dorisTable, Optional.of(overwriteContext)));
+            Assert.assertTrue(overwriteException.getMessage().contains("identity changed"));
+
+            IcebergInsertCommandContext mergeContext = new IcebergInsertCommandContext();
+            mergeContext.setWriteSchemaContext(Optional.of(context));
+            UserException mergeException = Assert.assertThrows(
+                    UserException.class,
+                    () -> getTxn().beginMerge(dorisTable, Optional.of(mergeContext)));
+            Assert.assertTrue(mergeException.getMessage().contains("identity changed"));
+            Mockito.verify(replacementTable, Mockito.never()).newTransaction();
+        }
+    }
+
+    @Test
     public void testStaticOverwriteRejectsConcurrentCurrentSpecReplacement() {
         Schema schema = new Schema(93, Arrays.asList(
                 Types.NestedField.required(1, "p", Types.IntegerType.get()),
@@ -533,6 +591,48 @@ public class IcebergTransactionTest {
             Assert.assertTrue(exception.getMessage().contains("schema changed during write planning"));
             Assert.assertTrue(exception.getMessage().contains("retry the statement"));
             Assert.assertNull(table.currentSnapshot());
+        }
+    }
+
+    @Test
+    public void testCommitRejectsTableReplacementAfterStaging() throws UserException {
+        String tableName = "commit_table_replacement";
+        TableIdentifier identifier = TableIdentifier.of(dbName, tableName);
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()));
+        Table table = ops.getCatalog().createTable(identifier, schema);
+        IcebergWriteSchemaContext context =
+                IcebergWriteSchemaContext.forSchemaWithUuidIdentity(
+                        schema, 2, table.uuid());
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tableName);
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath(table.location() + "/data/output.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        IcebergTransaction txn = getTxn();
+        txn.updateIcebergCommitData(Collections.singletonList(commitData));
+        try (MockedStatic<IcebergUtils> mockedUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.loadFreshIcebergTable(
+                            ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            txn.beginInsert(dorisTable, Optional.of(insertContext));
+            txn.finishInsert(NameMapping.createForTest(dbName, tableName));
+
+            Assert.assertTrue(ops.getCatalog().dropTable(identifier, true));
+            Table replacement = ops.getCatalog().createTable(identifier, schema);
+            Assert.assertNotEquals(table.uuid(), replacement.uuid());
+            Assert.assertThrows(
+                    RuntimeException.class, () -> context.validateCurrentSchema(replacement));
+            RuntimeException exception =
+                    Assert.assertThrows(RuntimeException.class, txn::commit);
+            Assert.assertTrue(exception.getMessage().contains("identity changed"));
+            Assert.assertNull(replacement.currentSnapshot());
         }
     }
 

@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -56,6 +57,8 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
@@ -73,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class IcebergWriteSchemaContextTest {
@@ -337,6 +341,92 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
+    public void testTransactionPreflightRejectsRecreatedTableUuid() {
+        Schema schema = new Schema(22,
+                List.of(Types.NestedField.optional(
+                        1, "id", Types.IntegerType.get())));
+        UUID pinnedUuid = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        IcebergWriteSchemaContext context =
+                IcebergWriteSchemaContext.forSchemaWithUuidIdentity(schema, 3, pinnedUuid);
+        Table table = Mockito.mock(Table.class);
+        stubUnpartitionedWriterMetadata(table);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.uuid()).thenReturn(pinnedUuid);
+        Assertions.assertDoesNotThrow(() -> context.validateCurrentSchema(table));
+
+        Mockito.when(table.uuid()).thenReturn(
+                UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, () -> context.validateCurrentSchema(table));
+        Assertions.assertTrue(
+                exception.getMessage().contains("identity changed"), exception::getMessage);
+    }
+
+    @Test
+    public void testV1MetadataIdentityAcceptsAncestorAndRejectsReplacement() {
+        Schema schema = new Schema(0,
+                List.of(Types.NestedField.optional(
+                        1, "id", Types.IntegerType.get())));
+        String pinnedLocation = "file:///tmp/test_table/metadata/v1.metadata.json";
+        long pinnedTimestamp = 1234L;
+        Table table = Mockito.mock(
+                Table.class, Mockito.withSettings().extraInterfaces(HasTableOperations.class));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(((HasTableOperations) table).operations()).thenReturn(operations);
+        stubUnpartitionedWriterMetadata(table);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "1"));
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        TableMetadata unchanged = Mockito.mock(TableMetadata.class);
+        Mockito.when(unchanged.formatVersion()).thenReturn(1);
+        Mockito.when(unchanged.metadataFileLocation()).thenReturn(pinnedLocation);
+        Mockito.when(unchanged.lastUpdatedMillis()).thenReturn(pinnedTimestamp);
+        Mockito.when(unchanged.previousFiles()).thenReturn(List.of());
+        Mockito.when(operations.current()).thenReturn(unchanged);
+
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(catalog.getEnableMappingTimestampTz()).thenReturn(true);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getIcebergTable()).thenReturn(table);
+        Mockito.when(dorisTable.getId()).thenReturn(9L);
+        Mockito.when(dorisTable.getName()).thenReturn("v1_table");
+        IcebergWriteSchemaContext context =
+                IcebergWriteSchemaContext.create(dorisTable, Optional.empty());
+        Assertions.assertDoesNotThrow(() -> context.validateCurrentSchema(table));
+
+        TableMetadata.MetadataLogEntry pinnedEntry =
+                Mockito.mock(TableMetadata.MetadataLogEntry.class);
+        Mockito.when(pinnedEntry.file()).thenReturn(pinnedLocation);
+        Mockito.when(pinnedEntry.timestampMillis()).thenReturn(pinnedTimestamp);
+        TableMetadata advanced = Mockito.mock(TableMetadata.class);
+        Mockito.when(advanced.formatVersion()).thenReturn(1);
+        Mockito.when(advanced.metadataFileLocation()).thenReturn(
+                "file:///tmp/test_table/metadata/v2.metadata.json");
+        Mockito.when(advanced.lastUpdatedMillis()).thenReturn(2345L);
+        Mockito.when(advanced.previousFiles()).thenReturn(List.of(pinnedEntry));
+        Mockito.when(operations.current()).thenReturn(advanced);
+        Assertions.assertDoesNotThrow(() -> context.validateCurrentSchema(table));
+
+        TableMetadata replacement = Mockito.mock(TableMetadata.class);
+        Mockito.when(replacement.formatVersion()).thenReturn(1);
+        Mockito.when(replacement.metadataFileLocation()).thenReturn(pinnedLocation);
+        Mockito.when(replacement.lastUpdatedMillis()).thenReturn(3456L);
+        Mockito.when(replacement.previousFiles()).thenReturn(List.of());
+        Mockito.when(operations.current()).thenReturn(replacement);
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, () -> context.validateCurrentSchema(table));
+        Assertions.assertTrue(
+                exception.getMessage().contains("identity changed"), exception::getMessage);
+    }
+
+    @Test
     public void testCreatePinsSchemaFromStatementMvccSnapshot() {
         Schema pinnedSchema = new Schema(24,
                 List.of(defaultField(1, "value", Types.IntegerType.get(),
@@ -344,7 +434,14 @@ public class IcebergWriteSchemaContextTest {
         Schema cachedTableSchema = new Schema(25,
                 List.of(defaultField(1, "value", Types.IntegerType.get(),
                         Literal.of(24), Literal.of(25), false)));
-        Table table = Mockito.mock(Table.class);
+        UUID pinnedUuid = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        Table table = Mockito.mock(
+                Table.class, Mockito.withSettings().extraInterfaces(HasTableOperations.class));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(((HasTableOperations) table).operations()).thenReturn(operations);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        Mockito.when(metadata.uuid()).thenReturn(pinnedUuid.toString());
         Mockito.when(table.schema()).thenReturn(cachedTableSchema);
         Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
                 pinnedSchema.schemaId(), pinnedSchema,
@@ -382,6 +479,19 @@ public class IcebergWriteSchemaContextTest {
             Assertions.assertEquals("24",
                     stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
             Mockito.verify(table, Mockito.never()).refresh();
+
+            Table replacement = Mockito.mock(Table.class);
+            stubUnpartitionedWriterMetadata(replacement);
+            Mockito.when(replacement.properties()).thenReturn(
+                    ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+            Mockito.when(replacement.schema()).thenReturn(pinnedSchema);
+            Mockito.when(replacement.uuid()).thenReturn(
+                    UUID.fromString("00000000-0000-0000-0000-000000000004"));
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class,
+                    () -> context.validateCurrentSchema(replacement));
+            Assertions.assertTrue(
+                    exception.getMessage().contains("identity changed"), exception::getMessage);
         } finally {
             ConnectContext.remove();
         }
@@ -389,9 +499,11 @@ public class IcebergWriteSchemaContextTest {
 
     @Test
     public void testBranchPinsSnapshotSchemaWithoutRefreshingSharedTable() {
-        Schema mainSchema = new Schema(30,
-                List.of(defaultField(1, "value", Types.IntegerType.get(),
-                        Literal.of(30), Literal.of(31), false)));
+        Schema mainSchema = new Schema(30, List.of(
+                defaultField(1, "value", Types.IntegerType.get(),
+                        Literal.of(30), Literal.of(31), false),
+                defaultField(2, "main_only_required", Types.IntegerType.get(),
+                        Literal.of(40), Literal.of(41), true)));
         Schema branchSchema = new Schema(29,
                 List.of(defaultField(1, "value", Types.IntegerType.get(),
                         Literal.of(28), Literal.of(29), false)));
@@ -444,23 +556,31 @@ public class IcebergWriteSchemaContextTest {
 
     @Test
     public void testBranchRejectsConcurrentCurrentRequiredFieldBeforeCommit() {
+        // The branch field can contain an explicit NULL even though the current required field
+        // retains a non-null initial default.
         Schema branchSchema = new Schema(32,
-                List.of(Types.NestedField.required(
+                List.of(Types.NestedField.optional(
                         1, "branch_value", Types.IntegerType.get())));
-        Schema currentSchema = new Schema(33, List.of(
-                Types.NestedField.required(1, "branch_value", Types.IntegerType.get()),
-                Types.NestedField.required(2, "required_current", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(33, List.of(defaultField(
+                1, "branch_value", Types.IntegerType.get(),
+                Literal.of(7), Literal.of(7), true)));
+        Schema missingRequiredCurrentSchema = new Schema(36, List.of(
+                Types.NestedField.optional(1, "branch_value", Types.IntegerType.get()),
+                Types.NestedField.required(
+                        2, "required_current", Types.IntegerType.get())));
         Snapshot branchSnapshot = Mockito.mock(Snapshot.class);
         Mockito.when(branchSnapshot.schemaId()).thenReturn(branchSchema.schemaId());
         SnapshotRef branchRef = SnapshotRef.branchBuilder(103L).build();
 
         Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(branchSchema, currentSchema);
+        AtomicReference<Schema> tableSchema = new AtomicReference<>(branchSchema);
+        Mockito.when(table.schema()).thenAnswer(invocation -> tableSchema.get());
         Mockito.when(table.refs()).thenReturn(ImmutableMap.of("audit", branchRef));
         Mockito.when(table.snapshot(branchRef.snapshotId())).thenReturn(branchSnapshot);
         Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
                 branchSchema.schemaId(), branchSchema,
-                currentSchema.schemaId(), currentSchema));
+                currentSchema.schemaId(), currentSchema,
+                missingRequiredCurrentSchema.schemaId(), missingRequiredCurrentSchema));
         Mockito.when(table.properties()).thenReturn(
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
         stubUnpartitionedWriterMetadata(table);
@@ -478,25 +598,47 @@ public class IcebergWriteSchemaContextTest {
 
         IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
                 dorisTable, Optional.of("audit"));
+        tableSchema.set(currentSchema);
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> context.validateCurrentSchema(table));
         Assertions.assertTrue(
-                exception.getMessage().contains("required_current"), exception::getMessage);
+                exception.getMessage().contains("branch_value"), exception::getMessage);
+        Assertions.assertTrue(
+                exception.getMessage().contains("explicit nulls"), exception::getMessage);
         Assertions.assertTrue(
                 exception.getMessage().contains("current schema 33"), exception::getMessage);
         Assertions.assertTrue(
                 exception.getMessage().contains("pinned branch audit schema 32"),
                 exception::getMessage);
+
+        tableSchema.set(missingRequiredCurrentSchema);
+        AnalysisException missingFieldException = Assertions.assertThrows(
+                AnalysisException.class, () -> context.validateCurrentSchema(table));
+        Assertions.assertTrue(
+                missingFieldException.getMessage().contains("required_current"),
+                missingFieldException::getMessage);
+        Assertions.assertTrue(
+                missingFieldException.getMessage().contains("no initial default"),
+                missingFieldException::getMessage);
+        Assertions.assertTrue(
+                missingFieldException.getMessage().contains("current schema 36"),
+                missingFieldException::getMessage);
     }
 
     @Test
     public void testBranchRejectsCurrentRequiredFieldDuringPlanning() {
+        // The branch field can contain an explicit NULL even though the current required field
+        // retains a non-null initial default.
         Schema branchSchema = new Schema(34,
-                List.of(Types.NestedField.required(
+                List.of(Types.NestedField.optional(
                         1, "branch_value", Types.IntegerType.get())));
-        Schema currentSchema = new Schema(35, List.of(
-                Types.NestedField.required(1, "branch_value", Types.IntegerType.get()),
-                Types.NestedField.required(2, "required_current", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(35, List.of(defaultField(
+                1, "branch_value", Types.IntegerType.get(),
+                Literal.of(7), Literal.of(7), true)));
+        Schema missingRequiredCurrentSchema = new Schema(37, List.of(
+                Types.NestedField.optional(1, "branch_value", Types.IntegerType.get()),
+                Types.NestedField.required(
+                        2, "required_current", Types.IntegerType.get())));
         Snapshot branchSnapshot = Mockito.mock(Snapshot.class);
         Mockito.when(branchSnapshot.schemaId()).thenReturn(branchSchema.schemaId());
         SnapshotRef branchRef = SnapshotRef.branchBuilder(104L).build();
@@ -507,7 +649,8 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(table.snapshot(branchRef.snapshotId())).thenReturn(branchSnapshot);
         Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
                 branchSchema.schemaId(), branchSchema,
-                currentSchema.schemaId(), currentSchema));
+                currentSchema.schemaId(), currentSchema,
+                missingRequiredCurrentSchema.schemaId(), missingRequiredCurrentSchema));
         Mockito.when(table.properties()).thenReturn(
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
         stubUnpartitionedWriterMetadata(table);
@@ -528,12 +671,29 @@ public class IcebergWriteSchemaContextTest {
                 () -> IcebergWriteSchemaContext.create(
                         dorisTable, Optional.of("audit")));
         Assertions.assertTrue(
-                exception.getMessage().contains("required_current"), exception::getMessage);
+                exception.getMessage().contains("branch_value"), exception::getMessage);
+        Assertions.assertTrue(
+                exception.getMessage().contains("explicit nulls"), exception::getMessage);
         Assertions.assertTrue(
                 exception.getMessage().contains("current schema 35"), exception::getMessage);
         Assertions.assertTrue(
                 exception.getMessage().contains("pinned branch audit schema 34"),
                 exception::getMessage);
+
+        Mockito.when(table.schema()).thenReturn(missingRequiredCurrentSchema);
+        AnalysisException missingFieldException = Assertions.assertThrows(
+                AnalysisException.class,
+                () -> IcebergWriteSchemaContext.create(
+                        dorisTable, Optional.of("audit")));
+        Assertions.assertTrue(
+                missingFieldException.getMessage().contains("required_current"),
+                missingFieldException::getMessage);
+        Assertions.assertTrue(
+                missingFieldException.getMessage().contains("no initial default"),
+                missingFieldException::getMessage);
+        Assertions.assertTrue(
+                missingFieldException.getMessage().contains("current schema 37"),
+                missingFieldException::getMessage);
     }
 
     @Test
@@ -559,6 +719,8 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(table.properties()).thenReturn(
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
         Mockito.when(table.location()).thenReturn("file:///tmp/branch_table");
+        Mockito.when(table.uuid()).thenReturn(
+                UUID.fromString("00000000-0000-0000-0000-000000000001"));
 
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
@@ -586,6 +748,8 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(table.sortOrder()).thenReturn(sortOrder);
         Mockito.when(table.sortOrders()).thenReturn(ImmutableMap.of(sortOrder.orderId(), sortOrder));
         Mockito.when(table.location()).thenReturn("file:///tmp/test_table");
+        Mockito.when(table.uuid()).thenReturn(
+                UUID.fromString("00000000-0000-0000-0000-000000000001"));
     }
 
     private static Types.NestedField defaultField(int id, String name, Type type,

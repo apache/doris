@@ -20,10 +20,16 @@
 #include <gtest/gtest.h>
 
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
@@ -285,6 +291,95 @@ TEST_F(VOrcTransformerTest, RejectsInvalidLegacyUuidAndFixedValues) {
     const auto invalid_fixed = transformer.write(block);
     ASSERT_FALSE(invalid_fixed.ok());
     EXPECT_NE(invalid_fixed.to_string().find("FIXED[4]"), std::string::npos);
+    ASSERT_TRUE(transformer.close().ok());
+}
+
+TEST_F(VOrcTransformerTest, SkipsInvalidBinaryChildrenHiddenByNullableCollections) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {
+                "id": 1,
+                "name": "uuid_array",
+                "required": false,
+                "type": {
+                    "type": "list",
+                    "element-id": 2,
+                    "element-required": true,
+                    "element": "uuid"
+                }
+            },
+            {
+                "id": 3,
+                "name": "binary_map",
+                "required": false,
+                "type": {
+                    "type": "map",
+                    "key-id": 4,
+                    "key": "uuid",
+                    "value-id": 5,
+                    "value-required": true,
+                    "value": "fixed[4]"
+                }
+            }
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+    auto string_type = std::make_shared<DataTypeString>();
+    auto array_type = std::make_shared<DataTypeArray>(string_type);
+    auto map_type = std::make_shared<DataTypeMap>(string_type, string_type);
+    auto nullable_array_type = make_nullable(array_type);
+    auto nullable_map_type = make_nullable(map_type);
+    VExprContextSPtrs output_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {nullable_array_type, nullable_map_type});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    VOrcTransformer transformer(&state, file_writer.get(), output_exprs, "",
+                                {"uuid_array", "binary_map"}, false, TFileCompressType::PLAIN,
+                                schema.get(), _fs);
+    ASSERT_TRUE(transformer.open().ok());
+
+    auto array_elements = ColumnString::create();
+    array_elements->insert_data("invalid-hidden-uuid", 19);
+    array_elements->insert_data("00112233-4455-6677-8899-aabbccddeeff", 36);
+    auto array_element_nulls = ColumnUInt8::create();
+    array_element_nulls->insert_value(0);
+    array_element_nulls->insert_value(0);
+    auto array_offsets = ColumnArray::ColumnOffsets::create();
+    array_offsets->get_data().push_back(1);
+    array_offsets->get_data().push_back(2);
+    auto array_nulls = ColumnUInt8::create();
+    array_nulls->insert_value(1);
+    array_nulls->insert_value(0);
+    auto nullable_array = ColumnNullable::create(
+            ColumnArray::create(ColumnNullable::create(std::move(array_elements),
+                                                       std::move(array_element_nulls)),
+                                std::move(array_offsets)),
+            std::move(array_nulls));
+
+    auto map_keys = ColumnString::create();
+    map_keys->insert_data("invalid-hidden-uuid", 19);
+    map_keys->insert_data("00112233-4455-6677-8899-aabbccddeeff", 36);
+    auto map_values = ColumnString::create();
+    map_values->insert_data("BAD", 3);
+    map_values->insert_data("ABCD", 4);
+    auto map_offsets = ColumnArray::ColumnOffsets::create();
+    map_offsets->get_data().push_back(1);
+    map_offsets->get_data().push_back(2);
+    auto map_nulls = ColumnUInt8::create();
+    map_nulls->insert_value(1);
+    map_nulls->insert_value(0);
+    auto nullable_map = ColumnNullable::create(
+            ColumnMap::create(std::move(map_keys), std::move(map_values), std::move(map_offsets)),
+            std::move(map_nulls));
+
+    Block block;
+    block.insert({std::move(nullable_array), nullable_array_type, "uuid_array"});
+    block.insert({std::move(nullable_map), nullable_map_type, "binary_map"});
+    ASSERT_TRUE(transformer.write(block).ok());
     ASSERT_TRUE(transformer.close().ok());
 }
 

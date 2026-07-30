@@ -52,6 +52,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.expressions.Expression;
@@ -597,7 +598,7 @@ public class IcebergTransaction implements Transaction {
 
     /**
      * Create an Iceberg transaction whose final metadata CAS validates the statement-pinned
-     * writer metadata against the exact base metadata used by every commit attempt.
+     * writer metadata against freshly loaded table metadata at every commit attempt.
      *
      * <p>Iceberg simple transactions refresh and replay pending updates after a concurrent commit.
      * A begin-time validation alone would therefore allow replay to stamp files with a newer
@@ -667,11 +668,22 @@ public class IcebergTransaction implements Transaction {
 
         @Override
         public void commit(TableMetadata base, TableMetadata metadata) {
-            Table baseTable = new BaseTable(
-                    new StaticTableOperations(base, delegate.io(), delegate.locationProvider()),
+            TableMetadata refreshedMetadata = Preconditions.checkNotNull(
+                    delegate.refresh(), "Iceberg table %s no longer exists", tableName);
+            String metadataFileLocation = Preconditions.checkNotNull(
+                    refreshedMetadata.metadataFileLocation(),
+                    "Iceberg table %s has no current metadata file", tableName);
+            // Hadoop tables can reuse v1.metadata.json after drop/recreate, while refresh() keeps
+            // the cached object when the numeric version is unchanged. Re-read the current file
+            // so the identity check observes the replacement UUID.
+            TableMetadata currentMetadata =
+                    TableMetadataParser.read(delegate.io(), metadataFileLocation);
+            Table currentTable = new BaseTable(
+                    new StaticTableOperations(
+                            currentMetadata, delegate.io(), delegate.locationProvider()),
                     tableName);
             writeSchemaContext.validateCurrentSchema(
-                    baseTable, requireCurrentPartitionSpec.getAsBoolean());
+                    currentTable, requireCurrentPartitionSpec.getAsBoolean());
             delegate.commit(base, metadata);
         }
 

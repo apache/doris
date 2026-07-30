@@ -53,11 +53,14 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
@@ -66,6 +69,7 @@ import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
@@ -73,11 +77,14 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -97,6 +104,9 @@ import java.util.stream.Collectors;
 
 public class IcebergScanNodeTest {
     private static final long MB = 1024L * 1024L;
+
+    @Rule
+    public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @SuppressWarnings("unchecked")
     private static Optional<Map<Integer, List<String>>> extractNameMapping(
@@ -360,13 +370,11 @@ public class IcebergScanNodeTest {
 
     private static class PlanFilesCountingIcebergScanNode extends TestIcebergScanNode {
         private final boolean batchMode;
-        private final Set<Integer> manifestFieldIds;
+        private int planFileScanCalls;
 
-        PlanFilesCountingIcebergScanNode(
-                SessionVariable sv, boolean batchMode, Set<Integer> manifestFieldIds) {
+        PlanFilesCountingIcebergScanNode(SessionVariable sv, boolean batchMode) {
             super(sv);
             this.batchMode = batchMode;
-            this.manifestFieldIds = manifestFieldIds;
         }
 
         @Override
@@ -376,12 +384,12 @@ public class IcebergScanNodeTest {
 
         @Override
         CloseableIterable<FileScanTask> planFileScanTaskWithoutReuse(TableScan scan) {
+            planFileScanCalls++;
             return scan.planFiles();
         }
 
-        @Override
-        Set<Integer> loadEqualityDeleteFieldIdsFromDeleteManifests(TableScan scan) {
-            return manifestFieldIds;
+        int getPlanFileScanCalls() {
+            return planFileScanCalls;
         }
     }
 
@@ -442,7 +450,7 @@ public class IcebergScanNodeTest {
         Mockito.when(tableScan.planFiles())
                 .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
         PlanFilesCountingIcebergScanNode node = new PlanFilesCountingIcebergScanNode(
-                new SessionVariable(), false, Collections.emptySet());
+                new SessionVariable(), false);
 
         ConnectContext context = new ConnectContext();
         context.setStatementContext(new StatementContext());
@@ -463,26 +471,37 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testBatchScanDefersFilePlanningUntilSplitDispatch() throws Exception {
-        FileScanTask fileScanTask = Mockito.mock(FileScanTask.class);
+    public void testBatchScanReusesExactPreplannedFileTasks() throws Exception {
+        DeleteFile firstEqualityDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(firstEqualityDelete.content()).thenReturn(FileContent.EQUALITY_DELETES);
+        Mockito.when(firstEqualityDelete.equalityFieldIds()).thenReturn(List.of(7));
+        DeleteFile secondEqualityDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(secondEqualityDelete.content()).thenReturn(FileContent.EQUALITY_DELETES);
+        Mockito.when(secondEqualityDelete.equalityFieldIds()).thenReturn(List.of(9));
+        FileScanTask firstFileScanTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(firstFileScanTask.deletes()).thenReturn(List.of(firstEqualityDelete));
+        FileScanTask secondFileScanTask = Mockito.mock(FileScanTask.class);
+        Mockito.when(secondFileScanTask.deletes()).thenReturn(List.of(secondEqualityDelete));
         TableScan tableScan = Mockito.mock(TableScan.class);
         Mockito.when(tableScan.planFiles())
-                .thenReturn(CloseableIterable.withNoopClose(List.of(fileScanTask)));
+                .thenReturn(CloseableIterable.withNoopClose(
+                        List.of(firstFileScanTask, secondFileScanTask)));
         PlanFilesCountingIcebergScanNode node = new PlanFilesCountingIcebergScanNode(
-                new SessionVariable(), true, Set.of(7));
+                new SessionVariable(), true);
 
         ConnectContext context = new ConnectContext();
         context.setStatementContext(new StatementContext());
         context.setThreadLocalInfo();
         try {
-            Assert.assertEquals(Set.of(7), node.loadEqualityDeleteFieldIds(tableScan));
-            Mockito.verify(tableScan, Mockito.never()).planFiles();
+            Assert.assertEquals(Set.of(7, 9), node.loadEqualityDeleteFieldIds(tableScan));
+            Mockito.verify(tableScan, Mockito.times(1)).planFiles();
 
             try (CloseableIterable<FileScanTask> plannedTasks =
                          node.planFileScanTask(tableScan)) {
                 List<FileScanTask> actualTasks = new ArrayList<>();
                 plannedTasks.forEach(actualTasks::add);
-                Assert.assertEquals(List.of(fileScanTask), actualTasks);
+                Assert.assertEquals(
+                        List.of(firstFileScanTask, secondFileScanTask), actualTasks);
             }
         } finally {
             ConnectContext.remove();
@@ -492,65 +511,54 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testBatchScanSkipsDeleteManifestsWhenSnapshotHasNoEqualityDeletes() {
-        Snapshot snapshot = Mockito.mock(Snapshot.class);
-        Mockito.when(snapshot.summary()).thenReturn(
-                Map.of(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0"));
-        TableScan tableScan = Mockito.mock(TableScan.class);
-        Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+    public void testBatchScanPlansFilteredOldManifestAfterColumnRename() throws Exception {
+        Schema oldSchema = new Schema(
+                Types.NestedField.required(1, "old_name", Types.IntegerType.get()));
+        HadoopTables tables = new HadoopTables(new Configuration());
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("filtered_old_manifest").toUri().toString();
+        Table table = tables.create(
+                oldSchema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                Map.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/old-data.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build();
+        table.newFastAppend().appendFile(dataFile).commit();
+        table.updateSchema().renameColumn("old_name", "new_name").commit();
+        DeleteFile equalityDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofEqualityDeletes(1)
+                .withPath(tableLocation + "/data/equality-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build();
+        table.newRowDelta().addDeletes(equalityDelete).commit();
 
-        Assert.assertEquals(
-                Collections.emptySet(),
-                node.loadEqualityDeleteFieldIdsFromDeleteManifests(tableScan));
-        Mockito.verify(snapshot, Mockito.never()).deleteManifests(Mockito.any());
-        Mockito.verify(tableScan, Mockito.never()).planFiles();
-    }
-
-    @Test
-    public void testBatchPreflightUsesDeleteSequenceAndPartitionApplicability() {
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "id", Types.LongType.get()),
-                Types.NestedField.required(2, "partition_id", Types.StringType.get()),
-                Types.NestedField.optional(7, "applicable_key", Types.IntegerType.get()),
-                Types.NestedField.optional(9, "old_key", Types.IntegerType.get()),
-                Types.NestedField.optional(10, "other_partition_key", Types.IntegerType.get()));
-        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("partition_id").build();
-        PartitionData partitionA = new PartitionData(spec.partitionType());
-        partitionA.set(0, "a");
-        PartitionData partitionB = new PartitionData(spec.partitionType());
-        partitionB.set(0, "b");
-
-        DataFile dataFile = mockDataFile(spec, partitionA, 30);
-        DeleteFile applicableDelete = mockEqualityDeleteFile(spec, partitionA, 40, 7);
-        DeleteFile olderDelete = mockEqualityDeleteFile(spec, partitionA, 20, 9);
-        DeleteFile otherPartitionDelete =
-                mockEqualityDeleteFile(spec, partitionB, 40, 10);
-
-        Assert.assertEquals(Set.of(7),
-                IcebergScanNode.collectApplicableEqualityDeleteFieldIds(
-                        List.of(applicableDelete, olderDelete, otherPartitionDelete),
-                        List.of(dataFile), Map.of(spec.specId(), spec), true));
-    }
-
-    private static DataFile mockDataFile(
-            PartitionSpec spec, PartitionData partition, long dataSequenceNumber) {
-        DataFile dataFile = Mockito.mock(DataFile.class);
-        Mockito.when(dataFile.specId()).thenReturn(spec.specId());
-        Mockito.when(dataFile.partition()).thenReturn(partition);
-        Mockito.when(dataFile.dataSequenceNumber()).thenReturn(dataSequenceNumber);
-        return dataFile;
-    }
-
-    private static DeleteFile mockEqualityDeleteFile(
-            PartitionSpec spec, PartitionData partition, long dataSequenceNumber, int fieldId) {
-        DeleteFile deleteFile = Mockito.mock(DeleteFile.class);
-        Mockito.when(deleteFile.content()).thenReturn(FileContent.EQUALITY_DELETES);
-        Mockito.when(deleteFile.specId()).thenReturn(spec.specId());
-        Mockito.when(deleteFile.partition()).thenReturn(partition);
-        Mockito.when(deleteFile.dataSequenceNumber()).thenReturn(dataSequenceNumber);
-        Mockito.when(deleteFile.equalityFieldIds()).thenReturn(List.of(fieldId));
-        return deleteFile;
+        TableScan tableScan =
+                table.newScan().filter(Expressions.equal("new_name", 1));
+        PlanFilesCountingIcebergScanNode node =
+                new PlanFilesCountingIcebergScanNode(new SessionVariable(), true);
+        setIcebergTable(node, table);
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            Assert.assertEquals(Set.of(1), node.loadEqualityDeleteFieldIds(tableScan));
+            try (CloseableIterable<FileScanTask> plannedTasks =
+                         node.planFileScanTask(tableScan)) {
+                List<FileScanTask> tasks = new ArrayList<>();
+                plannedTasks.forEach(tasks::add);
+                Assert.assertEquals(1, tasks.size());
+                Assert.assertEquals(List.of(1),
+                        tasks.get(0).deletes().get(0).equalityFieldIds());
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+        Assert.assertEquals(1, node.getPlanFileScanCalls());
     }
 
     @Test

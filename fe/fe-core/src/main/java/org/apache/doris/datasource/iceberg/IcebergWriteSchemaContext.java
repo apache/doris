@@ -56,6 +56,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -68,6 +69,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.SortOrderParser;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
@@ -101,6 +103,9 @@ public final class IcebergWriteSchemaContext {
     private final Schema schema;
     private final int formatVersion;
     private final Optional<String> branchName;
+    private final Optional<UUID> tableUuid;
+    private final Optional<String> v1MetadataFileLocation;
+    private final Optional<Long> v1MetadataTimestampMillis;
     private final String schemaJson;
     private final Schema mergeSchema;
     private final String mergeSchemaJson;
@@ -134,9 +139,12 @@ public final class IcebergWriteSchemaContext {
                             schema, table.schema(), branchName.get(), dorisTable.getName());
                 }
                 int formatVersion = IcebergUtils.getFormatVersion(table);
+                TableIdentity tableIdentity = pinTableIdentity(table, formatVersion);
                 Map<String, String> properties = ImmutableMap.copyOf(table.properties());
                 return new IcebergWriteSchemaContext(
                         dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
+                        tableIdentity.uuid, tableIdentity.v1MetadataFileLocation,
+                        tableIdentity.v1MetadataTimestampMillis,
                         bindPartitionSpec(table.spec(), schema, dorisTable.getName()),
                         bindSortOrder(table.sortOrder(), schema, dorisTable.getName()),
                         IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
@@ -154,7 +162,8 @@ public final class IcebergWriteSchemaContext {
     public static IcebergWriteSchemaContext forSchema(Schema schema, int formatVersion,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         return new IcebergWriteSchemaContext(-1L, "test_table", schema, formatVersion,
-                Optional.empty(), PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                PartitionSpec.unpartitioned(), SortOrder.unsorted(),
                 FileFormat.PARQUET, MetricsConfig.getDefault(),
                 TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
                 "file:///tmp/test_table/data", ImmutableMap.of(),
@@ -168,13 +177,28 @@ public final class IcebergWriteSchemaContext {
             Map<String, String> writerProperties,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
         return new IcebergWriteSchemaContext(-1L, "test_table", schema, formatVersion,
-                Optional.empty(), partitionSpec, sortOrder, fileFormat, metricsConfig,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                partitionSpec, sortOrder, fileFormat, metricsConfig,
                 fileCompression, dataLocation, writerProperties,
                 enableMappingVarbinary, enableMappingTimestampTz);
     }
 
+    @VisibleForTesting
+    static IcebergWriteSchemaContext forSchemaWithUuidIdentity(
+            Schema schema, int formatVersion, UUID tableUuid) {
+        return new IcebergWriteSchemaContext(
+                -1L, "test_table", schema, formatVersion, Optional.empty(),
+                Optional.of(tableUuid), Optional.empty(), Optional.empty(),
+                PartitionSpec.unpartitioned(), SortOrder.unsorted(), FileFormat.PARQUET,
+                MetricsConfig.getDefault(),
+                TableProperties.PARQUET_COMPRESSION_DEFAULT_SINCE_1_4_0,
+                "file:///tmp/test_table/data", ImmutableMap.of(), true, true);
+    }
+
     private IcebergWriteSchemaContext(long tableId, String tableName, Schema schema,
-            int formatVersion, Optional<String> branchName,
+            int formatVersion, Optional<String> branchName, Optional<UUID> tableUuid,
+            Optional<String> v1MetadataFileLocation,
+            Optional<Long> v1MetadataTimestampMillis,
             PartitionSpec partitionSpec, SortOrder sortOrder, FileFormat fileFormat,
             MetricsConfig metricsConfig, String fileCompression, String dataLocation,
             Map<String, String> writerProperties,
@@ -184,6 +208,18 @@ public final class IcebergWriteSchemaContext {
         this.schema = Objects.requireNonNull(schema, "schema should not be null");
         this.formatVersion = formatVersion;
         this.branchName = Objects.requireNonNull(branchName, "branchName should not be null");
+        this.tableUuid = Objects.requireNonNull(tableUuid, "tableUuid should not be null");
+        this.v1MetadataFileLocation = Objects.requireNonNull(
+                v1MetadataFileLocation, "v1MetadataFileLocation should not be null");
+        this.v1MetadataTimestampMillis = Objects.requireNonNull(
+                v1MetadataTimestampMillis, "v1MetadataTimestampMillis should not be null");
+        Preconditions.checkState(
+                this.v1MetadataFileLocation.isPresent()
+                        == this.v1MetadataTimestampMillis.isPresent(),
+                "Iceberg V1 metadata identity must contain both location and timestamp");
+        Preconditions.checkState(
+                !this.tableUuid.isPresent() || !this.v1MetadataFileLocation.isPresent(),
+                "Iceberg table identity cannot contain both UUID and V1 metadata");
         this.schemaJson = SchemaParser.toJson(schema);
         this.mergeSchema = formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
                 ? IcebergUtils.appendRowLineageFieldsForV3(schema) : schema;
@@ -317,8 +353,9 @@ public final class IcebergWriteSchemaContext {
      * Reject branch writes whose files cannot satisfy the table-current schema.
      *
      * <p>Iceberg resolves columns from the branch-head schema, but stamps the new branch snapshot
-     * with the table-current schema. A current required field without an initial default must
-     * therefore also be present and required in the pinned branch writer schema.
+     * with the table-current schema. A field that is present in both schemas must remain required
+     * because an optional branch writer can emit an explicit null that no initial default repairs.
+     * A field absent from the branch can rely on an initial default.
      */
     private static void validateBranchWriterSchema(
             Schema branchSchema, Schema currentSchema, String branchName, String tableName) {
@@ -331,10 +368,10 @@ public final class IcebergWriteSchemaContext {
         for (Types.NestedField currentField : currentFields.values()) {
             Types.NestedField branchField = branchFields.get(currentField.fieldId());
             if (branchField != null) {
-                if (currentField.isRequired() && currentField.initialDefault() == null
-                        && branchField.isOptional()) {
+                if (currentField.isRequired() && branchField.isOptional()) {
                     throw incompatibleBranchSchema(
-                            branchSchema, currentSchema, branchName, tableName, currentField);
+                            branchSchema, currentSchema, branchName, tableName, currentField,
+                            "is optional in the pinned branch schema and can contain explicit nulls");
                 }
                 continue;
             }
@@ -348,19 +385,20 @@ public final class IcebergWriteSchemaContext {
             if (highestMissingField.isRequired()
                     && highestMissingField.initialDefault() == null) {
                 throw incompatibleBranchSchema(
-                        branchSchema, currentSchema, branchName, tableName, highestMissingField);
+                        branchSchema, currentSchema, branchName, tableName, highestMissingField,
+                        "is absent from the pinned branch schema and has no initial default");
             }
         }
     }
 
     private static AnalysisException incompatibleBranchSchema(
             Schema branchSchema, Schema currentSchema, String branchName, String tableName,
-            Types.NestedField field) {
+            Types.NestedField field, String incompatibility) {
         return new AnalysisException("Iceberg table current schema " + currentSchema.schemaId()
                 + " cannot label files written with pinned branch " + branchName + " schema "
                 + branchSchema.schemaId() + " for table " + tableName + ": required field "
-                + field.name() + " (id " + field.fieldId()
-                + ") has no initial default; retry after updating the branch schema");
+                + field.name() + " (id " + field.fieldId() + ") " + incompatibility
+                + "; retry after updating the branch schema");
     }
 
     /** Resolve a write default by the pinned target field name. */
@@ -409,6 +447,7 @@ public final class IcebergWriteSchemaContext {
                 ? resolveBranchSchema(table, branchName.get(), tableName)
                 : table.schema();
         int currentFormatVersion = IcebergUtils.getFormatVersion(table);
+        validateTableIdentity(table, currentFormatVersion);
         if (currentSchema.schemaId() != getSchemaId() || currentFormatVersion != formatVersion) {
             throw new AnalysisException("Iceberg table schema changed during write planning for " + tableName
                     + ": pinned schema " + getSchemaId() + "/format " + formatVersion
@@ -439,6 +478,82 @@ public final class IcebergWriteSchemaContext {
             throw new AnalysisException("Iceberg sort order changed during write planning for "
                     + tableName + ": pinned order " + sortOrder.orderId()
                     + " is not available with the same definition; retry the statement");
+        }
+    }
+
+    private static TableIdentity pinTableIdentity(Table table, int formatVersion) {
+        if (table instanceof HasTableOperations) {
+            TableMetadata metadata = Preconditions.checkNotNull(
+                    ((HasTableOperations) table).operations().current(),
+                    "Iceberg table %s has no current metadata", table.name());
+            if (metadata.uuid() != null) {
+                return TableIdentity.forUuid(UUID.fromString(metadata.uuid()));
+            }
+            Preconditions.checkState(formatVersion == 1,
+                    "Iceberg table %s format %s has no table UUID", table.name(), formatVersion);
+            return TableIdentity.forV1Metadata(
+                    Preconditions.checkNotNull(metadata.metadataFileLocation(),
+                            "Iceberg V1 table %s has no metadata file location", table.name()),
+                    metadata.lastUpdatedMillis());
+        }
+        return TableIdentity.forUuid(Preconditions.checkNotNull(
+                table.uuid(), "Iceberg table %s does not expose a table UUID", table.name()));
+    }
+
+    private void validateTableIdentity(Table table, int currentFormatVersion) {
+        if (tableUuid.isPresent()) {
+            TableIdentity currentIdentity = pinTableIdentity(table, currentFormatVersion);
+            if (!tableUuid.equals(currentIdentity.uuid)) {
+                throw tableIdentityChanged();
+            }
+            return;
+        }
+        if (!v1MetadataFileLocation.isPresent()) {
+            return;
+        }
+        Preconditions.checkState(table instanceof HasTableOperations,
+                "Iceberg V1 table %s does not expose table operations", table.name());
+        TableMetadata currentMetadata = Preconditions.checkNotNull(
+                ((HasTableOperations) table).operations().current(),
+                "Iceberg V1 table %s has no current metadata", table.name());
+        boolean sameMetadata = v1MetadataFileLocation.get().equals(
+                currentMetadata.metadataFileLocation())
+                && v1MetadataTimestampMillis.get() == currentMetadata.lastUpdatedMillis();
+        boolean retainedAncestor = currentMetadata.previousFiles().stream()
+                .anyMatch(entry -> v1MetadataFileLocation.get().equals(entry.file())
+                        && v1MetadataTimestampMillis.get() == entry.timestampMillis());
+        if (!sameMetadata && !retainedAncestor) {
+            throw tableIdentityChanged();
+        }
+    }
+
+    private AnalysisException tableIdentityChanged() {
+        return new AnalysisException("Iceberg table identity changed during write planning for "
+                + tableName + "; the table may have been dropped and recreated; retry the statement");
+    }
+
+    private static final class TableIdentity {
+        private final Optional<UUID> uuid;
+        private final Optional<String> v1MetadataFileLocation;
+        private final Optional<Long> v1MetadataTimestampMillis;
+
+        private TableIdentity(Optional<UUID> uuid, Optional<String> v1MetadataFileLocation,
+                Optional<Long> v1MetadataTimestampMillis) {
+            this.uuid = uuid;
+            this.v1MetadataFileLocation = v1MetadataFileLocation;
+            this.v1MetadataTimestampMillis = v1MetadataTimestampMillis;
+        }
+
+        private static TableIdentity forUuid(UUID uuid) {
+            return new TableIdentity(
+                    Optional.of(uuid), Optional.empty(), Optional.empty());
+        }
+
+        private static TableIdentity forV1Metadata(
+                String metadataFileLocation, long metadataTimestampMillis) {
+            return new TableIdentity(
+                    Optional.empty(), Optional.of(metadataFileLocation),
+                    Optional.of(metadataTimestampMillis));
         }
     }
 
@@ -697,6 +812,9 @@ public final class IcebergWriteSchemaContext {
                 && formatVersion == that.formatVersion
                 && tableName.equals(that.tableName)
                 && branchName.equals(that.branchName)
+                && tableUuid.equals(that.tableUuid)
+                && v1MetadataFileLocation.equals(that.v1MetadataFileLocation)
+                && v1MetadataTimestampMillis.equals(that.v1MetadataTimestampMillis)
                 && schemaJson.equals(that.schemaJson)
                 && partitionSpecJson.equals(that.partitionSpecJson)
                 && sortOrderJson.equals(that.sortOrderJson)
@@ -708,8 +826,8 @@ public final class IcebergWriteSchemaContext {
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableId, tableName, formatVersion, branchName, schemaJson,
-                partitionSpecJson, sortOrderJson, fileFormat, fileCompression, dataLocation,
-                writerProperties);
+        return Objects.hash(tableId, tableName, formatVersion, branchName, tableUuid,
+                v1MetadataFileLocation, v1MetadataTimestampMillis, schemaJson, partitionSpecJson,
+                sortOrderJson, fileFormat, fileCompression, dataLocation, writerProperties);
     }
 }

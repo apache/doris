@@ -164,6 +164,70 @@ bool find_parquet_equality_field_prefix_by_id_path(
     return true;
 }
 
+std::vector<std::string> equality_field_name_candidates(const schema::external::TField& table_field,
+                                                        const std::string* leaf_fallback) {
+    std::vector<std::string> candidates;
+    if (table_field.__isset.name_mapping) {
+        candidates.insert(candidates.end(), table_field.name_mapping.begin(),
+                          table_field.name_mapping.end());
+        if (table_field.__isset.name_mapping_is_authoritative &&
+            table_field.name_mapping_is_authoritative) {
+            return candidates;
+        }
+    }
+    if (table_field.__isset.name) {
+        candidates.push_back(table_field.name);
+    }
+    if (leaf_fallback != nullptr) {
+        candidates.push_back(*leaf_fallback);
+    }
+    return candidates;
+}
+
+bool find_parquet_equality_field_prefix_by_name_path(
+        const FieldDescriptor* descriptor,
+        const std::vector<const schema::external::TField*>& table_path,
+        const std::string& leaf_fallback, ParquetEqualityFieldPath* result) {
+    DORIS_CHECK(descriptor != nullptr);
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(!table_path.empty());
+    const std::vector<FieldSchema>* children = nullptr;
+    for (size_t path_index = 0; path_index < table_path.size(); ++path_index) {
+        const auto* table_field = table_path[path_index];
+        DORIS_CHECK(table_field != nullptr);
+        const auto names = equality_field_name_candidates(
+                *table_field, path_index + 1 == table_path.size() ? &leaf_fallback : nullptr);
+        const FieldSchema* match = nullptr;
+        size_t match_index = 0;
+        const size_t child_count =
+                children == nullptr ? cast_set<size_t>(descriptor->size()) : children->size();
+        for (const auto& name : names) {
+            for (size_t child_index = 0; child_index < child_count; ++child_index) {
+                const auto* child = children == nullptr
+                                            ? descriptor->get_column(cast_set<int>(child_index))
+                                            : &(*children)[child_index];
+                if (child != nullptr && iequal(child->name, name)) {
+                    match = child;
+                    match_index = child_index;
+                    break;
+                }
+            }
+            if (match != nullptr) {
+                break;
+            }
+        }
+        if (match == nullptr) {
+            return false;
+        }
+        if (!result->fields.empty()) {
+            result->child_indexes.push_back(match_index);
+        }
+        result->fields.push_back(match);
+        children = &match->children;
+    }
+    return true;
+}
+
 struct OrcEqualityFieldPath {
     std::vector<const orc::Type*> fields;
     std::vector<std::string> names;
@@ -222,6 +286,45 @@ bool find_orc_equality_field_prefix_by_id_path(
                 std::stoi(candidate->getAttributeValue(kIcebergOrcAttribute)) == table_field->id) {
                 match = candidate;
                 match_index = candidate_index;
+                break;
+            }
+        }
+        if (match == nullptr) {
+            return false;
+        }
+        if (!result->fields.empty()) {
+            result->child_indexes.push_back(match_index);
+        }
+        result->fields.push_back(match);
+        result->names.push_back(parent->getFieldName(match_index));
+        parent = match;
+    }
+    return true;
+}
+
+bool find_orc_equality_field_prefix_by_name_path(
+        const orc::Type* root, const std::vector<const schema::external::TField*>& table_path,
+        const std::string& leaf_fallback, OrcEqualityFieldPath* result) {
+    DORIS_CHECK(root != nullptr);
+    DORIS_CHECK(result != nullptr);
+    DORIS_CHECK(!table_path.empty());
+    const orc::Type* parent = root;
+    for (size_t path_index = 0; path_index < table_path.size(); ++path_index) {
+        const auto* table_field = table_path[path_index];
+        DORIS_CHECK(table_field != nullptr);
+        const auto names = equality_field_name_candidates(
+                *table_field, path_index + 1 == table_path.size() ? &leaf_fallback : nullptr);
+        const orc::Type* match = nullptr;
+        size_t match_index = 0;
+        for (const auto& name : names) {
+            for (size_t child_index = 0; child_index < parent->getSubtypeCount(); ++child_index) {
+                if (iequal(parent->getFieldName(child_index), name)) {
+                    match = parent->getSubtype(child_index);
+                    match_index = child_index;
+                    break;
+                }
+            }
+            if (match != nullptr) {
                 break;
             }
         }
@@ -460,30 +563,17 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                 file_column = file_path.fields.front();
             }
         } else {
-            const auto* table_field = _find_schema_field(field_id);
-            const bool authoritative_name_mapping =
-                    table_field != nullptr && table_field->__isset.name_mapping &&
-                    table_field->__isset.name_mapping_is_authoritative &&
-                    table_field->name_mapping_is_authoritative;
-            if (table_field != nullptr && table_field->__isset.name_mapping) {
-                for (const auto& mapped_name : table_field->name_mapping) {
-                    file_column = find_file_column_by_name(mapped_name);
-                    if (file_column != nullptr) {
-                        break;
-                    }
+            const auto table_path = _find_schema_field_path(field_id);
+            if (!table_path.empty()) {
+                complete_file_path = find_parquet_equality_field_prefix_by_name_path(
+                        field_desc, table_path, old_name, &file_path);
+                if (!file_path.fields.empty()) {
+                    file_column = file_path.fields.front();
                 }
-            }
-            if (file_column == nullptr && !authoritative_name_mapping && table_field != nullptr &&
-                table_field->__isset.name) {
-                file_column = find_file_column_by_name(table_field->name);
-            }
-            if (file_column == nullptr && !authoritative_name_mapping) {
-                // A schema-history fallback may carry a name from after the target snapshot. The
-                // delete-file key name is target-relative, but it must never override an explicit
-                // authoritative Iceberg name mapping.
+            } else {
                 file_column = find_file_column_by_name(old_name);
+                complete_file_path = file_column != nullptr;
             }
-            complete_file_path = file_column != nullptr;
         }
 
         std::string leaf_name = old_name;
@@ -857,27 +947,17 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                 file_column = file_path.fields.front();
             }
         } else {
-            const auto* table_field = _find_schema_field(field_id);
-            const bool authoritative_name_mapping =
-                    table_field != nullptr && table_field->__isset.name_mapping &&
-                    table_field->__isset.name_mapping_is_authoritative &&
-                    table_field->name_mapping_is_authoritative;
-            if (table_field != nullptr && table_field->__isset.name_mapping) {
-                for (const auto& mapped_name : table_field->name_mapping) {
-                    file_column = find_file_column_by_name(mapped_name);
-                    if (file_column != nullptr) {
-                        break;
-                    }
+            const auto table_path = _find_schema_field_path(field_id);
+            if (!table_path.empty()) {
+                complete_file_path = find_orc_equality_field_prefix_by_name_path(
+                        orc_type_ptr, table_path, old_name, &file_path);
+                if (!file_path.fields.empty()) {
+                    file_column = file_path.fields.front();
                 }
-            }
-            if (file_column == nullptr && !authoritative_name_mapping && table_field != nullptr &&
-                table_field->__isset.name) {
-                file_column = find_file_column_by_name(table_field->name);
-            }
-            if (file_column == nullptr && !authoritative_name_mapping) {
+            } else {
                 file_column = find_file_column_by_name(old_name);
+                complete_file_path = file_column != nullptr;
             }
-            complete_file_path = file_column != nullptr;
         }
 
         std::string file_col_name = old_name;

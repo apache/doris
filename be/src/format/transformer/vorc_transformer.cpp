@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <exception>
 #include <ostream>
 #include <sstream>
@@ -725,15 +726,41 @@ static Status normalize_iceberg_struct_column(const ColumnPtr& column, const Dat
     return Status::OK();
 }
 
+static const NullMap* expand_iceberg_collection_skipped_rows(const NullMap* skipped_rows,
+                                                             const ColumnArray::Offsets64& offsets,
+                                                             NullMap& nested_skipped_rows) {
+    if (skipped_rows == nullptr) {
+        return nullptr;
+    }
+    DORIS_CHECK(skipped_rows->size() == offsets.size());
+    const size_t nested_size = offsets.empty() ? 0 : offsets.back();
+    nested_skipped_rows.resize_fill(nested_size, 0);
+    size_t begin = 0;
+    for (size_t row = 0; row < offsets.size(); ++row) {
+        const size_t end = offsets[row];
+        DCHECK(begin <= end && end <= nested_size);
+        if ((*skipped_rows)[row] != 0) {
+            std::fill(nested_skipped_rows.begin() + begin, nested_skipped_rows.begin() + end, 1);
+        }
+        begin = end;
+    }
+    return &nested_skipped_rows;
+}
+
 static Status normalize_iceberg_array_column(const ColumnPtr& column, const DataTypePtr& type,
                                              const iceberg::NestedField& nested_field,
-                                             ColumnPtr* normalized_column) {
+                                             ColumnPtr* normalized_column,
+                                             const NullMap* skipped_rows) {
     const auto& array_column = assert_cast<const ColumnArray&>(*column);
     const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+    NullMap element_skipped_rows;
+    const NullMap* expanded_skipped_rows = expand_iceberg_collection_skipped_rows(
+            skipped_rows, array_column.get_offsets(), element_skipped_rows);
     ColumnPtr elements;
     RETURN_IF_ERROR(normalize_iceberg_binary_column(
             array_column.get_data_ptr(), array_type.get_nested_type(),
-            nested_field.field_type()->as_list_type()->element_field(), &elements));
+            nested_field.field_type()->as_list_type()->element_field(), &elements,
+            expanded_skipped_rows));
     *normalized_column = ColumnArray::create(IColumn::mutate(std::move(elements)),
                                              array_column.get_offsets_ptr()->clone());
     return Status::OK();
@@ -741,17 +768,22 @@ static Status normalize_iceberg_array_column(const ColumnPtr& column, const Data
 
 static Status normalize_iceberg_map_column(const ColumnPtr& column, const DataTypePtr& type,
                                            const iceberg::NestedField& nested_field,
-                                           ColumnPtr* normalized_column) {
+                                           ColumnPtr* normalized_column,
+                                           const NullMap* skipped_rows) {
     const auto& map_column = assert_cast<const ColumnMap&>(*column);
     const auto& map_type = assert_cast<const DataTypeMap&>(*type);
     const auto& iceberg_map = nested_field.field_type()->as_map_type();
+    NullMap entry_skipped_rows;
+    const NullMap* expanded_skipped_rows = expand_iceberg_collection_skipped_rows(
+            skipped_rows, map_column.get_offsets(), entry_skipped_rows);
     ColumnPtr keys;
     ColumnPtr values;
     RETURN_IF_ERROR(normalize_iceberg_binary_column(
-            map_column.get_keys_ptr(), map_type.get_key_type(), iceberg_map->key_field(), &keys));
-    RETURN_IF_ERROR(normalize_iceberg_binary_column(map_column.get_values_ptr(),
-                                                    map_type.get_value_type(),
-                                                    iceberg_map->value_field(), &values));
+            map_column.get_keys_ptr(), map_type.get_key_type(), iceberg_map->key_field(), &keys,
+            expanded_skipped_rows));
+    RETURN_IF_ERROR(normalize_iceberg_binary_column(
+            map_column.get_values_ptr(), map_type.get_value_type(), iceberg_map->value_field(),
+            &values, expanded_skipped_rows));
     *normalized_column =
             ColumnMap::create(IColumn::mutate(std::move(keys)), IColumn::mutate(std::move(values)),
                               map_column.get_offsets_ptr()->clone());
@@ -787,9 +819,11 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
         return normalize_iceberg_struct_column(column, type, nested_field, normalized_column,
                                                skipped_rows);
     case TYPE_ARRAY:
-        return normalize_iceberg_array_column(column, type, nested_field, normalized_column);
+        return normalize_iceberg_array_column(column, type, nested_field, normalized_column,
+                                              skipped_rows);
     case TYPE_MAP:
-        return normalize_iceberg_map_column(column, type, nested_field, normalized_column);
+        return normalize_iceberg_map_column(column, type, nested_field, normalized_column,
+                                            skipped_rows);
     default:
         *normalized_column = column;
         return Status::OK();

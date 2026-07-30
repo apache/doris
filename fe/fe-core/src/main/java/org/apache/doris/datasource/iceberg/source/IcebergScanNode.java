@@ -98,8 +98,6 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
-import org.apache.iceberg.ManifestFiles;
-import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -118,7 +116,6 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
 import org.apache.iceberg.expressions.ManifestEvaluator;
-import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
@@ -184,8 +181,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private long manifestCacheHits;
     private long manifestCacheMisses;
     private long manifestCacheFailures;
-    // The non-batch equality-delete preflight follows the real split path and hands its exact
-    // materialized result to split dispatch instead of planning the same scan a second time.
+    // The equality-delete preflight follows the real split path and hands its exact materialized
+    // result to split dispatch instead of planning the same scan a second time.
     private List<FileScanTask> preplannedFileScanTasks;
 
     // Cached values for LocationPath creation optimization
@@ -1240,134 +1237,25 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (rewriteTasks != null) {
             return collectEqualityDeleteFieldIdsFromTasks(rewriteTasks);
         }
-        if (isBatchMode()) {
-            return loadEqualityDeleteFieldIdsFromDeleteManifests(scan);
-        }
-
-        List<FileScanTask> tasks = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> plannedTasks = planFileScanTaskWithoutReuse(scan)) {
-            for (FileScanTask task : plannedTasks) {
-                tasks.add(task);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to close Iceberg file scan tasks", e);
-        }
-        preplannedFileScanTasks = tasks;
-        return collectEqualityDeleteFieldIdsFromTasks(tasks);
-    }
-
-    /**
-     * Load applicable equality-delete metadata for batch scans.
-     *
-     * <p>Batch split planning must remain asynchronous, so this preflight cannot consume
-     * {@link TableScan#planFiles()}. The target snapshot's equality-delete total avoids manifest
-     * reads for the common no-delete case. Otherwise, the preflight reads filtered manifest
-     * metadata and applies the same {@link DeleteFileIndex#forDataFile(long, DataFile)}
-     * delete-to-data contract as final task planning.
-     */
-    @VisibleForTesting
-    Set<Integer> loadEqualityDeleteFieldIdsFromDeleteManifests(TableScan scan) {
-        Snapshot snapshot = Preconditions.checkNotNull(scan.snapshot());
-        String totalEqualityDeletes =
-                snapshot.summary().get(SnapshotSummary.TOTAL_EQ_DELETES_PROP);
-        if (totalEqualityDeletes != null && Long.parseLong(totalEqualityDeletes) == 0) {
-            return Collections.emptySet();
-        }
-
-        Expression dataFilter = scan.filter();
-        boolean caseSensitive = scan.isCaseSensitive();
-        Map<Integer, PartitionSpec> specsById = icebergTable.specs();
-        List<DeleteFile> deleteFiles = new ArrayList<>();
-        for (ManifestFile manifest : snapshot.deleteManifests(icebergTable.io())) {
-            if (manifest.content() != ManifestContent.DELETES
-                    || (!manifest.hasAddedFiles() && !manifest.hasExistingFiles())) {
-                continue;
-            }
-            PartitionSpec spec = Preconditions.checkNotNull(
-                    specsById.get(manifest.partitionSpecId()),
-                    "Iceberg partition spec %s is absent from table metadata",
-                    manifest.partitionSpecId());
-            Expression partitionFilter =
-                    Projections.inclusive(spec, caseSensitive).project(dataFilter);
-            if (!ManifestEvaluator.forPartitionFilter(
-                    partitionFilter, spec, caseSensitive).eval(manifest)) {
-                continue;
-            }
-            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
-                    manifest, icebergTable.io(), specsById)) {
-                ManifestReader<DeleteFile> filteredReader = reader
-                        .filterRows(dataFilter)
-                        .filterPartitions(partitionFilter)
-                        .caseSensitive(caseSensitive);
-                for (DeleteFile deleteFile : filteredReader) {
-                    if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
-                        deleteFiles.add(deleteFile);
-                    }
+        long startTime = System.currentTimeMillis();
+        try {
+            List<FileScanTask> tasks = new ArrayList<>();
+            try (CloseableIterable<FileScanTask> plannedTasks =
+                         planFileScanTaskWithoutReuse(scan)) {
+                for (FileScanTask task : plannedTasks) {
+                    tasks.add(task);
                 }
             } catch (IOException e) {
-                throw new RuntimeException(
-                        "Failed to close Iceberg delete manifest " + manifest.path(), e);
+                throw new RuntimeException("Failed to close Iceberg file scan tasks", e);
+            }
+            preplannedFileScanTasks = tasks;
+            return collectEqualityDeleteFieldIdsFromTasks(tasks);
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(
+                        System.currentTimeMillis() - startTime);
             }
         }
-        if (deleteFiles.isEmpty()) {
-            return Collections.emptySet();
-        }
-
-        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
-                .specsById(specsById)
-                .caseSensitive(caseSensitive)
-                .build();
-        Set<Integer> equalityDeleteFieldIds = new HashSet<>();
-        for (ManifestFile manifest : snapshot.dataManifests(icebergTable.io())) {
-            if (manifest.content() != ManifestContent.DATA
-                    || (!manifest.hasAddedFiles() && !manifest.hasExistingFiles())) {
-                continue;
-            }
-            PartitionSpec spec = Preconditions.checkNotNull(
-                    specsById.get(manifest.partitionSpecId()),
-                    "Iceberg partition spec %s is absent from table metadata",
-                    manifest.partitionSpecId());
-            Expression partitionFilter =
-                    Projections.inclusive(spec, caseSensitive).project(dataFilter);
-            if (!ManifestEvaluator.forPartitionFilter(
-                    partitionFilter, spec, caseSensitive).eval(manifest)) {
-                continue;
-            }
-            try (ManifestReader<DataFile> reader =
-                         ManifestFiles.read(manifest, icebergTable.io())) {
-                ManifestReader<DataFile> filteredReader = reader
-                        .filterRows(dataFilter)
-                        .filterPartitions(partitionFilter)
-                        .caseSensitive(caseSensitive);
-                equalityDeleteFieldIds.addAll(
-                        collectApplicableEqualityDeleteFieldIds(deleteIndex, filteredReader));
-            } catch (IOException e) {
-                throw new RuntimeException(
-                        "Failed to close Iceberg data manifest " + manifest.path(), e);
-            }
-        }
-        return equalityDeleteFieldIds;
-    }
-
-    @VisibleForTesting
-    static Set<Integer> collectApplicableEqualityDeleteFieldIds(
-            Iterable<DeleteFile> deleteFiles, Iterable<DataFile> dataFiles,
-            Map<Integer, PartitionSpec> specsById, boolean caseSensitive) {
-        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
-                .specsById(specsById)
-                .caseSensitive(caseSensitive)
-                .build();
-        return collectApplicableEqualityDeleteFieldIds(deleteIndex, dataFiles);
-    }
-
-    private static Set<Integer> collectApplicableEqualityDeleteFieldIds(
-            DeleteFileIndex deleteIndex, Iterable<DataFile> dataFiles) {
-        Set<Integer> equalityDeleteFieldIds = new HashSet<>();
-        for (DataFile dataFile : dataFiles) {
-            equalityDeleteFieldIds.addAll(collectEqualityDeleteFieldIds(Arrays.asList(
-                    deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile))));
-        }
-        return equalityDeleteFieldIds;
     }
 
     @VisibleForTesting
