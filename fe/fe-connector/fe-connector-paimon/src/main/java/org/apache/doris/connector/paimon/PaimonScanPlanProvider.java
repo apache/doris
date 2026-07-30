@@ -55,6 +55,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.SchemaManager;
@@ -83,6 +84,8 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -684,6 +687,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         boolean useRust = isEnablePaimonRustReader(session);
         String rustDb = useRust ? paimonHandle.getDatabaseName() : null;
         String rustTable = useRust ? paimonHandle.getTableName() : null;
+        // paimon-rust / paimon-cpp both need the table location (legacy PaimonScanNode's
+        // setPaimonTable). Populated only for FileStoreTable — paimon system tables (audit_log,
+        // manifests, ...) are not FileStoreTable and go through the JNI reader, which doesn't need
+        // paimon_table on BE.
+        String rustTableLocation = null;
+        if (useRust && table instanceof FileStoreTable) {
+            rustTableLocation = ((FileStoreTable) table).location().toString();
+        }
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
@@ -692,7 +703,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 continue;
             }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
-                    Collections.emptyMap(), false, weightDenominator, useRust, rustDb, rustTable));
+                    Collections.emptyMap(), false, weightDenominator,
+                    useRust, rustDb, rustTable, rustTableLocation));
         }
 
         // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
@@ -762,7 +774,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     continue;
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
-                        partitionValues, true, weightDenominator, useRust, rustDb, rustTable));
+                        partitionValues, true, weightDenominator,
+                        useRust, rustDb, rustTable, rustTableLocation));
             }
         }
 
@@ -772,7 +785,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> partitionValues = getPartitionInfoMap(
                     table, countRepresentative.partition(), session.getTimeZone());
             ranges.add(buildCountRange(countRepresentative, defaultFileFormat,
-                    partitionValues, countSum, weightDenominator, useRust, rustDb, rustTable));
+                    partitionValues, countSum, weightDenominator,
+                    useRust, rustDb, rustTable, rustTableLocation));
         }
 
         return ranges;
@@ -1048,7 +1062,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     private PaimonScanRange buildJniScanRange(Split split, String defaultFileFormat,
             Map<String, String> partitionValues, boolean isDataSplit, long weightDenominator,
-            boolean useRust, String rustDb, String rustTable) {
+            boolean useRust, String rustDb, String rustTable, String rustTableLocation) {
         long splitWeight = 0;
         if (isDataSplit) {
             splitWeight = computeSplitWeight((DataSplit) split);
@@ -1056,7 +1070,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             splitWeight = split.rowCount();
         }
 
-        String serializedSplit = encodeSplit(split);
+        // paimon-rust consumes the Paimon native binary encoding (DataSplit only). Every other path
+        // (non-DataSplit under rust flag, or rust flag off) keeps the Java-object encoding that
+        // PaimonJniScanner deserializes. Guard on isDataSplit — a non-DataSplit under rust cannot
+        // route to rust anyway (see below), so it must not be native-encoded.
+        boolean routeRust = useRust && isDataSplit;
+        String serializedSplit = routeRust
+                ? encodeDataSplitNative((DataSplit) split)
+                : encodeSplit(split);
 
         // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: emit the real data-file format (orc/parquet/avro), NOT "jni".
         // JNI routing is gated by the paimon.split property (PaimonScanRange.populateRangeParams), so this
@@ -1076,8 +1097,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .targetSplitSize(weightDenominator);
         // paimon-rust needs the Paimon native binary encoding (DataSplit only). Same guard as legacy
         // PaimonScanNode.setPaimonParams's PAIMON_CPP arm; a non-DataSplit falls back to plain JNI.
-        if (useRust && isDataSplit) {
-            builder.useRustReader(rustDb, rustTable);
+        if (routeRust) {
+            builder.useRustReader(rustDb, rustTable, rustTableLocation);
         }
         return builder.build();
     }
@@ -1102,8 +1123,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private PaimonScanRange buildCountRange(DataSplit dataSplit, String defaultFileFormat,
             Map<String, String> partitionValues, long rowCount, long weightDenominator,
-            boolean useRust, String rustDb, String rustTable) {
-        String serializedSplit = encodeSplit(dataSplit);
+            boolean useRust, String rustDb, String rustTable, String rustTableLocation) {
+        // COUNT-pushdown ranges are DataSplit-only. Under paimon-rust we must ALSO emit the Paimon
+        // native binary encoding — legacy PaimonScanNode.setPaimonParams's PAIMON_CPP arm did the same.
+        String serializedSplit = useRust
+                ? encodeDataSplitNative(dataSplit)
+                : encodeSplit(dataSplit);
         // FIX-JNI-FILE-FORMAT (P7-1) + FIX-L11: real data-file format from the first data-file suffix, not
         // "jni" and not the bare table default (see buildJniScanRange / dataSplitFileFormat).
         PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
@@ -1115,7 +1140,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .rowCount(rowCount);
         // COUNT-pushdown ranges are DataSplit-only so paimon-rust routing applies here too.
         if (useRust) {
-            builder.useRustReader(rustDb, rustTable);
+            builder.useRustReader(rustDb, rustTable, rustTableLocation);
         }
         return builder.build();
     }
@@ -1897,6 +1922,23 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static String encodeSplit(Split split) {
         return encodeObjectToString(split);
+    }
+
+    /**
+     * Serializes a paimon {@link DataSplit} in the Paimon native binary format
+     * ({@code DataSplit.serialize}) as consumed by paimon-cpp / paimon-rust readers on BE
+     * (see {@code paimon_plan_from_split_bytes}). DataSplit only — every other split type must
+     * fall back to {@link #encodeSplit}. Standard Base64 (NOT URL-safe): BE's {@code base64_decode}
+     * expects standard alphabet.
+     */
+    static String encodeDataSplitNative(DataSplit split) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            split.serialize(new DataOutputViewStreamWrapper(baos));
+            return new String(BASE64_ENCODER.encode(baos.toByteArray()), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize DataSplit using Paimon native format", e);
+        }
     }
 
     @SuppressWarnings("unchecked")

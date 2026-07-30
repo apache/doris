@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -63,6 +64,9 @@ public class PaimonScanRange implements ConnectorScanRange {
     // Non-null only on JNI ranges when the user enabled paimon-rust; empty otherwise.
     private final String dbName;
     private final String tableName;
+    // Paimon table location (root path). Emitted as fileDesc.paimon_table so BE's PaimonRustReader
+    // can point paimon-rust at the correct table root. Non-null only when useRustReader is true.
+    private final String tableLocation;
     private final boolean useRustReader;
     // FIX-A1: weight denominator (legacy scan-level targetSplitSize, PaimonScanNode:499) for the FE
     // FileSplit proportional weight. -1 = not provided (SPI sentinel). Separate from the file-splitting
@@ -79,6 +83,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         this.targetSplitSize = builder.targetSplitSize;
         this.dbName = builder.dbName;
         this.tableName = builder.tableName;
+        this.tableLocation = builder.tableLocation;
         this.useRustReader = builder.useRustReader;
         this.partitionValues = builder.partitionValues != null
                 ? Collections.unmodifiableMap(builder.partitionValues)
@@ -212,13 +217,22 @@ public class PaimonScanRange implements ConnectorScanRange {
             // is_supported_jni_table_format -> _validate_scan_range) with no per-range V1 fallback.
             // enable_paimon_cpp_reader is therefore a no-op on the plan path, exactly like on master.
             //
-            // paimon-rust: when the caller opted in AND supplied db/table (see Builder.useRustReader),
-            // emit PAIMON_RUST + db_name/table_name so BE's file_scanner.cpp routes to
-            // PaimonRustReader. Same V2 caveat as PAIMON_CPP — V2 hard-rejects non-JNI reader types.
-            if (useRustReader && dbName != null && tableName != null) {
+            // paimon-rust: when the caller opted in via Builder.useRustReader, emit
+            // PAIMON_RUST + db_name/table_name/paimon_table so BE's file_scanner.cpp routes to
+            // PaimonRustReader. Same V2 caveat as PAIMON_CPP — V2 hard-rejects non-JNI reader
+            // types. dbName/tableName are Builder-guaranteed non-null here (see Builder.useRustReader),
+            // and paimonSplitVal is already the Paimon native binary encoding
+            // (PaimonScanPlanProvider.encodeDataSplitNative). A silent fallback to PAIMON_JNI would
+            // hand that native binary blob to PaimonJniScanner.InstantiationUtil.deserializeObject —
+            // which cannot decode it — so any inconsistency must surface here, not on BE.
+            if (useRustReader) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setDbName(dbName);
                 fileDesc.setTableName(tableName);
+                if (tableLocation != null) {
+                    // Legacy PaimonScanNode.setPaimonParams's fileDesc.setPaimonTable(source.getTableLocation()).
+                    fileDesc.setPaimonTable(tableLocation);
+                }
             } else {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
             }
@@ -328,6 +342,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         // paimon-rust routing (see PaimonScanRange.populateRangeParams).
         private String dbName;
         private String tableName;
+        private String tableLocation;
         private boolean useRustReader;
 
         public Builder path(String path) {
@@ -392,10 +407,17 @@ public class PaimonScanRange implements ConnectorScanRange {
             return this;
         }
 
-        /** Enable paimon-rust routing for this range; the paimon catalog on BE reopens the table via db/table. */
-        public Builder useRustReader(String dbName, String tableName) {
-            this.dbName = dbName;
-            this.tableName = tableName;
+        /**
+         * Enable paimon-rust routing for this range; the paimon catalog on BE reopens the table via
+         * db/table. dbName + tableName are REQUIRED — BE's PaimonRustReader treats a missing name as
+         * a hard error, and a silent fallback to plain JNI here would mismatch the Paimon-native
+         * binary paimon_split (only rust/cpp readers can decode it). tableLocation is optional
+         * (present for FileStoreTable, absent for anything without a resolvable root path).
+         */
+        public Builder useRustReader(String dbName, String tableName, String tableLocation) {
+            this.dbName = Objects.requireNonNull(dbName, "paimon-rust dbName");
+            this.tableName = Objects.requireNonNull(tableName, "paimon-rust tableName");
+            this.tableLocation = tableLocation;
             this.useRustReader = true;
             return this;
         }
