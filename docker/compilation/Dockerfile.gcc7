@@ -46,8 +46,8 @@ RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake l
 ENV PATH ${DEFAULT_DIR}/node-v14.16.0-linux-x64/bin:$PATH
 
 # build cmake
-ARG CMAKE_VERSION=3.12.3
-ARG CMAKE_DOWNLOAD_URL=https://cmake.org/files/v3.12/cmake-${CMAKE_VERSION}.tar.gz
+ARG CMAKE_VERSION=3.25.3
+ARG CMAKE_DOWNLOAD_URL=https://cmake.org/files/v3.25/cmake-${CMAKE_VERSION}.tar.gz
 RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL} \
     && tar -zxf /tmp/cmake.tar.gz -C /tmp/cmake --strip-components=1 \
     && cd /tmp/cmake \
