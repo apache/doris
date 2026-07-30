@@ -135,8 +135,7 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
     enum class WrapperContext : uint8_t { OBJECT_FIELD, ARRAY_ELEMENT };
     std::function<Status(const NativeFieldSchema&)> validate_typed_value;
     std::function<Status(const NativeFieldSchema&, WrapperContext)> validate_wrapper;
-    validate_wrapper = [&](const NativeFieldSchema& wrapper,
-                           WrapperContext context) -> Status {
+    validate_wrapper = [&](const NativeFieldSchema& wrapper, WrapperContext context) -> Status {
         if (!wrapper.parquet_schema.__isset.repetition_type ||
             wrapper.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
             return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
@@ -177,21 +176,18 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
                     wrapper.name);
         }
         if (fallback != nullptr &&
-            (!fallback->children.empty() ||
-             fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
+            (!fallback->children.empty() || fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
              !fallback->parquet_schema.__isset.repetition_type ||
-             fallback->parquet_schema.repetition_type !=
-                     tparquet::FieldRepetitionType::OPTIONAL)) {
+             fallback->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL)) {
             return Status::Corruption(
                     "Parquet Variant wrapper {} value must be an optional BYTE_ARRAY",
                     wrapper.name);
         }
         if (typed != nullptr) {
             if (!typed->parquet_schema.__isset.repetition_type ||
-                typed->parquet_schema.repetition_type !=
-                        tparquet::FieldRepetitionType::OPTIONAL) {
-                return Status::Corruption(
-                        "Parquet Variant wrapper {} typed_value must be optional", wrapper.name);
+                typed->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
+                return Status::Corruption("Parquet Variant wrapper {} typed_value must be optional",
+                                          wrapper.name);
             }
             return validate_typed_value(*typed);
         }

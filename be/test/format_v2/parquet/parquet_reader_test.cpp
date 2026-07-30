@@ -1611,8 +1611,7 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     ASSERT_TRUE(sliced_match.has_value());
     ASSERT_EQ(sliced_match->column->size(), 2);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(
-                      assert_cast<const ColumnNullable&>(*sliced_match->column)
-                              .get_nested_column())
+                      assert_cast<const ColumnNullable&>(*sliced_match->column).get_nested_column())
                       .get_data()[0],
               first_value + 1);
 
@@ -1624,11 +1623,11 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     const auto gathered_match = gathered_variants.find_shredded_typed_value(path);
     ASSERT_TRUE(gathered_match.has_value());
     ASSERT_EQ(gathered_match->column->size(), indices.size());
-    EXPECT_EQ(assert_cast<const ColumnInt32&>(
-                      assert_cast<const ColumnNullable&>(*gathered_match->column)
-                              .get_nested_column())
-                      .get_data()[0],
-              first_value + 2);
+    EXPECT_EQ(
+            assert_cast<const ColumnInt32&>(
+                    assert_cast<const ColumnNullable&>(*gathered_match->column).get_nested_column())
+                    .get_data()[0],
+            first_value + 2);
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {

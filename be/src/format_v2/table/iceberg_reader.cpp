@@ -122,8 +122,7 @@ const char* file_format_name(FileFormat format) {
 
 Status IcebergTableReader::validate_variant_file_mappings(
         FileFormat format, const std::vector<format::ColumnMapping>& mappings) {
-    if (format == FileFormat::PARQUET ||
-        !std::ranges::any_of(mappings, mapping_reads_variant)) {
+    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
         return Status::OK();
     }
     // Gate on a physical mapping, not the table schema: an older ORC/Avro file may legitimately
@@ -135,8 +134,8 @@ Status IcebergTableReader::validate_variant_file_mappings(
 }
 
 Status IcebergTableReader::validate_file_mapping(const format::TableColumnMapper& mapper) const {
-    if (_push_down_agg_type == TPushAggOp::type::COUNT &&
-        _push_down_count_columns.has_value() && _push_down_count_columns->empty()) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty()) {
         // COUNT(*) may retain an arbitrary minimum-width slot, but that carrier is never a
         // semantic physical read and must not trigger the Variant file-format capability gate.
         return Status::OK();
