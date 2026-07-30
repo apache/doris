@@ -273,6 +273,15 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         super.doInitialize();
+        // This gate must run during shared initialization: batch split assignment bypasses
+        // doGetSplits(), but it must never assign a semantic Variant projection to an old BE.
+        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
+    }
+
+    void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
+            throws UserException {
+        boolean projectsVariant = !isTableLevelCountStarPushdown() && projectsVariant(desc);
+        checkVariantBackendCompatibility(projectsVariant, backends);
     }
 
     private Optional<Map<Integer, List<String>>> extractNameMapping() {
@@ -1234,9 +1243,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (isSystemTable) {
             return doGetSystemTableSplits();
         }
-
-        boolean projectsVariant = !isTableLevelCountStarPushdown() && projectsVariant(desc);
-        checkVariantBackendCompatibility(projectsVariant, backendPolicy.getBackends());
 
         List<Split> splits = new ArrayList<>();
 

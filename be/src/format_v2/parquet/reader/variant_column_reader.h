@@ -36,7 +36,13 @@ struct VariantMaterializationNode {
     std::vector<std::unique_ptr<VariantMaterializationNode>> children;
     bool contains_variant = false;
     std::optional<format::LocalColumnIndex> variant_projection;
+    std::shared_ptr<const ParquetColumnSchema> variant_state_schema;
 };
+
+// Builds the immutable schema retained by a shredded state in the exact order of the decoded
+// physical projection.
+std::shared_ptr<const ParquetColumnSchema> create_variant_state_schema(
+        const ParquetColumnSchema& schema, const format::LocalColumnIndex* projection = nullptr);
 
 // Converts one physical Parquet Variant wrapper column to ColumnVariantV2 and appends it to output.
 // SQL NULL is represented by the wrapper's outer null map; a present wrapper with neither value nor

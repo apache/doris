@@ -153,6 +153,42 @@ TEST(AccessPathParserTest, PreservesVariantObjectKeysForPhysicalShreddingProject
     EXPECT_TRUE(variant.variant_access_paths.empty());
 }
 
+TEST(AccessPathParserTest, PreservesVariantPathsNestedInComplexColumns) {
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {variant_type}, Strings {"payload"});
+    auto structure = root_column(100, "s", struct_type);
+    auto status = AccessPathParser::build_nested_children(
+            &structure,
+            std::vector<TColumnAccessPath> {data_access_path({"s", "payload", "typed_col"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(structure.children.size(), 1);
+    EXPECT_EQ(structure.children[0].variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"typed_col"}}));
+
+    auto array = root_column(101, "items", std::make_shared<DataTypeArray>(variant_type));
+    status = AccessPathParser::build_nested_children(
+            &array, std::vector<TColumnAccessPath> {data_access_path({"items", "*", "kind"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(array.children.size(), 1);
+    EXPECT_EQ(array.children[0].variant_access_paths,
+              (std::vector<std::vector<std::string>> {{"kind"}}));
+
+    auto map = root_column(
+            102, "attrs",
+            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), variant_type));
+    status = AccessPathParser::build_nested_children(
+            &map, std::vector<TColumnAccessPath> {data_access_path({"attrs", "*", "enabled"})},
+            nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto* value = find_child_by_name(map, "value");
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->variant_access_paths, (std::vector<std::vector<std::string>> {{"enabled"}}));
+}
+
 // Scenario: reject unsupported top-level inputs before recursive type parsing, including META
 // paths, missing DATA payloads, and access paths whose root does not match the projected slot.
 TEST(AccessPathParserTest, RejectsUnsupportedTopLevelAccessPathInputs) {

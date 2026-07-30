@@ -1819,12 +1819,21 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
                                                const std::vector<std::string>& path,
                                                LocalColumnIndex* root_projection) {
     DORIS_CHECK(root_projection != nullptr);
+    const auto is_numeric_selector = [](std::string_view value) {
+        if (value.empty()) {
+            return false;
+        }
+        const size_t digits_begin = value.front() == '+' || value.front() == '-' ? 1 : 0;
+        return digits_begin < value.size() &&
+               std::ranges::all_of(
+                       value.substr(digits_begin), [](unsigned char c) { return std::isdigit(c); });
+    };
     if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
-        path[0].find('.') != std::string::npos ||
-        std::ranges::all_of(path[0], [](unsigned char value) { return std::isdigit(value); }) ||
+        path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
         !mapping.file_local_id.has_value()) {
         // Thrift currently carries access paths as strings without segment-kind or escaping
-        // metadata. Only a single unambiguous object key can be mapped losslessly to a leaf.
+        // metadata. Signed numeric tokens are therefore also ambiguous between an array selector
+        // and an object key, so only a single unambiguous key can be mapped losslessly to a leaf.
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);

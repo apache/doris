@@ -4577,19 +4577,26 @@ TEST(ColumnMapperTest, VariantLeafProjectionRequiresLosslessObjectPath) {
             "a.b", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 1);
     auto numeric_wrapper = struct_name_col(
             "1", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 2);
+    auto negative_numeric_wrapper = struct_name_col(
+            "-1", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 3);
+    auto positive_numeric_wrapper = struct_name_col(
+            "+1", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 4);
     auto null_wrapper = struct_name_col(
-            "NULL", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 3);
-    auto typed_value = struct_name_col("typed_value",
-                                       {std::move(field_wrapper), std::move(dotted_wrapper),
-                                        std::move(numeric_wrapper), std::move(null_wrapper)},
-                                       2);
+            "NULL", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 5);
+    auto typed_value =
+            struct_name_col("typed_value",
+                            {std::move(field_wrapper), std::move(dotted_wrapper),
+                             std::move(numeric_wrapper), std::move(negative_numeric_wrapper),
+                             std::move(positive_numeric_wrapper), std::move(null_wrapper)},
+                            2);
     auto file_variant = field_id_col("v", 10, variant_v2(), 0);
     file_variant.children = {name_col("metadata", varbinary(), 0),
                              name_col("value", varbinary(), 1), std::move(typed_value)};
 
     for (const std::vector<std::string>& path :
          {std::vector<std::string> {"a.b"}, std::vector<std::string> {"a", "b"},
-          std::vector<std::string> {"1"}, std::vector<std::string> {"NULL"}}) {
+          std::vector<std::string> {"1"}, std::vector<std::string> {"-1"},
+          std::vector<std::string> {"+1"}, std::vector<std::string> {"NULL"}}) {
         auto table_variant = field_id_col("v", 10, variant_v2());
         table_variant.variant_access_paths = {path};
         ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});

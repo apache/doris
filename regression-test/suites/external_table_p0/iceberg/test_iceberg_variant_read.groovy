@@ -108,7 +108,12 @@ suite("test_iceberg_variant_read",
             events ARRAY<VARIANT>,
             attrs MAP<STRING, VARIANT>
         ) USING iceberg
-        TBLPROPERTIES ('format-version'='3', 'write.format.default'='parquet');
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100'
+        );
         INSERT INTO demo.${dbName}.variant_nested SELECT
             1,
             named_struct('label', 'first', 'payload', parse_json('{"x":11,"deep":{"name":"inside"}}')),
@@ -119,6 +124,20 @@ suite("test_iceberg_variant_read",
             named_struct('label', 'second', 'payload', CAST(NULL AS VARIANT)),
             array(parse_json('null'), parse_json('{"kind":"close","score":202}')),
             map('primary', parse_json('{"enabled":false,"score":2002}'));
+
+        DROP TABLE IF EXISTS demo.${dbName}.variant_signed_selector;
+        CREATE TABLE demo.${dbName}.variant_signed_selector (
+            id INT,
+            v VARIANT
+        ) USING iceberg
+        TBLPROPERTIES (
+            'format-version'='3',
+            'write.format.default'='parquet',
+            'write.parquet.shred-variants'='true',
+            'write.parquet.variant-inference-buffer-size'='100'
+        );
+        INSERT INTO demo.${dbName}.variant_signed_selector
+            VALUES (1, parse_json('{"-1":41}'));
 
         DROP TABLE IF EXISTS demo.${dbName}.variant_evolution;
         CREATE TABLE demo.${dbName}.variant_evolution (
@@ -395,6 +414,29 @@ suite("test_iceberg_variant_read",
         FROM variant_nested
         ORDER BY id
     """
+
+    // A nested Variant path must survive complex-column pruning and reach the Parquet leaf mapper;
+    // checking values alone would also pass after silently falling back to the complete subtree.
+    String nestedLeafProjectionToken =
+            "iceberg_nested_variant_leaf_projection_" + UUID.randomUUID().toString()
+    sql """
+        SELECT '${nestedLeafProjectionToken}', COUNT(*)
+        FROM variant_nested
+        WHERE CAST(info.payload['x'] AS INT) > 0
+    """
+    String nestedLeafProjectionProfile = getProfileByToken(nestedLeafProjectionToken).toString()
+    assertTrue(counterSum(nestedLeafProjectionProfile, "VariantLeafProjections") > 0,
+               "Nested Variant predicate did not retain a physical leaf projection")
+
+    // Signed integer selectors are array indexes, even when a shredded object has a key with the
+    // same serialized token. The ambiguous scanner path must retain enough state for both results.
+    List<List<Object>> signedSelectorRows = sql """
+        SELECT CAST(v[-1] AS INT), CAST(v['-1'] AS INT)
+        FROM variant_signed_selector
+    """
+    assertEquals(1, signedSelectorRows.size())
+    assertEquals(null, signedSelectorRows[0][0])
+    assertEquals("41", signedSelectorRows[0][1].toString())
 
     order_qt_variant_nested_expressions """
         SELECT id,
