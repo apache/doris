@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_column_compression") {
+    // Per-column compression codec is only supported in non-cloud mode.
+    if (isCloudMode()) {
+        return
+    }
+
     def tableName = "test_column_compression_tbl"
     sql "DROP TABLE IF EXISTS ${tableName}"
 
