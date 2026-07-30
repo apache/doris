@@ -124,7 +124,6 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         TableIf table;
         try {
             table = db.get().getTableOrMetaException(tableName, TableType.OLAP,
-                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
                     TableType.PLUGIN_EXTERNAL_TABLE);
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage(), e);

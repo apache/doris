@@ -19,12 +19,11 @@ package org.apache.doris.datasource.test;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.log.InitDatabaseLog;
 
 public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> {
 
     public TestExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
-        super(extCatalog, id, name, remoteName, InitDatabaseLog.Type.TEST);
+        super(extCatalog, id, name, remoteName);
     }
 
     @Override

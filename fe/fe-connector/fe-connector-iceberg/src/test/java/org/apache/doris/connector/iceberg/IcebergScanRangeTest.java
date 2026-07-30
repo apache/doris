@@ -58,8 +58,8 @@ public class IcebergScanRangeTest {
         Assertions.assertEquals(8192L, range.getFileSize());
         Assertions.assertEquals("parquet", range.getFileFormat());
         // WHY: BE selects its iceberg reader off TTableFormatFileDesc.table_format_type, whose value for
-        // iceberg is "iceberg" (TableFormatType.ICEBERG). MUTATION: "paimon" / "plugin_driven" -> BE routes
-        // the split to the wrong reader -> red.
+        // iceberg is "iceberg" -- a string this connector owns, since fe-core forwards it verbatim.
+        // MUTATION: "paimon" / "plugin_driven" -> BE routes the split to the wrong reader -> red.
         Assertions.assertEquals("iceberg", range.getTableFormatType());
     }
 

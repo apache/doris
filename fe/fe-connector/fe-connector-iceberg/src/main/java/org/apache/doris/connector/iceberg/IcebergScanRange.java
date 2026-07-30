@@ -197,8 +197,8 @@ public class IcebergScanRange implements ConnectorScanRange {
 
     /**
      * The table-format-type string BE uses to select its Iceberg reader, mirroring paimon's
-     * {@code "paimon"}: the value of {@code TableFormatType.ICEBERG} (see fe-core
-     * {@code org.apache.doris.datasource.scan.TableFormatType}).
+     * {@code "paimon"}. The connector owns this string: fe-core forwards whatever it returns to BE, and
+     * holds no per-data-source format constant of its own.
      */
     @Override
     public String getTableFormatType() {
