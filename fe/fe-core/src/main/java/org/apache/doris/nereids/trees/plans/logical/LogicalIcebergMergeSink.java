@@ -87,6 +87,9 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
+    /**
+     * Create a copy with the given child and update the output expressions from it.
+     */
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
