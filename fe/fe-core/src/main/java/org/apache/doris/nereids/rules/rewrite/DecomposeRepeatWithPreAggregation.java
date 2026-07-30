@@ -151,7 +151,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
 
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         List<List<Expression>> newGroupingSets = new ArrayList<>();
-        List<Long> originalGroupingIdValues = repeat.toShapes().computeGroupingIdValue();
+        List<Long> originalGroupingIdValues = repeat.getGroupingIdValues()
+                .orElseGet(() -> repeat.toShapes().computeGroupingIdValue());
         List<Long> remainingGroupingIdValues = new ArrayList<>();
         for (int i = 0; i < repeat.getGroupingSets().size(); ++i) {
             if (i == maxGroupIndex) {
