@@ -145,6 +145,9 @@ size_t get_number_of_dimensions(const IDataType& type) {
 // which indicates NG-originated array<object> data.
 bool is_nested_group_type(const DataTypePtr& type) {
     auto base = get_base_type_of_array(type);
+    if (get_number_of_dimensions(*type) > 0) {
+        base = remove_nullable(base);
+    }
     return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
 }
 
