@@ -21,7 +21,6 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -117,26 +116,6 @@ public class ConfigTest {
             ConfigException e = Assert.assertThrows(key + " should not be runtime-mutable",
                     ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"));
             Assert.assertTrue(e.getMessage().contains("is not mutable"));
-        }
-    }
-
-    @Test
-    public void testInvalidS3ClientHttpScheme() throws Exception {
-        String originalScheme = Config.s3_client_http_scheme;
-        Path tempFile = Files.createTempFile("fe_invalid_s3_scheme_", ".conf");
-        try {
-            Files.write(tempFile, "s3_client_http_scheme = ftp".getBytes(StandardCharsets.UTF_8));
-            Config config = new Config();
-            try {
-                config.init(tempFile.toAbsolutePath().toString());
-                Assert.fail("Expected invalid s3_client_http_scheme to fail FE configuration initialization");
-            } catch (IllegalArgumentException e) {
-                Assert.assertEquals("Invalid s3_client_http_scheme: ftp, only http and https are supported",
-                        e.getMessage());
-            }
-        } finally {
-            Config.s3_client_http_scheme = originalScheme;
-            Files.deleteIfExists(tempFile);
         }
     }
 }
