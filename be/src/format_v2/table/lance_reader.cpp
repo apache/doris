@@ -22,6 +22,8 @@
 #include <arrow/type.h>
 #include <lance/lance.h>
 
+#include <bit>
+#include <cstring>
 #include <limits>
 #include <memory>
 
@@ -29,6 +31,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/common/endian.h"
 
 namespace doris::format::lance {
 namespace {
@@ -44,6 +47,39 @@ struct LanceScannerDeleter {
 struct LanceBatchDeleter {
     void operator()(LanceBatch* batch) const { lance_batch_free(batch); }
 };
+
+constexpr std::string_view DISTANCE_COLUMN = "_distance";
+
+size_t vector_element_width(TVectorElementType::type type) {
+    switch (type) {
+    case TVectorElementType::FLOAT16:
+        return sizeof(uint16_t);
+    case TVectorElementType::FLOAT32:
+        return sizeof(float);
+    case TVectorElementType::FLOAT64:
+        return sizeof(double);
+    case TVectorElementType::UINT8:
+    case TVectorElementType::INT8:
+        return sizeof(uint8_t);
+    }
+    return 0;
+}
+
+std::string vector_metric_name(TVectorMetric::type metric) {
+    switch (metric) {
+    case TVectorMetric::DEFAULT:
+        return "default";
+    case TVectorMetric::L2:
+        return "l2";
+    case TVectorMetric::COSINE:
+        return "cosine";
+    case TVectorMetric::DOT_PRODUCT:
+        return "dot";
+    case TVectorMetric::HAMMING:
+        return "hamming";
+    }
+    return "unknown";
+}
 
 int arrow_time_precision(arrow::TimeUnit::type unit) {
     switch (unit) {
@@ -93,8 +129,7 @@ Status arrow_type_to_doris_type(const std::shared_ptr<arrow::DataType>& arrow_ty
         return nullable_primitive(TYPE_STRING);
     case arrow::Type::BINARY:
     case arrow::Type::LARGE_BINARY:
-        return nullable_primitive(TYPE_VARBINARY, 0, 0,
-                                  std::numeric_limits<int32_t>::max());
+        return nullable_primitive(TYPE_VARBINARY, 0, 0, std::numeric_limits<int32_t>::max());
     case arrow::Type::FIXED_SIZE_BINARY: {
         const auto binary = std::static_pointer_cast<arrow::FixedSizeBinaryType>(arrow_type);
         return nullable_primitive(TYPE_VARBINARY, 0, 0, binary->byte_width());
@@ -233,6 +268,21 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_scan_params != nullptr);
 
     _ctz = _runtime_state->timezone_obj();
+    _vector_search = _scan_params->__isset.external_search_request;
+    _search_split_prepared = false;
+    if (_vector_search) {
+        RETURN_IF_ERROR(_validate_external_search_request());
+        const auto& vector = _scan_params->external_search_request.query.vector;
+        _scanner_profile->add_info_string("ExternalSearchType", "VECTOR");
+        _scanner_profile->add_info_string("LanceVectorColumn", vector.column);
+        _scanner_profile->add_info_string("LanceTopK", std::to_string(vector.top_k));
+        _scanner_profile->add_info_string("LanceOffset", std::to_string(vector.offset));
+        _scanner_profile->add_info_string("LanceMetric", vector.__isset.metric
+                                                                 ? vector_metric_name(vector.metric)
+                                                                 : "default");
+        _scanner_profile->add_info_string("LanceVectorDimension",
+                                          std::to_string(vector.query_vector.dimension));
+    }
     if (_scan_params->__isset.lance_substrait_filter) {
         _scanner_profile->add_info_string("LancePushdownFormat", "SUBSTRAIT");
         _scanner_profile->add_info_string(
@@ -249,6 +299,14 @@ Status LanceTableReader::init(TableReadOptions&& options) {
         }
         if (!_output_name_to_idx.emplace(column.name, idx).second) {
             return Status::InvalidArgument("duplicate Lance projected column: {}", column.name);
+        }
+        if (_vector_search && column.name == DISTANCE_COLUMN) {
+            const auto distance_type = remove_nullable(column.type);
+            if (distance_type->get_primitive_type() != TYPE_FLOAT) {
+                return Status::InvalidArgument(
+                        "Lance vector search column '{}' must have Doris FLOAT type, but was {}",
+                        DISTANCE_COLUMN, column.type->get_name());
+            }
         }
     }
     return Status::OK();
@@ -267,6 +325,21 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
         return Status::OK();
     }
 
+    if (_vector_search) {
+        const auto& lance_params = options.current_range.table_format_params.lance_params;
+        if (lance_params.version <= 0) {
+            return Status::InvalidArgument(
+                    "Lance vector search requires a fixed positive dataset version");
+        }
+        if (lance_params.__isset.fragment_ids) {
+            return Status::InvalidArgument("Lance vector search split must not set fragment ids");
+        }
+        if (_search_split_prepared) {
+            return Status::InvalidArgument(
+                    "Lance vector search supports exactly one whole-dataset split");
+        }
+    }
+
     const auto key = _dataset_key(options.current_range);
     if (_dataset == nullptr) {
         RETURN_IF_ERROR(_open_dataset(key));
@@ -277,7 +350,9 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
     }
 
     RETURN_IF_ERROR(_prepare_conjuncts());
-    return _open_scanner(options.current_range);
+    RETURN_IF_ERROR(_open_scanner(options.current_range));
+    _search_split_prepared = _vector_search;
+    return Status::OK();
 }
 
 Status LanceTableReader::get_block(Block* block, bool* eos) {
@@ -384,6 +459,109 @@ Status LanceTableReader::_validate_range(const TFileRangeDesc& range) const {
     return Status::OK();
 }
 
+Status LanceTableReader::_validate_external_search_request() const {
+    DORIS_CHECK(_scan_params != nullptr);
+    DORIS_CHECK(_scan_params->__isset.external_search_request);
+    if (_scan_params->__isset.lance_substrait_filter) {
+        return Status::InvalidArgument(
+                "Lance vector search cannot combine its pre-search filter with "
+                "lance_substrait_filter");
+    }
+    const auto& request = _scan_params->external_search_request;
+    if (request.__isset.schema_version && request.schema_version != 1) {
+        return Status::NotSupported("unsupported external search schema version: {}",
+                                    request.schema_version);
+    }
+    if (!request.__isset.query) {
+        return Status::InvalidArgument("external search request requires query");
+    }
+
+    const bool has_vector = request.query.__isset.vector;
+    const bool has_full_text = request.query.__isset.full_text;
+    if (has_vector == has_full_text) {
+        return Status::InvalidArgument("external search query must set exactly one search kind");
+    }
+    if (has_full_text) {
+        return Status::NotSupported("Lance Format V2 reader does not yet support full-text search");
+    }
+
+    const auto& vector = request.query.vector;
+    if (!vector.__isset.column || vector.column.empty() ||
+        vector.column.find('\0') != std::string::npos) {
+        return Status::InvalidArgument("Lance vector search requires a non-empty column");
+    }
+    if (!vector.__isset.query_vector) {
+        return Status::InvalidArgument("Lance vector search requires a query vector");
+    }
+    const auto& query_vector = vector.query_vector;
+    if (!query_vector.__isset.element_type || !query_vector.__isset.dimension ||
+        !query_vector.__isset.values) {
+        return Status::InvalidArgument(
+                "Lance query vector requires element_type, dimension, and values");
+    }
+    if (query_vector.dimension <= 0) {
+        return Status::InvalidArgument("Lance query vector dimension must be positive: {}",
+                                       query_vector.dimension);
+    }
+    const auto element_width = vector_element_width(query_vector.element_type);
+    if (element_width == 0) {
+        return Status::NotSupported("unsupported Lance query vector element type: {}",
+                                    static_cast<int>(query_vector.element_type));
+    }
+    const auto dimension = static_cast<size_t>(query_vector.dimension);
+    if (dimension > std::numeric_limits<size_t>::max() / element_width ||
+        query_vector.values.size() != dimension * element_width) {
+        return Status::InvalidArgument(
+                "Lance query vector byte size {} does not match dimension {} and element width {}",
+                query_vector.values.size(), dimension, element_width);
+    }
+    if (!vector.__isset.top_k || vector.top_k <= 0) {
+        return Status::InvalidArgument("Lance vector search top_k must be positive");
+    }
+    if (!vector.__isset.offset || vector.offset < 0) {
+        return Status::InvalidArgument("Lance vector search offset must be non-negative");
+    }
+    constexpr auto UINT32_MAX_VALUE = static_cast<int64_t>(std::numeric_limits<uint32_t>::max());
+    if (vector.offset > UINT32_MAX_VALUE || vector.top_k > UINT32_MAX_VALUE - vector.offset) {
+        return Status::InvalidArgument("Lance vector search top_k + offset exceeds uint32 range");
+    }
+
+    if (request.__isset.filter) {
+        const auto& filter = request.filter;
+        if (!filter.__isset.format || !filter.__isset.payload || filter.payload.empty()) {
+            return Status::InvalidArgument(
+                    "external search filter requires format and non-empty payload");
+        }
+        switch (filter.format) {
+        case TSearchFilterFormat::SQL:
+            if (filter.payload.find('\0') != std::string::npos) {
+                return Status::InvalidArgument(
+                        "Lance SQL search filter contains an embedded NUL byte");
+            }
+            break;
+        case TSearchFilterFormat::SUBSTRAIT:
+            break;
+        default:
+            return Status::NotSupported("unsupported external search filter format: {}",
+                                        static_cast<int>(filter.format));
+        }
+    }
+
+    if (request.__isset.lance_options) {
+        const auto& options = request.lance_options;
+        if (options.__isset.nprobes && options.nprobes <= 0) {
+            return Status::InvalidArgument("Lance nprobes must be positive");
+        }
+        if (options.__isset.refine_factor && options.refine_factor <= 0) {
+            return Status::InvalidArgument("Lance refine_factor must be positive");
+        }
+        if (options.__isset.ef && options.ef <= 0) {
+            return Status::InvalidArgument("Lance ef must be positive");
+        }
+    }
+    return Status::OK();
+}
+
 Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     std::vector<const char*> storage_option_ptrs;
     storage_option_ptrs.reserve(key.storage_options.size() + 1);
@@ -407,10 +585,20 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     for (const auto& column : _projected_columns) {
         columns.emplace_back(column.name.c_str());
     }
+    if (_vector_search && _projected_columns.empty()) {
+        columns.emplace_back(DISTANCE_COLUMN.data());
+    }
     columns.emplace_back(nullptr);
 
-    LanceScanner* scanner = lance_scanner_new(
-            _dataset, _projected_columns.empty() ? nullptr : columns.data(), nullptr);
+    const char* sql_filter = nullptr;
+    if (_vector_search) {
+        const auto& request = _scan_params->external_search_request;
+        if (request.__isset.filter && request.filter.format == TSearchFilterFormat::SQL) {
+            sql_filter = request.filter.payload.c_str();
+        }
+    }
+    LanceScanner* scanner =
+            lance_scanner_new(_dataset, columns.size() == 1 ? nullptr : columns.data(), sql_filter);
     if (scanner == nullptr) {
         return _lance_error("create Lance scanner");
     }
@@ -422,6 +610,17 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         if (lance_scanner_set_substrait_filter(
                     scanner, reinterpret_cast<const uint8_t*>(filter.data()), filter.size()) != 0) {
             return _lance_error("set Lance Substrait filter");
+        }
+    }
+    if (_vector_search) {
+        const auto& request = _scan_params->external_search_request;
+        if (request.__isset.filter && request.filter.format == TSearchFilterFormat::SUBSTRAIT) {
+            const auto& filter = request.filter.payload;
+            if (lance_scanner_set_substrait_filter(scanner,
+                                                   reinterpret_cast<const uint8_t*>(filter.data()),
+                                                   filter.size()) != 0) {
+                return _lance_error("set Lance vector search Substrait filter");
+            }
         }
     }
 
@@ -438,12 +637,134 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         for (const auto fragment_id : thrift_ids) {
             fragment_ids.emplace_back(static_cast<uint64_t>(fragment_id));
         }
-        if (lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
+        if (lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) !=
+            0) {
             return _lance_error("set Lance scanner fragment ids");
         }
     }
+    if (_vector_search) {
+        RETURN_IF_ERROR(_configure_vector_search(scanner));
+    }
     _scanner = scanner_guard.release();
     _scanner_batch_size = batch_size;
+    return Status::OK();
+}
+
+Status LanceTableReader::_configure_vector_search(LanceScanner* scanner) const {
+    DORIS_CHECK(scanner != nullptr);
+    DORIS_CHECK(_scan_params != nullptr);
+    const auto& request = _scan_params->external_search_request;
+    const auto& vector = request.query.vector;
+    const auto& query = vector.query_vector;
+    const auto* bytes = query.values.data();
+    const auto dimension = static_cast<size_t>(query.dimension);
+    const auto candidate_k = static_cast<uint32_t>(vector.top_k + vector.offset);
+
+    const auto set_nearest = [&](const void* values, LanceDataType type) -> Status {
+        if (lance_scanner_nearest(scanner, vector.column.c_str(), values, dimension, type,
+                                  candidate_k) != 0) {
+            return _lance_error("set Lance nearest query");
+        }
+        return Status::OK();
+    };
+
+    switch (query.element_type) {
+    case TVectorElementType::FLOAT16: {
+        std::vector<uint16_t> values(dimension);
+        for (size_t i = 0; i < dimension; ++i) {
+            values[i] = LittleEndian::Load16(bytes + i * sizeof(uint16_t));
+        }
+        RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_FLOAT16));
+        break;
+    }
+    case TVectorElementType::FLOAT32: {
+        std::vector<float> values(dimension);
+        for (size_t i = 0; i < dimension; ++i) {
+            const auto bits = LittleEndian::Load32(bytes + i * sizeof(uint32_t));
+            values[i] = std::bit_cast<float>(bits);
+        }
+        RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_FLOAT32));
+        break;
+    }
+    case TVectorElementType::FLOAT64: {
+        std::vector<double> values(dimension);
+        for (size_t i = 0; i < dimension; ++i) {
+            const auto bits = LittleEndian::Load64(bytes + i * sizeof(uint64_t));
+            values[i] = std::bit_cast<double>(bits);
+        }
+        RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_FLOAT64));
+        break;
+    }
+    case TVectorElementType::UINT8: {
+        std::vector<uint8_t> values(dimension);
+        std::memcpy(values.data(), bytes, dimension);
+        RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_UINT8));
+        break;
+    }
+    case TVectorElementType::INT8: {
+        std::vector<int8_t> values(dimension);
+        std::memcpy(values.data(), bytes, dimension);
+        RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_INT8));
+        break;
+    }
+    default:
+        return Status::NotSupported("unsupported Lance query vector element type: {}",
+                                    static_cast<int>(query.element_type));
+    }
+
+    if (vector.__isset.metric && vector.metric != TVectorMetric::DEFAULT) {
+        LanceMetricType metric;
+        switch (vector.metric) {
+        case TVectorMetric::L2:
+            metric = LANCE_METRIC_L2;
+            break;
+        case TVectorMetric::COSINE:
+            metric = LANCE_METRIC_COSINE;
+            break;
+        case TVectorMetric::DOT_PRODUCT:
+            metric = LANCE_METRIC_DOT;
+            break;
+        case TVectorMetric::HAMMING:
+            metric = LANCE_METRIC_HAMMING;
+            break;
+        default:
+            return Status::NotSupported("unsupported Lance vector metric: {}",
+                                        static_cast<int>(vector.metric));
+        }
+        if (lance_scanner_set_metric(scanner, metric) != 0) {
+            return _lance_error("set Lance vector metric");
+        }
+    }
+
+    if (request.__isset.lance_options) {
+        const auto& options = request.lance_options;
+        if (options.__isset.nprobes &&
+            lance_scanner_set_nprobes(scanner, static_cast<uint32_t>(options.nprobes)) != 0) {
+            return _lance_error("set Lance vector nprobes");
+        }
+        if (options.__isset.refine_factor &&
+            lance_scanner_set_refine_factor(scanner,
+                                            static_cast<uint32_t>(options.refine_factor)) != 0) {
+            return _lance_error("set Lance vector refine factor");
+        }
+        if (options.__isset.ef &&
+            lance_scanner_set_ef(scanner, static_cast<uint32_t>(options.ef)) != 0) {
+            return _lance_error("set Lance vector ef");
+        }
+        if (options.__isset.use_index &&
+            lance_scanner_set_use_index(scanner, options.use_index) != 0) {
+            return _lance_error("set Lance vector use_index");
+        }
+    }
+    if (request.__isset.filter && lance_scanner_set_prefilter(scanner, true) != 0) {
+        return _lance_error("enable Lance vector prefilter");
+    }
+    if (lance_scanner_set_offset(scanner, vector.offset) != 0) {
+        return _lance_error("set Lance vector offset");
+    }
+    if (lance_scanner_set_limit(scanner, vector.top_k) != 0) {
+        return _lance_error("set Lance vector result limit");
+    }
     return Status::OK();
 }
 
@@ -493,6 +814,11 @@ Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block,
         const auto& field = record_batch->schema()->field(arrow_idx);
         const auto output_it = _output_name_to_idx.find(field->name());
         if (output_it == _output_name_to_idx.end()) {
+            if (_vector_search && field->name() == DISTANCE_COLUMN) {
+                // Lance currently auto-projects _distance for nearest queries. It is valid for
+                // Doris slot pruning to omit that optional result column.
+                continue;
+            }
             return Status::InternalError("Lance returned unknown column '{}'", field->name());
         }
         if (!materialized_columns.emplace(field->name()).second) {

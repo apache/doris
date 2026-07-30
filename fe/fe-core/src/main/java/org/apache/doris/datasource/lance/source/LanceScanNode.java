@@ -32,10 +32,13 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchParams;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -45,9 +48,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Scan node for both ordinary Lance table scans and Lance external-search scans.
+ *
+ * <p>These modes share dataset metadata, storage properties, and BE scan-range serialization.
+ * Keeping them in one node prevents those common parts from drifting apart. The search request is
+ * also an explicit mode marker: ordinary scans are split by fragment, while the first version of
+ * vector search deliberately sends one whole-snapshot split to one scanner so Lance can compute a
+ * global TopK result.
+ */
 public class LanceScanNode extends FileQueryScanNode {
     private LanceExternalTable lanceTable;
     private LanceTableMetadata plannedMetadata;
+    private TExternalSearchRequest externalSearchRequest;
     private byte[] lanceSubstraitFilter = new byte[0];
     private String lancePushdownPredicate = "";
     private long plannedVersion = -1;
@@ -59,21 +72,53 @@ public class LanceScanNode extends FileQueryScanNode {
                 scanContext, needCheckColumnPriv, sessionVariable);
     }
 
+    /**
+     * Creates the search mode of this node.
+     *
+     * <p>The tuple descriptor belongs to a FunctionGenTable and contains generated columns such as
+     * {@code _distance}. Therefore the real Lance table and the metadata snapshot selected while
+     * analyzing the TVF must be passed separately.
+     */
+    public LanceScanNode(PlanNodeId id, TupleDescriptor desc, LanceExternalTable lanceTable,
+            LanceTableMetadata plannedMetadata, TExternalSearchRequest externalSearchRequest,
+            SessionVariable sessionVariable) {
+        super(id, desc, "LANCE_SCAN_NODE", StatisticalType.LANCE_SCAN_NODE,
+                ScanContext.builder().clusterName(sessionVariable.resolveCloudClusterName()).build(),
+                false, sessionVariable);
+        this.lanceTable = lanceTable;
+        this.plannedMetadata = plannedMetadata;
+        this.externalSearchRequest = externalSearchRequest.deepCopy();
+    }
+
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        lanceTable = (LanceExternalTable) desc.getTable();
-        ExternalUtil.initSchemaInfo(params, -1L, lanceTable.getColumns());
+
+        if (isExternalSearch()) {
+            // Search output comes from the FunctionGenTable because it adds generated columns such
+            // as _distance. The real Lance table is still retained for storage and metadata access.
+            ExternalUtil.initSchemaInfo(params, -1L, desc.getTable().getColumns());
+            params.setExternalSearchRequest(externalSearchRequest.deepCopy());
+        } else {
+            lanceTable = (LanceExternalTable) desc.getTable();
+            ExternalUtil.initSchemaInfo(params, -1L, lanceTable.getColumns());
+        }
     }
 
     @Override
     protected void convertPredicate() {
-        plannedMetadata = lanceTable.loadMetadata();
-        LancePredicateConverter.ConversionResult result =
-                new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
-        lanceSubstraitFilter = result.getSubstraitFilter();
-        lancePushdownPredicate = result.getDebugPredicate();
-        conjuncts.removeAll(result.getPushedConjuncts());
+        if (isExternalSearch()) {
+            // The TVF "filter" property is already serialized in externalSearchRequest and is
+            // evaluated by Lance before vector search. Outer WHERE conjuncts have different
+            // semantics: Doris must keep them here and evaluate them after Lance returns TopK.
+        } else {
+            plannedMetadata = lanceTable.loadMetadata();
+            LancePredicateConverter.ConversionResult result =
+                    new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);
+            lanceSubstraitFilter = result.getSubstraitFilter();
+            lancePushdownPredicate = result.getDebugPredicate();
+            conjuncts.removeAll(result.getPushedConjuncts());
+        }
     }
 
     @Override
@@ -86,25 +131,37 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        LanceTableMetadata metadata;
-        try {
-            metadata = plannedMetadata == null ? lanceTable.loadMetadata() : plannedMetadata;
-        } catch (RuntimeException e) {
-            throw new UserException("Failed to plan Lance fragments: " + e.getMessage(), e);
-        }
-        plannedVersion = metadata.getVersion();
-        plannedFragments = metadata.getFragments().size();
-        Set<Long> fragmentIds = new HashSet<>();
-        List<Split> splits = new ArrayList<>(plannedFragments);
-        for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
-            if (!fragmentIds.add(fragment.getId())) {
-                throw new UserException("Duplicate Lance fragment id " + fragment.getId()
-                        + " at dataset version " + metadata.getVersion());
+        if (isExternalSearch()) {
+            plannedVersion = plannedMetadata.getVersion();
+            plannedFragments = plannedMetadata.getFragments().size();
+
+            // Do not attach fragment IDs. A vector index is a dataset-wide structure and one
+            // scanner must see every fragment visible in this pinned snapshot to produce global
+            // TopK. Fragment-level parallel search and result merging are intentionally deferred.
+            return Collections.singletonList(LanceSplit.wholeDatasetAtVersion(
+                    plannedMetadata.getDatasetUri(), plannedMetadata.getVersion(),
+                    plannedMetadata.getRowCount()));
+        } else {
+            LanceTableMetadata metadata;
+            try {
+                metadata = plannedMetadata == null ? lanceTable.loadMetadata() : plannedMetadata;
+            } catch (RuntimeException e) {
+                throw new UserException("Failed to plan Lance fragments: " + e.getMessage(), e);
             }
-            splits.add(new LanceSplit(metadata.getDatasetUri(), metadata.getVersion(),
-                    fragment.getId(), fragment.getRowCount()));
+            plannedVersion = metadata.getVersion();
+            plannedFragments = metadata.getFragments().size();
+            Set<Long> fragmentIds = new HashSet<>();
+            List<Split> splits = new ArrayList<>(plannedFragments);
+            for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
+                if (!fragmentIds.add(fragment.getId())) {
+                    throw new UserException("Duplicate Lance fragment id " + fragment.getId()
+                            + " at dataset version " + metadata.getVersion());
+                }
+                splits.add(new LanceSplit(metadata.getDatasetUri(), metadata.getVersion(),
+                        fragment.getId(), fragment.getRowCount()));
+            }
+            return splits;
         }
-        return splits;
     }
 
     @Override
@@ -116,7 +173,20 @@ public class LanceScanNode extends FileQueryScanNode {
         TLanceFileDesc lanceParams = new TLanceFileDesc();
         lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
         lanceParams.setVersion(lanceSplit.getVersion());
-        lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
+        if (isExternalSearch()) {
+            if (lanceSplit.hasFragmentId()) {
+                throw new IllegalArgumentException(
+                        "Lance external search split must cover the whole dataset");
+            }
+            // Leaving fragment_ids unset instructs lance-c to scan/search all fragments in the
+            // selected dataset version.
+        } else {
+            if (!lanceSplit.hasFragmentId()) {
+                throw new IllegalArgumentException(
+                        "Ordinary Lance scan split must contain one fragment");
+            }
+            lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
+        }
 
         TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
         tableFormatParams.setTableFormatType(TableFormatType.LANCE.value());
@@ -136,7 +206,13 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     protected TableIf getTargetTable() {
-        return desc.getTable();
+        if (isExternalSearch()) {
+            // In search mode desc.getTable() is a FunctionGenTable, but default-value expressions
+            // and storage access still belong to the underlying Lance table.
+            return lanceTable;
+        } else {
+            return desc.getTable();
+        }
     }
 
     @Override
@@ -149,14 +225,48 @@ public class LanceScanNode extends FileQueryScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder result = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
-        result.append(prefix).append("lanceCatalogType=")
-                .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
-        result.append(prefix).append("lanceVersion=").append(plannedVersion).append("\n");
-        result.append(prefix).append("lanceFragments=").append(plannedFragments).append("\n");
-        if (!lancePushdownPredicate.isEmpty()) {
-            result.append(prefix).append("lancePushdownPredicate=")
-                    .append(lancePushdownPredicate).append("\n");
+        if (isExternalSearch()) {
+            TVectorSearchParams vector = externalSearchRequest.getQuery().getVector();
+            result.append(prefix).append("externalSearchType=VECTOR\n");
+            result.append(prefix).append("lanceVectorColumn=").append(vector.getColumn()).append("\n");
+            result.append(prefix).append("lanceTopK=").append(vector.getTopK()).append("\n");
+            result.append(prefix).append("lanceOffset=").append(vector.getOffset()).append("\n");
+            result.append(prefix).append("lanceMetric=")
+                    .append(vector.isSetMetric() ? metricName(vector.getMetric()) : "default")
+                    .append("\n");
+            result.append(prefix).append("lanceVersion=")
+                    .append(plannedMetadata.getVersion()).append("\n");
+            result.append(prefix).append("lanceSearchScanners=1\n");
+        } else {
+            result.append(prefix).append("lanceCatalogType=")
+                    .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
+            result.append(prefix).append("lanceVersion=").append(plannedVersion).append("\n");
+            result.append(prefix).append("lanceFragments=").append(plannedFragments).append("\n");
+            if (!lancePushdownPredicate.isEmpty()) {
+                result.append(prefix).append("lancePushdownPredicate=")
+                        .append(lancePushdownPredicate).append("\n");
+            }
         }
         return result.toString();
+    }
+
+    private boolean isExternalSearch() {
+        return externalSearchRequest != null;
+    }
+
+    private static String metricName(TVectorMetric metric) {
+        switch (metric) {
+            case L2:
+                return "l2";
+            case COSINE:
+                return "cosine";
+            case DOT_PRODUCT:
+                return "dot";
+            case HAMMING:
+                return "hamming";
+            case DEFAULT:
+            default:
+                return "default";
+        }
     }
 }

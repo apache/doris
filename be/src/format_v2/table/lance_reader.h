@@ -65,8 +65,10 @@ private:
     };
 
     Status _validate_range(const TFileRangeDesc& range) const;
+    Status _validate_external_search_request() const;
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);
+    Status _configure_vector_search(LanceScanner* scanner) const;
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_arrow(LanceBatch* batch, Block* block, size_t* rows);
@@ -81,6 +83,8 @@ private:
     std::unordered_map<std::string, size_t> _output_name_to_idx;
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
+    bool _vector_search = false;
+    bool _search_split_prepared = false;
     bool _eof = false;
 };
 

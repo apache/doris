@@ -24,8 +24,9 @@ import org.apache.doris.datasource.TableFormatType;
 import java.util.Collections;
 
 /**
- * A Lance scan split. Catalog and S3 scans use one fixed-version fragment per split, while a
- * backend-local TVF uses one whole-dataset split and resolves the latest version during execution.
+ * A Lance scan split. Catalog and S3 scans normally use one fixed-version fragment per split.
+ * Backend-local TVFs use one whole-dataset latest-version split, while vector search uses one
+ * whole-dataset fixed-version split.
  */
 public class LanceSplit extends FileSplit {
     private final String datasetUri;
@@ -43,18 +44,26 @@ public class LanceSplit extends FileSplit {
         this.selfSplitWeight = Math.max(rowCount, 1);
     }
 
-    private LanceSplit(String datasetUri) {
+    private LanceSplit(String datasetUri, long version, long rowCount) {
         super(LocationPath.of(datasetUri), 0, 0, 0, 0, null, Collections.emptyList());
         this.datasetUri = datasetUri;
-        this.version = 0;
+        this.version = version;
         this.fragmentId = -1;
         this.hasFragmentId = false;
         this.tableFormatType = TableFormatType.LANCE;
-        this.selfSplitWeight = 1L;
+        this.selfSplitWeight = Math.max(rowCount, 1);
     }
 
     public static LanceSplit wholeDatasetAtLatest(String datasetUri) {
-        return new LanceSplit(datasetUri);
+        return new LanceSplit(datasetUri, 0, 1);
+    }
+
+    public static LanceSplit wholeDatasetAtVersion(String datasetUri, long version, long rowCount) {
+        if (version <= 0) {
+            throw new IllegalArgumentException(
+                    "A fixed Lance dataset version must be positive: " + version);
+        }
+        return new LanceSplit(datasetUri, version, rowCount);
     }
 
     public String getDatasetUri() {
@@ -77,6 +86,6 @@ public class LanceSplit extends FileSplit {
     public String getConsistentHashString() {
         return hasFragmentId
                 ? datasetUri + "#" + version + "#" + fragmentId
-                : datasetUri + "#latest#all";
+                : datasetUri + "#" + (version == 0 ? "latest" : version) + "#all";
     }
 }

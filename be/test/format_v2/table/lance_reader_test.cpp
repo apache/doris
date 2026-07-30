@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -43,6 +44,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "exec/common/endian.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
@@ -153,6 +155,143 @@ Status prepare_fixture(LanceTableReader* reader, const std::filesystem::path& da
                        const LanceFixtureInfo& fixture, std::vector<int64_t> fragment_ids) {
     return prepare_range(reader,
                          make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids)));
+}
+
+TFileScanRangeParams make_float32_vector_search_params(
+        const std::array<float, 3>& query_values, int64_t top_k, int64_t offset,
+        std::optional<std::string> filter = std::nullopt) {
+    std::string encoded_values(query_values.size() * sizeof(float), '\0');
+    for (size_t i = 0; i < query_values.size(); ++i) {
+        LittleEndian::Store32(encoded_values.data() + i * sizeof(float),
+                              std::bit_cast<uint32_t>(query_values[i]));
+    }
+
+    TSearchVector query_vector;
+    query_vector.__set_element_type(TVectorElementType::FLOAT32);
+    query_vector.__set_dimension(static_cast<int32_t>(query_values.size()));
+    query_vector.__set_values(std::move(encoded_values));
+
+    TVectorSearchParams vector_params;
+    vector_params.__set_column("embedding");
+    vector_params.__set_query_vector(std::move(query_vector));
+    vector_params.__set_top_k(top_k);
+    vector_params.__set_offset(offset);
+    vector_params.__set_metric(TVectorMetric::L2);
+
+    TExternalSearchQuery query;
+    query.__set_vector(std::move(vector_params));
+    TExternalSearchRequest request;
+    request.__set_schema_version(1);
+    request.__set_query(std::move(query));
+    TLanceVectorSearchOptions lance_options;
+    lance_options.__set_use_index(false);
+    request.__set_lance_options(std::move(lance_options));
+    if (filter.has_value()) {
+        TSearchFilter search_filter;
+        search_filter.__set_format(TSearchFilterFormat::SQL);
+        search_filter.__set_payload(*filter);
+        request.__set_filter(std::move(search_filter));
+    }
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_external_search_request(std::move(request));
+    return scan_params;
+}
+
+TFileRangeDesc make_whole_dataset_lance_range(const std::filesystem::path& dataset_uri,
+                                              int64_t version) {
+    auto range = make_lance_range(dataset_uri, version, {});
+    range.table_format_params.lance_params.fragment_ids.clear();
+    range.table_format_params.lance_params.__isset.fragment_ids = false;
+    return range;
+}
+
+std::vector<std::pair<int64_t, float>> read_vector_search_rows(LanceTableReader* reader,
+                                                               Block* block) {
+    std::vector<std::pair<int64_t, float>> rows;
+    bool eos = false;
+    while (!eos) {
+        EXPECT_TRUE(reader->get_block(block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block->get_by_position(0).column);
+        const auto& distances =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(1).column);
+        const auto& distance_values =
+                assert_cast<const ColumnFloat32&>(distances.get_nested_column());
+        for (size_t row = 0; row < block->rows(); ++row) {
+            EXPECT_EQ(0, distances.get_null_map_data()[row]);
+            rows.emplace_back(row_ids.get_data()[row], distance_values.get_data()[row]);
+        }
+    }
+    return rows;
+}
+
+TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistance) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_distance", TYPE_FLOAT, true),
+    };
+    TQueryOptions query_options;
+    query_options.__set_batch_size(1);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_vector_search_fixture");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 1);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_whole_dataset_lance_range(dataset_uri, fixture.version))
+                        .ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    const auto rows = read_vector_search_rows(&reader, &block);
+    ASSERT_EQ(2U, rows.size());
+    EXPECT_EQ(2, rows[0].first);
+    EXPECT_FLOAT_EQ(1.0F, rows[0].second);
+    EXPECT_EQ(4, rows[1].first);
+    EXPECT_FLOAT_EQ(8.25F, rows[1].second);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderVectorSearchTest, AppliesSearchFilterBeforeTopK) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_distance", TYPE_FLOAT, true),
+    };
+    TQueryOptions query_options;
+    query_options.__set_batch_size(2);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_vector_search_prefilter_fixture");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 1, 0, "row_id >= 3");
+
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_whole_dataset_lance_range(dataset_uri, fixture.version))
+                        .ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    const auto rows = read_vector_search_rows(&reader, &block);
+    ASSERT_EQ(1U, rows.size());
+    EXPECT_EQ(4, rows[0].first);
+    EXPECT_FLOAT_EQ(8.25F, rows[0].second);
+    EXPECT_TRUE(reader.close().ok());
 }
 
 TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
