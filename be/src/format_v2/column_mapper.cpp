@@ -1837,8 +1837,8 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         }
         const size_t digits_begin = value.front() == '+' || value.front() == '-' ? 1 : 0;
         return digits_begin < value.size() &&
-               std::ranges::all_of(
-                       value.substr(digits_begin), [](unsigned char c) { return std::isdigit(c); });
+               std::ranges::all_of(value.substr(digits_begin),
+                                   [](unsigned char c) { return std::isdigit(c); });
     };
     if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
         path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
