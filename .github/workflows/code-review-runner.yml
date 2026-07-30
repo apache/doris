@@ -45,8 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     if: >-
-      github.event_name != 'issue_comment' ||
+      inputs.pr_number != '' ||
       (
+        github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
         startsWith(github.event.comment.body, '/review') &&
         (
@@ -69,17 +70,20 @@ jobs:
           INPUT_REVIEW_FOCUS: ${{ inputs.review_focus }}
           REPO: ${{ github.repository }}
         run: |
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            PR_NUMBER="$INPUT_PR_NUMBER"
+            HEAD_SHA="$INPUT_HEAD_SHA"
+            BASE_SHA="$INPUT_BASE_SHA"
+            REVIEW_FOCUS="$INPUT_REVIEW_FOCUS"
+          elif [ "$EVENT_NAME" = "issue_comment" ]; then
             PR_NUMBER="$ISSUE_NUMBER"
             PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
             HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
             BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
             REVIEW_FOCUS="$(printf '%s' "${COMMENT_BODY#'/review'}" | sed 's/^[[:space:]]*//')"
           else
-            PR_NUMBER="$INPUT_PR_NUMBER"
-            HEAD_SHA="$INPUT_HEAD_SHA"
-            BASE_SHA="$INPUT_BASE_SHA"
-            REVIEW_FOCUS="$INPUT_REVIEW_FOCUS"
+            echo "Review inputs are unavailable for event '$EVENT_NAME'." >&2
+            exit 1
           fi
 
           test -n "$PR_NUMBER"
