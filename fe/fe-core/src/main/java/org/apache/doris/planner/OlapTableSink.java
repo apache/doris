@@ -231,11 +231,12 @@ public class OlapTableSink extends DataSink {
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
-            if (dstTable.getIndexNumberWithRowBinlog() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
+            if (dstTable.getIndexNumber(true)
+                    != partition.getMaterializedIndices(IndexExtState.ALL, true).size()) {
                 throw new UserException(
                         "table's index number not equal with partition's index number. table's index number="
-                                + dstTable.getIndexNumberWithRowBinlog() + ", partition's index number="
-                                + partition.getMaterializedIndices(IndexExtState.ALL).size());
+                                + dstTable.getIndexNumber(true) + ", partition's index number="
+                                + partition.getMaterializedIndices(IndexExtState.ALL, true).size());
             }
         }
 
@@ -289,11 +290,12 @@ public class OlapTableSink extends DataSink {
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
-            if (dstTable.getIndexNumberWithRowBinlog() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
+            if (dstTable.getIndexNumber(true)
+                    != partition.getMaterializedIndices(IndexExtState.ALL, true).size()) {
                 throw new UserException(
                         "table's index number not equal with partition's index number. table's index number="
-                                + dstTable.getIndexNumberWithRowBinlog() + ", partition's index number="
-                                + partition.getMaterializedIndices(IndexExtState.ALL).size());
+                                + dstTable.getIndexNumber(true) + ", partition's index number="
+                                + partition.getMaterializedIndices(IndexExtState.ALL, true).size());
             }
         }
 
@@ -1027,8 +1029,7 @@ public class OlapTableSink extends DataSink {
                     // set partition keys
                     setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
 
-                    for (MaterializedIndex index
-                            : partition.getMaterializedIndices(IndexExtState.ALL_EXCEPT_ROW_BINLOG)) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNumBuckets(index.getTablets().size());
@@ -1092,8 +1093,7 @@ public class OlapTableSink extends DataSink {
                 tPartition.setId(partition.getId());
                 tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partition.getId()));
                 // No lowerBound and upperBound for this range
-                for (MaterializedIndex index
-                        : partition.getMaterializedIndices(IndexExtState.ALL_EXCEPT_ROW_BINLOG)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                             index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                     tPartition.setNumBuckets(index.getTablets().size());
@@ -1233,7 +1233,7 @@ public class OlapTableSink extends DataSink {
         for (long partitionId : partitionIds) {
             Partition partition = table.getPartition(partitionId);
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 for (Tablet tablet : index.getTablets()) {

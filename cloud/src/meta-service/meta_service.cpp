@@ -309,6 +309,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
 
             response->set_version(partition_version.version());
             response->add_version_update_time_ms(partition_version.update_time_ms());
+            response->add_commit_tsos(partition_version.commit_tso());
         }
         TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
@@ -375,6 +376,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
 
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
+            response->add_commit_tsos(version_pb.commit_tso());
         }
         TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
@@ -544,6 +546,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 for (auto& version_pb : partition_versions) {
                     response->add_versions(version_pb.version());
                     response->add_version_update_time_ms(version_pb.update_time_ms());
+                    response->add_commit_tsos(version_pb.commit_tso());
                 }
             }
         }
@@ -552,6 +555,8 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         response->clear_partition_ids();
         response->clear_table_ids();
         response->clear_versions();
+        response->clear_version_update_time_ms();
+        response->clear_commit_tsos();
     }
 }
 
@@ -683,6 +688,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_ver
             for (auto& version_pb : partition_versions) {
                 response->add_versions(version_pb.version());
                 response->add_version_update_time_ms(version_pb.update_time_ms());
+                response->add_commit_tsos(version_pb.commit_tso());
             }
         }
     }

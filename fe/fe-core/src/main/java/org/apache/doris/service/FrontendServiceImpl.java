@@ -5327,7 +5327,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         tPartition.setId(partitionId);
         OlapTableSink.setPartitionKeys(tPartition, partitionItem, partColNum);
         List<Tablet> partitionTabletSnapshot = new ArrayList<>();
-        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
             List<Tablet> indexTablets = new ArrayList<>(index.getTablets());
             tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                     indexTablets.stream().map(Tablet::getId).collect(Collectors.toList()))));

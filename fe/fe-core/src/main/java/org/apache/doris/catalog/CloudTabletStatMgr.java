@@ -183,7 +183,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     OlapTable tbl = (OlapTable) table;
                     for (Partition partition : tbl.getAllPartitions()) {
                         for (MaterializedIndex index
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             for (Tablet tablet : index.getTablets()) {
                                 if (filter != null && !filter.apply((CloudTablet) tablet)) {
                                     continue;
@@ -359,7 +359,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         for (MaterializedIndex index
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             List<Tablet> tablets = index.getTablets();
                             tabletCount += tablets.size();

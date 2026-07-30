@@ -159,7 +159,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private void addRecycledTabletsForPartition(Set<Long> recycledTabletSet, Partition partition) {
-        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
             for (Tablet tablet : index.getTablets()) {
                 recycledTabletSet.add(tablet.getId());
             }
@@ -1024,8 +1024,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // check if schema change
             Partition recoverPartition = recoverPartitionInfo.getPartition();
-            Set<Long> tableIndex = table.getIndexIdToMetaWithRowBinlog().keySet();
-            Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
+            Set<Long> tableIndex = table.getIndexIdToMeta(true).keySet();
+            Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL, true).stream()
                     .map(i -> i.getId()).collect(Collectors.toSet());
             if (!tableIndex.equals(partitionIndex)) {
                 throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
@@ -1323,7 +1323,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             for (Partition partition : olapTable.getAllPartitions()) {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : index.getTablets()) {
@@ -1375,7 +1375,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             // storage medium should be got from RecyclePartitionInfo, not from olap table. because olap table
             // does not have this partition any more
             TStorageMedium medium = partitionInfo.getDataProperty().getStorageMedium();
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                 for (Tablet tablet : index.getTablets()) {

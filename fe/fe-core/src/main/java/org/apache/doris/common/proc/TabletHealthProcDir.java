@@ -193,7 +193,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                         ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
                                 .getReplicaAllocation(partition.getId());
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
-                                MaterializedIndex.IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                                MaterializedIndex.IndexExtState.VISIBLE, true)) {
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {
                                 Tablet tablet = tablets.get(i);

@@ -51,10 +51,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     public enum IndexExtState {
         ALL,
-        ALL_EXCEPT_ROW_BINLOG, // exclude row binlog
-        VISIBLE, // exclude row binlog
-        VISIBLE_WITH_ROW_BINLOG,
-        SHADOW // exclude row binlog
+        VISIBLE, // index state in NORMAL
+        SHADOW // index state in SHADOW
     }
 
     @SerializedName(value = "id")

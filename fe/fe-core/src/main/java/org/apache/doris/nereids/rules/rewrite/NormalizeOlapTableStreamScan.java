@@ -168,7 +168,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         Map<String, String> scanParams = new HashMap<>();
         scanParams.put(OlapScanNode.OLAP_INCREMENT_TYPE, streamScanType.toString());
         LogicalOlapScan newScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
-                table, scan.qualified(), selectedPartitionIds, scan.getSelectedTabletIds(),
+                table, scan.qualified(), selectedPartitionIds, ImmutableList.of(),
                 new ArrayList<>(), scan.getTableSample(), ImmutableList.of(),
                 Optional.of(new TableScanParams(TableScanParams.INCREMENTAL_READ, scanParams, Lists.newArrayList())));
         Plan plan = newScan;

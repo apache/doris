@@ -889,7 +889,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         List<Long> indexs = Lists.newArrayList();
         for (Partition partition : olapTable.getAllPartitions()) {
-            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL, true);
             for (MaterializedIndex materializedIndex : allIndices) {
                 long indexId = materializedIndex.getId();
                 indexs.add(indexId);
@@ -934,7 +934,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         Set<Long> indexIds = new HashSet<>();
         boolean needUpdateTableVersion = false;
         for (Partition partition : partitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 indexIds.add(index.getId());
                 if (tableId == -1) {
                     tableId = ((CloudTablet) index.getTablets().get(0)).getCloudReplica().getTableId();

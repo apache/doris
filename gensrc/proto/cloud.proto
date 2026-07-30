@@ -548,6 +548,7 @@ message VersionPB {
     optional int64 update_time_ms = 2;
     // now only allow one element
     repeated int64 pending_txn_ids = 3;
+    optional int64 commit_tso = 4 [default = -1];
 }
 
 message RecycleTxnPB {
@@ -1237,6 +1238,7 @@ message GetVersionResponse {
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
     repeated int64 version_update_time_ms = 7;
+    repeated int64 commit_tsos = 8;
 };
 
 message GetObjStoreInfoRequest {

@@ -1807,6 +1807,7 @@ void MetaServiceImpl::commit_txn_immediately(
             VersionPB version_pb;
             version_pb.set_version(new_version);
             version_pb.set_update_time_ms(version_update_time_ms);
+            version_pb.set_commit_tso(commit_tso);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
@@ -2483,6 +2484,7 @@ void MetaServiceImpl::commit_txn_eventually(
             VersionPB version_pb;
             version_pb.add_pending_txn_ids(txn_id);
             version_pb.set_update_time_ms(version_update_time_ms);
+            version_pb.set_commit_tso(commit_tso);
             if (version > 1) {
                 version_pb.set_version(version);
             }
@@ -3020,6 +3022,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             VersionPB version_pb;
             version_pb.set_version(new_version);
             version_pb.set_update_time_ms(version_update_time_ms);
+            version_pb.set_commit_tso(commit_tso);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;

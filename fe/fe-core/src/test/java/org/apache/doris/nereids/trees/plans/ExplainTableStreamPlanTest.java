@@ -154,7 +154,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             long ts = System.currentTimeMillis();
             partition.setVisibleVersionAndTime(newVersion, ts, ts);
             partition.setNextVersion(newVersion + 1);
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
                         replica.updateVersion(newVersion);
@@ -679,7 +679,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     private Map<Long, Long> buildTabletIdToPartitionId(OlapTable baseTable) {
         Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
         for (Partition partition : baseTable.getPartitions()) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {
                     tabletIdToPartitionId.put(tablet.getId(), partition.getId());
                 }

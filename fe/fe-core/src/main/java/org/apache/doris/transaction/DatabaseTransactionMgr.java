@@ -578,7 +578,7 @@ public class DatabaseTransactionMgr {
                 List<MaterializedIndex> allIndices;
                 if (transactionState.getLoadedTblIndexes().isEmpty()
                         || transactionState.getLoadedTblIndexes().get(tableId) == null) {
-                    allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                    allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
                 } else {
                     allIndices = Lists.newArrayList();
                     for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
@@ -1435,7 +1435,7 @@ public class DatabaseTransactionMgr {
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partitionId);
             List<MaterializedIndex> allIndices;
             if (transactionState.getLoadedTblIndexes().isEmpty()) {
-                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
             } else {
                 allIndices = Lists.newArrayList();
                 for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
@@ -2354,7 +2354,7 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 List<MaterializedIndex> allIndices = partition.getMaterializedIndices(
-                        MaterializedIndex.IndexExtState.ALL);
+                        MaterializedIndex.IndexExtState.ALL, true);
                 for (MaterializedIndex index : allIndices) {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
@@ -2448,7 +2448,7 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 List<MaterializedIndex> allIndices = partition
-                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
@@ -2921,7 +2921,7 @@ public class DatabaseTransactionMgr {
             List<MaterializedIndex> allIndices;
             if (transactionState.getLoadedTblIndexes().isEmpty()
                     || transactionState.getLoadedTblIndexes().get(tableId) == null) {
-                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
             } else {
                 allIndices = Lists.newArrayList();
                 for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {

@@ -2341,7 +2341,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true, true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -3514,7 +3514,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {

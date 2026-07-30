@@ -709,7 +709,7 @@ public class TransactionState implements Writable {
         // always equal the index ids
         indexIds.clear();
         // include the row binlog companion index so it joins commit/publish quorum
-        indexIds.addAll(table.getIndexIdToMetaWithRowBinlog().keySet());
+        indexIds.addAll(table.getIndexIdToMeta(true).keySet());
     }
 
     public Map<Long, Set<Long>> getLoadedTblIndexes() {

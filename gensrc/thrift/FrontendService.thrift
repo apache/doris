@@ -823,6 +823,7 @@ struct TCloudVersionInfo {
    2: optional i64 partitionId
    3: optional i64 version
    4: optional i64 versionUpdateTime
+   5: optional i64 commitTso
 }
 
 struct TFrontendSyncCloudVersionRequest {

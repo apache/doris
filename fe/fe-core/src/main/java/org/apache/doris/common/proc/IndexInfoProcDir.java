@@ -65,10 +65,10 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 // indices order
                 List<Long> indices = Lists.newArrayList();
                 indices.add(olapTable.getBaseIndexId());
-                indices.addAll(olapTable.getIndexIdListWithRowBinlogExceptBaseIndex());
+                indices.addAll(olapTable.getIndexIdListExceptBaseIndex(true));
 
                 for (long indexId : indices) {
-                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMetaWithRowBinlog().get(indexId);
+                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMeta(true).get(indexId);
 
                     String type = indexMeta.getKeysType().name();
                     StringBuilder builder = new StringBuilder();

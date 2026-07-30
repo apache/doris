@@ -189,7 +189,7 @@ public class TabletStatMgr extends MasterDaemon {
                         long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
                             List<Tablet> tablets = index.getTablets();

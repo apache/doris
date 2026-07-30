@@ -522,7 +522,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
                         // So it does not matter if tablets of other indexes are not matched.
                         for (MaterializedIndex index
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             List<Long> tabletIdsInOrder = index.getTabletIdsInOrder();
@@ -646,7 +646,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         // So it does not matter if tablets of other indexes are not matched.
 
                         for (MaterializedIndex index
-                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             int tabletOrderIdx = 0;

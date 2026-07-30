@@ -1274,7 +1274,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             for (Map.Entry<String, List<Long>> entry : clusterToBes.entrySet()) {
                                 String cluster = entry.getKey();
                                 operator.op(db, table, partition, index, cluster);

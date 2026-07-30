@@ -61,7 +61,7 @@ public class BufferSizeUtil {
         for (Long partitionId : partitionIds) {
             bufferSize = bufferSize + 1;
             long replicaNum = table.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
-            long indexNum = table.getIndexNumberWithRowBinlog();
+            long indexNum = table.getIndexNumber(true);
             long bucketNum = table.getPartition(partitionId).getDistributionInfo().getBucketNum();
             bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
         }

@@ -376,7 +376,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
                             .getStorageMedium();
-                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         for (Tablet tablet : index.getTablets()) {
@@ -1100,7 +1100,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // drop all replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Partition partition : olapTable.getAllPartitions()) {
-            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL, true);
             for (MaterializedIndex materializedIndex : allIndices) {
                 long indexId = materializedIndex.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
@@ -1319,7 +1319,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
                         .getStorageMedium();
-                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                     long indexId = mIndex.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : mIndex.getTablets()) {
@@ -1669,7 +1669,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 groupSchema.checkReplicaAllocation(singlePartitionDesc.getReplicaAlloc());
             }
 
-            indexIdToMeta = olapTable.getCopiedIndexIdToMetaWithRowBinlog();
+            indexIdToMeta = olapTable.getCopiedIndexIdToMeta(true);
             bfColumns = olapTable.getCopiedBfColumns();
 
             // get BinlogConfig
@@ -1754,12 +1754,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // rollup index may be added or dropped during add partition operation.
                 // schema may be changed during add partition operation.
                 boolean metaChanged = false;
-                if (olapTable.getIndexIdToMetaWithRowBinlog().size() != indexIdToMeta.size()) {
+                if (olapTable.getIndexIdToMeta(true).size() != indexIdToMeta.size()) {
                     metaChanged = true;
                 } else {
                     // compare schemaHash
                     for (Map.Entry<Long, MaterializedIndexMeta> entry
-                            : olapTable.getIndexIdToMetaWithRowBinlog().entrySet()) {
+                            : olapTable.getIndexIdToMeta(true).entrySet()) {
                         long indexId = entry.getKey();
                         if (!indexIdToMeta.containsKey(indexId)) {
                             metaChanged = true;
@@ -1914,7 +1914,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // add to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 long indexId = index.getId();
                 int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                 for (Tablet tablet : index.getTablets()) {
@@ -3099,7 +3099,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long partitionId = partitionNameToId.get(partitionName);
 
                 // check replica quota if this operation done
-                long indexNum = olapTable.getIndexNumberWithRowBinlog();
+                long indexNum = olapTable.getIndexNumber(true);
                 long bucketNum = partitionDistributionInfo.getBucketNum();
                 long replicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
                 long totalReplicaNum = indexNum * bucketNum * replicaNum;
@@ -3110,10 +3110,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                             + db.getReplicaQuota() + "]");
                 }
                 beforeCreatePartitions(db.getId(), olapTable.getId(), null,
-                        olapTable.getIndexIdListWithRowBinlog(), true);
+                        olapTable.getIndexIdList(true), true);
                 Partition partition = createPartitionWithIndices(db.getId(), olapTable,
                         partitionId, partitionName,
-                        olapTable.getIndexIdToMetaWithRowBinlog(), partitionDistributionInfo,
+                        olapTable.getIndexIdToMeta(true), partitionDistributionInfo,
                         partitionInfo.getDataProperty(partitionId),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, tabletIdSet,
                         isInMemory, tabletType,
@@ -3123,7 +3123,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 olapTable.addPartition(partition);
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
-                        olapTable.getIndexIdListWithRowBinlog(),
+                        olapTable.getIndexIdList(true),
                         true /* isCreateTable */, true /* isBatchCommit */, olapTable);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -3171,7 +3171,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // check replica quota if this operation done
                 long totalReplicaNum = 0;
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
-                    long indexNum = olapTable.getIndexNumberWithRowBinlog();
+                    long indexNum = olapTable.getIndexNumber(true);
                     long bucketNum = defaultDistributionInfo.getBucketNum();
                     long replicaNum = partitionInfo.getReplicaAllocation(entry.getValue()).getTotalReplicaNum();
                     totalReplicaNum += indexNum * bucketNum * replicaNum;
@@ -3183,7 +3183,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
 
                 beforeCreatePartitions(db.getId(), olapTable.getId(), null,
-                        olapTable.getIndexIdListWithRowBinlog(), true);
+                        olapTable.getIndexIdList(true), true);
 
                 // this is a 2-level partitioned tables
                 for (Map.Entry<String, Long> entry : partitionNameToId.entrySet()) {
@@ -3206,7 +3206,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(partionStoragePolicy);
                     Partition partition = createPartitionWithIndices(db.getId(),
                             olapTable, entry.getValue(),
-                            entry.getKey(), olapTable.getIndexIdToMetaWithRowBinlog(), partitionDistributionInfo,
+                            entry.getKey(), olapTable.getIndexIdToMeta(true), partitionDistributionInfo,
                             dataProperty, partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, tabletIdSet, isInMemory,
                             partitionInfo.getTabletType(entry.getValue()),
@@ -3218,7 +3218,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .setStoragePolicy(partionStoragePolicy);
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
-                        olapTable.getIndexIdListWithRowBinlog(),
+                        olapTable.getIndexIdList(true),
                         true /* isCreateTable */, true /* isBatchCommit */, olapTable);
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
@@ -3633,7 +3633,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 newPartitionIds.add(newPartitionId);
             }
 
-            List<Long> indexIds = copiedTbl.getIndexIdListWithRowBinlog();
+            List<Long> indexIds = copiedTbl.getIndexIdList(true);
             beforeCreatePartitions(db.getId(), copiedTbl.getId(), newPartitionIds, indexIds, true);
 
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
@@ -3646,7 +3646,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long newPartitionId = oldToNewPartitionId.get(oldPartitionId);
                 Partition newPartition = createPartitionWithIndices(db.getId(), copiedTbl,
                         newPartitionId, entry.getKey(),
-                        copiedTbl.getIndexIdToMetaWithRowBinlog(), partitionsDistributionInfo.get(oldPartitionId),
+                        copiedTbl.getIndexIdToMeta(true), partitionsDistributionInfo.get(oldPartitionId),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId),
                         copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId), null /* version info */,
                         copiedTbl.getCopiedBfColumns(), tabletIdSet,
@@ -3822,7 +3822,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
                         .getStorageMedium();
-                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                     long indexId = mIndex.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : mIndex.getTablets()) {

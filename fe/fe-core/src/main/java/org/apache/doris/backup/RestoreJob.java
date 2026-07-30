@@ -2524,7 +2524,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             restoreOlapTable.writeLock();
                             try {
                                 for (Partition part : restoreOlapTable.getPartitions()) {
-                                    for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                                    for (MaterializedIndex idx
+                                            : part.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                                         for (Tablet tablet : idx.getTablets()) {
                                             Env.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                                         }
@@ -2562,7 +2563,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         restoreTbl.getName(), entry.second.getName());
                 try {
                     restoreTbl.dropPartitionAndReserveTablet(entry.second.getName());
-                    for (MaterializedIndex index : entry.second.getMaterializedIndices(IndexExtState.ALL)) {
+                    for (MaterializedIndex index : entry.second.getMaterializedIndices(IndexExtState.ALL, true)) {
                         for (Tablet tablet : index.getTablets()) {
                             Env.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                         }

@@ -583,6 +583,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+        long commitTso = commitTxnResponse.getTxnInfo().hasCommitTso()
+                ? commitTxnResponse.getTxnInfo().getCommitTso() : -1;
         int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
         if (totalPartitionNum == 0 && commitTxnResponse.getTableStatsList().isEmpty()) {
             return Collections.emptyMap();
@@ -613,7 +615,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 continue;
             }
             if (version == 2) {
-                partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)
                         .stream().forEach(i -> i.setRowCountReported(false));
             }
             partitionVersionMap.put(partition, Pair.of(version, commitTxnResponse.getVersionUpdateTimeMs()));
@@ -638,9 +640,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         try {
             partitionVersionMap.forEach((partition, versionPair) -> {
-                partition.setCachedVisibleVersion(versionPair.first, versionPair.second);
-                LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
-                        txnId, partition.getTableId(), partition.getId(), versionPair.first, versionPair.second);
+                partition.setCachedVisibleVersion(versionPair.first, versionPair.second, commitTso);
+                LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update "
+                                + "time:{}, commit tso:{}",
+                        txnId, partition.getTableId(), partition.getId(), versionPair.first, versionPair.second,
+                        commitTso);
             });
             for (Pair<OlapTable, Long> tableVersion : tableVersions) {
                 tableVersion.first.setCachedTableVersion(tableVersion.second);
@@ -933,7 +937,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     continue;
                 }
                 List<MaterializedIndex> allIndices
-                            = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                            = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true);
                 for (MaterializedIndex index : allIndices) {
                     // Schema change during load will increase partition index number,
                     // and we need to skip these indexes.
