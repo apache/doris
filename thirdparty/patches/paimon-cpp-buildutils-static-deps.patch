@@ -114,15 +114,13 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
 --- a/cmake_modules/ThirdpartyToolchain.cmake
 +++ b/cmake_modules/ThirdpartyToolchain.cmake
-@@ -34,6 +34,18 @@ set(EP_COMMON_TOOLCHAIN "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+@@ -34,6 +34,16 @@ set(EP_COMMON_TOOLCHAIN "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
                          "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 
 +option(PAIMON_USE_EXTERNAL_ARROW "Reuse external Arrow/Parquet instead of building arrow_ep" OFF)
 +set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "" CACHE PATH
 +    "Include directory for external Arrow/Parquet headers")
 +set(PAIMON_EXTERNAL_ARROW_LIB "" CACHE FILEPATH "Path to external libarrow.a")
-+set(PAIMON_EXTERNAL_ARROW_COMPUTE_LIB "" CACHE FILEPATH
-+    "Path to external libarrow_compute.a")
 +set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "" CACHE FILEPATH "Path to external libarrow_dataset.a")
 +set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "" CACHE FILEPATH "Path to external libarrow_acero.a")
 +set(PAIMON_EXTERNAL_PARQUET_LIB "" CACHE FILEPATH "Path to external libparquet.a")
@@ -136,7 +134,7 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
 --- a/cmake_modules/ThirdpartyToolchain.cmake
 +++ b/cmake_modules/ThirdpartyToolchain.cmake
-@@ -961,5 +961,105 @@ macro(build_orc)
+@@ -961,5 +961,95 @@ macro(build_orc)
  endmacro()
 
  macro(build_arrow)
@@ -169,7 +167,6 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 +
 +        foreach(_paimon_external_lib
 +                IN ITEMS PAIMON_EXTERNAL_ARROW_LIB
-+                         PAIMON_EXTERNAL_ARROW_COMPUTE_LIB
 +                         PAIMON_EXTERNAL_ARROW_DATASET_LIB
 +                         PAIMON_EXTERNAL_ARROW_ACERO_LIB
 +                         PAIMON_EXTERNAL_PARQUET_LIB
@@ -187,13 +184,6 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 +        add_library(arrow STATIC IMPORTED)
 +        set_target_properties(arrow
 +                              PROPERTIES IMPORTED_LOCATION "${PAIMON_EXTERNAL_ARROW_LIB}"
-+                                         INTERFACE_INCLUDE_DIRECTORIES
-+                                         "${ARROW_INCLUDE_DIR}")
-+
-+        add_library(arrow_compute STATIC IMPORTED)
-+        set_target_properties(arrow_compute
-+                              PROPERTIES IMPORTED_LOCATION
-+                                         "${PAIMON_EXTERNAL_ARROW_COMPUTE_LIB}"
 +                                         INTERFACE_INCLUDE_DIRECTORIES
 +                                         "${ARROW_INCLUDE_DIR}")
 +
@@ -224,9 +214,7 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 +                                         INTERFACE_INCLUDE_DIRECTORIES
 +                                         "${ARROW_INCLUDE_DIR}")
 +
-+        target_link_libraries(arrow_compute INTERFACE arrow)
-+
-+        target_link_libraries(arrow_acero INTERFACE arrow_compute)
++        target_link_libraries(arrow_acero INTERFACE arrow)
 +
 +        target_link_libraries(arrow_dataset INTERFACE arrow_acero)
 +

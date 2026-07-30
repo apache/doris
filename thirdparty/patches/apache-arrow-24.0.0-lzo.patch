@@ -3,7 +3,7 @@
 @@ -29,6 +29,8 @@
  #include <utility>
  #include <vector>
- 
+
 +#include <lzo/lzo1x.h>
 +
  #include "arrow/array.h"
@@ -31,15 +31,15 @@
 +    }
      always_compressed_ = always_compressed;
    }
- 
+
 @@ -271,6 +280,7 @@
    format::PageHeader current_page_header_;
- 
+
    // Compression codec to use.
 +  Compression::type compression_codec_;
    std::unique_ptr<::arrow::util::Codec> decompressor_;
    std::shared_ptr<ResizableBuffer> decompression_buffer_;
- 
+
 @@ -548,7 +558,7 @@
  std::shared_ptr<Buffer> SerializedPageReader::DecompressIfNeeded(
      std::shared_ptr<Buffer> page_buffer, int compressed_len, int uncompressed_len,
@@ -52,7 +52,7 @@
 @@ -565,6 +575,74 @@
      memcpy(decompressed, page_buffer->data(), levels_byte_len);
    }
- 
+
 +  if (compression_codec_ == Compression::LZO) {
 +    const uint8_t* input = page_buffer->data() + levels_byte_len;
 +    const uint8_t* const input_end = page_buffer->data() + compressed_len;

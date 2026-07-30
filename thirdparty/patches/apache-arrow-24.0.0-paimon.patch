@@ -1,7 +1,7 @@
 --- a/cpp/src/parquet/arrow/schema.cc
 +++ b/cpp/src/parquet/arrow/schema.cc
 @@ -215,7 +215,8 @@
- 
+
    // The user is explicitly asking for Impala int96 encoding, there is no
    // logical type.
 -  if (arrow_properties.support_deprecated_int96_timestamps()) {
@@ -15,17 +15,17 @@
 @@ -1041,25 +1041,32 @@
          ::arrow::MakeVectorIterator(std::move(batches)), std::move(batch_schema));
    }
- 
+
 -  int64_t num_rows = 0;
 +  std::vector<int64_t> num_rows;
    for (int row_group : row_groups) {
 -    num_rows += parquet_reader()->metadata()->RowGroup(row_group)->num_rows();
 +    num_rows.push_back(parquet_reader()->metadata()->RowGroup(row_group)->num_rows());
    }
- 
+
    using ::arrow::RecordBatchIterator;
 +  size_t row_group_idx = 0;
- 
+
    // NB: This lambda will be invoked outside the scope of this call to
    // `GetRecordBatchReader()`, so it must capture `readers` and `batch_schema` by value.
    // `this` is a non-owning pointer so we are relying on the parent FileReader outliving
@@ -35,7 +35,7 @@
 +      [readers, batch_schema, num_rows, row_group_idx,
         this]() mutable -> ::arrow::Result<RecordBatchIterator> {
          ::arrow::ChunkedArrayVector columns(readers.size());
- 
+
          // don't reserve more rows than necessary
 -        int64_t batch_size = std::min(properties().batch_size(), num_rows);
 -        num_rows -= batch_size;
@@ -47,7 +47,7 @@
 +            ++row_group_idx;
 +          }
 +        }
- 
+
          RETURN_NOT_OK(::arrow::internal::OptionalParallelFor(
              reader_properties_.use_threads(), static_cast<int>(readers.size()),
 --- a/cpp/src/parquet/arrow/writer.cc
@@ -55,7 +55,7 @@
 @@ -341,6 +341,14 @@
      return Status::OK();
    }
- 
+
 +  int64_t GetBufferedSize() override {
 +    if (row_group_writer_ == nullptr) {
 +      return 0;
@@ -68,11 +68,11 @@
      if (!closed_) {
        // Make idempotent
 @@ -444,10 +452,14 @@
- 
+
      // Max number of rows allowed in a row group.
      const int64_t max_row_group_length = this->properties().max_row_group_length();
 +    const int64_t max_row_group_size = this->properties().max_row_group_size();
- 
+
      // Initialize a new buffered row group writer if necessary.
      if (row_group_writer_ == nullptr || !row_group_writer_->buffered() ||
 -        row_group_writer_->num_rows() >= max_row_group_length) {
@@ -82,13 +82,13 @@
 +            max_row_group_size) {
        RETURN_NOT_OK(NewBufferedRowGroup());
      }
- 
+
 --- a/cpp/src/parquet/arrow/writer.h
 +++ b/cpp/src/parquet/arrow/writer.h
 @@ -124,6 +124,9 @@
    /// option in this case.
    virtual ::arrow::Status WriteRecordBatch(const ::arrow::RecordBatch& batch) = 0;
- 
+
 +  /// \brief Return the buffered size in bytes.
 +  virtual int64_t GetBufferedSize() = 0;
 +
@@ -124,7 +124,7 @@
 @@ -468,6 +471,13 @@
        return this;
      }
- 
+
 +    /// Specify the max bytes size to put in a single row group.
 +    /// Default 128MB.
 +    Builder* max_row_group_size(int64_t max_row_group_size) {
@@ -136,7 +136,7 @@
      /// Default 1MB.
      Builder* data_pagesize(int64_t pg_size) {
 @@ -867,11 +877,12 @@
- 
+
        return std::shared_ptr<WriterProperties>(new WriterProperties(
            pool_, dictionary_pagesize_limit_, write_batch_size_, max_row_group_length_,
 -          pagesize_, max_rows_per_page_, version_, created_by_, page_checksum_enabled_,
@@ -151,7 +151,7 @@
 +          std::move(sorting_columns_), content_defined_chunking_enabled_,
 +          content_defined_chunking_options_));
      }
- 
+
     private:
 @@ -881,6 +892,7 @@
      int64_t dictionary_pagesize_limit_;
@@ -162,13 +162,13 @@
      int64_t max_rows_per_page_;
      ParquetVersion::type version_;
 @@ -917,6 +929,8 @@
- 
+
    inline int64_t max_row_group_length() const { return max_row_group_length_; }
- 
+
 +  inline int64_t max_row_group_size() const { return max_row_group_size_; }
 +
    inline int64_t data_pagesize() const { return pagesize_; }
- 
+
    inline int64_t max_rows_per_page() const { return max_rows_per_page_; }
 @@ -1046,9 +1060,10 @@
   private:
@@ -205,7 +205,7 @@
 @@ -1884,7 +1884,20 @@
                       REQUIRED_VERSION
                       0.11.0)
- 
+
 -  string(REPLACE "." ";" Thrift_VERSION_LIST ${Thrift_VERSION})
 +  if(NOT Thrift_VERSION)
 +    if(DEFINED thrift_PC_VERSION AND thrift_PC_VERSION)

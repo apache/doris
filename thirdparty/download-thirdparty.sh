@@ -741,6 +741,20 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
         patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"
         touch "${PAIMON_CPP_ARROW_24_PATCHED_MARK}"
     fi
+    PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK="patched_mark_arrow_24_compute"
+    if [[ ! -f "${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}" ]]; then
+        if patch -p1 --batch --forward --dry-run \
+            <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch" >/dev/null; then
+            patch -p1 --batch --forward <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch"
+        else
+            # An earlier Arrow 24 patch set embedded this delta in the generic
+            # patch. Assert that exact migration state instead of silently
+            # accepting a partially patched source tree.
+            patch -p1 --batch --reverse --dry-run \
+                <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compute.patch" >/dev/null
+        fi
+        touch "${PAIMON_CPP_ARROW_24_COMPUTE_PATCHED_MARK}"
+    fi
     cd -
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi

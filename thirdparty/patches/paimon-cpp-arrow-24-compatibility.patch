@@ -4,7 +4,7 @@ diff --git a/include/paimon/status.h b/include/paimon/status.h
 @@ -458,9 +458,4 @@
          }                                                             \
      } while (false)
- 
+
 -// This is an internal-use macro and should not be used in public headers.
 -#ifndef RETURN_NOT_OK
 -#define RETURN_NOT_OK(s) PAIMON_RETURN_NOT_OK(s)
