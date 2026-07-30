@@ -3179,18 +3179,15 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryRangeSkipsTypedValueMaterializati
     conjunct->close();
 }
 
-TEST_F(ParquetScanTest, QueryDictionaryFilterCacheUsesProductionKeysAndBitmaps) {
+TEST_F(ParquetScanTest, DictionaryFiltersAreBuiltFromEachReaderSnapshot) {
     struct ScanResult {
         std::vector<int32_t> scores;
-        int64_t cache_hits = 0;
-        int64_t cache_misses = 0;
+        int64_t typed_compare_columns = 0;
     };
 
-    auto query_context = MockQueryContext::create();
     auto scan = [&](int32_t lower_bound) {
         RuntimeProfile profile("profile");
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        state._query_ctx = query_context.get();
         auto reader = create_reader(0, -1, &profile);
         EXPECT_TRUE(reader->init(&state).ok());
 
@@ -3219,8 +3216,7 @@ TEST_F(ParquetScanTest, QueryDictionaryFilterCacheUsesProductionKeysAndBitmaps) 
                 result.scores.push_back(score_column.get_element(row));
             }
         }
-        result.cache_hits = counter_value(profile, "QueryDictionaryFilterCacheHits");
-        result.cache_misses = counter_value(profile, "QueryDictionaryFilterCacheMisses");
+        result.typed_compare_columns = counter_value(profile, "DictFilterTypedCompareColumns");
         conjunct->close();
         EXPECT_TRUE(reader->close().ok());
         return result;
@@ -3229,24 +3225,20 @@ TEST_F(ParquetScanTest, QueryDictionaryFilterCacheUsesProductionKeysAndBitmaps) 
     write_dictionary_int_pair_parquet_file(_file_path);
     const auto first = scan(2);
     EXPECT_EQ(first.scores, std::vector<int32_t>({30, 40, 50, 60}));
-    EXPECT_EQ(first.cache_hits, 0);
-    EXPECT_EQ(first.cache_misses, 1);
+    EXPECT_EQ(first.typed_compare_columns, 1);
 
     const auto repeated = scan(2);
     EXPECT_EQ(repeated.scores, first.scores);
-    EXPECT_EQ(repeated.cache_hits, 1);
-    EXPECT_EQ(repeated.cache_misses, 0);
+    EXPECT_EQ(repeated.typed_compare_columns, 1);
 
     const auto changed_predicate = scan(3);
     EXPECT_EQ(changed_predicate.scores, std::vector<int32_t>({40, 50, 60}));
-    EXPECT_EQ(changed_predicate.cache_hits, 0);
-    EXPECT_EQ(changed_predicate.cache_misses, 1);
+    EXPECT_EQ(changed_predicate.typed_compare_columns, 1);
 
     write_dictionary_int_pair_parquet_file(_file_path, {1, 2, 7, 8, 9, 10});
     const auto changed_dictionary = scan(2);
     EXPECT_EQ(changed_dictionary.scores, std::vector<int32_t>({30, 40, 50, 60}));
-    EXPECT_EQ(changed_dictionary.cache_hits, 0);
-    EXPECT_EQ(changed_dictionary.cache_misses, 1);
+    EXPECT_EQ(changed_dictionary.typed_compare_columns, 1);
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
@@ -3282,8 +3274,6 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
     EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
     EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 3);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
-    EXPECT_EQ(counter_value(profile, "QueryDictionaryFilterCacheHits"), 0);
-    EXPECT_EQ(counter_value(profile, "QueryDictionaryFilterCacheMisses"), 0);
     prepared.conjunct->close();
 }
 
