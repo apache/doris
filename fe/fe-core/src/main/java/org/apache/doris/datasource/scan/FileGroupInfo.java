@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.FileLoadScanNode;
@@ -47,11 +48,9 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -413,8 +412,9 @@ public class FileGroupInfo {
             rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
             rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
             if (getFileType() == TFileType.FILE_HDFS) {
-                URI fileUri = new Path(fileStatus.path).toUri();
-                rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
+                // LocationPath parses scheme and authority into fsIdentifier in exactly this
+                // "scheme://authority" shape, without pulling in hadoop.
+                rangeDesc.setFsName(LocationPath.of(fileStatus.path).getFsIdentifier());
             }
         } else {
             // for stream load
