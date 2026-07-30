@@ -190,7 +190,8 @@ protected:
 
 public:
     static bool open(const io::FileSystemSPtr& fs, const char* path, IndexInput*& ret,
-                     CLuceneError& error, int32_t bufferSize = -1, int64_t file_size = -1);
+                     CLuceneError& error, int32_t bufferSize = -1, int64_t file_size = -1,
+                     int64_t tablet_id = -1);
     ~FSIndexInput() override;
 
     IndexInput* clone() const override;

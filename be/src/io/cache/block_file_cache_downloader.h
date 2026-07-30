@@ -44,6 +44,7 @@ struct DownloadFileMeta {
     io::FileSystemSPtr file_system;
     IOContext ctx;
     std::function<void(Status)> download_done;
+    int64_t tablet_id {-1};
 };
 
 struct DownloadTask {
