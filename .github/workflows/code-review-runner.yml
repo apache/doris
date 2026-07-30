@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      manage_status:
+        description: Update the code-review commit status from this run.
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       pr_number:
@@ -33,6 +38,13 @@ on:
         required: false
         type: string
         default: ''
+      manage_status:
+        description: >-
+          Update the code-review commit status. Callers that enable this must
+          grant statuses: write.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   statuses: write
@@ -68,6 +80,7 @@ jobs:
           INPUT_HEAD_SHA: ${{ inputs.head_sha }}
           INPUT_BASE_SHA: ${{ inputs.base_sha }}
           INPUT_REVIEW_FOCUS: ${{ inputs.review_focus }}
+          INPUT_MANAGE_STATUS: ${{ inputs.manage_status }}
           REPO: ${{ github.repository }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
@@ -75,12 +88,15 @@ jobs:
             HEAD_SHA="$INPUT_HEAD_SHA"
             BASE_SHA="$INPUT_BASE_SHA"
             REVIEW_FOCUS="$INPUT_REVIEW_FOCUS"
+            MANAGE_STATUS="$INPUT_MANAGE_STATUS"
           elif [ "$EVENT_NAME" = "issue_comment" ]; then
             PR_NUMBER="$ISSUE_NUMBER"
             PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
             HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
             BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
-            REVIEW_FOCUS="$(printf '%s' "${COMMENT_BODY#'/review'}" | sed 's/^[[:space:]]*//')"
+            REVIEW_FOCUS="$(printf '%s' "${COMMENT_BODY#'/review'}" |
+              python3 -c 'import sys; sys.stdout.write(sys.stdin.read().lstrip())')"
+            MANAGE_STATUS=true
           else
             echo "Review inputs are unavailable for event '$EVENT_NAME'." >&2
             exit 1
@@ -93,6 +109,7 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "manage_status=$MANAGE_STATUS" >> "$GITHUB_OUTPUT"
           focus_delimiter="review_focus_${RANDOM}_${RANDOM}"
           {
             echo "review_focus<<${focus_delimiter}"
@@ -101,6 +118,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Mark Code Review status as pending
+        if: ${{ steps.review_inputs.outputs.manage_status == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
@@ -782,7 +800,12 @@ jobs:
           exit 1
 
       - name: Sync Code Review check for current head
-        if: ${{ always() && steps.review_inputs.outcome == 'success' }}
+        if: >-
+          ${{
+            always() &&
+            steps.review_inputs.outcome == 'success' &&
+            steps.review_inputs.outputs.manage_status == 'true'
+          }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
