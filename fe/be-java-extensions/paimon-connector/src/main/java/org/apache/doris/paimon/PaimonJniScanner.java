@@ -665,18 +665,27 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
-        // The serialized table may pin an older data snapshot while carrying the latest schema
-        // after a schema change. Applying a normal copy would time travel to that snapshot's
-        // schema again and make renamed or newly added columns disappear.
-        Map<String, String> readOptions = Collections.singletonMap(
-                CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize));
-        table = table instanceof FileStoreTable
-                ? ((FileStoreTable) table).copyWithoutTimeTravel(readOptions)
-                : table.copy(readOptions);
+        table = applyDefaultReadBatchSize(table, batchSize);
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
+    }
+
+    static Table applyDefaultReadBatchSize(Table table, int dorisBatchSize) {
+        if (table.options().containsKey(CoreOptions.READ_BATCH_SIZE.key())) {
+            // Doris' output block size and Paimon's reader batch are independent controls; an
+            // explicitly validated Paimon value must survive transport to the actual reader.
+            return table;
+        }
+        // The serialized table may pin an older data snapshot while carrying the latest schema
+        // after a schema change. Applying a normal copy would time travel to that snapshot's
+        // schema again and make renamed or newly added columns disappear.
+        Map<String, String> readOptions = Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(dorisBatchSize));
+        return table instanceof FileStoreTable
+                ? ((FileStoreTable) table).copyWithoutTimeTravel(readOptions)
+                : table.copy(readOptions);
     }
 
     private static String[] splitParam(String value, String delimiter) {

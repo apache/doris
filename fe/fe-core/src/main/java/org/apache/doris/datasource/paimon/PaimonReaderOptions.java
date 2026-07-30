@@ -37,6 +37,8 @@ public final class PaimonReaderOptions {
     public static final String TABLE_OPTION_PREFIX = "paimon.table-option.";
     public static final int MIN_READ_BATCH_SIZE = 1;
     public static final int MAX_READ_BATCH_SIZE = 65536;
+    // Keep catalog replay deterministic while bounding a single option's JVM-wide thread impact.
+    public static final int MAX_MANIFEST_PARALLELISM = 256;
     public static final long MIN_ASYNC_THRESHOLD_BYTES = 1024L * 1024L;
     public static final long MAX_ASYNC_THRESHOLD_BYTES = 1024L * 1024L * 1024L;
 
@@ -136,10 +138,33 @@ public final class PaimonReaderOptions {
         return Collections.unmodifiableMap(compatibleOptions);
     }
 
-    public static void validateEffectiveTableOptions(Map<String, String> options) {
+    public static void validateReaderOptions(Map<String, String> options) {
         SUPPORTED_OPTIONS.stream()
                 .filter(options::containsKey)
                 .forEach(key -> validate(key, options.get(key)));
+    }
+
+    public static void validateEffectiveTableOptions(Map<String, String> options) {
+        validateReaderOptions(options);
+        validateIfPresentForRuntime(options, CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+    }
+
+    public static Map<String, String> runtimeSafeCopyOptions(Table table, Map<String, String> copyOptions) {
+        Map<String, String> safeOptions = new LinkedHashMap<>(copyOptions);
+        String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();
+        String configured = safeOptions.containsKey(key) ? safeOptions.get(key) : table.options().get(key);
+        if (configured == null) {
+            return safeOptions;
+        }
+        validateManifestParallelism(configured);
+        int requested = Integer.parseInt(configured);
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        if (requested > localCapacity) {
+            // Keep persisted semantics stable across heterogeneous FEs, but cap the execution copy
+            // so Paimon cannot replace its JVM-static manifest pool with a larger query-local value.
+            safeOptions.put(key, String.valueOf(localCapacity));
+        }
+        return safeOptions;
     }
 
     public static void validateEffectiveTable(Table table) {
@@ -159,7 +184,7 @@ public final class PaimonReaderOptions {
     public static void validateEffectivePlanningTable(Table table) {
         // Partition projection never opens a data reader. Revalidating batch/async values here
         // would reject a raw handle even when the final relation copy safely overrides them.
-        validateIfPresent(table.options(), CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+        validateIfPresentForRuntime(table.options(), CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
         validateIfPresent(table.options(), CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
         if (table instanceof FallbackReadFileStoreTable) {
             validateEffectivePlanningTable(((FallbackReadFileStoreTable) table).fallback());
@@ -175,6 +200,13 @@ public final class PaimonReaderOptions {
         }
     }
 
+    private static void validateIfPresentForRuntime(Map<String, String> options, String key) {
+        validateIfPresent(options, key);
+        if (options.containsKey(key)) {
+            validateRuntimeManifestParallelism(options.get(key));
+        }
+    }
+
     private static void validateManifestParallelism(String value) {
         if (value == null) {
             return;
@@ -186,10 +218,15 @@ public final class PaimonReaderOptions {
             throw new IllegalArgumentException("Invalid value for Paimon option '"
                     + CoreOptions.SCAN_MANIFEST_PARALLELISM.key() + "': " + value, e);
         }
-        int maximum = Runtime.getRuntime().availableProcessors();
-        // Paimon replaces a JVM-static manifest executor above its CPU-sized default, so every
-        // option source must stay within that capacity to avoid cross-query thread-pool mutation.
-        requireRange(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), parallelism, 1, maximum);
+        // Catalog properties are replayed on every FE, so validity must not depend on the CPU count
+        // of whichever node happens to deserialize the image or become leader.
+        requireRange(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), parallelism, 1, MAX_MANIFEST_PARALLELISM);
+    }
+
+    private static void validateRuntimeManifestParallelism(String value) {
+        int parallelism = Integer.parseInt(value);
+        requireRange(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), parallelism, 1,
+                Runtime.getRuntime().availableProcessors());
     }
 
     private static <T> T parse(String key, String value, ConfigOption<T> option) {

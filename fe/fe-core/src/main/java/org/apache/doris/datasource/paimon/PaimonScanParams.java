@@ -103,7 +103,7 @@ public final class PaimonScanParams {
             throw new IllegalArgumentException("Unsupported Paimon query option(s): " + unsupported);
         }
 
-        PaimonReaderOptions.validateEffectiveTableOptions(options);
+        PaimonReaderOptions.validateReaderOptions(options);
 
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
@@ -144,7 +144,7 @@ public final class PaimonScanParams {
                     .filter(key -> !tableOptions.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
-        Table effectiveTable = table.copy(isolatedOptions);
+        Table effectiveTable = table.copy(PaimonReaderOptions.runtimeSafeCopyOptions(table, isolatedOptions));
         // Validate after every copy so relation options participate in the documented
         // relation > catalog > physical precedence before the effective value is judged.
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);

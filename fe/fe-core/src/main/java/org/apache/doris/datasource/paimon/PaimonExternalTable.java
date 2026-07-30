@@ -110,7 +110,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public Table getPaimonTable(TableScanParams scanParams) {
         if (scanParams != null && scanParams.isOptions()) {
             Map<String, String> options = scanParams.getMapParams();
-            Table statementTable = getPaimonTable(MvccUtil.getSnapshotFromContext(this));
+            // Resolve the snapshot pinned for this exact alias; another alias of the same table may
+            // carry different relation options and therefore a different statement snapshot.
+            Table statementTable = getPaimonTable(MvccUtil.getSnapshotFromContext(this, null, scanParams));
             Table resolutionTable = PaimonScanParams.usesStatementSnapshot(options)
                     ? statementTable
                     : getBasePaimonTable();

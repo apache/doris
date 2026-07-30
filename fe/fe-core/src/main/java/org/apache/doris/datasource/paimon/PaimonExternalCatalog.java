@@ -143,7 +143,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
                 Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
                 // Relation options are applied after this cached handle is returned. Defer final
                 // validation so a safe relation value can override an unsafe physical value.
-                return tableOptions.isEmpty() ? table : table.copy(tableOptions);
+                Map<String, String> runtimeOptions =
+                        PaimonReaderOptions.runtimeSafeCopyOptions(table, tableOptions);
+                return runtimeOptions.isEmpty() ? table : table.copy(runtimeOptions);
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."

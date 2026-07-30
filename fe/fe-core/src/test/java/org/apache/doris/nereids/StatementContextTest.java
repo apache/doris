@@ -536,7 +536,7 @@ public class StatementContextTest {
     }
 
     @Test
-    public void testSelectorFreePaimonOptionsPreloadLatestSnapshotBeforeLock() {
+    public void testPaimonOptionsRelationSkipsLatestSnapshotPreloadBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
         PaimonExternalTable paimonExternalTable = Mockito.mock(PaimonExternalTable.class);
@@ -574,11 +574,12 @@ public class StatementContextTest {
                             ImmutableMap.of("scan.plan-sort-partition", "true"),
                             Collections.emptyList())));
 
-            executePreload(statementContext);
+            ExternalMetadataPreloadResult result = executePreload(statementContext);
 
-            Mockito.verify(paimonExternalTable, Mockito.times(1))
+            org.junit.jupiter.api.Assertions.assertEquals(0, result.getPreloadedTableCount());
+            Mockito.verify(paimonExternalTable, Mockito.never())
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
-            Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+            Mockito.verify(paimonExternalTable, Mockito.never()).getBaseSchema();
         } finally {
             statementContext.close();
         }

@@ -34,9 +34,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonScanParams;
-import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -485,11 +482,9 @@ public class StatementContext implements Closeable {
         }
         ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
                 id -> new ExternalTablePreloadInfo((ExternalTable) table));
-        boolean selectorFreePaimonOptions = scanParams.isPresent()
-                && scanParams.get().isOptions()
-                && (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
-                && PaimonScanParams.usesStatementSnapshot(scanParams.get().getMapParams());
-        if (tableSnapshot.isPresent() || (scanParams.isPresent() && !selectorFreePaimonOptions)) {
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            // Preload runs before binding has resolved relation options to an exact snapshot. Treat
+            // every option-bearing relation as non-latest so warmup cannot pin another alias's state.
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
@@ -943,9 +938,15 @@ public class StatementContext implements Closeable {
         if (!(specificTable instanceof MvccTable)) {
             return Optional.empty();
         }
-        MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable,
+                versionKeyOf(tableSnapshot, scanParams));
         MvccSnapshot snapshot;
-        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+        if (scanParams != null && scanParams.isPresent() && scanParams.get().isOptions()) {
+            // OPTIONS defines a relation-scoped projection, so aliases with the same selector
+            // reuse one handle while different selectors never overwrite each other.
+            snapshot = snapshots.computeIfAbsent(mvccTableInfo,
+                    key -> ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+        } else if (tableSnapshot.isPresent() || scanParams.isPresent()) {
             snapshot = ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams);
         } else {
             // Keep latest metadata separate: a historical relation may temporarily become the
@@ -967,8 +968,43 @@ public class StatementContext implements Closeable {
         if (!(tableIf instanceof MvccTable)) {
             return Optional.empty();
         }
-        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
-        return Optional.ofNullable(snapshots.get(mvccTableInfo));
+        MvccTableInfo defaultKey = new MvccTableInfo(tableIf);
+        MvccSnapshot defaultSnapshot = snapshots.get(defaultKey);
+        if (defaultSnapshot != null) {
+            return Optional.of(defaultSnapshot);
+        }
+        MvccSnapshot only = null;
+        for (Map.Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            if (defaultKey.isSameTable(entry.getKey())) {
+                if (only != null) {
+                    return Optional.empty();
+                }
+                only = entry.getValue();
+            }
+        }
+        return Optional.ofNullable(only);
+    }
+
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(snapshots.get(
+                new MvccTableInfo(tableIf, versionKeyOf(tableSnapshot, scanParams))));
+    }
+
+    private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        // Limit the backport to relation-scoped OPTIONS: branch-4.1's older Iceberg/Paimon
+        // time-travel paths still resolve their handles outside this map, while OPTIONS needs an
+        // exact content key shared by analysis and scan planning.
+        if (scanParams != null && scanParams.isPresent() && scanParams.get().isOptions()) {
+            TableScanParams params = scanParams.get();
+            return "p:" + params.getParamType() + ':' + new TreeMap<>(params.getMapParams())
+                    + ':' + params.getListParams();
+        }
+        return "";
     }
 
     /**

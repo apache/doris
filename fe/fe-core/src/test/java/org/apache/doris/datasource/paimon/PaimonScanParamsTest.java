@@ -79,12 +79,11 @@ public class PaimonScanParamsTest {
     }
 
     @Test
-    public void testManifestParallelismCannotMutateGlobalPoolCapacity() {
-        int availableProcessors = Runtime.getRuntime().availableProcessors();
+    public void testManifestParallelismUsesClusterStableBounds() {
         PaimonScanParams.validateOptions(ImmutableMap.of(
-                "scan.manifest.parallelism", String.valueOf(availableProcessors)));
+                "scan.manifest.parallelism", String.valueOf(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM)));
 
-        for (int invalid : new int[] {0, -1, availableProcessors + 1}) {
+        for (int invalid : new int[] {0, -1, PaimonReaderOptions.MAX_MANIFEST_PARALLELISM + 1}) {
             IllegalArgumentException exception = Assert.assertThrows(
                     IllegalArgumentException.class,
                     () -> PaimonScanParams.validateOptions(ImmutableMap.of(
