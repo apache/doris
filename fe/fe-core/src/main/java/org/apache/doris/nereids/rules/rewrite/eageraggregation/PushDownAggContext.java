@@ -60,9 +60,7 @@ public class PushDownAggContext {
 
     // cascadesContext is used for normalizeAgg
     private final CascadesContext cascadesContext;
-
-    private final boolean passThroughBigJoin;
-
+    private final boolean passThroughHeavyJoin;
     private final boolean needOutputCount;
     private final boolean isPassThroughJoinOrUnion;
     private final boolean isSmallBroadCastBottomJoin;
@@ -111,7 +109,7 @@ public class PushDownAggContext {
                 .flatMap(aggFunction -> aggFunction.getInputSlots().stream())
                 .filter(Slot.class::isInstance)
                 .collect(ImmutableSet.toImmutableSet());
-        this.passThroughBigJoin = passThroughBigJoin;
+        this.passThroughHeavyJoin = passThroughBigJoin;
         this.hasDecomposedAggIf = hasDecomposedAggIf;
         this.containsNullToNonNull = containsNullToNonNull;
         this.needOutputCount = needOutputCount;
@@ -160,7 +158,7 @@ public class PushDownAggContext {
 
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, containsNullToNonNull,
+                cascadesContext, passThroughHeavyJoin, hasDecomposedAggIf, containsNullToNonNull,
                 bilateralState, needOutputCount, isPassThroughJoinOrUnion, isSmallBroadCastBottomJoin);
     }
 
@@ -190,8 +188,8 @@ public class PushDownAggContext {
         return cascadesContext;
     }
 
-    public boolean isPassThroughBigJoin() {
-        return passThroughBigJoin;
+    public boolean isPassThroughHeavyJoin() {
+        return passThroughHeavyJoin;
     }
 
     public boolean needOutputCount() {
@@ -204,7 +202,7 @@ public class PushDownAggContext {
                 + "aggFunctions=" + aggFunctions
                 + ", groupKeys=" + groupKeys
                 + ", aliasMap=" + aliasMap
-                + ", passThroughBigJoin=" + passThroughBigJoin
+                + ", passThroughBigJoin=" + passThroughHeavyJoin
                 + ", needOutputCount=" + needOutputCount
                 + '}';
     }
