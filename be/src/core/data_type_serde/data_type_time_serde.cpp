@@ -17,9 +17,10 @@
 
 #include "core/data_type_serde/data_type_time_serde.h"
 
-#include <limits>
 #include <arrow/array.h>
 #include <arrow/type.h>
+
+#include <limits>
 
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"

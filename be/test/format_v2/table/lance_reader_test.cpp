@@ -144,10 +144,11 @@ Status prepare_range(LanceTableReader* reader, TFileRangeDesc range) {
             .conjuncts = std::nullopt,
             .partition_prune_conjuncts = {},
             .all_runtime_filters_applied = true,
+            .condition_cache_digest = std::nullopt,
             .cache = nullptr,
             .current_range = std::move(range),
             .current_split_format = FileFormat::LANCE,
-            .global_rowid_context = std::nullopt,
+            .global_rowid_context = std::nullopt
     });
 }
 

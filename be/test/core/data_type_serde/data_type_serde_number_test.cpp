@@ -420,9 +420,9 @@ TEST_F(DataTypeNumberSerDeTest, ArrowUnsignedIntegersAreWidenedLosslessly) {
         ASSERT_TRUE(builder.Finish(&array).ok());
 
         auto column = ColumnInt16::create();
-        ASSERT_TRUE(serde_int16
-                            ->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
-                            .ok());
+        ASSERT_TRUE(
+                serde_int16->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
         ASSERT_EQ(5, column->size());
         EXPECT_EQ(0, column->get_data()[0]);
         EXPECT_EQ(0, column->get_data()[1]);
@@ -442,9 +442,9 @@ TEST_F(DataTypeNumberSerDeTest, ArrowUnsignedIntegersAreWidenedLosslessly) {
         ASSERT_TRUE(builder.Finish(&array).ok());
 
         auto column = ColumnInt32::create();
-        ASSERT_TRUE(serde_int32
-                            ->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
-                            .ok());
+        ASSERT_TRUE(
+                serde_int32->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
         ASSERT_EQ(5, column->size());
         EXPECT_EQ(0, column->get_data()[0]);
         EXPECT_EQ(0, column->get_data()[1]);
@@ -464,9 +464,9 @@ TEST_F(DataTypeNumberSerDeTest, ArrowUnsignedIntegersAreWidenedLosslessly) {
         ASSERT_TRUE(builder.Finish(&array).ok());
 
         auto column = ColumnInt64::create();
-        ASSERT_TRUE(serde_int64
-                            ->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
-                            .ok());
+        ASSERT_TRUE(
+                serde_int64->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
         ASSERT_EQ(5, column->size());
         EXPECT_EQ(0, column->get_data()[0]);
         EXPECT_EQ(0, column->get_data()[1]);
@@ -486,17 +486,15 @@ TEST_F(DataTypeNumberSerDeTest, ArrowUnsignedIntegersAreWidenedLosslessly) {
         ASSERT_TRUE(builder.Finish(&array).ok());
 
         auto column = ColumnInt128::create();
-        ASSERT_TRUE(serde_int128
-                            ->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
-                            .ok());
+        ASSERT_TRUE(
+                serde_int128->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
         ASSERT_EQ(5, column->size());
         EXPECT_EQ(Int128(0), column->get_data()[0]);
         EXPECT_EQ(Int128(0), column->get_data()[1]);
-        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<Int64>::max()),
-                  column->get_data()[2]);
+        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<Int64>::max()), column->get_data()[2]);
         EXPECT_EQ(Int128(1) << 63, column->get_data()[3]);
-        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<UInt64>::max()),
-                  column->get_data()[4]);
+        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<UInt64>::max()), column->get_data()[4]);
     }
 }
 

@@ -619,18 +619,18 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
-    // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
-    // ScanNode level so it is not serialized once per fragment split.
-    31: optional binary lance_substrait_filter
-    // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
-    // query. The first implementation uses one whole-dataset range for Lance vector search.
-    32: optional TExternalSearchRequest external_search_request
     // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
     // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
     // logical initial-default materialization.
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
+    // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
+    // ScanNode level so it is not serialized once per fragment split.
+    36: optional binary lance_substrait_filter
+    // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
+    // query. The first implementation uses one whole-dataset range for Lance vector search.
+    37: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {

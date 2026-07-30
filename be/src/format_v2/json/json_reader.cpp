@@ -1137,7 +1137,7 @@ size_t JsonReader::_column_index(std::string_view key, size_t key_index) {
         const auto previous = _previous_positions[key_index];
         if (previous < _requested_columns.size()) {
             const auto previous_name = _requested_columns[previous].slot_desc->col_name();
-            if ((_is_hive_table && CaseInsensitiveStringEqual {}(previous_name, key)) ||
+            if ((_is_hive_table&& CaseInsensitiveStringEqual {}(previous_name, key)) ||
                 (!_is_hive_table && previous_name == key)) {
                 return previous;
             }
