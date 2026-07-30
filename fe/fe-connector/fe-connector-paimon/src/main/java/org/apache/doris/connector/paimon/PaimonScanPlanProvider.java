@@ -50,6 +50,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
@@ -333,8 +334,28 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         // This is the last common boundary before planning and serialization. Validate only after
         // relation and incremental copies establish relation > catalog > physical precedence.
-        PaimonReaderOptions.validateEffectiveTableOptions(finalTable.options());
+        PaimonReaderOptions.validateEffectiveTable(finalTable);
+        validateHiddenSystemDataTable(paimonHandle, scanOptions);
         return finalTable;
+    }
+
+    private void validateHiddenSystemDataTable(PaimonTableHandle handle, Map<String, String> scanOptions) {
+        if (!handle.isSystemTable()) {
+            return;
+        }
+        try {
+            Table dataTable = catalogOps.getTable(
+                    Identifier.create(handle.getDatabaseName(), handle.getTableName()));
+            if (PaimonScanParams.isOptionsPin(scanOptions)) {
+                // Read-only system wrappers plan manifests through their hidden data table, so the
+                // same relation copy must establish precedence on both visible and hidden handles.
+                PaimonScanParams.applyOptions(dataTable, scanOptions);
+            } else {
+                PaimonReaderOptions.validateEffectiveTable(dataTable);
+            }
+        } catch (Catalog.TableNotExistException e) {
+            throw new DorisConnectorException("Failed to validate Paimon system table source", e);
+        }
     }
 
     @Override

@@ -18,7 +18,16 @@
 package org.apache.doris.connector.paimon;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.IntType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -76,5 +85,40 @@ public class PaimonReaderOptionsTest {
         Mockito.when(finalTable.options()).thenReturn(relationOptions);
 
         Assertions.assertSame(finalTable, PaimonScanParams.applyOptions(physicalTable, relationOptions));
+    }
+
+    @Test
+    void testRejectUnsafeHiddenFallbackTableAfterCopy() {
+        FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
+        FileStoreTable fallback = newFileStoreTable(
+                "fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
+        Table fallbackReadTable = new FallbackReadFileStoreTable(main, fallback);
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.applyOptions(fallbackReadTable, Collections.emptyMap()));
+    }
+
+    @Test
+    void testSafeRelationOptionOverridesUnsafeHiddenFallbackTable() {
+        FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
+        FileStoreTable fallback = newFileStoreTable(
+                "fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
+        Table fallbackReadTable = new FallbackReadFileStoreTable(main, fallback);
+
+        Assertions.assertDoesNotThrow(() -> PaimonScanParams.applyOptions(
+                fallbackReadTable, ImmutableMap.of("scan.manifest.parallelism", "1")));
+    }
+
+    private FileStoreTable newFileStoreTable(String name, Map<String, String> options) {
+        TableSchema schema = new TableSchema(
+                0,
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                options,
+                null);
+        return new AppendOnlyFileStoreTable(
+                Mockito.mock(FileIO.class), new Path("memory://" + name), schema, CatalogEnvironment.empty());
     }
 }

@@ -508,6 +508,57 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveSystemScanTableValidatesHiddenDataTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableAppliesSafeOverrideToHiddenDataTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable safeDataTable = new FakePaimonTable(
+                "data@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        safeDataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        dataTable.copyResult = safeDataTable;
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable safeSystemTable = new FakePaimonTable(
+                "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        safeSystemTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        systemTable.copyResult = safeSystemTable;
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("scan.manifest.parallelism", "1")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+
+        Assertions.assertSame(safeSystemTable, provider.resolveScanTable(optionsHandle));
+        Assertions.assertEquals("1", dataTable.lastCopyOptions.get("scan.manifest.parallelism"));
+    }
+
+    @Test
     public void resolveScanTableResetsStalePinForIncrementalRead(@TempDir Path warehouse) throws Exception {
         // A REAL paimon table (not FakePaimonTable, whose copy() is a no-op recorder that cannot
         // reproduce paimon's merge/remove/immutability) that PERSISTS a stale scan.snapshot-id/scan.mode

@@ -43,6 +43,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
@@ -1256,7 +1257,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     private List<ConnectorPartitionInfo> cachedPartitions(PaimonTableHandle paimonHandle) {
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
-        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()) {
+        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()
+                || !paimonHandle.getScanOptions().isEmpty()) {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
@@ -1308,21 +1310,24 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
 
-        // Partition enumeration is intentionally BASE-only: branch / time-travel reads carry EMPTY
-        // partition info (legacy PaimonPartitionInfo.EMPTY) and never reach this path, so for the
-        // (non-branch) handles that do, resolveTable returns the base table and the base-Identifier
-        // listing below is consistent. (A branch handle would otherwise mix branch schema metadata
-        // here with the base partition list — but that combination does not occur by design.)
-        Table table = resolveTable(paimonHandle);
+        Table resolvedTable = resolveTable(paimonHandle);
+        boolean optionsPin = PaimonScanParams.isOptionsPin(paimonHandle.getScanOptions());
+        Table table;
+        if (optionsPin) {
+            table = PaimonScanParams.applyOptions(resolvedTable, paimonHandle.getScanOptions());
+        } else {
+            PaimonReaderOptions.validateEffectiveTable(resolvedTable);
+            table = resolvedTable;
+        }
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
-        // M-11: wrap the remote listPartitions in executeAuthenticated (D-052), mirroring legacy
-        // PaimonExternalCatalog.getPaimonPartitions which ran it inside executionAuthenticator.execute
-        // and swallowed TableNotExistException INSIDE the wrap (Kerberos UGI.doAs would otherwise wrap
-        // the checked exception, so it must be caught inside).
         List<Partition> paimonPartitions;
         try {
             paimonPartitions = context.executeAuthenticated(() -> {
+                if (optionsPin) {
+                    // Catalog.listPartitions reloads the raw physical table and drops relation copies.
+                    return CatalogUtils.listPartitionsFromFileSystem(table);
+                }
                 try {
                     return catalogOps.listPartitions(identifier);
                 } catch (Catalog.TableNotExistException e) {
@@ -1444,7 +1449,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long rowCount;
         try {
-            rowCount = catalogOps.rowCount(resolveTable(paimonHandle));
+            Table table = resolveTable(paimonHandle);
+            PaimonReaderOptions.validateEffectiveTable(table);
+            validateHiddenSystemDataTable(paimonHandle, Collections.emptyMap());
+            rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count for {}", paimonHandle, e);
             return Optional.empty();
@@ -1474,8 +1482,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             Table table = resolveTable(pinned);
             Map<String, String> scanOptions = pinned.getScanOptions();
             if (scanOptions != null && !scanOptions.isEmpty()) {
-                table = table.copy(scanOptions);
+                table = PaimonScanParams.isOptionsPin(scanOptions)
+                        ? PaimonScanParams.applyOptions(table, scanOptions)
+                        : table.copy(scanOptions);
             }
+            PaimonReaderOptions.validateEffectiveTable(table);
+            validateHiddenSystemDataTable(pinned, scanOptions);
             rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count at snapshot {} for {}",
@@ -1486,6 +1498,20 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableStatistics(rowCount, -1));
         }
         return Optional.empty();
+    }
+
+    private void validateHiddenSystemDataTable(PaimonTableHandle handle, Map<String, String> scanOptions)
+            throws Catalog.TableNotExistException {
+        if (!handle.isSystemTable()) {
+            return;
+        }
+        Table dataTable = catalogOps.getTable(
+                Identifier.create(handle.getDatabaseName(), handle.getTableName()));
+        if (PaimonScanParams.isOptionsPin(scanOptions)) {
+            PaimonScanParams.applyOptions(dataTable, scanOptions);
+        } else {
+            PaimonReaderOptions.validateEffectiveTable(dataTable);
+        }
     }
 
     /**

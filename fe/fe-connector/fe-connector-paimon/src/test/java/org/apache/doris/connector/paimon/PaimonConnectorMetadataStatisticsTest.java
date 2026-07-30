@@ -116,11 +116,32 @@ public class PaimonConnectorMetadataStatisticsTest {
     }
 
     @Test
+    public void unsafeReaderOptionsAreRejectedBeforeRowCountPlanning() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable fake = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        fake.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        ops.table = fake;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(fake);
+
+        Optional<ConnectorTableStatistics> stats = metadataWith(ops).getTableStatistics(null, handle);
+
+        Assertions.assertFalse(stats.isPresent());
+        Assertions.assertFalse(ops.log.contains("rowCount"),
+                "unsafe manifest settings must fail before row-count planning starts");
+    }
+
+    @Test
     public void systemTableUsesResolvedSysTable() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.rowCount = 7;
         FakePaimonTable sysFake = new FakePaimonTable(
                 "t1$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable dataFake = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.table = dataFake;
         ops.sysTable = sysFake;
         PaimonTableHandle sysHandle = PaimonTableHandle.forSystemTable("db1", "t1", "snapshots", false);
         sysHandle.setPaimonTable(sysFake);
