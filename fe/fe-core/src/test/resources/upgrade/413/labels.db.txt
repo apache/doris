@@ -1,0 +1,14 @@
+# generated from 4.1.3 by Gen413Fixtures -- do not edit by hand
+# <label>\t<target class FQN>\t<ABSTRACT if the label can never be emitted>
+EsExternalDatabase	org.apache.doris.datasource.es.EsExternalDatabase
+ExternalDatabase	org.apache.doris.datasource.ExternalDatabase	ABSTRACT
+ExternalInfoSchemaDatabase	org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase
+ExternalMysqlDatabase	org.apache.doris.datasource.infoschema.ExternalMysqlDatabase
+HMSExternalDatabase	org.apache.doris.datasource.hive.HMSExternalDatabase
+IcebergExternalDatabase	org.apache.doris.datasource.iceberg.IcebergExternalDatabase
+JdbcExternalDatabase	org.apache.doris.datasource.jdbc.JdbcExternalDatabase
+LakeSoulExternalDatabase	org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase
+MaxComputeExternalDatabase	org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase
+PaimonExternalDatabase	org.apache.doris.datasource.paimon.PaimonExternalDatabase
+TestExternalDatabase	org.apache.doris.datasource.test.TestExternalDatabase
+TrinoConnectorExternalDatabase	org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase

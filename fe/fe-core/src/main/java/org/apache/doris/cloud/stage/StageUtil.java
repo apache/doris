@@ -31,7 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -153,8 +153,8 @@ public class StageUtil {
         int matchedFileNum = 0;
         int loadedFileNum = 0;
         String reachLimitStr = "";
-        StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageProps);
+        StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+        org.apache.doris.filesystem.FileSystem rawFs = FileSystemFactory.getFileSystem(storageAdapter);
         Preconditions.checkState(rawFs instanceof ObjFileSystem,
                 "Stage operations require ObjFileSystem, but got: %s", rawFs.getClass().getSimpleName());
         ObjFileSystem fs = (ObjFileSystem) rawFs;

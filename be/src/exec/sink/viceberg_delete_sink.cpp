@@ -40,6 +40,7 @@
 #include "format/transformer/vfile_format_transformer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -252,16 +253,25 @@ Status VIcebergDeleteSink::close(Status close_status) {
     if (!close_status.ok()) {
         LOG(WARNING) << fmt::format("VIcebergDeleteSink close with error: {}",
                                     close_status.to_string());
+        _cleanup_created_files();
         return close_status;
     }
 
+    Status write_status = Status::OK();
+    DBUG_EXECUTE_IF("VIcebergDeleteSink.close.inject_failure", {
+        write_status = Status::InternalError("injected Iceberg delete close failure");
+    });
+
     if (_delete_type == TFileContent::POSITION_DELETES && !_file_deletions.empty()) {
         SCOPED_TIMER(_write_delete_files_timer);
-        if (_format_version >= 3) {
-            RETURN_IF_ERROR(_write_deletion_vector_files(_file_deletions));
-        } else {
-            RETURN_IF_ERROR(_write_position_delete_files(_file_deletions));
+        if (write_status.ok()) {
+            write_status = _format_version >= 3 ? _write_deletion_vector_files(_file_deletions)
+                                                : _write_position_delete_files(_file_deletions);
         }
+    }
+    if (!write_status.ok()) {
+        _cleanup_created_files();
+        return write_status;
     }
 
     // Update counters
@@ -278,7 +288,31 @@ Status VIcebergDeleteSink::close(Status close_status) {
         }
     }
 
+    if (!_defer_file_cleanup_until_outer_close) {
+        _created_files.clear();
+    }
+
     return Status::OK();
+}
+
+void VIcebergDeleteSink::finish_deferred_file_cleanup(Status outer_status) {
+    if (!outer_status.ok()) {
+        _cleanup_created_files();
+    } else {
+        _created_files.clear();
+    }
+    _defer_file_cleanup_until_outer_close = false;
+}
+
+void VIcebergDeleteSink::_cleanup_created_files() {
+    for (const auto& [fs, path] : _created_files) {
+        Status delete_status = fs->delete_file(path);
+        if (!delete_status.ok() && !delete_status.is<ErrorCode::NOT_FOUND>()) {
+            LOG(WARNING) << fmt::format("Failed to delete Iceberg delete file {}: {}", path,
+                                        delete_status.to_string());
+        }
+    }
+    _created_files.clear();
 }
 
 int VIcebergDeleteSink::_get_row_id_column_index(const Block& block) {
@@ -448,9 +482,13 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         }
 
         // Open writer
-        RETURN_IF_ERROR(writer->open(_state, _state->runtime_profile(),
-                                     _position_delete_output_expr_ctxs, column_names, _hadoop_conf,
-                                     _file_type, _broker_addresses));
+        Status open_status =
+                writer->open(_state, _state->runtime_profile(), _position_delete_output_expr_ctxs,
+                             column_names, _hadoop_conf, _file_type, _broker_addresses);
+        if (writer->file_system() != nullptr) {
+            _created_files.emplace_back(writer->file_system(), delete_file_path);
+        }
+        RETURN_IF_ERROR(open_status);
 
         // Build block with (file_path, pos) columns
         std::vector<int64_t> positions;
@@ -669,6 +707,7 @@ Status VIcebergDeleteSink::_write_puffin_file(const std::string& puffin_path,
     auto fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     io::FileWriterPtr file_writer;
+    _created_files.emplace_back(fs, puffin_path);
     RETURN_IF_ERROR(fs->create_file(file_description.path, &file_writer, &file_writer_options));
 
     constexpr char PUFFIN_MAGIC[] = {'\x50', '\x46', '\x41', '\x31'};

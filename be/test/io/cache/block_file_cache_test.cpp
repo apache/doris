@@ -4108,6 +4108,73 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+TEST_F(BlockFileCacheTest, create_file_caches_preserves_config_order) {
+    reset_file_cache_factory_for_test();
+    std::string cache_path2 = caches_dir / "cache2" / "";
+    std::string cache_path3 = caches_dir / "cache3" / "";
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    if (fs::exists(cache_path2)) {
+        fs::remove_all(cache_path2);
+    }
+    if (fs::exists(cache_path3)) {
+        fs::remove_all(cache_path3);
+    }
+    Defer cleanup {[&] {
+        reset_file_cache_factory_for_test();
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+        if (fs::exists(cache_path2)) {
+            fs::remove_all(cache_path2);
+        }
+        if (fs::exists(cache_path3)) {
+            fs::remove_all(cache_path3);
+        }
+    }};
+
+    std::vector<CachePath> cache_paths;
+    cache_paths.emplace_back(cache_base_path, 90, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+    cache_paths.emplace_back(cache_path2, 120, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+    cache_paths.emplace_back(cache_base_path, 90, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+    cache_paths.emplace_back(cache_path3, 150, 30, DEFAULT_NORMAL_PERCENT,
+                             DEFAULT_DISPOSABLE_PERCENT, DEFAULT_INDEX_PERCENT, DEFAULT_TTL_PERCENT,
+                             "disk");
+
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_caches(cache_paths, [](const std::string&,
+                                                             const Status&) { return false; })
+                        .ok());
+
+    const auto& caches = FileCacheFactory::instance()->get_caches();
+    ASSERT_EQ(caches.size(), 3);
+    EXPECT_EQ(caches[0]->get_base_path(), cache_base_path);
+    EXPECT_EQ(caches[1]->get_base_path(), cache_path2);
+    EXPECT_EQ(caches[2]->get_base_path(), cache_path3);
+    EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_base_path)->get_base_path(),
+              cache_base_path);
+    EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_path2)->get_base_path(), cache_path2);
+    EXPECT_EQ(FileCacheFactory::instance()->get_by_path(cache_path3)->get_base_path(), cache_path3);
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 360);
+
+    for (const auto& cache : caches) {
+        wait_until_cache_ready(*cache);
+    }
+
+    for (int i = 0; i < 64; ++i) {
+        auto key = io::BlockFileCache::hash("factory_order_key_" + std::to_string(i));
+        const auto expected_path = caches[KeyHash()(key) % caches.size()]->get_base_path();
+        EXPECT_EQ(FileCacheFactory::instance()->get_by_path(key)->get_base_path(), expected_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, test_factory_2) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5935,7 +6002,7 @@ TEST_F(BlockFileCacheTest, test_align_size) {
     std::random_device rd;  // a seed source for the random number engine
     std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
     std::uniform_int_distribution<> distrib(0, 10_mb + 10086);
-    std::ranges::for_each(std::ranges::iota_view {0, 1000}, [&](int) {
+    for (int loop_i = 0; loop_i < 1000; ++loop_i) {
         size_t read_size = distrib(gen) % 1_mb;
         size_t read_offset = distrib(gen);
         auto [offset, size] =
@@ -5943,7 +6010,7 @@ TEST_F(BlockFileCacheTest, test_align_size) {
         EXPECT_EQ(offset % 1_mb, 0);
         EXPECT_GE(size, 1_mb);
         EXPECT_LE(size, 2_mb);
-    });
+    }
 }
 
 TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
@@ -6045,7 +6112,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
         std::random_device rd;  // a seed source for the random number engine
         std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
         std::uniform_int_distribution<> distrib(1_mb, 7_mb);
-        std::ranges::for_each(std::ranges::iota_view {0, 1000}, [&](int) {
+        for (int loop_i = 0; loop_i < 1000; ++loop_i) {
             size_t read_offset = distrib(gen);
             size_t read_size = distrib(gen) % 1_mb;
             if (read_offset + read_size > 7_mb || read_size == 0) {
@@ -6069,7 +6136,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
             } else {
                 EXPECT_EQ(std::string(read_size, '0' + num), buffer);
             }
-        });
+        }
     }
     {
         FileReaderSPtr local_reader;

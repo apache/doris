@@ -717,7 +717,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
-    for _fs_mod in s3 oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
+    for _fs_mod in s3-base s3 gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -1041,14 +1041,18 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
-    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
+    # Drop point for the trino-connector's own Trino plugins. Deliberately NOT the legacy
+    # plugins/connectors/: that name is still read as a fallback for deployments upgrading from
+    # <= 2.1.8, so a fresh install must not create it (an empty dir would be harmless, but the
+    # one-letter gap to the plugins/connector/ tree above is not).
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 
     # Deploy filesystem provider plugins as independent plugin directories
     # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
     FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
-    for fs_module in s3 azure oss cos obs hdfs oss-hdfs jfs local broker http; do
+    for fs_module in s3 gcs minio ozone azure oss cos obs hdfs oss-hdfs jfs local broker http; do
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
@@ -1080,6 +1084,23 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
+
+    # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
+    # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
+    # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
+    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
+    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
+    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
+    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
+    # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
+    # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
+    # fe/lib/jindofs in the same FE process.
+    PAIMON_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/paimon/lib"
+    if [[ -d "${PAIMON_CONN_LIB}" && -d "${DORIS_OUTPUT}/fe/lib/jindofs" ]]; then
+        cp -p "${DORIS_OUTPUT}/fe/lib/jindofs/"*.jar "${PAIMON_CONN_LIB}/" 2>/dev/null || true
+    fi
+    unset PAIMON_CONN_LIB
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
@@ -1249,7 +1270,8 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    # Mirrors the FE drop point above; the BE JNI scanner loads the same Trino plugins independently.
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/trino_plugins/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
     cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"

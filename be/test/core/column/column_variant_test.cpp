@@ -1066,6 +1066,33 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
     }
 }
 
+TEST_F(ColumnVariantTest, visible_root_does_not_hide_sparse_fields) {
+    auto source = ColumnVariant::create(0, false);
+    VariantMap mixed;
+    mixed.try_emplace(PathInData(), FieldWithDataType {.field = get_jsonb_field("array_int")});
+    mixed.try_emplace(PathInData("n"), FieldWithDataType {.field = VariantUtil::get_field("int")});
+    mixed.try_emplace(PathInData("word"),
+                      FieldWithDataType {.field = VariantUtil::get_field("string")});
+    source->try_insert(Field::create_field<TYPE_VARIANT>(std::move(mixed)));
+    source->finalize();
+
+    auto destination = ColumnVariant::create(1, false);
+    destination->try_insert(
+            VariantUtil::construct_variant_map({{"k", VariantUtil::get_field("int")}}));
+    destination->insert_range_from(*source, 0, 1);
+    destination->finalize();
+
+    EXPECT_EQ(destination->get_subcolumns().get_root()->data.get_least_common_base_type_id(),
+              PrimitiveType::TYPE_JSONB);
+    const auto& sparse_offsets = destination->serialized_sparse_column_offsets();
+    EXPECT_LT(sparse_offsets[0], sparse_offsets[1]);
+
+    DataTypeSerDe::FormatOptions options;
+    std::string json;
+    destination->serialize_one_row_to_string(1, &json, options);
+    EXPECT_EQ(json, R"({"n":20,"word":"str"})");
+}
+
 TEST_F(ColumnVariantTest, is_variable_length) {
     EXPECT_TRUE(column_variant->is_variable_length());
 }
@@ -3581,6 +3608,14 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     field2.num_dimensions = 1;
     array_subcolumn.insert(field2);
     array_subcolumn.finalize();
+}
+
+TEST(ColumnVariantNestedGroupTypeTest, nullable_array_element_is_recognized) {
+    EXPECT_TRUE(is_nested_group_type(ColumnVariant::NESTED_TYPE));
+
+    auto variant = std::make_shared<DataTypeVariant>(0, false);
+    EXPECT_TRUE(is_nested_group_type(variant));
+    EXPECT_FALSE(is_nested_group_type(make_nullable(variant)));
 }
 
 TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {

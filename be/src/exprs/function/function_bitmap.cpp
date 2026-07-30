@@ -582,52 +582,6 @@ struct BitmapNot {
     }
 };
 
-struct NameBitmapAndNot {
-    static constexpr auto name = "bitmap_and_not";
-};
-
-template <typename LeftDataType, typename RightDataType>
-struct BitmapAndNot {
-    using ResultDataType = DataTypeBitMap;
-    using T0 = typename LeftDataType::FieldType;
-    using T1 = typename RightDataType::FieldType;
-    using TData = std::vector<BitmapValue>;
-
-    static void vector_vector(const TData& lvec, const TData& rvec, TData& res) {
-        size_t size = lvec.size();
-        BitmapValue mid_data;
-        for (size_t i = 0; i < size; ++i) {
-            mid_data = lvec[i];
-            mid_data &= rvec[i];
-            res[i] = lvec[i];
-            res[i] -= mid_data;
-            mid_data.reset();
-        }
-    }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
-        size_t size = lvec.size();
-        BitmapValue mid_data;
-        for (size_t i = 0; i < size; ++i) {
-            mid_data = lvec[i];
-            mid_data &= rval;
-            res[i] = lvec[i];
-            res[i] -= mid_data;
-            mid_data.reset();
-        }
-    }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
-        size_t size = rvec.size();
-        BitmapValue mid_data;
-        for (size_t i = 0; i < size; ++i) {
-            mid_data = lval;
-            mid_data &= rvec[i];
-            res[i] = lval;
-            res[i] -= mid_data;
-            mid_data.reset();
-        }
-    }
-};
-
 struct NameBitmapAndNotCount {
     static constexpr auto name = "bitmap_and_not_count";
 };
@@ -642,32 +596,20 @@ struct BitmapAndNotCount {
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData* res) {
         size_t size = lvec.size();
-        BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
-            mid_data = lvec[i];
-            mid_data &= rvec[i];
-            res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.reset();
+            res[i] = lvec[i].andnot_cardinality(rvec[i]);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
         size_t size = rvec.size();
-        BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
-            mid_data = lval;
-            mid_data &= rvec[i];
-            res[i] = lval.andnot_cardinality(mid_data);
-            mid_data.reset();
+            res[i] = lval.andnot_cardinality(rvec[i]);
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData* res) {
         size_t size = lvec.size();
-        BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
-            mid_data = lvec[i];
-            mid_data &= rval;
-            res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.reset();
+            res[i] = lvec[i].andnot_cardinality(rval);
         }
     }
 };
@@ -687,8 +629,10 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
                                             const ColumnNumbers& args, uint32_t result,
                                             size_t input_rows_count) {
     MutableColumnPtr mutable_src = IColumn::mutate(std::move(src));
-    auto* nullable = assert_cast<ColumnNullable*>(mutable_src.get());
-    auto* src_not_nullable_mutable = &nullable->get_nested_column();
+    auto* src_not_nullable_mutable = mutable_src.get();
+    if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_src)) {
+        src_not_nullable_mutable = &nullable->get_nested_column();
+    }
     auto* __restrict count_data =
             assert_cast<ColumnInt64*>(src_not_nullable_mutable)->get_data().data();
 
@@ -739,28 +683,32 @@ Status execute_bitmap_op_count_null_to_zero(
     return Status::OK();
 }
 
-template <typename FunctionName>
+template <typename FunctionName, bool NewVersion = false>
 class FunctionBitmapAndNotCount : public IFunction {
 public:
     using LeftDataType = DataTypeBitMap;
     using RightDataType = DataTypeBitMap;
     using ResultDataType = typename BitmapAndNotCount<LeftDataType, RightDataType>::ResultDataType;
 
-    static constexpr auto name = FunctionName::name;
+    static constexpr auto name = NewVersion ? "bitmap_and_not_count_v2" : FunctionName::name;
     static FunctionPtr create() { return std::make_shared<FunctionBitmapAndNotCount>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        bool return_nullable = false;
-        // result is nullable only when any columns is nullable for bitmap_and_not_count
-        for (size_t i = 0; i < arguments.size(); ++i) {
-            if (arguments[i]->is_nullable()) {
-                return_nullable = true;
-                break;
+        if constexpr (NewVersion) {
+            return std::make_shared<ResultDataType>();
+        } else {
+            bool return_nullable = false;
+            // result is nullable only when any columns is nullable for bitmap_and_not_count
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i]->is_nullable()) {
+                    return_nullable = true;
+                    break;
+                }
             }
+            auto result_type = std::make_shared<ResultDataType>();
+            return return_nullable ? make_nullable(result_type) : result_type;
         }
-        auto result_type = std::make_shared<ResultDataType>();
-        return return_nullable ? make_nullable(result_type) : result_type;
     }
 
     bool use_default_implementation_for_nulls() const override {
@@ -1254,8 +1202,6 @@ using FunctionBitmapToBase64 = FunctionUnaryToType<BitmapToBase64, NameBitmapToB
 using FunctionBitmapFromBase64 = FunctionBitmapAlwaysNull<BitmapFromBase64>;
 using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
-using FunctionBitmapAndNot =
-        FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapAndNot, NameBitmapAndNot>;
 using FunctionBitmapContains =
         FunctionBinaryToType<DataTypeBitMap, DataTypeInt64, BitmapContains, NameBitmapContains>;
 using FunctionBitmapRemove =
@@ -1284,9 +1230,10 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapMax>();
     factory.register_function<FunctionBitmapToString>();
     factory.register_function<FunctionBitmapNot>();
-    factory.register_function<FunctionBitmapAndNot>();
-    factory.register_alias(NameBitmapAndNot::name, "bitmap_andnot");
+    factory.register_alias(NameBitmapNot::name, "bitmap_and_not");
+    factory.register_alias(NameBitmapNot::name, "bitmap_andnot");
     factory.register_function<FunctionBitmapAndNotCount<NameBitmapAndNotCount>>();
+    factory.register_function<FunctionBitmapAndNotCount<NameBitmapAndNotCount, true>>();
     factory.register_alias(NameBitmapAndNotCount::name, "bitmap_andnot_count");
     factory.register_function<FunctionBitmapContains>();
     factory.register_function<FunctionBitmapRemove>();

@@ -69,6 +69,7 @@ message PColumnMeta {
     optional segment_v2.ColumnPathInfo column_path = 9;
     optional int32 variant_max_subcolumns_count = 10 [default = 0];
     optional bool variant_enable_doc_mode = 11 [default = false];
+    optional bool variant_is_v2 = 12 [default = false];
 }
 
 message PBlock {

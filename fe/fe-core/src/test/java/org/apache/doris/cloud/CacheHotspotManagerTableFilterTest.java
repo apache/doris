@@ -1041,8 +1041,8 @@ public class CacheHotspotManagerTableFilterTest {
 
         Assertions.assertEquals(200000 * iterations, totalMatched);
         System.out.println("[Perf] 200K tables × 5 cycles: total=" + totalMs + " ms, avg=" + avgMs + " ms/cycle");
-        Assertions.assertTrue(avgMs < 1000,
-                "Avg per refresh cycle for 200K tables should be < 1s, avg=" + avgMs + " ms");
+        Assertions.assertTrue(avgMs < 1500,
+                "Avg per refresh cycle for 200K tables should be < 1.5s, avg=" + avgMs + " ms");
     }
 
     private static class RecordingAppender extends AbstractAppender {

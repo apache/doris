@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -93,6 +94,39 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals("obs-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("obs-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("OBS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toMaps_emitObsTuningDefaultsWhenNotConfigured() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        // Parity with fe-core OBSProperties defaults (100 / 10000 / 10000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toMap();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
     }
 
     @Test
@@ -175,5 +209,51 @@ class ObsFileSystemPropertiesTest {
 
         Assertions.assertTrue(provider.supports(Map.of(
                 "AWS_ENDPOINT", "https://obs.cn-north-4.myhuaweicloud.com")));
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    @Test
+    void uriOnly_virtualHostedHuaweicloudUri_derivesEndpointAndRegion() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.obs.cn-north-4.myhuaweicloud.com/data/file.csv");
+        raw.put("obs.access_key", "ak");
+        raw.put("obs.secret_key", "sk");
+
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-north-4", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "https://mybucket.obs.cn-north-4.myhuaweicloud.com/data/file.csv");
+        raw.put("obs.endpoint", "obs.cn-east-3.myhuaweicloud.com");
+        raw.put("obs.access_key", "ak");
+        raw.put("obs.secret_key", "sk");
+
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(raw);
+
+        Assertions.assertEquals("obs.cn-east-3.myhuaweicloud.com", properties.getEndpoint());
+        Assertions.assertEquals("cn-east-3", properties.getRegion());
+    }
+
+    @Test
+    void unparsableUri_isSwallowed_thenEndpointRequiredFires() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", "obs.cn-north-4.myhuaweicloud.com/bucket/file.csv"); // no scheme
+        raw.put("obs.access_key", "ak");
+        raw.put("obs.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ObsFileSystemProperties.of(raw));
+        Assertions.assertTrue(exception.getMessage().contains("Property obs.endpoint is required."),
+                exception.getMessage());
     }
 }

@@ -53,6 +53,10 @@ std::string FileScanRequest::debug_string() const {
         << join_debug_strings(
                    non_predicate_columns,
                    [](const LocalColumnIndex& projection) { return projection.debug_string(); })
+        << ", predicate_only_columns="
+        << join_debug_strings(
+                   predicate_only_columns,
+                   [](LocalColumnId column_id) { return std::to_string(column_id.value()); })
         << ", local_positions={";
     size_t position_idx = 0;
     for (const auto& [column_id, block_position] : local_positions) {

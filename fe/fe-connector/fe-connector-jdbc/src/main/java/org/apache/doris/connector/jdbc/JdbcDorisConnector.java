@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TJdbcTable;
@@ -38,12 +39,15 @@ import org.apache.thrift.TSerializer;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * JDBC connector implementation. Manages the lifecycle of
@@ -95,9 +99,13 @@ public class JdbcDorisConnector implements Connector {
 
     @Override
     public Set<ConnectorCapability> getCapabilities() {
+        // SUPPORTS_METADATA_PRELOAD: preserves the legacy engine-name "jdbc" gate of
+        // PluginDrivenExternalTable.supportsExternalMetadataPreload (F11) now that it is capability-driven, so
+        // jdbc tables keep async metadata pre-load.
+        // Passthrough SQL is NOT declared here: JdbcConnectorMetadata implements
+        // ConnectorPassthroughSqlOps, and implementing that interface IS the declaration.
         return EnumSet.of(
-                ConnectorCapability.SUPPORTS_INSERT,
-                ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY
+                ConnectorCapability.SUPPORTS_METADATA_PRELOAD
         );
     }
 
@@ -125,11 +133,79 @@ public class JdbcDorisConnector implements Connector {
         return scanPlanProvider;
     }
 
+    // A scheme-less driver_url must be a plain jar file name: letters, digits, dot, underscore, hyphen.
+    // This intentionally forbids any path separator, so it can never escape jdbc_drivers_dir.
+    private static final Pattern SAFE_DRIVER_FILE_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
+
+    /**
+     * Mandatory, non-configurable driver_url security rule. It is invoked from
+     * {@link JdbcConnectorProvider#validateProperties} (and from {@link #preCreateValidation}),
+     * i.e. from the engine's {@code checkProperties()} hook, which runs only on the user-facing
+     * CREATE / ALTER CATALOG paths (both guarded by {@code !isReplay}). Therefore the rule never
+     * runs during metadata/edit-log replay nor at query time, so existing catalogs are unaffected
+     * and FE startup / follower replay can never be blocked by it.
+     *
+     * <p>The rule cannot be turned off:
+     * <ul>
+     *   <li>any {@code ..} path-traversal segment is rejected, for {@code file://} and {@code http(s)} alike;</li>
+     *   <li>a scheme-less driver_url must be a bare jar file name matching {@code [A-Za-z0-9._-]+.jar}
+     *       (no directories, no special characters), which is then resolved under {@code jdbc_drivers_dir}.</li>
+     * </ul>
+     * Whether a remote/absolute URL is allowed at all remains governed by the fe.conf-only
+     * {@code jdbc_driver_secure_path} / {@code jdbc_driver_url_white_list} configs; this rule only
+     * forbids traversal and enforces the bare-name charset.
+     *
+     * <p>Throws {@link IllegalArgumentException} so the engine wraps it into a {@code DdlException}
+     * (and, on ALTER, triggers the property rollback).
+     */
+    public static void checkDriverUrlSecurityRule(String driverUrl) {
+        if (driverUrl == null || driverUrl.isEmpty()) {
+            return;
+        }
+        // Check traversal on the decoded path so percent-encoded segments (e.g. %2e%2e) — which the
+        // driver-loading consumers decode — cannot slip a ".." past this rule.
+        String pathToCheck = driverUrl;
+        if (driverUrl.contains("://")) {
+            try {
+                String decoded = new URI(driverUrl).getPath();
+                if (decoded != null) {
+                    pathToCheck = decoded;
+                }
+            } catch (URISyntaxException e) {
+                throw new IllegalArgumentException("Invalid driver_url: " + driverUrl);
+            }
+        }
+        String probe = pathToCheck.replace('\\', '/');
+        for (String segment : probe.split("/")) {
+            if ("..".equals(segment)) {
+                throw new IllegalArgumentException(
+                        "Invalid driver_url: path traversal ('..') is not allowed: " + driverUrl);
+            }
+        }
+        if (!driverUrl.contains("://")) {
+            if (!SAFE_DRIVER_FILE_NAME.matcher(driverUrl).matches()) {
+                throw new IllegalArgumentException(
+                        "Invalid driver_url: a driver file name must match [A-Za-z0-9._-]+.jar (got: "
+                                + driverUrl + ")");
+            }
+        }
+    }
+
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        // Returning a non-null provider routes jdbc writes through the unified plan-provider sink
+        // path (PhysicalPlanTranslator.visitPhysicalConnectorTableSink). The provider builds the
+        // TJdbcTableSink itself (P6.3-T02 / OQ-1); there is no config-bag path anymore.
+        return new JdbcWritePlanProvider(getOrCreateClient(), properties);
+    }
+
     @Override
     public void preCreateValidation(ConnectorValidationContext context) throws Exception {
         // 1. Validate/resolve JDBC driver — format, whitelist, secure_path, file existence.
         String driverUrl = properties.get(JdbcConnectorProperties.DRIVER_URL);
         if (driverUrl != null && !driverUrl.isEmpty()) {
+            // Mandatory, non-configurable security rule, enforced on catalog creation only.
+            checkDriverUrlSecurityRule(driverUrl);
             context.validateAndResolveDriverPath(driverUrl);
 
             // 2. Compute and verify checksum.
@@ -226,7 +302,7 @@ public class JdbcDorisConnector implements Connector {
                 poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime,
                 onlySpecifiedDatabase, properties,
                 enableMappingVarbinary, enableMappingTimestampTz,
-                context::sanitizeJdbcUrl);
+                context::sanitizeOutboundUrl);
     }
 
     @Override

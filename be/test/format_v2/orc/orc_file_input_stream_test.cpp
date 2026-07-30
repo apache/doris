@@ -329,14 +329,49 @@ TEST(OrcFileInputStreamTest, PublishesClusterProfileExactlyOnce) {
         input.beforeReadStripe(
                 std::make_unique<TestStripeInformation>(200, std::vector<TestStream> {}),
                 selected_columns({}), next_streams);
-        ASSERT_NE(profile.get_counter("RequestIO"), nullptr);
-        ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
-        EXPECT_EQ(profile.get_counter("RequestIO")->value(), 2);
-        EXPECT_EQ(profile.get_counter("MergedIO")->value(), 1);
+        ASSERT_NE(profile.get_counter("OrcMergedRequestIO"), nullptr);
+        ASSERT_NE(profile.get_counter("OrcMergedIO"), nullptr);
+        EXPECT_EQ(profile.get_counter("OrcMergedRequestIO")->value(), 2);
+        EXPECT_EQ(profile.get_counter("OrcMergedIO")->value(), 1);
     }
 
-    EXPECT_EQ(profile.get_counter("RequestIO")->value(), 2);
-    EXPECT_EQ(profile.get_counter("MergedIO")->value(), 1);
+    EXPECT_EQ(profile.get_counter("OrcMergedRequestIO")->value(), 2);
+    EXPECT_EQ(profile.get_counter("OrcMergedIO")->value(), 1);
+}
+
+TEST(OrcFileInputStreamTest, MergedIoChildrenStayIsolatedInBothInitializationOrders) {
+    for (const bool generic_first : {false, true}) {
+        auto reader = std::make_shared<RecordingFileReader>(256);
+        RuntimeProfile profile(generic_first ? "generic_first" : "orc_first");
+        auto register_generic = [&] {
+            ADD_TIMER(&profile, "MergedSmallIO");
+            return ADD_CHILD_COUNTER_WITH_LEVEL(&profile, "RequestIO", TUnit::UNIT, "MergedSmallIO",
+                                                1);
+        };
+        RuntimeProfile::Counter* generic_request_io = nullptr;
+        if (generic_first) {
+            generic_request_io = register_generic();
+        }
+        {
+            OrcFileInputStream input("test.orc", reader, nullptr, &profile,
+                                     {.once_max_read_bytes = 16, .max_merge_distance_bytes = 0});
+            if (!generic_first) {
+                generic_request_io = register_generic();
+            }
+            StripeStreamMap streams;
+            input.beforeReadStripe(
+                    std::make_unique<TestStripeInformation>(
+                            100, std::vector<TestStream> {{1, ::orc::StreamKind_DATA, 4},
+                                                          {2, ::orc::StreamKind_DATA, 4}}),
+                    selected_columns({1, 2}), streams);
+            std::array<char, 4> data {};
+            find_stream(streams, 1, ::orc::StreamKind_DATA)->read(data.data(), data.size(), 100);
+        }
+        ASSERT_NE(generic_request_io, nullptr);
+        EXPECT_EQ(generic_request_io->value(), 0);
+        ASSERT_NE(profile.get_counter("OrcMergedRequestIO"), nullptr);
+        EXPECT_EQ(profile.get_counter("OrcMergedRequestIO")->value(), 1);
+    }
 }
 
 } // namespace

@@ -64,7 +64,7 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
                             } else {
                                 return funcs.stream()
                                         .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
-                                                || f instanceof Count) && f.isDistinct()
+                                                || f instanceof Count) && f.isDistinct() && f.arity() == 1
                                                 && f.child(0) instanceof Slot);
                             }
                         })

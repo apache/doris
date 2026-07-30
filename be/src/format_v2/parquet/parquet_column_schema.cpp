@@ -15,481 +15,215 @@
 
 #include "format_v2/parquet/parquet_column_schema.h"
 
-#include <parquet/api/schema.h>
-
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
+#include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/parquet_type.h"
 
 namespace doris::format::parquet {
 namespace {
 
-struct SchemaBuildContext {
-    int32_t local_id = -1;                          // child ordinal in the parent node
-    int16_t definition_level = 0;                   // accumulated optional/repeated level count
-    int16_t repetition_level = 0;                   // accumulated repeated level count
-    int16_t nullable_definition_level = 0;          // definition level of the nearest optional node
-    int16_t repeated_repetition_level = 0;          // repetition level of the nearest repeated node
-    int16_t repeated_ancestor_definition_level = 0; // definition level of the nearest repeated node
-};
-
-enum class SchemaBuildMode {
-    // Normal recursive schema build. Bare repeated fields are exposed as Doris ARRAY for
-    // protobuf/legacy Parquet compatibility, while repeated LIST/MAP annotated groups are rejected
-    // because Parquet LIST/MAP outer groups are not allowed to be repeated at a top-level or struct
-    // field boundary.
-    NORMAL,
-    // Build the current repeated node as the already-selected element of an enclosing LIST. This
-    // is the compatibility path for Arrow/parquet-format legacy two-level LIST encodings where the
-    // repeated node itself is the array element instead of a wrapper that should be stripped.
-    REPEATED_NODE_AS_LIST_ELEMENT,
-    // Build the current repeated group as a STRUCT element of an enclosing LIST, ignoring LIST/MAP
-    // annotations on the repeated group itself. This keeps compatibility with the old Doris
-    // Parquet schema parser for Hive/legacy wrappers named "array" or "<list_name>_tuple".
-    REPEATED_NODE_AS_STRUCT_ELEMENT,
-};
-
-// Result of applying Parquet LIST backward compatibility rules to the single repeated child of a
-// LIST-annotated group. The repeated child can either be a physical wrapper whose only child is the
-// element, or the element node itself.
-struct ListElementResolution {
-    // Parquet node that should be exposed as Doris ARRAY element.
-    const ::parquet::schema::Node* element_node = nullptr;
-    // Level state after consuming the LIST repeated child. The parent ARRAY schema keeps this state
-    // to materialize offsets, empty arrays and null arrays.
-    SchemaBuildContext repeated_context;
-    // Level state used to build element_node. This equals repeated_context when the repeated child
-    // itself is the element, and includes the wrapper's only child when standard 3-level LIST
-    // encoding is stripped.
-    SchemaBuildContext element_context;
-    // Build mode for element_node. Non-NORMAL modes mean element_node is the repeated child itself,
-    // and the repeated level must not be interpreted as a second unrelated array at the same
-    // boundary.
-    SchemaBuildMode element_build_mode = SchemaBuildMode::NORMAL;
-};
-
-// Resolved repeated entry group of a MAP-annotated group. The entry wrapper is a physical Parquet
-// encoding detail; Doris folds it into the parent MAP schema and exposes only direct [key, value]
-// children.
-struct MapEntryResolution {
-    const ::parquet::schema::GroupNode* entry_group = nullptr;
-    // Level state after consuming the repeated entry group. The parent MAP schema keeps this state
-    // to materialize offsets, empty maps and null maps.
-    SchemaBuildContext entry_context;
-};
-
-bool is_list_node(const ::parquet::schema::Node& node) {
-    const auto& logical_type = node.logical_type();
-    return node.converted_type() == ::parquet::ConvertedType::LIST ||
-           (logical_type != nullptr && logical_type->is_valid() && logical_type->is_list());
-}
-
-bool is_map_node(const ::parquet::schema::Node& node) {
-    const auto& logical_type = node.logical_type();
-    return node.converted_type() == ::parquet::ConvertedType::MAP ||
-           node.converted_type() == ::parquet::ConvertedType::MAP_KEY_VALUE ||
-           (logical_type != nullptr && logical_type->is_valid() && logical_type->is_map());
-}
-
-bool has_logical_annotation(const ::parquet::schema::Node& node) {
-    const auto& logical_type = node.logical_type();
-    return (node.converted_type() != ::parquet::ConvertedType::NONE &&
-            node.converted_type() != ::parquet::ConvertedType::UNDEFINED) ||
-           (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
-}
-
-bool has_structural_list_name(const std::string& list_name, const std::string& repeated_name) {
-    return repeated_name == "array" || repeated_name == list_name + "_tuple";
-}
-
-bool should_build_repeated_field_as_list(const ::parquet::schema::Node& node) {
-    return node.is_repeated() && !is_list_node(node) && !is_map_node(node);
-}
-
-DataTypePtr nullable_if_needed(DataTypePtr type, const ::parquet::schema::Node& node) {
-    return node.is_optional() ? make_nullable(type) : type;
-}
-
-void inherit_common_schema_state(const ::parquet::schema::Node& node,
-                                 const SchemaBuildContext& context,
-                                 ParquetColumnSchema* column_schema) {
-    DORIS_CHECK(column_schema != nullptr);
-    column_schema->local_id = context.local_id;
-    column_schema->parquet_field_id = node.field_id();
-    column_schema->name = node.name();
-    column_schema->max_definition_level = context.definition_level;
-    column_schema->max_repetition_level = context.repetition_level;
-    column_schema->nullable_definition_level = context.nullable_definition_level;
-    column_schema->definition_level = context.definition_level;
-    column_schema->repetition_level = context.repetition_level;
-    column_schema->repeated_ancestor_definition_level = context.repeated_ancestor_definition_level;
-    column_schema->repeated_repetition_level = context.repeated_repetition_level;
-}
-
-SchemaBuildContext child_context(const SchemaBuildContext& parent,
-                                 const ::parquet::schema::Node& child_node, int32_t child_idx) {
-    SchemaBuildContext result = parent;
-    result.local_id = child_idx;
-    if (child_node.repetition() == ::parquet::Repetition::OPTIONAL) {
-        result.definition_level++;
-        result.nullable_definition_level = result.definition_level;
+ParquetTimeUnit native_time_unit(const tparquet::TimeUnit& unit) {
+    if (unit.__isset.MILLIS) {
+        return ParquetTimeUnit::MILLIS;
     }
-    if (child_node.is_repeated()) {
-        result.repetition_level++;
-        result.definition_level++;
-        result.repeated_repetition_level = result.repetition_level;
-        result.repeated_ancestor_definition_level = result.definition_level;
+    if (unit.__isset.MICROS) {
+        return ParquetTimeUnit::MICROS;
     }
+    if (unit.__isset.NANOS) {
+        return ParquetTimeUnit::NANOS;
+    }
+    return ParquetTimeUnit::UNKNOWN;
+}
+
+ParquetExtraTypeInfo native_time_extra(ParquetTimeUnit unit) {
+    switch (unit) {
+    case ParquetTimeUnit::MILLIS:
+        return ParquetExtraTypeInfo::UNIT_MS;
+    case ParquetTimeUnit::MICROS:
+        return ParquetExtraTypeInfo::UNIT_MICROS;
+    case ParquetTimeUnit::NANOS:
+        return ParquetExtraTypeInfo::UNIT_NS;
+    case ParquetTimeUnit::UNKNOWN:
+    default:
+        return ParquetExtraTypeInfo::NONE;
+    }
+}
+
+void fill_native_type_descriptor(const NativeFieldSchema& field, ParquetTypeDescriptor* result) {
+    DORIS_CHECK(result != nullptr);
+    const auto& schema = field.parquet_schema;
+    result->doris_type = field.data_type;
+    result->unsupported_reason = field.unsupported_reason;
+    result->physical_type = static_cast<tparquet::Type::type>(field.physical_type);
+    result->fixed_length = schema.__isset.type_length ? schema.type_length : -1;
+    if (schema.__isset.logicalType) {
+        const auto& logical = schema.logicalType;
+        if (logical.__isset.DECIMAL) {
+            result->is_decimal = true;
+            result->decimal_precision = logical.DECIMAL.precision;
+            result->decimal_scale = logical.DECIMAL.scale;
+        } else if (logical.__isset.INTEGER) {
+            result->integer_bit_width = logical.INTEGER.bitWidth;
+            result->is_unsigned_integer = !logical.INTEGER.isSigned;
+        } else if (logical.__isset.TIME) {
+            result->time_unit = native_time_unit(logical.TIME.unit);
+            result->extra_type_info = native_time_extra(result->time_unit);
+            if (logical.TIME.isAdjustedToUTC) {
+                result->unsupported_reason =
+                        "Parquet TIME with isAdjustedToUTC=true is not supported";
+            }
+        } else if (logical.__isset.TIMESTAMP) {
+            result->is_timestamp = true;
+            result->timestamp_is_adjusted_to_utc = logical.TIMESTAMP.isAdjustedToUTC;
+            result->time_unit = native_time_unit(logical.TIMESTAMP.unit);
+            result->extra_type_info = native_time_extra(result->time_unit);
+        } else if (logical.__isset.FLOAT16) {
+            result->extra_type_info = ParquetExtraTypeInfo::FLOAT16;
+        }
+    } else if (schema.__isset.converted_type) {
+        switch (schema.converted_type) {
+        case tparquet::ConvertedType::DECIMAL:
+            result->is_decimal = true;
+            result->decimal_precision = schema.__isset.precision ? schema.precision : -1;
+            result->decimal_scale = schema.__isset.scale ? schema.scale : -1;
+            break;
+        case tparquet::ConvertedType::INT_8:
+        case tparquet::ConvertedType::UINT_8:
+            result->integer_bit_width = 8;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_8;
+            break;
+        case tparquet::ConvertedType::INT_16:
+        case tparquet::ConvertedType::UINT_16:
+            result->integer_bit_width = 16;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_16;
+            break;
+        case tparquet::ConvertedType::INT_32:
+        case tparquet::ConvertedType::UINT_32:
+            result->integer_bit_width = 32;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_32;
+            break;
+        case tparquet::ConvertedType::INT_64:
+        case tparquet::ConvertedType::UINT_64:
+            result->integer_bit_width = 64;
+            result->is_unsigned_integer = schema.converted_type == tparquet::ConvertedType::UINT_64;
+            break;
+        case tparquet::ConvertedType::TIMESTAMP_MILLIS:
+        case tparquet::ConvertedType::TIMESTAMP_MICROS:
+            result->is_timestamp = true;
+            result->timestamp_is_adjusted_to_utc = true;
+            result->time_unit = schema.converted_type == tparquet::ConvertedType::TIMESTAMP_MILLIS
+                                        ? ParquetTimeUnit::MILLIS
+                                        : ParquetTimeUnit::MICROS;
+            result->extra_type_info = native_time_extra(result->time_unit);
+            break;
+        case tparquet::ConvertedType::TIME_MILLIS:
+        case tparquet::ConvertedType::TIME_MICROS:
+            result->unsupported_reason = "Parquet TIME with isAdjustedToUTC=true is not supported";
+            break;
+        default:
+            break;
+        }
+    }
+
+    if (result->is_decimal) {
+        switch (result->physical_type) {
+        case tparquet::Type::INT32:
+            result->extra_type_info = ParquetExtraTypeInfo::DECIMAL_INT32;
+            break;
+        case tparquet::Type::INT64:
+            result->extra_type_info = ParquetExtraTypeInfo::DECIMAL_INT64;
+            break;
+        case tparquet::Type::BYTE_ARRAY:
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            result->extra_type_info = ParquetExtraTypeInfo::DECIMAL_BYTE_ARRAY;
+            break;
+        default:
+            break;
+        }
+    } else if (result->physical_type == tparquet::Type::INT96) {
+        result->is_timestamp = true;
+        result->extra_type_info = ParquetExtraTypeInfo::IMPALA_TIMESTAMP;
+    }
+    result->is_string_like = !result->is_decimal &&
+                             result->extra_type_info != ParquetExtraTypeInfo::FLOAT16 &&
+                             (result->physical_type == tparquet::Type::BYTE_ARRAY ||
+                              result->physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+}
+
+void propagate_native_max_levels(ParquetColumnSchema* schema) {
+    DORIS_CHECK(schema != nullptr);
+    for (const auto& child : schema->children) {
+        DORIS_CHECK(child != nullptr);
+        propagate_native_max_levels(child.get());
+        schema->max_definition_level =
+                std::max(schema->max_definition_level, child->max_definition_level);
+        schema->max_repetition_level =
+                std::max(schema->max_repetition_level, child->max_repetition_level);
+    }
+}
+
+std::unique_ptr<ParquetColumnSchema> build_native_node_schema(const NativeFieldSchema& field,
+                                                              int32_t local_id) {
+    auto result = std::make_unique<ParquetColumnSchema>();
+    result->local_id = local_id;
+    result->parquet_field_id = field.field_id;
+    result->name = field.name;
+    result->type = field.data_type;
+    result->definition_level = field.definition_level;
+    result->repetition_level = field.repetition_level;
+    result->max_definition_level = field.definition_level;
+    result->max_repetition_level = field.repetition_level;
+    result->nullable_definition_level = field.data_type != nullptr && field.data_type->is_nullable()
+                                                ? field.definition_level - field.repetition_level
+                                                : 0;
+    result->repeated_ancestor_definition_level = field.repeated_parent_def_level;
+    result->repeated_repetition_level = field.repetition_level;
+
+    const auto primitive_type = remove_nullable(field.data_type)->get_primitive_type();
+    if (field.children.empty()) {
+        result->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        result->leaf_column_id = field.physical_column_index;
+        fill_native_type_descriptor(field, &result->type_descriptor);
+        return result;
+    }
+    if (primitive_type == TYPE_ARRAY) {
+        result->kind = ParquetColumnSchemaKind::LIST;
+    } else if (primitive_type == TYPE_MAP) {
+        result->kind = ParquetColumnSchemaKind::MAP;
+    } else {
+        result->kind = ParquetColumnSchemaKind::STRUCT;
+    }
+    result->children.reserve(field.children.size());
+    for (size_t child_idx = 0; child_idx < field.children.size(); ++child_idx) {
+        result->children.push_back(
+                build_native_node_schema(field.children[child_idx], cast_set<int32_t>(child_idx)));
+    }
+    propagate_native_max_levels(result.get());
     return result;
-}
-
-void propagate_child_levels(ParquetColumnSchema* column_schema) {
-    DORIS_CHECK(column_schema != nullptr);
-    for (const auto& child : column_schema->children) {
-        column_schema->max_definition_level =
-                std::max(column_schema->max_definition_level, child->max_definition_level);
-        column_schema->max_repetition_level =
-                std::max(column_schema->max_repetition_level, child->max_repetition_level);
-    }
-}
-
-// Mirrors Arrow's ResolveList() compatibility rules, but only decides which Parquet node is the
-// logical LIST element. The caller still builds Doris' semantic LIST->[element] schema tree.
-// Important cases:
-// - repeated primitive: the primitive itself is the element (legacy two-level LIST).
-// - repeated group with multiple children: the group itself is a STRUCT element.
-// - repeated group named "array" or "<list_name>_tuple": the group itself is a STRUCT element per
-//   Parquet backward compatibility rules, even when it has one child or its own logical annotation.
-//   This also keeps v2 file-local schema aligned with Doris' old schema parser used by HDFS TVF.
-// - other repeated group with a logical annotation, or whose only child is repeated: the group
-//   itself is the element. This preserves nested LIST/MAP and repeated fields inside struct
-//   elements.
-// - otherwise, strip the one-child repeated wrapper as standard three-level LIST encoding.
-Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
-                                 const SchemaBuildContext& list_context,
-                                 ListElementResolution* result) {
-    if (result == nullptr) {
-        return Status::InvalidArgument("result is null");
-    }
-    if (list_group.field_count() != 1) {
-        return Status::NotSupported("Unsupported parquet LIST encoding for column {}",
-                                    list_group.name());
-    }
-    const auto& repeated_node = *list_group.field(0);
-    if (!repeated_node.is_repeated()) {
-        return Status::NotSupported("Unsupported parquet LIST encoding for column {}",
-                                    list_group.name());
-    }
-    result->repeated_context = child_context(list_context, repeated_node, 0);
-    if (repeated_node.is_primitive()) {
-        result->element_node = &repeated_node;
-        result->element_context = result->repeated_context;
-        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT;
-        return Status::OK();
-    }
-
-    const auto& repeated_group = static_cast<const ::parquet::schema::GroupNode&>(repeated_node);
-    if (repeated_group.field_count() == 0) {
-        return Status::NotSupported("Unsupported parquet LIST element layout for column {}",
-                                    list_group.name());
-    }
-    const bool repeated_group_has_logical_annotation = has_logical_annotation(repeated_group);
-    if (repeated_group.field_count() > 1 ||
-        has_structural_list_name(list_group.name(), repeated_group.name())) {
-        result->element_node = &repeated_node;
-        result->element_context = result->repeated_context;
-        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_STRUCT_ELEMENT;
-        return Status::OK();
-    }
-    if (repeated_group_has_logical_annotation) {
-        result->element_node = &repeated_node;
-        result->element_context = result->repeated_context;
-        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT;
-        return Status::OK();
-    }
-
-    const auto& only_child = *repeated_group.field(0);
-    if (only_child.is_repeated()) {
-        result->element_node = &repeated_node;
-        result->element_context = result->repeated_context;
-        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT;
-        return Status::OK();
-    }
-
-    result->element_node = &only_child;
-    result->element_context = child_context(result->repeated_context, only_child, 0);
-    return Status::OK();
-}
-
-// Resolves the repeated entry group of a MAP/MAP_KEY_VALUE node. Unlike LIST, MAP has no supported
-// two-level form in this reader: Doris requires a repeated group with exactly key and value
-// children, then folds that physical entry group out of ParquetColumnSchema. Some external writers
-// emit optional MAP keys even though standard Parquet MAP keys are required; keep the key's
-// definition levels and expose it as nullable for compatibility with the old reader.
-Status resolve_map_entry_group(const ::parquet::schema::GroupNode& map_group,
-                               const SchemaBuildContext& map_context, MapEntryResolution* result) {
-    if (result == nullptr) {
-        return Status::InvalidArgument("result is null");
-    }
-    if (map_group.field_count() != 1) {
-        return Status::NotSupported("Unsupported parquet MAP encoding for column {}",
-                                    map_group.name());
-    }
-    const auto& entry_node = *map_group.field(0);
-    if (!entry_node.is_repeated()) {
-        return Status::NotSupported("Unsupported parquet MAP encoding for column {}",
-                                    map_group.name());
-    }
-    if (entry_node.is_primitive()) {
-        return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
-                                    map_group.name());
-    }
-    const auto& entry_group = static_cast<const ::parquet::schema::GroupNode&>(entry_node);
-    if (entry_group.field_count() != 2) {
-        return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
-                                    map_group.name());
-    }
-    // The Parquet logical MAP spec requires key to be REQUIRED. Some legacy/Hive-written files
-    // still mark the key field OPTIONAL even when all actual keys are non-null, for example:
-    //   optional group t_map_varchar (MAP) {
-    //     repeated group key_value {
-    //       optional binary key (STRING);
-    //       optional binary value (STRING);
-    //     }
-    //   }
-    // Accept that schema here so compatible files can be read. MapColumnReader validates the
-    // materialized key column and rejects data that really contains null map keys.
-    result->entry_group = &entry_group;
-    result->entry_context = child_context(map_context, entry_node, 0);
-    return Status::OK();
-}
-
-Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
-                                   const ::parquet::schema::Node& node,
-                                   const SchemaBuildContext& context,
-                                   std::unique_ptr<ParquetColumnSchema>* result,
-                                   SchemaBuildMode mode);
-
-// Builds a semantic ARRAY schema for a bare repeated field. Arrow handles this in
-// NodeToSchemaField()/GroupToSchemaField(); Doris needs the same compatibility behavior because
-// protobuf and old parquet writers often encode repeated fields without a LIST annotation.
-// Example:
-//   optional group event {
-//     repeated group links {
-//       optional binary url (UTF8);
-//       optional int32 rank;
-//     }
-//   }
-// Doris exposes event.links as ARRAY<STRUCT<url, rank>>, not STRUCT<url, rank>. This keeps v2's
-// file-local schema aligned with the old schema parser used by HDFS TVF schema fetching.
-// When the repeated field appears inside an already resolved LIST element, only the nested repeated
-// child should be wrapped:
-//   optional group a (LIST) {
-//     repeated group element {
-//       repeated int32 items;
-//     }
-//   }
-// The outer LIST element is the repeated "element" group, and its repeated "items" child should be
-// represented as a field of type ARRAY<INT> inside the struct element.
-Status build_repeated_field_as_list_schema(const ::parquet::SchemaDescriptor& schema,
-                                           const ::parquet::schema::Node& repeated_node,
-                                           const SchemaBuildContext& repeated_context,
-                                           std::unique_ptr<ParquetColumnSchema>* result) {
-    if (result == nullptr) {
-        return Status::InvalidArgument("result is null");
-    }
-    auto list_schema = std::make_unique<ParquetColumnSchema>();
-    inherit_common_schema_state(repeated_node, repeated_context, list_schema.get());
-    list_schema->kind = ParquetColumnSchemaKind::LIST;
-    list_schema->definition_level = repeated_context.definition_level;
-    list_schema->repetition_level = repeated_context.repetition_level;
-    list_schema->repeated_repetition_level = repeated_context.repeated_repetition_level;
-
-    std::unique_ptr<ParquetColumnSchema> element_child;
-    RETURN_IF_ERROR(build_node_schema_with_mode(schema, repeated_node, repeated_context,
-                                                &element_child,
-                                                SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT));
-    element_child->name = "element";
-    list_schema->type = std::make_shared<DataTypeArray>(element_child->type);
-    list_schema->children.push_back(std::move(element_child));
-    propagate_child_levels(list_schema.get());
-    *result = std::move(list_schema);
-    return Status::OK();
-}
-
-// Recursively builds ParquetColumnSchema for the given schema node and its children in Parquet
-// file's metadata. NORMAL mode exposes bare repeated fields as ARRAY for legacy compatibility.
-// REPEATED_NODE_AS_LIST_ELEMENT mode means the current repeated node was already selected as an
-// enclosing LIST element, so only its nested bare repeated children should be wrapped.
-Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
-                                   const ::parquet::schema::Node& node,
-                                   const SchemaBuildContext& context,
-                                   std::unique_ptr<ParquetColumnSchema>* result,
-                                   SchemaBuildMode mode) {
-    if (result == nullptr) {
-        return Status::InvalidArgument("result is null");
-    }
-    if (mode == SchemaBuildMode::NORMAL && should_build_repeated_field_as_list(node)) {
-        return build_repeated_field_as_list_schema(schema, node, context, result);
-    }
-
-    auto column_schema = std::make_unique<ParquetColumnSchema>();
-    inherit_common_schema_state(node, context, column_schema.get());
-
-    if (node.is_primitive()) {
-        const int leaf_column_id = schema.ColumnIndex(node);
-        if (leaf_column_id < 0) {
-            return Status::InvalidArgument("Cannot find leaf column id for parquet column {}",
-                                           node.name());
-        }
-        column_schema->kind = ParquetColumnSchemaKind::PRIMITIVE;
-        column_schema->leaf_column_id = leaf_column_id;
-        column_schema->descriptor = schema.Column(leaf_column_id);
-        if (column_schema->descriptor != nullptr) {
-            column_schema->max_definition_level = column_schema->descriptor->max_definition_level();
-            column_schema->max_repetition_level = column_schema->descriptor->max_repetition_level();
-        }
-        column_schema->type_descriptor = resolve_parquet_type(column_schema->descriptor);
-        column_schema->type = column_schema->type_descriptor.doris_type;
-        if (column_schema->type == nullptr &&
-            !column_schema->type_descriptor.unsupported_reason.empty()) {
-            // Keep unsupported logical leaves in the file schema using their physical storage
-            // type. For example, a file `{id: INT32, clock: TIME_MILLIS}` remains readable for
-            // `SELECT id`: schema mapping sees `clock` as its physical INT32 but never creates its
-            // reader. `SELECT clock` still fails explicitly in ParquetColumnReaderFactory before
-            // any physical value is decoded, preserving the unsupported-type contract.
-            column_schema->type = column_schema->type_descriptor.physical_doris_type;
-        }
-        if (column_schema->type == nullptr) {
-            return Status::NotSupported("Unsupported parquet column type for column {}",
-                                        node.name());
-        }
-        column_schema->type = node.is_optional()
-                                      ? make_nullable(remove_nullable(column_schema->type))
-                                      : remove_nullable(column_schema->type);
-        *result = std::move(column_schema);
-        return Status::OK();
-    }
-
-    const auto& group = static_cast<const ::parquet::schema::GroupNode&>(node);
-    if (is_list_node(node) && mode != SchemaBuildMode::REPEATED_NODE_AS_STRUCT_ELEMENT) {
-        if (mode == SchemaBuildMode::NORMAL && node.is_repeated()) {
-            return Status::NotSupported("Unsupported repeated parquet LIST column {}", node.name());
-        }
-        column_schema->kind = ParquetColumnSchemaKind::LIST;
-        ListElementResolution list_element;
-        RETURN_IF_ERROR(resolve_list_element_node(group, context, &list_element));
-        column_schema->definition_level = list_element.repeated_context.definition_level;
-        column_schema->repetition_level = list_element.repeated_context.repetition_level;
-        column_schema->repeated_repetition_level =
-                list_element.repeated_context.repeated_repetition_level;
-        std::unique_ptr<ParquetColumnSchema> child;
-        RETURN_IF_ERROR(build_node_schema_with_mode(schema, *list_element.element_node,
-                                                    list_element.element_context, &child,
-                                                    list_element.element_build_mode));
-        child->name = "element";
-        column_schema->type =
-                nullable_if_needed(std::make_shared<DataTypeArray>(child->type), node);
-        column_schema->children.push_back(std::move(child));
-        propagate_child_levels(column_schema.get());
-        *result = std::move(column_schema);
-        return Status::OK();
-    }
-
-    if (is_map_node(node) && mode != SchemaBuildMode::REPEATED_NODE_AS_STRUCT_ELEMENT) {
-        if (mode == SchemaBuildMode::NORMAL && node.is_repeated()) {
-            return Status::NotSupported("Unsupported repeated parquet MAP column {}", node.name());
-        }
-        column_schema->kind = ParquetColumnSchemaKind::MAP;
-        MapEntryResolution map_entry;
-        RETURN_IF_ERROR(resolve_map_entry_group(group, context, &map_entry));
-        column_schema->definition_level = map_entry.entry_context.definition_level;
-        column_schema->repetition_level = map_entry.entry_context.repetition_level;
-        column_schema->repeated_repetition_level =
-                map_entry.entry_context.repeated_repetition_level;
-        for (int child_idx = 0; child_idx < map_entry.entry_group->field_count(); ++child_idx) {
-            std::unique_ptr<ParquetColumnSchema> child;
-            RETURN_IF_ERROR(build_node_schema_with_mode(
-                    schema, *map_entry.entry_group->field(child_idx),
-                    child_context(map_entry.entry_context, *map_entry.entry_group->field(child_idx),
-                                  child_idx),
-                    &child, SchemaBuildMode::NORMAL));
-            child->name = child_idx == 0 ? "key" : "value";
-            column_schema->children.push_back(std::move(child));
-        }
-        if (column_schema->children.size() != 2) {
-            return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
-                                        node.name());
-        }
-        auto key_type = make_nullable(column_schema->children[0]->type);
-        auto value_type = make_nullable(column_schema->children[1]->type);
-        column_schema->type =
-                nullable_if_needed(std::make_shared<DataTypeMap>(key_type, value_type), node);
-        propagate_child_levels(column_schema.get());
-        *result = std::move(column_schema);
-        return Status::OK();
-    }
-
-    column_schema->kind = ParquetColumnSchemaKind::STRUCT;
-    DataTypes child_types;
-    Strings child_names;
-    child_types.reserve(group.field_count());
-    child_names.reserve(group.field_count());
-    for (int child_idx = 0; child_idx < group.field_count(); ++child_idx) {
-        const auto& child_node = *group.field(child_idx);
-        std::unique_ptr<ParquetColumnSchema> child;
-        const auto child_ctx = child_context(context, child_node, child_idx);
-        if (should_build_repeated_field_as_list(child_node)) {
-            RETURN_IF_ERROR(
-                    build_repeated_field_as_list_schema(schema, child_node, child_ctx, &child));
-        } else {
-            RETURN_IF_ERROR(build_node_schema_with_mode(schema, child_node, child_ctx, &child,
-                                                        SchemaBuildMode::NORMAL));
-        }
-        child_types.push_back(make_nullable(child->type));
-        child_names.push_back(child->name);
-        column_schema->children.push_back(std::move(child));
-    }
-    column_schema->type =
-            nullable_if_needed(std::make_shared<DataTypeStruct>(child_types, child_names), node);
-    propagate_child_levels(column_schema.get());
-    *result = std::move(column_schema);
-    return Status::OK();
-}
-
-Status build_node_schema(const ::parquet::SchemaDescriptor& schema,
-                         const ::parquet::schema::Node& node, const SchemaBuildContext& context,
-                         std::unique_ptr<ParquetColumnSchema>* result) {
-    return build_node_schema_with_mode(schema, node, context, result, SchemaBuildMode::NORMAL);
 }
 
 } // namespace
 
-Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
+Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields) {
     if (fields == nullptr) {
         return Status::InvalidArgument("fields is null");
     }
     fields->clear();
-    const auto* root = schema.group_node();
-    if (root == nullptr) {
-        return Status::InvalidArgument("Parquet schema root is null");
-    }
-    fields->reserve(root->field_count());
-    for (int field_idx = 0; field_idx < root->field_count(); ++field_idx) {
-        std::unique_ptr<ParquetColumnSchema> field;
-        SchemaBuildContext context;
-        RETURN_IF_ERROR(build_node_schema(
-                schema, *root->field(field_idx),
-                child_context(context, *root->field(field_idx), field_idx), &field));
-        fields->push_back(std::move(field));
+    const auto& native_fields = schema.get_fields_schema();
+    fields->reserve(native_fields.size());
+    for (size_t field_idx = 0; field_idx < native_fields.size(); ++field_idx) {
+        // Unsupported logical leaves stay in the file schema so request-level validation can
+        // ignore unprojected fields and COUNT(*) placeholders without weakening real projections.
+        // The scan projection and native readers must share one tree; rebuilding wrappers through
+        // Arrow changes legacy LIST/STRUCT boundaries and makes valid nested values look absent.
+        fields->push_back(
+                build_native_node_schema(native_fields[field_idx], cast_set<int32_t>(field_idx)));
     }
     return Status::OK();
 }

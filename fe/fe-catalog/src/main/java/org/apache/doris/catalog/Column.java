@@ -142,6 +142,10 @@ public class Column implements GsonPostProcessable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean nullableSpecified;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean commentSpecified;
     @SerializedName(value = "isAutoInc")
     private boolean isAutoInc;
 
@@ -181,6 +185,15 @@ public class Column implements GsonPostProcessable {
     private int clusterKeyId = -1;
 
     private boolean isCompoundKey = false;
+
+    // Marks a connector-reserved passthrough column (e.g. iceberg v3 row-lineage _row_id /
+    // _last_updated_sequence_number). Set by ConnectorColumnConverter from the connector-declared
+    // ConnectorColumn.reservedPassthrough(); read by engine MERGE/UPDATE and sink binding so they recognize the
+    // synthetic passthrough column generically instead of string-matching source column names. NOT persisted
+    // (no @SerializedName on purpose): it is an external-table-only marker rebuilt each load from connector
+    // metadata and must never enter an internal-table schema image; on replay it stays at its default false
+    // (mirrors the runtime-only isCompoundKey / defineExpr fields).
+    private boolean reservedPassthrough = false;
 
     @SerializedName(value = "hasOnUpdateDefaultValue")
     private boolean hasOnUpdateDefaultValue = false;
@@ -368,6 +381,8 @@ public class Column implements GsonPostProcessable {
         this.isKey = column.isKey();
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.nullableSpecified = column.isNullableSpecified();
+        this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.realDefaultValue = column.realDefaultValue;
@@ -376,6 +391,7 @@ public class Column implements GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getRealDefineName();
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
@@ -583,6 +599,14 @@ public class Column implements GsonPostProcessable {
         return isAllowNull;
     }
 
+    public boolean isNullableSpecified() {
+        return nullableSpecified;
+    }
+
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     public boolean isAutoInc() {
         return isAutoInc;
     }
@@ -593,6 +617,14 @@ public class Column implements GsonPostProcessable {
 
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
+    }
+
+    public void setNullableSpecified(boolean nullableSpecified) {
+        this.nullableSpecified = nullableSpecified;
+    }
+
+    public void setCommentSpecified(boolean commentSpecified) {
+        this.commentSpecified = commentSpecified;
     }
 
     public String getDefaultValue() {
@@ -985,6 +1017,14 @@ public class Column implements GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public boolean isReservedPassthrough() {
+        return reservedPassthrough;
+    }
+
+    public void setReservedPassthrough(boolean reservedPassthrough) {
+        this.reservedPassthrough = reservedPassthrough;
     }
 
     public long getAutoIncInitValue() {

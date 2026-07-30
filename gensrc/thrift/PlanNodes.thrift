@@ -560,6 +560,10 @@ struct TFileScanRangeParams {
     32: optional map<string, string> es_docvalue_context
     // ES fields field→keyword mappings
     33: optional map<string, string> es_fields_context
+    // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
+    // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
+    // logical initial-default materialization.
+    34: optional i32 iceberg_scan_semantics_version
 }
 
 struct TFileRangeDesc {
@@ -655,6 +659,7 @@ struct TPaimonMetadataParams {
   9: optional map<string, string> paimon_props
 }
 
+// deprecated
 struct THudiMetadataParams {
   1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
@@ -775,7 +780,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
-  12: optional THudiMetadataParams hudi_params
+  12: optional THudiMetadataParams hudi_params // deprecated
   13: optional TPaimonMetadataParams paimon_params // deprecated
 
   // for quering sys tables for Paimon/Iceberg

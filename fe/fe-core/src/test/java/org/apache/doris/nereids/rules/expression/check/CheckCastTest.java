@@ -46,6 +46,7 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -54,6 +55,25 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class CheckCastTest {
+    @Test
+    public void testCastBetweenVariantTypes() {
+        VariantType v1Source = new VariantType(100);
+        VariantType v1SameProperties = new VariantType(100);
+        VariantType v1DifferentProperties = new VariantType(200);
+
+        Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
+        Assertions.assertFalse(CheckCast.check(v1Source, v1DifferentProperties, true));
+
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableVariantV2 = true;
+        connectContext.setThreadLocalInfo();
+        try {
+            Assertions.assertTrue(CheckCast.check(v1Source, v1DifferentProperties, true));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     public void testCastFromBoolean() {
         // Strict mode

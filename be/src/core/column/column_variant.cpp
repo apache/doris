@@ -142,6 +142,9 @@ size_t get_number_of_dimensions(const IDataType& type) {
 // which indicates NG-originated array<object> data.
 bool is_nested_group_type(const DataTypePtr& type) {
     auto base = get_base_type_of_array(type);
+    if (get_number_of_dimensions(*type) > 0) {
+        base = remove_nullable(base);
+    }
     return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
 }
 
@@ -1834,6 +1837,11 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         if (!subcolumn->data.is_null_at(nrow)) {
             return false;
         }
+    }
+
+    const auto& sparse_offsets = serialized_sparse_column_offsets();
+    if (sparse_offsets[nrow - 1] != sparse_offsets[nrow]) {
+        return false;
     }
 
     const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);

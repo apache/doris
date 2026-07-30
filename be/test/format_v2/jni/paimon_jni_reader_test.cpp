@@ -25,6 +25,7 @@
 
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -47,14 +48,15 @@ TFileScanRangeParams make_scan_params() {
     return scan_params;
 }
 
-Status init_reader(PaimonJniReader* reader, TFileScanRangeParams* scan_params) {
+Status init_reader(PaimonJniReader* reader, TFileScanRangeParams* scan_params,
+                   RuntimeState* runtime_state = nullptr) {
     return reader->init({
             .projected_columns = {},
             .conjuncts = {},
             .format = FileFormat::JNI,
             .scan_params = scan_params,
             .io_ctx = nullptr,
-            .runtime_state = nullptr,
+            .runtime_state = runtime_state,
             .scanner_profile = nullptr,
     });
 }
@@ -159,16 +161,20 @@ TEST(PaimonJniReaderTest, ScanLevelOptionsOverrideLegacySplitFallbacks) {
     EXPECT_EQ(params["hadoop.source"], "scan");
 }
 
-TEST(PaimonJniReaderTest, KeepsInitialPhysicalBatchSizeAfterOpen) {
+TEST(PaimonJniReaderTest, UsesStableRuntimeBatchSizeBeforeAndAfterOpen) {
+    TQueryOptions query_options;
+    query_options.__set_batch_size(8160);
+    RuntimeState state {query_options, TQueryGlobals()};
+    auto scan_params = make_scan_params();
     PaimonJniReader reader;
-    reader.set_batch_size(32);
-    EXPECT_EQ(reader.TEST_batch_size(), 32);
+    ASSERT_TRUE(init_reader(&reader, &scan_params, &state).ok());
 
-    // Paimon copies the constructor size into the RecordReader during Java open. A later predictor
-    // result cannot resize that physical reader, so keep the initial probe size for the split.
+    reader.set_batch_size(32);
+    EXPECT_EQ(reader.TEST_batch_size(), 8160);
+
     reader.TEST_set_split_state(true, false);
     reader.set_batch_size(1);
-    EXPECT_EQ(reader.TEST_batch_size(), 32);
+    EXPECT_EQ(reader.TEST_batch_size(), 8160);
 }
 
 } // namespace

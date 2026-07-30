@@ -77,6 +77,10 @@ public:
 
     Status close(Status) override;
 
+    void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
+
+    void finish_deferred_file_cleanup(Status outer_status);
+
 private:
     /**
      * Extract $row_id column from block and group by file_path.
@@ -129,6 +133,7 @@ private:
                                         const std::vector<int64_t>& positions, Block& output_block);
     Status _init_position_delete_output_exprs();
     std::string _get_file_extension() const;
+    void _cleanup_created_files();
 
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
@@ -141,6 +146,9 @@ private:
 
     // Collected commit data from all writers
     std::vector<TIcebergCommitData> _commit_data_list;
+    // MERGE owns both data and delete objects until both inner sinks close successfully.
+    std::vector<std::pair<std::shared_ptr<io::FileSystem>, std::string>> _created_files;
+    bool _defer_file_cleanup_until_outer_close = false;
     // TODO: All deletions are held in memory until close(). Consider flushing
     //  per-file when the upstream guarantees file_path ordering, or flushing
     //  when estimated memory exceeds a threshold, to reduce peak memory usage.

@@ -95,6 +95,27 @@ static void create_and_refresh_instance(MetaServiceProxy* service, std::string i
 namespace {
 const std::string instance_id = "MetaServiceJobTest";
 
+struct DeleteRowsetRecycleConfigGuard {
+    DeleteRowsetRecycleConfigGuard()
+            : original_enable_mark_delete_rowset_before_recycle(
+                      config::enable_mark_delete_rowset_before_recycle),
+              original_enable_abort_txn_and_job_for_delete_rowset_before_recycle(
+                      config::enable_abort_txn_and_job_for_delete_rowset_before_recycle) {
+        config::enable_mark_delete_rowset_before_recycle = true;
+        config::enable_abort_txn_and_job_for_delete_rowset_before_recycle = true;
+    }
+
+    ~DeleteRowsetRecycleConfigGuard() {
+        config::enable_mark_delete_rowset_before_recycle =
+                original_enable_mark_delete_rowset_before_recycle;
+        config::enable_abort_txn_and_job_for_delete_rowset_before_recycle =
+                original_enable_abort_txn_and_job_for_delete_rowset_before_recycle;
+    }
+
+    bool original_enable_mark_delete_rowset_before_recycle;
+    bool original_enable_abort_txn_and_job_for_delete_rowset_before_recycle;
+};
+
 void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const std::string& job_id,
                           const std::string& initiator, int base_compaction_cnt,
                           int cumu_compaction_cnt, TabletCompactionJobPB::CompactionType type,
@@ -5753,6 +5774,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> recycle x 2 -> abort -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -5882,6 +5904,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest1) {
 
 // Test: Complete flow - start job -> prepare_rowset -> recycle x 2 -> abort job -> verify
 TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6009,6 +6032,7 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest1) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> commit_rowset -> recycle x 2 -> abort -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6134,6 +6158,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest2) {
 
 // Test: Complete flow - start compaction job -> prepare_rowset -> commit_rowset -> recycle x 2 -> abort job -> verify
 TEST(MetaServiceJobTest, AbortCompactionJobForRelatedRowsetTest2) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6270,6 +6295,7 @@ TEST(MetaServiceJobTest, AbortCompactionJobForRelatedRowsetTest2) {
 
 // Test: Complete flow - start schema change job -> prepare_rowset -> commit_rowset -> recycle x 2 -> abort job -> verify
 TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6455,6 +6481,7 @@ TEST(MetaServiceJobTest, AbortSchemaChangeJobForRelatedRowsetTest2) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> recycle x 1 -> commit_rowset -> commit_txn -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6565,6 +6592,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest3) {
 
 // Test: Complete flow - start job -> prepare_rowset -> recycle x 1 -> commit_rowset -> finish job -> verify
 TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6689,6 +6717,7 @@ TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest3) {
 
 // Test: Complete flow - begin_txn -> prepare_rowset -> commit_rowset -> recycle x 1 -> commit_txn -> verify commit fails
 TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
@@ -6812,6 +6841,7 @@ TEST(MetaServiceJobTest, AbortTxnForRelatedRowsetTest4) {
 
 // Test: Complete flow - start job -> prepare_rowset -> commit_rowset -> recycle x 1 -> finish job -> verify
 TEST(MetaServiceJobTest, AbortJobForRelatedRowsetTest4) {
+    DeleteRowsetRecycleConfigGuard config_guard;
     auto meta_service = get_meta_service();
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {

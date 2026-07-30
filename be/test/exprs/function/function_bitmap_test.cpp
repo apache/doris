@@ -346,9 +346,9 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({3, 4, 5});
     BitmapValue empty_bitmap;
-    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)0},
-                        {{&bitmap1, &bitmap1}, (int64_t)3},
-                        {{&bitmap1, &bitmap2}, (int64_t)1}};
+    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)0}, {{&bitmap1, &bitmap1}, (int64_t)3},
+                        {{&bitmap1, &bitmap2}, (int64_t)1},      {{Null(), &bitmap1}, (int64_t)0},
+                        {{&bitmap1, Null()}, (int64_t)0},        {{Null(), Null()}, (int64_t)0}};
 
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
@@ -377,11 +377,25 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
     BitmapValue bitmap2({1, 2, 3, 4});
     BitmapValue bitmap3({2, 3});
     BitmapValue empty_bitmap;
-    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3},
-                        {{&bitmap2, &bitmap3}, (int64_t)4},
-                        {{&bitmap1, &bitmap3}, (int64_t)3}};
+    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3}, {{&bitmap2, &bitmap3}, (int64_t)4},
+                        {{&bitmap1, &bitmap3}, (int64_t)3},      {{Null(), &bitmap1}, (int64_t)3},
+                        {{&bitmap1, Null()}, (int64_t)3},        {{Null(), Null()}, (int64_t)0}};
 
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+
+    {
+        const auto old_config = config::enable_set_in_bitmap_value;
+        config::enable_set_in_bitmap_value = true;
+        BitmapValue short_bitmap1({1, 2});
+        BitmapValue short_bitmap2({2, 3, 4, 5});
+        EXPECT_EQ(short_bitmap1.get_type_code(), BitmapTypeCode::SET);
+        EXPECT_EQ(short_bitmap2.get_type_code(), BitmapTypeCode::SET);
+
+        DataSet set_data_set = {{{&short_bitmap1, &short_bitmap2}, (int64_t)5}};
+        static_cast<void>(
+                check_function<DataTypeInt64, true>(func_name, input_types, set_data_set));
+        config::enable_set_in_bitmap_value = old_config;
+    }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP,
@@ -411,9 +425,9 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
     BitmapValue bitmap3({2, 3});
     BitmapValue bitmap4({1, 2, 6});
     BitmapValue empty_bitmap;
-    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3},
-                        {{&bitmap2, &bitmap3}, (int64_t)2},
-                        {{&bitmap1, &bitmap4}, (int64_t)2}};
+    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3}, {{&bitmap2, &bitmap3}, (int64_t)2},
+                        {{&bitmap1, &bitmap4}, (int64_t)2},      {{Null(), &bitmap1}, (int64_t)0},
+                        {{&bitmap1, Null()}, (int64_t)0},        {{Null(), Null()}, (int64_t)0}};
 
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
@@ -443,13 +457,54 @@ TEST(function_bitmap_test, function_bitmap_and_not_count) {
     BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
     BitmapValue empty_bitmap;
 
-    DataSet data_set = {{{&bitmap1, &empty_bitmap}, (int64_t)3}, //1,2,3
-                        {{&bitmap2, Null()}, (int64_t)0},
-                        {{&bitmap2, &bitmap3}, (int64_t)3},  //0,3,4
-                        {{&bitmap1, &bitmap2}, (int64_t)2}}; //1,2
+    DataSet data_set = {
+            {{&bitmap1, &empty_bitmap}, (int64_t)3}, //1,2,3
+            {{Null(), &bitmap1}, (int64_t)0},        {{&bitmap2, Null()}, (int64_t)0},
+            {{Null(), Null()}, (int64_t)0},          {{&bitmap2, &bitmap3}, (int64_t)3}, //0,3,4
+            {{&bitmap1, &bitmap2}, (int64_t)2}};                                         //1,2
 
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 }
+
+TEST(function_bitmap_test, function_bitmap_op_count_v2_nullable_args) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
+    BitmapValue bitmap1({1, 2, 3});
+    BitmapValue bitmap2({3, 4, 5});
+
+    {
+        DataSet data_set = {{{&bitmap1, &bitmap2}, (int64_t)1},
+                            {{Null(), &bitmap1}, (int64_t)0},
+                            {{&bitmap1, Null()}, (int64_t)0},
+                            {{Null(), Null()}, (int64_t)0}};
+        static_cast<void>(
+                check_function<DataTypeInt64, false>("bitmap_and_count_v2", input_types, data_set));
+    }
+    {
+        DataSet data_set = {{{&bitmap1, &bitmap2}, (int64_t)5},
+                            {{Null(), &bitmap1}, (int64_t)3},
+                            {{&bitmap1, Null()}, (int64_t)3},
+                            {{Null(), Null()}, (int64_t)0}};
+        static_cast<void>(
+                check_function<DataTypeInt64, false>("bitmap_or_count_v2", input_types, data_set));
+    }
+    {
+        DataSet data_set = {{{&bitmap1, &bitmap2}, (int64_t)4},
+                            {{Null(), &bitmap1}, (int64_t)0},
+                            {{&bitmap1, Null()}, (int64_t)0},
+                            {{Null(), Null()}, (int64_t)0}};
+        static_cast<void>(
+                check_function<DataTypeInt64, false>("bitmap_xor_count_v2", input_types, data_set));
+    }
+    {
+        DataSet data_set = {{{&bitmap1, &bitmap2}, (int64_t)2},
+                            {{Null(), &bitmap1}, (int64_t)0},
+                            {{&bitmap1, Null()}, (int64_t)0},
+                            {{Null(), Null()}, (int64_t)0}};
+        static_cast<void>(check_function<DataTypeInt64, false>("bitmap_and_not_count_v2",
+                                                               input_types, data_set));
+    }
+}
+
 TEST(function_bitmap_test, function_bitmap_and_not_count_alias) {
     std::string func_name = "bitmap_andnot_count";
     InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
