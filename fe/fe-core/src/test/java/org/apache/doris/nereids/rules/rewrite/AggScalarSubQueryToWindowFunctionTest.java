@@ -1725,6 +1725,76 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
     }
 
     @Test
+    public void testNoneMovableInAggregateArgRejected() throws Exception {
+        // When the aggregate argument contains a NoneMovableFunction
+        // (e.g. COUNT(assert_true(f2.v > 0, 'bad'))), the rewrite must
+        // be rejected.  The window evaluates the aggregate over ALL
+        // rows per partition, while predicates pushed below the window
+        // filter rows before the side-effecting function runs —
+        // suppressing expected errors.
+        //
+        // Plan shape:
+        //   Filter(f.k = d.k, d.tag > 0, f.v > scalar_count)
+        //     Apply(correlation = d.k)
+        //       CrossJoin
+        //         Filter(f.keep > 0)
+        //           Scan fact f
+        //         Scan dim d    ← unique, non-null k
+        //       Aggregate(COUNT(assert_true(f2.v > 0, 'bad')))
+        //         Filter(f2.k = d.k)
+        //           Scan fact f2
+        //
+        // Without rejection, the rewrite places d.tag > 0 (outer-only)
+        // and f.k = d.k (matched inner filter) BELOW the window, so
+        // the failing key-1 row is removed before assert_true runs.
+        createTable("CREATE TABLE fact_nm_agg (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT,\n"
+                + "  keep INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nm_agg (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nm_agg add constraint uq_dim_nm_agg_k unique (k)");
+
+        // Aggregate argument contains assert_true — must reject.
+        String sql = "SELECT d.did, f.id, f.v "
+                + "FROM (SELECT * FROM fact_nm_agg WHERE keep > 0) f, dim_nm_agg d "
+                + "WHERE f.k = d.k "
+                + "  AND d.tag > 0"
+                + "  AND f.v > ("
+                + "    SELECT COUNT(assert_true(f2.v > 0, 'bad')) "
+                + "    FROM fact_nm_agg f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — unsafe aggregate argument cannot be
+        // safely window-rewritten because predicates below the window
+        // would suppress the side-effecting function's errors.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when the aggregate argument "
+                + "contains a NoneMovableFunction (e.g. assert_true) "
+                + "because predicates pushed below the window would "
+                + "suppress its side effects");
+    }
+
+    @Test
     public void testNoneMovableInnerFilterRejected() throws Exception {
         // checkFilter() must reject NoneMovableFunction predicates in the
         // inner subquery filter, just like volatile expressions.  Two

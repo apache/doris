@@ -216,7 +216,17 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         if (functions.size() != 1) {
             return false;
         }
-        return functions.stream().allMatch(f -> f instanceof SupportWindowAnalytic && !f.isDistinct());
+        if (!functions.stream().allMatch(f -> f instanceof SupportWindowAnalytic && !f.isDistinct())) {
+            return false;
+        }
+        // Reject aggregates whose arguments contain volatile or
+        // NoneMovableFunction expressions (e.g. COUNT(assert_true(...))).
+        // The rewrite places some outer predicates below the window,
+        // changing which rows reach the side-effecting function inside
+        // the aggregate and potentially suppressing expected errors.
+        return functions.stream().noneMatch(
+                f -> f.containsVolatileExpression()
+                        || f.containsType(NoneMovableFunction.class));
     }
 
     /**
