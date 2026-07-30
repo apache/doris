@@ -34,21 +34,27 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +63,9 @@ import java.util.stream.Collectors;
 
 public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
+
+    @SerializedName("fsv")
+    private Map<TInvertedIndexFileStorageFormat, Integer> baseShadowSchemaVersionByFormat = new HashMap<>();
 
     public CloudSchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId,
             String tableName, long timeoutMs) {
@@ -78,6 +87,28 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     }
 
     private CloudSchemaChangeJobV2() {}
+
+    public void configureBaseShadowSchemaVersion(OlapTable table) throws DdlException {
+        long baseShadowIndexId = getBaseShadowIndexId(table.getBaseIndexId());
+        if (baseShadowIndexId == -1) {
+            return;
+        }
+        int tableBaseSchemaVersion = table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion();
+        baseShadowSchemaVersionByFormat = getBaseShadowSchemaVersions(table, tableBaseSchemaVersion);
+        Integer currentSchemaVersion = baseShadowSchemaVersionByFormat.get(
+                table.getPartitionInvertedIndexFileStorageFormat());
+        Preconditions.checkState(currentSchemaVersion != null);
+        indexSchemaVersionAndHashMap.get(baseShadowIndexId).schemaVersion = currentSchemaVersion;
+    }
+
+    public Map<TInvertedIndexFileStorageFormat, Integer> getBaseShadowSchemaVersionByFormat() {
+        return baseShadowSchemaVersionByFormat;
+    }
+
+    public void setBaseShadowSchemaVersionByFormat(
+            Map<TInvertedIndexFileStorageFormat, Integer> baseShadowSchemaVersionByFormat) {
+        this.baseShadowSchemaVersionByFormat = baseShadowSchemaVersionByFormat;
+    }
 
     @Override
     protected void commitShadowIndex() throws AlterCancelException {
@@ -227,16 +258,18 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
             for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                 long shadowIdxId = entry.getKey();
                 MaterializedIndex shadowIdx = entry.getValue();
-
+                boolean isBaseShadowIndex = isShadowIndexOfBase(shadowIdxId, tbl);
                 short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                 List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
-                List<Integer> clusterKeyUids = null;
-                if (shadowIdxId == tbl.getBaseIndexId() || isShadowIndexOfBase(shadowIdxId, tbl)) {
-                    clusterKeyUids = OlapTable.getClusterKeyUids(shadowSchema);
-                }
                 int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
+                TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = isBaseShadowIndex
+                        ? tbl.getInvertedIndexFileStorageFormatForPartition(partitionId) : null;
+                int schemaVersion = isBaseShadowIndex
+                        ? getBaseShadowSchemaVersion(invertedIndexFileStorageFormat) : shadowSchemaVersion;
+                List<Integer> clusterKeyUids = isBaseShadowIndex
+                        ? OlapTable.getClusterKeyUids(shadowSchema) : null;
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
@@ -255,7 +288,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),
                                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                            shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                            schemaVersion, tbl.getCompactionPolicy(),
                                             tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                             tbl.getTimeSeriesCompactionFileCountThreshold(),
                                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -263,7 +296,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getTimeSeriesCompactionLevelThreshold(),
                                             tbl.disableAutoCompaction(),
                                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                            tbl.getInvertedIndexFileStorageFormat(),
+                                            invertedIndexFileStorageFormat,
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
                                             tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
@@ -277,6 +310,58 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                         .sendCreateTabletsRpc(requestBuilder);
             }
         }
+    }
+
+    private long getBaseShadowIndexId(long baseIndexId) {
+        for (Map.Entry<Long, Long> entry : indexIdMap.entrySet()) {
+            if (entry.getValue() == baseIndexId) {
+                return entry.getKey();
+            }
+        }
+        return -1;
+    }
+
+    private int getBaseShadowSchemaVersion(TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+        Preconditions.checkState(invertedIndexFileStorageFormat != null,
+                "missing inverted index storage format for base partition");
+        Integer schemaVersion = baseShadowSchemaVersionByFormat.get(invertedIndexFileStorageFormat);
+        Preconditions.checkState(schemaVersion != null,
+                "missing shadow schema version for format " + invertedIndexFileStorageFormat);
+        return schemaVersion;
+    }
+
+    private Map<TInvertedIndexFileStorageFormat, Integer> getBaseShadowSchemaVersions(OlapTable table,
+            int tableBaseSchemaVersion) throws DdlException {
+        TInvertedIndexFileStorageFormat currentFormat = table.getPartitionInvertedIndexFileStorageFormat();
+        Set<TInvertedIndexFileStorageFormat> formats = new HashSet<>();
+        for (long partitionId : partitionIndexMap.rowKeySet()) {
+            TInvertedIndexFileStorageFormat format = table.getInvertedIndexFileStorageFormatForPartition(partitionId);
+            if (format == null) {
+                throw new DdlException("missing inverted index storage format for partition " + partitionId);
+            }
+            formats.add(format);
+        }
+        formats.add(currentFormat);
+
+        List<TInvertedIndexFileStorageFormat> orderedFormats = new ArrayList<>(formats);
+        orderedFormats.sort((left, right) -> {
+            if (left == right) {
+                return 0;
+            }
+            if (left == currentFormat) {
+                return 1;
+            }
+            if (right == currentFormat) {
+                return -1;
+            }
+            return left.name().compareTo(right.name());
+        });
+
+        Map<TInvertedIndexFileStorageFormat, Integer> shadowSchemaVersions = new HashMap<>();
+        for (int i = 0; i < orderedFormats.size(); ++i) {
+            shadowSchemaVersions.put(orderedFormats.get(i), tableBaseSchemaVersion + i + 1);
+        }
+        return shadowSchemaVersions;
     }
 
     @Override

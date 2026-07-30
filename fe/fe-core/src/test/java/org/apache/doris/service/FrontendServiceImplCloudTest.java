@@ -17,10 +17,15 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
+import org.apache.doris.thrift.TAddOrDropPartitionsRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TStatusCode;
@@ -30,6 +35,7 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
 import java.util.Collections;
 
 public class FrontendServiceImplCloudTest {
@@ -74,5 +80,46 @@ public class FrontendServiceImplCloudTest {
         } finally {
             Config.cloud_unique_id = originalCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testAddPartitionForRemoteInsertOverwriteUsesDefaultSchema() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getTableNullable("table")).thenReturn(table);
+        Mockito.when(table.writeLockIfExist()).thenReturn(true);
+        Mockito.when(table.getName()).thenReturn("table");
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            envMock.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            invokeAddOrDropPartitions(newAddPartitionRequest());
+
+            Mockito.verify(env).addPartitionLike(Mockito.same(database), Mockito.eq("table"),
+                    Mockito.any(AddPartitionLikeOp.class));
+            Mockito.verify(table).writeUnlock();
+        }
+    }
+
+    private TAddOrDropPartitionsRequest newAddPartitionRequest() {
+        TAddOrDropPartitionsRequest request = new TAddOrDropPartitionsRequest();
+        request.setDb("db");
+        request.setTbl("table");
+        request.setPartitionNames(Collections.singletonList("source_partition"));
+        request.setTempPartitionNames(Collections.singletonList("temp_partition"));
+        request.setIsDrop(false);
+        request.setIsTemp(true);
+        return request;
+    }
+
+    private void invokeAddOrDropPartitions(TAddOrDropPartitionsRequest request) throws Exception {
+        Method method = FrontendServiceImpl.class.getDeclaredMethod("addOrDropPartitionsImpl",
+                TAddOrDropPartitionsRequest.class);
+        method.setAccessible(true);
+        method.invoke(new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class)), request);
     }
 }

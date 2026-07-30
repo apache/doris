@@ -4011,6 +4011,13 @@ public class Env {
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
+        if (olapTable.getTableProperty() != null
+                && olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)
+                    .append("\" = \"")
+                    .append(olapTable.getTableProperty().getPartitionInvertedIndexFileStorageFormat())
+                    .append("\"");
+        }
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.valueOf(Config.default_compression_type)) {
@@ -6313,6 +6320,8 @@ public class Env {
             table.getPartitionInfo().setStoragePolicy(partition.getId(), tableProperty.getStoragePolicy());
         }
 
+        updateSchemaVersionForTableProperty(table, properties);
+
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
@@ -6326,6 +6335,13 @@ public class Env {
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newBinlogConfig.toProperties());
         editLog.logUpdateBinlogConfig(info);
+    }
+
+    private void updateSchemaVersionForTableProperty(OlapTable table, Map<String, String> properties) {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            MaterializedIndexMeta baseIndexMeta = table.getIndexMetaByIndexId(table.getBaseIndexId());
+            baseIndexMeta.setSchemaVersion(baseIndexMeta.getSchemaVersion() + 1);
+        }
     }
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
@@ -6357,6 +6373,7 @@ public class Env {
             // need to replay partition info meta
             switch (opCode) {
                 case OperationType.OP_MODIFY_TABLE_PROPERTIES:
+                    updateSchemaVersionForTableProperty(olapTable, properties);
                     for (Partition partition : olapTable.getPartitions()) {
                         olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                         // storage policy re-use modify in memory

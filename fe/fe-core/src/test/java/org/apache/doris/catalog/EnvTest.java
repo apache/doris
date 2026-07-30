@@ -21,9 +21,13 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
+import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.meta.MetaHeader;
 
 import org.junit.After;
@@ -181,6 +185,50 @@ public class EnvTest {
                 ConfigBase.ldapConfFields.put("ldap_default_roles", oldLdapDefaultRolesField);
             }
             LdapConfig.ldap_default_roles = oldLdapDefaultRoles;
+        }
+    }
+
+    @Test
+    public void testModifyPartitionInvertedIndexStorageFormatUpdatesBaseSchemaVersion() throws Exception {
+        FakeEditLog fakeEditLog = new FakeEditLog();
+        FakeEnv fakeEnv = new FakeEnv();
+        try {
+            Env env = CatalogTestUtil.createTestCatalog();
+            Database db = env.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            int baseSchemaVersion = table.getBaseSchemaVersion();
+            Map<String, String> properties = new HashMap<>();
+
+            properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, "false");
+            table.writeLock();
+            try {
+                env.modifyTableProperties(db, table, properties);
+            } finally {
+                table.writeUnlock();
+            }
+            Assert.assertEquals(baseSchemaVersion, table.getBaseSchemaVersion());
+
+            properties.clear();
+            properties.put("partition.inverted_index_storage_format", "V3");
+
+            table.writeLock();
+            try {
+                env.modifyTableProperties(db, table, properties);
+            } finally {
+                table.writeUnlock();
+            }
+            Assert.assertEquals(baseSchemaVersion + 1, table.getBaseSchemaVersion());
+
+            ModifyTablePropertyOperationLog log = GsonUtils.GSON.fromJson(
+                    "{\"dbId\":" + db.getId() + ",\"tableId\":" + table.getId()
+                            + ",\"properties\":{\"partition.inverted_index_storage_format\":\"V2\"}}",
+                    ModifyTablePropertyOperationLog.class);
+
+            env.replayModifyTableProperty(OperationType.OP_MODIFY_TABLE_PROPERTIES, log);
+            Assert.assertEquals(baseSchemaVersion + 2, table.getBaseSchemaVersion());
+        } finally {
+            fakeEnv.close();
+            fakeEditLog.close();
         }
     }
 }

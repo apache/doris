@@ -71,6 +71,12 @@ suite("test_partitions_tvf", "p0,external") {
     // SyncWithBaseTables
     assertEquals(true, res[0][18]);
     assertEquals(true, res2[0][18]);
+    // CommittedVersion
+    assertEquals(res[0][20], res2[0][20]);
+    // RowCount
+    assertEquals(res[0][21], res2[0][21]);
+    // InvertedIndexStorageFormat
+    assertEquals(res[0][22], res2[0][22]);
 
 
     // test exception

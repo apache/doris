@@ -121,6 +121,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
 
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
+        TInvertedIndexFileStorageFormat partitionInvertedIndexFileStorageFormat =
+                tbl.getPartitionInvertedIndexFileStorageFormat();
 
         LOG.info("begin create cloud partition");
         // create partition with base index
@@ -190,13 +192,13 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
-                                    tbl.getVerticalCompactionNumColumnsPerGroup());
+                        tbl.getVerticalCompactionNumColumnsPerGroup());
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);

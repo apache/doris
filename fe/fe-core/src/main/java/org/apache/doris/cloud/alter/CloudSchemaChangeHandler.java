@@ -17,6 +17,8 @@
 
 package org.apache.doris.cloud.alter;
 
+import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.CloudSchemaChangeJobV2;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -37,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -44,6 +47,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +56,22 @@ import java.util.stream.Collectors;
 
 public class CloudSchemaChangeHandler extends SchemaChangeHandler {
     private static final Logger LOG = LogManager.getLogger(CloudSchemaChangeHandler.class);
+
+    @Override
+    public void addAlterJobV2(AlterJobV2 alterJob) throws AnalysisException {
+        if (alterJob instanceof CloudSchemaChangeJobV2) {
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(alterJob.getDbId());
+            Preconditions.checkNotNull(db, alterJob.getDbId());
+            Table table = db.getTableNullable(alterJob.getTableId());
+            Preconditions.checkState(table instanceof OlapTable, alterJob.getTableId());
+            try {
+                ((CloudSchemaChangeJobV2) alterJob).configureBaseShadowSchemaVersion((OlapTable) table);
+            } catch (DdlException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        super.addAlterJobV2(alterJob);
+    }
 
     @Override
     public void updatePartitionsProperties(Database db, String tableName, List<String> partitionNames,
@@ -120,6 +140,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
                 add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
             }
         };
@@ -136,6 +157,24 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            olapTable.readLock();
+            try {
+                TInvertedIndexFileStorageFormat currentInvertedIndexFileStorageFormat =
+                        olapTable.getPartitionInvertedIndexFileStorageFormat();
+                if (invertedIndexFileStorageFormat == currentInvertedIndexFileStorageFormat) {
+                    LOG.info("partitionInvertedIndexFileStorageFormat:{} is equal with table format:{}",
+                            invertedIndexFileStorageFormat, currentInvertedIndexFileStorageFormat);
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    invertedIndexFileStorageFormat.name());
+        }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
@@ -360,6 +399,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             // Do nothing.
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             // Retention count only changes FE table properties and scheduler registration below.
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            // Existing tablet meta is unchanged; the table schema version is updated below.
         } else if (properties.containsKey(
                 PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
             int verticalCompactionNumColumnsPerGroup = Integer.parseInt(properties.get(

@@ -29,6 +29,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -232,6 +233,7 @@ public class OlapTableTest {
         DataProperty origDataProperty = new DataProperty(TStorageMedium.SSD, 1735689600000L, "s3_policy");
         ReplicaAllocation origReplicaAlloc = new ReplicaAllocation((short) 3);
         partitionInfo.addPartition(origPartId, origDataProperty, origReplicaAlloc, true, true);
+        partitionInfo.setInvertedIndexFileStorageFormat(origPartId, TInvertedIndexFileStorageFormat.V3);
 
         Map<Long, Long> partitionIdMap = Maps.newHashMap();
         long newPartId = 2000L;
@@ -251,6 +253,9 @@ public class OlapTableTest {
             Assert.assertEquals(1735689600000L, newDataProperty.getCooldownTimeMs());
             Assert.assertEquals("s3_policy", newDataProperty.getStoragePolicy());
             Assert.assertTrue(partitionInfo.getIsInMemory(newPartId));
+            Assert.assertNull(partitionInfo.getInvertedIndexFileStorageFormat(origPartId));
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                    partitionInfo.getInvertedIndexFileStorageFormat(newPartId));
         }
     }
 
@@ -261,6 +266,7 @@ public class OlapTableTest {
         DataProperty origDataProperty = new DataProperty(TStorageMedium.SSD, 1735689600000L, "s3_policy");
         ReplicaAllocation origReplicaAlloc = new ReplicaAllocation((short) 3);
         partitionInfo.addPartition(origPartId, origDataProperty, origReplicaAlloc, true, true);
+        partitionInfo.setInvertedIndexFileStorageFormat(origPartId, TInvertedIndexFileStorageFormat.V2);
 
         Map<Long, Long> partitionIdMap = Maps.newHashMap();
         long newPartId = 2000L;
@@ -284,7 +290,60 @@ public class OlapTableTest {
             Assert.assertEquals("", newDataProperty.getStoragePolicy());
             Assert.assertTrue(newDataProperty.isMutable());
             Assert.assertFalse(partitionInfo.getIsInMemory(newPartId));
+            Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                    partitionInfo.getInvertedIndexFileStorageFormat(newPartId));
         }
+    }
+
+    @Test
+    public void testGetInvertedIndexFileStorageFormatForPartition() {
+        PartitionInfo partitionInfo = new PartitionInfo(PartitionType.RANGE);
+        OlapTable olapTable = new OlapTable(1, "tbl", Lists.newArrayList(), KeysType.DUP_KEYS,
+                partitionInfo, null);
+        olapTable.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        olapTable.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V3);
+        // Local replay writes the table-level format into this map.
+        partitionInfo.setInvertedIndexFileStorageFormat(10L, TInvertedIndexFileStorageFormat.V2);
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                olapTable.getInvertedIndexFileStorageFormatForPartition(10L));
+
+        // Cloud rolling upgrades can give a partition a format different from the table-level format.
+        partitionInfo.setInvertedIndexFileStorageFormat(11L, TInvertedIndexFileStorageFormat.V3);
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                olapTable.getInvertedIndexFileStorageFormatForPartition(11L));
+
+        // Legacy partitions have no partition-level format and fall back to the table format.
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                olapTable.getInvertedIndexFileStorageFormatForPartition(12L));
+    }
+
+    @Test
+    public void testReplacePartitionUsesCurrentInvertedIndexStorageFormat() {
+        long oldPartitionId = 10L;
+        long newPartitionId = 20L;
+        PartitionInfo partitionInfo = new SinglePartitionInfo();
+        OlapTable table = new OlapTable(1L, "tbl", Lists.newArrayList(), KeysType.DUP_KEYS,
+                partitionInfo, null);
+        Partition oldPartition = new Partition(oldPartitionId, "p1",
+                new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL), null);
+        Partition newPartition = new Partition(newPartitionId, "p1",
+                new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL), null);
+        table.addPartition(oldPartition);
+        partitionInfo.addPartition(oldPartitionId, new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 1), false, true);
+        partitionInfo.setInvertedIndexFileStorageFormat(oldPartitionId, TInvertedIndexFileStorageFormat.V2);
+        table.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V3);
+
+        RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
+        Assert.assertSame(oldPartition, table.replacePartition(newPartition, recyclePartitionParam));
+
+        Assert.assertNull(partitionInfo.getInvertedIndexFileStorageFormat(oldPartitionId));
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3,
+                partitionInfo.getInvertedIndexFileStorageFormat(newPartitionId));
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V2,
+                recyclePartitionParam.invertedIndexFileStorageFormat);
+        Assert.assertSame(newPartition, table.getPartition("p1"));
     }
 
     @Test

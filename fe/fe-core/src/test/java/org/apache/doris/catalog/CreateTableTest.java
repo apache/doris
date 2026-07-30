@@ -26,6 +26,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
@@ -269,6 +270,33 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+    }
+
+    @Test
+    public void testLocalPartitionsStoreTableInvertedIndexStorageFormat() throws Exception {
+        createTable("CREATE TABLE test.local_inverted_index_format_unpartitioned (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'inverted_index_storage_format' = 'V3')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable unpartitionedTable = (OlapTable) db.getTableOrDdlException(
+                "local_inverted_index_format_unpartitioned");
+        long unpartitionedPartitionId = unpartitionedTable.getPartitions().iterator().next().getId();
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3, unpartitionedTable.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(unpartitionedPartitionId));
+
+        createTable("CREATE TABLE test.local_inverted_index_format_range (k1 INT) "
+                + "DUPLICATE KEY(k1) PARTITION BY RANGE(k1) "
+                + "(PARTITION p1 VALUES LESS THAN ('10')) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'inverted_index_storage_format' = 'V3')");
+        executeSql("ALTER TABLE test.local_inverted_index_format_range "
+                + "ADD PARTITION p2 VALUES LESS THAN ('20')");
+
+        OlapTable rangeTable = (OlapTable) db.getTableOrDdlException("local_inverted_index_format_range");
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3, rangeTable.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(rangeTable.getPartition("p1").getId()));
+        Assert.assertEquals(TInvertedIndexFileStorageFormat.V3, rangeTable.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(rangeTable.getPartition("p2").getId()));
     }
 
     @Test

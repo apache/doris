@@ -69,6 +69,7 @@ public class ShowPartitionIdCommand extends ShowCommand {
         builder.addColumn(new Column("PartitionName", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DbId", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("TableId", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("InvertedIndexStorageFormat", ScalarType.createVarchar(30)));
         return builder.build();
     }
 
@@ -84,11 +85,13 @@ public class ShowPartitionIdCommand extends ShowCommand {
             List<Table> tables = database.getTables();
             for (Table tbl : tables) {
                 if (tbl instanceof OlapTable) {
+                    List<String> row = null;
                     tbl.readLock();
                     try {
-                        Partition partition = ((OlapTable) tbl).getPartition(partitionId);
+                        OlapTable olapTable = (OlapTable) tbl;
+                        Partition partition = olapTable.getPartition(partitionId);
                         if (partition != null) {
-                            List<String> row = new ArrayList<>();
+                            row = new ArrayList<>();
                             row.add(database.getFullName());
                             if (tbl.isTemporary()) {
                                 if (!Util.isTempTableInCurrentSession(tbl.getName())) {
@@ -101,13 +104,16 @@ public class ShowPartitionIdCommand extends ShowCommand {
                             row.add(partition.getName());
                             row.add(String.valueOf(database.getId()));
                             row.add(String.valueOf(tbl.getId()));
-                            rows.add(row);
-                            break;
+                            row.add(olapTable.getInvertedIndexFileStorageFormatForPartition(partitionId).name());
                         }
                     } catch (Exception e) {
                         LOG.error("failed to get partition info for {}", partitionId, e);
                     } finally {
                         tbl.readUnlock();
+                    }
+                    if (row != null) {
+                        rows.add(row);
+                        break;
                     }
                 }
             }

@@ -35,6 +35,15 @@ public class TablePropertyTest {
     private static final String REPLICATION_ALLOCATION =
             "tag.location.group_0: 1, tag.location.group_1: 1, tag.location.group_2: 1";
 
+    @Test
+    public void testPartitionInvertedIndexStorageFormat() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V3");
+        TableProperty tableProperty = new TableProperty(properties);
+        Assert.assertEquals(org.apache.doris.thrift.TInvertedIndexFileStorageFormat.V3,
+                tableProperty.getPartitionInvertedIndexFileStorageFormat());
+    }
+
     // A non-whitelisted dynamic_partition.* key is ignored (skipped via continue), so it is not
     // collected at all and the table is neither built as dynamic nor flagged as incomplete.
     @Test

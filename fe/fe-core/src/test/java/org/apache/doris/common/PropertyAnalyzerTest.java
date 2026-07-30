@@ -334,7 +334,11 @@ public class PropertyAnalyzerTest {
     @Test
     public void testAnalyzeInvertedIndexFileStorageFormat() throws AnalysisException {
         String originFormat = Config.inverted_index_storage_format;
+        String originDeployMode = Config.deploy_mode;
+        String originCloudUniqueId = Config.cloud_unique_id;
         try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
             Config.inverted_index_storage_format = "V3";
             TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
@@ -380,8 +384,60 @@ public class PropertyAnalyzerTest {
                         "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
                         e.getMessage());
             }
+
+            Map<String, String> propertiesWithPartitionV3 = new HashMap<>();
+            propertiesWithPartitionV3.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "v3");
+            result = PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(propertiesWithPartitionV3);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
+            Assertions.assertTrue(propertiesWithPartitionV3.isEmpty());
+
+            Map<String, String> propertiesWithPartitionDefault = new HashMap<>();
+            propertiesWithPartitionDefault.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    "default");
+            Config.inverted_index_storage_format = "V2";
+            result = PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(propertiesWithPartitionDefault);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+
+            Map<String, String> propertiesWithPartitionDefaultV1 = new HashMap<>();
+            propertiesWithPartitionDefaultV1.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    "default");
+            Config.inverted_index_storage_format = "V1";
+            try {
+                PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(propertiesWithPartitionDefaultV1);
+                Assertions.fail("Expected an AnalysisException to be thrown");
+            } catch (AnalysisException e) {
+                Assertions.assertEquals("errCode = 2, detailMessage = partition inverted index storage format "
+                        + "only supports V2 and V3", e.getMessage());
+            }
+
+            Assertions.assertNull(PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>()));
+
+            Map<String, String> propertiesWithPartitionV1 = new HashMap<>();
+            propertiesWithPartitionV1.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "v1");
+            try {
+                PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(propertiesWithPartitionV1);
+                Assertions.fail("Expected an AnalysisException to be thrown");
+            } catch (AnalysisException e) {
+                Assertions.assertEquals("errCode = 2, detailMessage = unknown inverted index storage format: v1",
+                        e.getMessage());
+            }
+
+            Config.deploy_mode = "local";
+            Map<String, String> propertiesWithPartitionFormatInLocalMode = new HashMap<>();
+            propertiesWithPartitionFormatInLocalMode.put(
+                    PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "v3");
+            try {
+                PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(
+                        propertiesWithPartitionFormatInLocalMode);
+                Assertions.fail("Expected an AnalysisException to be thrown");
+            } catch (AnalysisException e) {
+                Assertions.assertEquals("errCode = 2, detailMessage = partition.inverted_index_storage_format "
+                        + "is only supported in cloud mode", e.getMessage());
+            }
         } finally {
             Config.inverted_index_storage_format = originFormat;
+            Config.deploy_mode = originDeployMode;
+            Config.cloud_unique_id = originCloudUniqueId;
         }
     }
 
