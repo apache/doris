@@ -332,4 +332,26 @@ public class NullableAliasTest extends SqlTestBase {
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
         Assertions.assertNotNull(plan);
     }
+
+    @Test
+    void testAliasConsumesJoinKey() {
+        // Alias dv = T2.id + 1 on nullable side over {T2}. Unlike the
+        // drop-raw-input test, here the alias consumes the join key itself.
+        // T2.id is therefore both an emitted-alias input AND required by
+        // the parent outer-join edge.  Without the exclusively-emitted
+        // check the join key would be dropped from the rebuilt child,
+        // and the later LeftOuterJoin(T1.id = Sub.id) would reference
+        // a slot that no longer exists → CheckAfterRewrite failure.
+        // The fix preserves T2.id because it is still in parentRequireSlots.
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id, Sub.dv "
+                        + "from T1 left join ("
+                        + "  select T2.id, T2.id + 1 as dv "
+                        + "  from T2"
+                        + ") Sub on T1.id = Sub.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
 }

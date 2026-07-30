@@ -345,12 +345,26 @@ public class PlanReceiver extends AbstractReceiver {
                     aliasExprIds.add(a.getExprId());
                 }
                 List<NamedExpression> mergedLayer = new ArrayList<>(aliases);
+                // Identify alias input slots from aliases whose source bitmap
+                // is already fully contained in one child (emitted here). Only
+                // drop them from carry-forward if no parent, final output,
+                // or pending alias layer still needs them.
                 Set<Slot> emittedAliasSlots = hyperGraph.getAliasInputSlotsForSubsetNodes(
                         left, right);
+                // Slots needed by not-yet-emitted aliases (deferred layers)
+                Set<Slot> deferredAliasSlots = new HashSet<>(aliasInputSlots);
+                deferredAliasSlots.removeAll(emittedAliasSlots);
+                // Only drop emitted alias slots that no parent or deferred
+                // layer needs.  This preserves e.g. a join-key column that
+                // an alias also consumes — the parent's outer join still
+                // references that key.
+                Set<Slot> exclusivelyEmittedSlots = new HashSet<>(emittedAliasSlots);
+                exclusivelyEmittedSlots.removeAll(parentRequireSlots);
+                exclusivelyEmittedSlots.removeAll(deferredAliasSlots);
                 for (Slot childSlot : logicalPlan.getOutputSet()) {
                     if (requireSlots.contains(childSlot)
                             && !aliasExprIds.contains(childSlot.getExprId())
-                            && !emittedAliasSlots.contains(childSlot)) {
+                            && !exclusivelyEmittedSlots.contains(childSlot)) {
                         mergedLayer.add(childSlot);
                     }
                 }
