@@ -36,8 +36,10 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 
@@ -71,6 +73,7 @@ public class PaimonSysExternalTable extends ExternalTable {
     private final String sysTableType;
     private volatile Boolean isDataTable;
     private volatile Table paimonSysTable;
+    private volatile FileStoreTable sysBaseTable;
     private volatile List<Column> fullSchema;
     private volatile SchemaCacheValue schemaCacheValue;
 
@@ -115,17 +118,48 @@ public class PaimonSysExternalTable extends ExternalTable {
     /**
      * Returns the Paimon system table instance (e.g., snapshots, binlog).
      * Note: system tables currently ignore snapshot semantics.
+     *
+     * <p>The wrapper is built over the cached base table, exactly the way the Paimon catalog builds
+     * it ({@code CatalogUtils#createSystemTable}). Loading it from the catalog instead would give
+     * this wrapper its own schema generation, independent of the cached base table: the FE would
+     * then plan on one generation while {@code PaimonScanNode} serializes a system table rebuilt
+     * over the other one, and a system table whose row type follows the base schema
+     * ({@code $audit_log}, {@code $binlog}, {@code $ro}) could reach the BE without the columns the
+     * FE asked for.
+     *
+     * <p>"Exactly the way the catalog builds it" includes building it over the <i>undecorated</i>
+     * base: {@code CatalogUtils#loadTable} hands {@code createSystemTable} the raw
+     * {@code FileStoreTableFactory#create} result, and the decorator a catalog may add afterwards
+     * never reaches a system table, because it only wraps a {@code FileStoreTable} and no system
+     * table is one. The meta cache, in contrast, holds the decorated table. That matters for
+     * {@code $ro}: {@code ReadOptimizedTable#newScan} builds its two-branch {@code FallbackReadScan}
+     * only when its immediate wrapped object is a {@code FallbackReadFileStoreTable}, so with a
+     * {@code PrivilegedFileStoreTable} in between it would plan the main branch alone through the
+     * pair's inherited {@code newSnapshotReader()} and silently drop every fallback-only partition.
      */
     public Table getSysPaimonTable() {
         if (paimonSysTable == null) {
             synchronized (this) {
                 if (paimonSysTable == null) {
-                    PaimonExternalCatalog catalog = (PaimonExternalCatalog) getCatalog();
-                    paimonSysTable = catalog.getPaimonTable(
-                            sourceTable.getOrBuildNameMapping(),
-                            "main",  // branch
-                            sysTableType  // queryType: snapshots, binlog, etc.
-                    );
+                    sourceTable.makeSureInitialized();
+                    // System tables ignore snapshot semantics, so the empty snapshot resolves the base table.
+                    Table baseTable = sourceTable.getPaimonTable(Optional.empty());
+                    FileStoreTable base = baseTable instanceof FileStoreTable
+                            ? PaimonUtil.unwrapToFallbackOrBase((FileStoreTable) baseTable)
+                            : null;
+                    Table sysTable = base == null ? null : SystemTableLoader.load(sysTableType, base);
+                    if (sysTable == null) {
+                        // Not a file store table (format / object table): let the catalog decide.
+                        PaimonExternalCatalog catalog = (PaimonExternalCatalog) getCatalog();
+                        paimonSysTable = catalog.getPaimonTable(
+                                sourceTable.getOrBuildNameMapping(),
+                                "main",  // branch
+                                sysTableType  // queryType: snapshots, binlog, etc.
+                        );
+                    } else {
+                        sysBaseTable = base;
+                        paimonSysTable = sysTable;
+                    }
                     LOG.info("Created Paimon system table: {} for source table: {}",
                             sysTableType, sourceTable.getName());
                 }
@@ -140,7 +174,7 @@ public class PaimonSysExternalTable extends ExternalTable {
             return table;
         }
         Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
-                options -> PaimonScanParams.resolveOptions(sourceTable.getBasePaimonTable(), options));
+                options -> PaimonScanParams.resolveOptions(getOptionsResolutionTable(), options));
         if (PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
             // Generic system-table wrappers cannot carry Paimon's manifest-entry predicate.
             // Reject the fallback instead of silently widening it to the whole pinned snapshot.
@@ -155,6 +189,29 @@ public class PaimonSysExternalTable extends ExternalTable {
         return PaimonUtil.parseSchema(table,
                 getCatalog().getEnableMappingVarbinary(),
                 getCatalog().getEnableMappingTimestampTz());
+    }
+
+    /**
+     * Returns the base table {@link #getSysPaimonTable()} was built over, so that consumers can
+     * rebuild an equivalent wrapper from the very same schema generation. Returns null when the
+     * wrapper came from the catalog fallback above.
+     */
+    public FileStoreTable getSysBaseTable() {
+        getSysPaimonTable();
+        return sysBaseTable;
+    }
+
+    /**
+     * The table a relation's OPTIONS are resolved against: the very base the wrapper above was
+     * built over, not a fresh meta cache lookup. The wrapper is created once and kept, while the
+     * cache behind {@code getBasePaimonTable()} can be refreshed or invalidated in between, so
+     * resolving there could freeze a snapshot or tag from a generation that the wrapper - and the
+     * table {@code PaimonScanNode} rebuilds from it for the BE - never belonged to. Only the
+     * catalog fallback above has no captured base, so only it still looks the table up.
+     */
+    private Table getOptionsResolutionTable() {
+        FileStoreTable capturedBase = getSysBaseTable();
+        return capturedBase != null ? capturedBase : sourceTable.getBasePaimonTable();
     }
 
     /**
