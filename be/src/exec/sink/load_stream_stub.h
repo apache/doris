@@ -216,6 +216,8 @@ public:
 
     bool is_open() const { return _is_open.load(); }
 
+    bool is_closing() const { return _is_closing.load(); }
+
     bool is_incremental() const { return _is_incremental; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
