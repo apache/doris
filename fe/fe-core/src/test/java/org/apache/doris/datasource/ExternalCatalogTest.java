@@ -798,8 +798,55 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testIgnoredExternalTableDropClearsModeTwoHotEngineCacheWithOriginalCase() throws Exception {
+        EventTestCatalog catalog = new EventTestCatalog(2202L, "event_mode_two_engine", 2, false);
+        EventTestDatabase db = new EventTestDatabase(catalog, 221L, "db_ci", "db_ci");
+        catalog.setDatabase(db);
+        catalog.setInitializedForTest(true);
+        db.setInitializedForTest(true);
+
+        @SuppressWarnings("unchecked")
+        Map<String, CatalogIf> nameToCatalog = Deencapsulation.getField(mgr, "nameToCatalog");
+        nameToCatalog.put(catalog.getName(), catalog);
+        mgr.getIdToCatalog().put(catalog.getId(), catalog);
+        try {
+            env.getExtMetaCacheMgr().prepareCatalogByEngine(
+                    catalog.getId(), "default", Maps.newHashMap());
+            MetaCacheEntry<SchemaCacheKey, SchemaCacheValue> schemaEntry = env.getExtMetaCacheMgr()
+                    .engine("default")
+                    .entry(catalog.getId(), "schema",
+                            SchemaCacheKey.class, SchemaCacheValue.class);
+            NameMapping exactCaseTable = new NameMapping(
+                    catalog.getId(), db.getFullName(), "MixedTbl", db.getRemoteName(), "MixedTbl");
+            SchemaCacheKey exactCaseKey = new SchemaCacheKey(exactCaseTable);
+            // Keep only the engine entry hot so mode 2 cleanup must preserve the original remote spelling.
+            schemaEntry.put(exactCaseKey, new SchemaCacheValue(Lists.newArrayList(new Column("k1", PrimitiveType.INT))));
+
+            Assertions.assertNotNull(schemaEntry.getIfPresent(exactCaseKey));
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertNull(db.getCachedTableForTest("MixedTbl"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(
+                    Util.genIdByName(catalog.getName(), db.getFullName(), "MixedTbl")));
+            Assertions.assertEquals(0, db.getTableLookupCount());
+
+            mgr.unregisterExternalTable("db_ci", "MixedTbl", catalog.getName(), true);
+
+            Assertions.assertNull(schemaEntry.getIfPresent(exactCaseKey));
+            Assertions.assertEquals(0, db.getTableLookupCount());
+            Assertions.assertNull(db.getCachedTableNamesForTest());
+            Assertions.assertNull(db.getCachedTableForTest("MixedTbl"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(
+                    Util.genIdByName(catalog.getName(), db.getFullName(), "MixedTbl")));
+        } finally {
+            env.getExtMetaCacheMgr().invalidateCatalogByEngine(catalog.getId(), "default");
+            nameToCatalog.remove(catalog.getName());
+            mgr.getIdToCatalog().remove(catalog.getId());
+        }
+    }
+
+    @Test
     public void testExternalTableCreateEventReplacesHotObjectWithoutLoadThrough() throws Exception {
-        EventTestCatalog catalog = new EventTestCatalog(2202L, "event_hot_object", 0, false);
+        EventTestCatalog catalog = new EventTestCatalog(2203L, "event_hot_object", 0, false);
         EventTestDatabase db = new EventTestDatabase(catalog, 221L, "db1", "db1");
         catalog.setDatabase(db);
         catalog.setInitializedForTest(true);

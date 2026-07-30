@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
 
+import org.apache.hadoop.hive.metastore.messaging.json.JSONDropTableMessage;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -59,6 +60,20 @@ public class HmsEventParserTest {
         Assertions.assertEquals(1, out.size());
         Assertions.assertEquals(Op.UNREGISTER_DATABASE, out.get(0).getOp());
         Assertions.assertEquals("db1", out.get(0).getDbName());
+    }
+
+    @Test
+    public void dropTablePreservesOriginalTableNameCase() {
+        JSONDropTableMessage message = new JSONDropTableMessage(
+                "server", "servicePrincipal", "db1", "MixedCaseTable", 0L);
+
+        List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
+                event(9L, "DROP_TABLE", "db1", "MixedCaseTable",
+                        message.toString(), "json-2.0", 0L));
+
+        Assertions.assertEquals(1, out.size());
+        Assertions.assertEquals(Op.UNREGISTER_TABLE, out.get(0).getOp());
+        Assertions.assertEquals("MixedCaseTable", out.get(0).getTableName());
     }
 
     @Test
