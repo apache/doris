@@ -137,6 +137,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     path, context.bottomFilter, ColumnAccessPathType.DATA));
             return null;
         }
+        if (dataType instanceof VariantType) {
+            // A root Variant consumer must dominate any predicate-only leaf path. Otherwise the
+            // scanner can legally project a shredded leaf that cannot serve the root expression.
+            int slotId = slotReference.getExprId().asInt();
+            slotToAccessPaths.put(slotId, new CollectAccessPathResult(
+                    ImmutableList.of(slotReference.getName()),
+                    context.bottomFilter, ColumnAccessPathType.DATA));
+            return null;
+        }
         if (dataType instanceof NestedColumnPrunable) {
             context.accessPathBuilder.addPrefix(slotReference.getName().toLowerCase());
             ImmutableList<String> path = Utils.fastToImmutableList(context.accessPathBuilder.accessPath);

@@ -297,6 +297,16 @@ suite("test_iceberg_variant_read",
         ORDER BY id
     """
 
+    // The first INSERT is unshredded while the second is shredded. Keep both small files on one
+    // scanner so their complete and leaf-only physical states must be projected before batching.
+    sql "set parallel_pipeline_task_num=1"
+    sql "set max_file_scanners_concurrency=1"
+    order_qt_variant_cross_file_leaf_projection """
+        SELECT id, CAST(v['n'] AS INT)
+        FROM variant_values
+        ORDER BY id
+    """
+
     // Keep the root Variant as output while the implicit scalar comparison drives the shredded
     // typed_value statistics/page-index path.
     order_qt_variant_implicit_shredded_filter """

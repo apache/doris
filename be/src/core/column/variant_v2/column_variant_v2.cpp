@@ -807,7 +807,9 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         auto selected_source = start == 0 && length == source.size()
                                        ? source._shredded
                                        : source._shredded->select_range(start, length);
-        if (!_shredded.unique()) {
+        // C++20 libc++ removed shared_ptr::unique(); use_count preserves the same COW invariant
+        // on every supported toolchain before mutating the format-owned state.
+        if (_shredded.use_count() != 1) {
             _shredded = _shredded->select_range(0, size());
         }
         // A partial physical projection has no metadata/value pair to encode. Preserve that
