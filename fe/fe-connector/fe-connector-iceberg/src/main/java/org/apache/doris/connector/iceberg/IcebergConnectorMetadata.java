@@ -644,9 +644,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Resolves the RAW iceberg {@link Table} for {@code handle}, WITHOUT opening an auth scope or wrapping
+     * Resolves the statement-frozen iceberg {@link Table} for {@code handle}, WITHOUT opening an auth scope or wrapping
      * exceptions — callers own both. The per-statement scope ({@link IcebergStatementScope#sharedTable}) comes
-     * first, so the statement's read metadata, scan planning and write all resolve the SAME one loaded object;
+     * first, so the statement's read metadata and scan planning resolve the same metadata generation;
      * on a scope miss the loader consults the cross-query {@link IcebergTableCache} when enabled (else a direct
      * remote load). The remote loader's exception propagates verbatim (the cache re-throws it unwrapped), so a
      * caller's own {@code NoSuchTableException} degradation (the partition-view readers) still fires. Callers

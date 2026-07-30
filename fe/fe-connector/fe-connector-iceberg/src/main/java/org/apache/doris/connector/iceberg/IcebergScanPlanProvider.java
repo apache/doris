@@ -2366,9 +2366,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code null} context (offline unit tests / simple-auth) resolves directly.
      */
     private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
-        // Per-statement scope (PERF-07): the statement's read metadata, scan planning and write all resolve the
-        // SAME one loaded RAW table. The scope holds the RAW table; wrapTableForScan (the Kerberos doAs FileIO) is
-        // re-applied per call below so no per-request authenticator is ever frozen into the shared object.
+        // Per-statement scope (PERF-07): metadata binding and scan planning share one frozen metadata
+        // generation. wrapTableForScan reapplies the Kerberos FileIO wrapper per consumer.
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim (it
         // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);

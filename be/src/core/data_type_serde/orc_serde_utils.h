@@ -28,6 +28,11 @@ inline void copy_orc_string_data_to_arena(orc::ColumnVectorBatch* batch, Arena& 
     if (auto* strings = dynamic_cast<orc::StringVectorBatch*>(batch)) {
         size_t total_size = 0;
         for (size_t i = 0; i < strings->numElements; ++i) {
+            if (strings->hasNulls && !strings->notNull[i]) {
+                // Nullable serdes may leave borrowed payload behind a NULL position; it has no
+                // logical lifetime requirement and must not inflate the writer Arena.
+                continue;
+            }
             const size_t length = static_cast<size_t>(strings->length[i]);
             // Some serdes already allocate their payload in this Arena; copying it again would
             // double the serialized string memory without extending its lifetime.
@@ -37,6 +42,11 @@ inline void copy_orc_string_data_to_arena(orc::ColumnVectorBatch* batch, Arena& 
         }
         char* cursor = total_size == 0 ? nullptr : arena.alloc(total_size);
         for (size_t i = 0; i < strings->numElements; ++i) {
+            if (strings->hasNulls && !strings->notNull[i]) {
+                strings->data[i] = nullptr;
+                strings->length[i] = 0;
+                continue;
+            }
             const size_t length = static_cast<size_t>(strings->length[i]);
             const char* source = strings->data[i];
             if (length > 0 && !arena.contains(source, length)) {

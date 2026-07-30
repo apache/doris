@@ -316,8 +316,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
                 // Legacy set operations need a nullable common child whenever coercing either
                 // input can itself produce NULL, even if both source fields are declared required.
                 boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
-                        || Cast.castNullable(false, leftFields.get(i).getDataType(), commonType)
-                        || Cast.castNullable(false, rightFields.get(i).getDataType(), commonType);
+                        || TypeCoercionUtils.castMayProduceNull(leftFields.get(i).getDataType(), commonType)
+                        || TypeCoercionUtils.castMayProduceNull(rightFields.get(i).getDataType(), commonType);
                 StructField commonField = leftFields.get(i).withDataTypeAndNullable(commonType, nullable);
                 commonFields.add(commonField);
             }

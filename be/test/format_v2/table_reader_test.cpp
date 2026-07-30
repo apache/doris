@@ -976,6 +976,7 @@ public:
     using TableReader::_materialize_map_mapping_column;
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
+    using TableReader::_project_collection_parent_null_map;
 };
 
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
@@ -3153,6 +3154,77 @@ TEST(TableReaderTest, ComplexRematerializeMasksMapEntriesHiddenByNullRow) {
             reader._materialize_map_mapping_column(map_mapping, file_column, 2, &result_column);
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(assert_cast<const ColumnNullable&>(*result_column).is_null_at(0));
+}
+
+TEST(TableReaderTest, ComplexRematerializeMasksRetainedMapKeyForValueOnlyProjection) {
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto nullable_string_type = make_nullable(string_type);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto file_map_type =
+            make_nullable(std::make_shared<DataTypeMap>(nullable_string_type, nullable_int_type));
+    const auto table_map_type =
+            make_nullable(std::make_shared<DataTypeMap>(string_type, nullable_int_type));
+
+    ColumnMapping value_mapping;
+    value_mapping.file_local_id = 1;
+    value_mapping.file_type = nullable_int_type;
+    value_mapping.table_type = nullable_int_type;
+    value_mapping.is_trivial = true;
+    ColumnMapping map_mapping;
+    map_mapping.file_type = file_map_type;
+    map_mapping.table_type = table_map_type;
+    map_mapping.child_mappings = {value_mapping};
+
+    auto keys = ColumnString::create();
+    keys->insert_default();
+    keys->insert_data("visible", 7);
+    auto key_null_map = ColumnUInt8::create();
+    key_null_map->get_data().assign({1, 0});
+    auto values = ColumnInt32::create();
+    values->get_data().assign({0, 9});
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({1, 2});
+    auto map_null_map = ColumnUInt8::create();
+    map_null_map->get_data().assign({1, 0});
+    ColumnPtr file_column = ColumnNullable::create(
+            ColumnMap::create(ColumnNullable::create(std::move(keys), std::move(key_null_map)),
+                              ColumnNullable::create(std::move(values), ColumnUInt8::create(2, 0)),
+                              std::move(offsets)),
+            std::move(map_null_map));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReaderCastTestHelper reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    ColumnPtr result_column;
+    const auto status = reader._materialize_present_child_mapping_column(map_mapping, file_column,
+                                                                         2, &result_column);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(*result_column).is_null_at(0));
+}
+
+TEST(TableReaderTest, CollectionParentMaskFastPathSkipsEntryScratchForClearMasks) {
+    NullMap container_null_map(2, 0);
+    NullMap ancestor_null_map(2, 0);
+    ColumnArray::Offsets64 offsets {500000, 1000000};
+    NullMap projected_null_map;
+
+    const auto* result = TableReaderCastTestHelper::_project_collection_parent_null_map(
+            &container_null_map, &ancestor_null_map, 2, offsets, offsets.back(),
+            &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
 }
 
 TEST(TableReaderTest, ReopenSplitAfterClose) {

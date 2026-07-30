@@ -206,10 +206,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             this.zone = IcebergTimeUtils.resolveSessionZone(session);
             try {
                 context.executeAuthenticated(() -> {
-                    // PERF-07: resolve the table through the per-statement scope so a row-level DML reuses the SAME
-                    // one object the scan already loaded (a write-only INSERT loads once here). openTransaction still
-                    // issues newTransaction()'s refresh, giving the commit a fresh OCC base off that shared object.
-                    Table loaded = IcebergStatementScope.sharedTable(session, db, tableName,
+                    // Reuse the write planner's mutable table, never the frozen read view: newTransaction
+                    // refreshes operations to establish a fresh OCC base and must not mutate bound read metadata.
+                    Table loaded = IcebergStatementScope.sharedWritableTable(session, db, tableName,
                             () -> catalogOps.loadTable(db, tableName));
                     this.table = loaded;
                     applyBeginGuards(ctx, tableName);

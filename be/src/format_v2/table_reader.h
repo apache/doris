@@ -1501,6 +1501,19 @@ protected:
         DORIS_CHECK(container_null_map == nullptr || container_null_map->size() == rows);
         DORIS_CHECK(ancestor_null_map == nullptr || ancestor_null_map->size() == rows);
         DORIS_CHECK(offsets.size() == rows);
+        bool has_hidden_row = false;
+        for (size_t row = 0; row < rows; ++row) {
+            if ((container_null_map != nullptr && (*container_null_map)[row]) ||
+                (ancestor_null_map != nullptr && (*ancestor_null_map)[row])) {
+                has_hidden_row = true;
+                break;
+            }
+        }
+        if (!has_hidden_row) {
+            // Nullable collection wrappers expose a null-map even when every row is present; avoid
+            // allocating entry-coordinate scratch proportional to a potentially huge collection.
+            return nullptr;
+        }
         projected_null_map->resize(child_rows);
         std::fill(projected_null_map->begin(), projected_null_map->end(), 0);
         size_t begin = 0;
@@ -1718,11 +1731,24 @@ protected:
             RETURN_IF_ERROR(_materialize_present_child_mapping_column(
                     *key_mapping, key_column, key_column->size(), &key_column,
                     descendant_parent_null_map_ptr));
+        } else {
+            const auto* table_map =
+                    assert_cast<const DataTypeMap*>(remove_nullable(mapping.table_type).get());
+            // Value-only projection retains the physical key stream to preserve entry offsets;
+            // align it under the entry mask so NULL placeholders from hidden Map rows stay hidden.
+            RETURN_IF_ERROR(_align_column_nullability(&key_column, table_map->get_key_type(),
+                                                      descendant_parent_null_map_ptr));
         }
         if (value_mapping != nullptr) {
             RETURN_IF_ERROR(_materialize_present_child_mapping_column(
                     *value_mapping, value_column, value_column->size(), &value_column,
                     descendant_parent_null_map_ptr));
+        } else {
+            const auto* table_map =
+                    assert_cast<const DataTypeMap*>(remove_nullable(mapping.table_type).get());
+            // A retained structural value stream follows the same hidden-entry invariant as keys.
+            RETURN_IF_ERROR(_align_column_nullability(&value_column, table_map->get_value_type(),
+                                                      descendant_parent_null_map_ptr));
         }
         auto offsets_column = file_map->get_offsets_ptr()->convert_to_full_column_if_const();
         auto result = ColumnMap::create(IColumn::mutate(std::move(key_column)),

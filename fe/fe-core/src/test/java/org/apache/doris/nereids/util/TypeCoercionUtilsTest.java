@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -236,6 +237,50 @@ public class TypeCoercionUtilsTest {
             Assertions.assertTrue(common.getFields().get(0).isNullable());
         } finally {
             GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
+    }
+
+    @Test
+    public void testStrictStructCommonTypesKeepRequiredFields() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableStrictCast = true;
+        connectContext.setThreadLocalInfo();
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            StructType millis = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(3), false, "")));
+            StructType micros = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(6), false, "")));
+
+            StructType wider = (StructType) TypeCoercionUtils.findWiderCommonType(
+                    ImmutableList.of(millis, micros), false, false).orElseThrow();
+            StructType caseWhen = (StructType) TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                    ImmutableList.of(millis, micros)).orElseThrow();
+            StructType implicit = (StructType) TypeCoercionUtils.implicitCast(millis, micros).orElseThrow();
+            Assertions.assertFalse(wider.getFields().get(0).isNullable());
+            Assertions.assertFalse(caseWhen.getFields().get(0).isNullable());
+            Assertions.assertFalse(implicit.getFields().get(0).isNullable());
+            Assertions.assertTrue(CheckCast.check(wider, millis, true),
+                    "a strict CASE/common result must remain consumable by a required target");
+            Assertions.assertTrue(CheckCast.check(caseWhen, millis, true),
+                    "a strict CASE result must remain consumable by a required target");
+
+            for (boolean newBehavior : new boolean[] {false, true}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                StructType setOperation = (StructType) org.apache.doris.nereids.trees.plans.logical
+                        .LogicalSetOperation.getAssignmentCompatibleType(millis, micros);
+                Assertions.assertFalse(setOperation.getFields().get(0).isNullable(),
+                        "strict set-operation casts abort instead of producing a nullable child");
+                Assertions.assertTrue(CheckCast.check(setOperation, millis, true),
+                        "a strict UNION result must remain consumable by a required target");
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 

@@ -91,6 +91,29 @@ TEST(OrcSerdeUtilsTest, PreservesEmptyStringAsPresentValue) {
     EXPECT_EQ(batch.length[0], 0);
 }
 
+TEST(OrcSerdeUtilsTest, IgnoresBorrowedPayloadForNullString) {
+    Arena arena;
+    std::string hidden_payload(1UL << 20, 'x');
+
+    orc::StringVectorBatch batch(2, *orc::getDefaultPool());
+    batch.numElements = 2;
+    batch.hasNulls = true;
+    batch.notNull[0] = 0;
+    batch.data[0] = hidden_payload.data();
+    batch.length[0] = hidden_payload.size();
+    batch.notNull[1] = 1;
+    batch.data[1] = const_cast<char*>("");
+    batch.length[1] = 0;
+    const size_t used_before_copy = arena.used_size();
+
+    copy_orc_string_data_to_arena(&batch, arena);
+
+    EXPECT_EQ(used_before_copy, arena.used_size());
+    EXPECT_EQ(nullptr, batch.data[0]);
+    EXPECT_EQ(0, batch.length[0]);
+    EXPECT_NE(nullptr, batch.data[1]);
+}
+
 TEST_F(VOrcTransformerTest, CollectsBoundsForTopLevelFieldAfterStruct) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
