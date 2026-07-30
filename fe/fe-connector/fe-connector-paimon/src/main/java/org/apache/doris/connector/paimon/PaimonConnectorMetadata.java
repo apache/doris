@@ -1257,8 +1257,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     private List<ConnectorPartitionInfo> cachedPartitions(PaimonTableHandle paimonHandle) {
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
         if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()
-                || !paimonHandle.getScanOptions().isEmpty()) {
+                || (!scanOptions.isEmpty() && !PaimonScanParams.hasOnlyReaderOptions(scanOptions))) {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);

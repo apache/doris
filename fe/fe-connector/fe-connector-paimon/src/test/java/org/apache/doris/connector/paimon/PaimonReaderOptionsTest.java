@@ -18,8 +18,11 @@
 package org.apache.doris.connector.paimon;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -107,6 +110,21 @@ public class PaimonReaderOptionsTest {
 
         Assertions.assertDoesNotThrow(() -> PaimonScanParams.applyOptions(
                 fallbackReadTable, ImmutableMap.of("scan.manifest.parallelism", "1")));
+    }
+
+    @Test
+    void testRejectUnsafeFallbackHiddenByPrivilegeDelegate() {
+        FileStoreTable main = newFileStoreTable("privileged_main", Collections.emptyMap());
+        FileStoreTable fallback = newFileStoreTable(
+                "privileged_fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
+        FileStoreTable fallbackReadTable = new FallbackReadFileStoreTable(main, fallback);
+        FileStoreTable privilegedTable = PrivilegedFileStoreTable.wrap(
+                fallbackReadTable,
+                Mockito.mock(PrivilegeChecker.class),
+                Identifier.create("db", "table"));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonReaderOptions.validateEffectiveTable(privilegedTable));
     }
 
     private FileStoreTable newFileStoreTable(String name, Map<String, String> options) {
