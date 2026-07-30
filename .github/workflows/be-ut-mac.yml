@@ -29,7 +29,7 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-14
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -98,7 +98,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@18'
             'libomp'
           )
           brew install "${cellars[@]}" || true
@@ -158,8 +158,10 @@ jobs:
           export JAVA_HOME
           JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 
-          # branch-4.1 requires Clang 16 or newer.
-          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+          LLVM_PREFIX="$(brew --prefix llvm@18)"
+          export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export CC="${LLVM_PREFIX}/bin/clang"
+          export CXX="${LLVM_PREFIX}/bin/clang++"
 
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
