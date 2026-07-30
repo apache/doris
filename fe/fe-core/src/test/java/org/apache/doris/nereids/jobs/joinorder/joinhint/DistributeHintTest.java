@@ -51,23 +51,6 @@ public class DistributeHintTest extends TPCHTestBase {
     private List<String> failCases = new ArrayList<>();
 
     @Test
-    public void testLeading() {
-        for (int t = 3; t < 10; t++) {
-            for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
-                for (int i = 0; i < 10; i++) {
-                    System.out.println("TableNumber: " + String.valueOf(t) + " EdgeNumber: " + e + " Iteration: " + i);
-                    randomTest(t, e, false, true);
-                }
-            }
-        }
-        int totalCases = successCases + unsuccessCases;
-        System.out.println("TotalCases: " + totalCases + "\tSuccessCases: " + successCases + unsuccessCases + "\tUnSuccessCases: " + 0);
-        for (String treePlan : failCases) {
-            System.out.println(treePlan);
-        }
-    }
-
-    @Test
     public void testHintJoin() {
         for (int t = 3; t < 10; t++) {
             for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
