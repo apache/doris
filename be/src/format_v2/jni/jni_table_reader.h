@@ -30,8 +30,6 @@
 
 namespace doris::format {
 
-std::string encode_jni_required_fields(const std::vector<std::string>& required_fields);
-
 class JniTableReader : public TableReader {
 public:
     struct JniColumn {

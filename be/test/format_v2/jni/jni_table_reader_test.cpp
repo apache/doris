@@ -27,6 +27,9 @@
 #include <thread>
 #include <vector>
 
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "format/jni/jni_data_bridge.h"
 #include "io/io_common.h"
 
 namespace doris::format {
@@ -110,8 +113,18 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
 }
 
 TEST(JniTableReaderTest, RequiredFieldEncodingPreservesQuotedIdentifiers) {
-    EXPECT_EQ(encode_jni_required_fields({"region,code", "hash#name", "地区 名"}),
+    EXPECT_EQ(JniDataBridge::encode_schema_values({"region,code", "hash#name", "地区 名"}),
               "cmVnaW9uLGNvZGU=,aGFzaCNuYW1l,5Zyw5Yy6IOWQjQ==");
+}
+
+TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) {
+    auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                       std::make_shared<DataTypeString>()},
+            Strings {"hash#name", "region,code", "colon:name"});
+
+    EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
+              "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU:string,$Y29sb246bmFtZQ:string>");
 }
 
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {

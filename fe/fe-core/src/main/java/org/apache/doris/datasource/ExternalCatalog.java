@@ -427,8 +427,12 @@ public abstract class ExternalCatalog
 
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
+        checkProperties(catalogProperty);
+    }
+
+    protected void checkProperties(CatalogProperty property) throws DdlException {
         // check refresh parameter of catalog
-        Map<String, String> properties = catalogProperty.getProperties();
+        Map<String, String> properties = property.getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 int metadataRefreshIntervalSec = Integer.parseInt(
@@ -442,12 +446,22 @@ public abstract class ExternalCatalog
         }
 
         // check schema.cache.ttl-second parameter
-        String schemaCacheTtlSecond = catalogProperty.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        String schemaCacheTtlSecond = property.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtlSecond) && NumberUtils.toInt(schemaCacheTtlSecond, CACHE_NO_TTL)
                 < CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
                     "The parameter " + SCHEMA_CACHE_TTL_SECOND + " is wrong, value is " + schemaCacheTtlSecond);
         }
+    }
+
+    /**
+     * Validate an ALTER candidate without publishing it to this catalog. A true return value
+     * declares that the connector performed complete detached validation; false retains the
+     * legacy tentative-mutation path for connectors that have not implemented this contract.
+     */
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        return false;
     }
 
     /**

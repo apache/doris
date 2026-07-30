@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import org.apache.paimon.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
@@ -134,46 +136,43 @@ public class AbstractPaimonPropertiesTest {
     }
 
     @Test
-    void testRejectUnknownTableOption() {
+    void testPersistedUnknownTableOptionDoesNotPreventCatalogLoading() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.option-does-not-exist", "value");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+        testProps.initNormalizeAndCheckProps();
 
-        Assertions.assertTrue(exception.getMessage().contains("option-does-not-exist"));
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test
-    void testRejectPrefixMapTableOption() {
+    void testPersistedPrefixMapTableOptionDoesNotPreventCatalogLoading() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.file.compression.per.level.0", "lz4");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+        testProps.initNormalizeAndCheckProps();
 
-        Assertions.assertTrue(exception.getMessage().contains("file.compression.per.level.0"));
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test
-    void testRejectInvalidTableOptionValue() {
+    void testPersistedInvalidReaderOptionIsIgnoredDuringCatalogLoading() {
         Map<String, String> input = new HashMap<>();
         input.put("warehouse", "s3://tmp/warehouse");
         input.put("paimon.table-option.read.batch-size", "not-an-integer");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, testProps::initNormalizeAndCheckProps);
+        testProps.initNormalizeAndCheckProps();
 
-        Assertions.assertTrue(exception.getMessage().contains("read.batch-size"));
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test
-    void testRejectUnsafeTableOptions() {
+    void testPersistedUnsafeTableOptionsAreIgnoredDuringCatalogLoading() {
         for (String option : new String[] {
                 "branch", "path", "scan.tag-name", "scan.snapshot-id",
                 "write.batch-size", "file.compression.per.level"
@@ -182,16 +181,14 @@ public class AbstractPaimonPropertiesTest {
             input.put("warehouse", "s3://tmp/warehouse");
             input.put("paimon.table-option." + option, "1");
 
-            IllegalArgumentException exception = Assertions.assertThrows(
-                    IllegalArgumentException.class,
-                    () -> new TestPaimonProperties(input).initNormalizeAndCheckProps(),
-                    option);
-            Assertions.assertTrue(exception.getMessage().contains(option), option);
+            TestPaimonProperties testProps = new TestPaimonProperties(input);
+            testProps.initNormalizeAndCheckProps();
+            Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty(), option);
         }
     }
 
     @Test
-    void testRejectOutOfRangeReaderOptions() {
+    void testPersistedOutOfRangeReaderOptionsAreIgnoredDuringCatalogLoading() {
         Map<String, String> invalidOptions = new HashMap<>();
         invalidOptions.put("read.batch-size", "0");
         invalidOptions.put("read.batch-size-negative", "-1");
@@ -207,12 +204,25 @@ public class AbstractPaimonPropertiesTest {
             input.put("warehouse", "s3://tmp/warehouse");
             input.put("paimon.table-option." + option, value);
 
-            IllegalArgumentException exception = Assertions.assertThrows(
-                    IllegalArgumentException.class,
-                    () -> new TestPaimonProperties(input).initNormalizeAndCheckProps(),
-                    caseName);
-            Assertions.assertTrue(exception.getMessage().contains(option), caseName);
+            TestPaimonProperties testProps = new TestPaimonProperties(input);
+            testProps.initNormalizeAndCheckProps();
+            Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty(), caseName);
         });
+    }
+
+    @Test
+    void testImageRoundTripKeepsLegacyCatalogLoadableButDoesNotApplyUnsafeOption() {
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.table-option.write.batch-size", "2048");
+        CatalogProperty persisted = new CatalogProperty(null, input);
+
+        CatalogProperty restored = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(persisted), CatalogProperty.class);
+        TestPaimonProperties testProps = new TestPaimonProperties(restored.getProperties());
+        testProps.initNormalizeAndCheckProps();
+
+        Assertions.assertTrue(testProps.getTableOptionsMap().isEmpty());
     }
 
     @Test

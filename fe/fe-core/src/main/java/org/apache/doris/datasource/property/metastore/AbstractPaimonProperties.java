@@ -32,7 +32,6 @@ import org.apache.paimon.options.Options;
 
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -59,7 +58,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     private static final String USER_PROPERTY_PREFIX = "paimon.";
     private static final String DORIS_JNI_PROPERTY_PREFIX = "paimon.jni.";
     /** The suffix after this prefix is passed to Paimon as a dynamic table option. */
-    public static final String TABLE_OPTION_PREFIX = "paimon.table-option.";
+    public static final String TABLE_OPTION_PREFIX = PaimonReaderOptions.TABLE_OPTION_PREFIX;
 
     private Map<String, String> tableOptionsMap = Collections.emptyMap();
 
@@ -156,28 +155,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     }
 
     private Map<String, String> extractTableOptions() {
-        Map<String, String> tableOptions = new LinkedHashMap<>();
-        origProps.forEach((key, value) -> {
-            if (isTableOptionProperty(key)) {
-                String tableOptionKey = key.substring(TABLE_OPTION_PREFIX.length());
-                if (StringUtils.isBlank(tableOptionKey)) {
-                    throw new IllegalArgumentException(
-                            "Paimon table option name must not be empty after prefix " + TABLE_OPTION_PREFIX);
-                }
-                validateTableOption(tableOptionKey, value);
-                tableOptions.put(tableOptionKey, value);
-            }
-        });
-        return Collections.unmodifiableMap(tableOptions);
-    }
-
-    private void validateTableOption(String key, String value) {
-        try {
-            PaimonReaderOptions.validate(key, value);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid value for Paimon table option '" + key + "': "
-                    + e.getMessage(), e);
-        }
+        return PaimonReaderOptions.compatibleCatalogOptions(origProps);
     }
 
     /**
