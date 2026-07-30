@@ -37,6 +37,7 @@ import org.junit.Test;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -108,6 +109,65 @@ public class MTMVExpandPartitionTest {
         Assert.assertEquals(
                 Sets.newHashSet("p20210101", "p20210102", "p20210103", "p20210201", "p20210202"),
                 expanded);
+    }
+
+    @Test
+    public void testMultiplePartitionsSelectSameMvRange() throws Exception {
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(RANGE_TABLE_QUALIFIERS, Sets.newHashSet("p20210101", "p20210102"));
+
+        Map<List<String>, Set<String>> result = MTMVPartitionExpander.expandToMvPartitionGranularity(
+                queryUsed, monthlyMvPartitions, Sets.newHashSet(rangeTable));
+
+        Assert.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"),
+                result.get(RANGE_TABLE_QUALIFIERS));
+    }
+
+    @Test
+    public void testRangeGapDoesNotMatch() throws Exception {
+        Map<String, PartitionItem> mvPartitionsWithGap = Maps.newHashMap();
+        mvPartitionsWithGap.put("mv_202101", buildRange("2021-01-01", "2021-02-01"));
+        mvPartitionsWithGap.put("mv_202103", buildRange("2021-03-01", "2021-04-01"));
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(RANGE_TABLE_QUALIFIERS, Sets.newHashSet("p20210201"));
+
+        Map<List<String>, Set<String>> result = MTMVPartitionExpander.expandToMvPartitionGranularity(
+                queryUsed, mvPartitionsWithGap, Sets.newHashSet(rangeTable));
+
+        Assert.assertTrue(result.get(RANGE_TABLE_QUALIFIERS).isEmpty());
+    }
+
+    @Test
+    public void testManyPartitionsSparseAndBroadFilters() throws Exception {
+        Map<String, PartitionItem> basePartitions = Maps.newHashMap();
+        Map<String, PartitionItem> mvPartitions = Maps.newHashMap();
+        LocalDate start = LocalDate.of(2021, 1, 1);
+        for (int i = 0; i < 360; i++) {
+            basePartitions.put("p" + i, buildRange(start.plusDays(i).toString(),
+                    start.plusDays(i + 1).toString()));
+        }
+        for (int i = 0; i < 12; i++) {
+            mvPartitions.put("mv" + i, buildRange(start.plusDays(i * 30L).toString(),
+                    start.plusDays((i + 1) * 30L).toString()));
+        }
+        MTMVRelatedTableIf manyPartitionTable = createMockTable(
+                RANGE_TABLE_QUALIFIERS, PartitionType.RANGE, basePartitions);
+        Map<List<String>, Set<String>> sparseFilter = Maps.newHashMap();
+        sparseFilter.put(RANGE_TABLE_QUALIFIERS, Sets.newHashSet("p45"));
+
+        Map<List<String>, Set<String>> sparseResult = MTMVPartitionExpander.expandToMvPartitionGranularity(
+                sparseFilter, mvPartitions, Sets.newHashSet(manyPartitionTable));
+
+        Assert.assertEquals(30, sparseResult.get(RANGE_TABLE_QUALIFIERS).size());
+        Assert.assertTrue(sparseResult.get(RANGE_TABLE_QUALIFIERS).contains("p30"));
+        Assert.assertTrue(sparseResult.get(RANGE_TABLE_QUALIFIERS).contains("p59"));
+
+        Map<List<String>, Set<String>> broadFilter = Maps.newHashMap();
+        broadFilter.put(RANGE_TABLE_QUALIFIERS, basePartitions.keySet());
+        Map<List<String>, Set<String>> broadResult = MTMVPartitionExpander.expandToMvPartitionGranularity(
+                broadFilter, mvPartitions, Sets.newHashSet(manyPartitionTable));
+
+        Assert.assertEquals(basePartitions.keySet(), broadResult.get(RANGE_TABLE_QUALIFIERS));
     }
 
     @Test

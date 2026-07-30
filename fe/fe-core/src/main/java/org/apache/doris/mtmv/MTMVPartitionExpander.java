@@ -29,12 +29,13 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Utility to expand query-used partition filters to MV partition granularity
@@ -57,9 +58,10 @@ public class MTMVPartitionExpander {
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<String, PartitionItem> mvPartitionItems,
             Set<MTMVRelatedTableIf> pctTables) throws AnalysisException {
-        List<Range<PartitionKey>> mvRanges = new ArrayList<>(mvPartitionItems.size());
+        NavigableMap<PartitionKey, Range<PartitionKey>> mvRanges = new TreeMap<>();
         for (PartitionItem item : mvPartitionItems.values()) {
-            mvRanges.add(((RangePartitionItem) item).getItems());
+            Range<PartitionKey> range = ((RangePartitionItem) item).getItems();
+            mvRanges.put(range.lowerEndpoint(), range);
         }
 
         Map<List<String>, Set<String>> expanded = Maps.newHashMap();
@@ -78,20 +80,16 @@ public class MTMVPartitionExpander {
 
             Map<String, PartitionItem> basePartitionItems = pctTable.getAndCopyPartitionItems(snapshot);
 
-            List<Range<PartitionKey>> relevantMvRanges = new ArrayList<>();
+            NavigableMap<PartitionKey, Range<PartitionKey>> relevantMvRanges = new TreeMap<>();
             for (String queriedBasePartition : queryUsedPartitions) {
                 PartitionItem baseItem = basePartitionItems.get(queriedBasePartition);
                 if (baseItem == null) {
                     continue;
                 }
                 Range<PartitionKey> baseRange = ((RangePartitionItem) baseItem).getItems();
-                for (Range<PartitionKey> mvRange : mvRanges) {
-                    if (mvRange.encloses(baseRange)) {
-                        if (!relevantMvRanges.contains(mvRange)) {
-                            relevantMvRanges.add(mvRange);
-                        }
-                        break;
-                    }
+                Range<PartitionKey> mvRange = findEnclosingRange(mvRanges, baseRange);
+                if (mvRange != null) {
+                    relevantMvRanges.put(mvRange.lowerEndpoint(), mvRange);
                 }
             }
 
@@ -103,11 +101,8 @@ public class MTMVPartitionExpander {
             Set<String> expandedPartitions = Sets.newHashSet();
             for (Entry<String, PartitionItem> baseEntry : basePartitionItems.entrySet()) {
                 Range<PartitionKey> baseRange = ((RangePartitionItem) baseEntry.getValue()).getItems();
-                for (Range<PartitionKey> mvRange : relevantMvRanges) {
-                    if (mvRange.encloses(baseRange)) {
-                        expandedPartitions.add(baseEntry.getKey());
-                        break;
-                    }
+                if (findEnclosingRange(relevantMvRanges, baseRange) != null) {
+                    expandedPartitions.add(baseEntry.getKey());
                 }
             }
 
@@ -115,6 +110,13 @@ public class MTMVPartitionExpander {
         }
 
         return expanded;
+    }
+
+    private static Range<PartitionKey> findEnclosingRange(
+            NavigableMap<PartitionKey, Range<PartitionKey>> ranges, Range<PartitionKey> baseRange) {
+        // RANGE partitions do not overlap, so only the range with the nearest lower endpoint can enclose baseRange.
+        Entry<PartitionKey, Range<PartitionKey>> candidate = ranges.floorEntry(baseRange.lowerEndpoint());
+        return candidate != null && candidate.getValue().encloses(baseRange) ? candidate.getValue() : null;
     }
 
     private MTMVPartitionExpander() {
