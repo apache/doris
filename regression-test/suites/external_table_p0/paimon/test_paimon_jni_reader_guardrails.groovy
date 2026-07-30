@@ -88,6 +88,11 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
             create table paimon.${dbName}.unsafe_physical_batch (id int) using paimon
             tblproperties ('read.batch-size'='0');
             insert into paimon.${dbName}.unsafe_physical_batch values (1);
+            drop table if exists paimon.${dbName}.unsafe_partitioned_batch;
+            create table paimon.${dbName}.unsafe_partitioned_batch (id int, part int) using paimon
+            partitioned by (part)
+            tblproperties ('read.batch-size'='0');
+            insert into paimon.${dbName}.unsafe_partitioned_batch values (1, 20);
             drop table if exists paimon.${dbName}.unsafe_physical_manifest;
             create table paimon.${dbName}.unsafe_physical_manifest (id int, part int) using paimon
             partitioned by (part)
@@ -101,61 +106,50 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
         sql "switch ${catalogName}"
         sql "use ${dbName}"
         sql "set force_jni_scanner=true"
+        sql "set enable_file_scanner_v2=true"
 
-        test {
-            sql """
-                select `region,code`, `hash#name`, `display name`, `地区 名`, `nested#value`
+        order_qt_scanner_v2_all_identifiers """
+                select id, `region,code`, `hash#name`, `display name`, `地区 名`,
+                    `nested#value`.`hash#name`, `nested#value`.`region,code`,
+                    `nested#value`.`colon:name`
                 from quoted_reader_options
                 where `region,code` in ('east,01', 'west,02')
                 order by id
-            """
-        }
+        """
 
         sql "set enable_file_scanner_v2=false"
-        test {
-            sql """
-                select `region,code`, `nested#value`
+        order_qt_scanner_v1_quoted_nested """
+                select id, `region,code`, `nested#value`.`hash#name`,
+                    `nested#value`.`region,code`, `nested#value`.`colon:name`
                 from quoted_reader_options
                 order by id
-            """
-        }
-        test {
-            sql "select * from empty_identifier"
-        }
+        """
+        qt_scanner_v1_empty_identifier "select * from empty_identifier"
         sql "set enable_file_scanner_v2=true"
-        test {
-            sql """
-                select `region,code`, `nested#value`
+        order_qt_scanner_v2_quoted_nested """
+                select id, `region,code`, `nested#value`.`hash#name`,
+                    `nested#value`.`region,code`, `nested#value`.`colon:name`
                 from quoted_reader_options
                 order by id
-            """
-        }
-        test {
-            sql "select * from empty_identifier"
-        }
+        """
+        qt_scanner_v2_empty_identifier "select * from empty_identifier"
 
         // The safe catalog value must override the physical read.batch-size=0 value.
-        test {
-            sql "select * from unsafe_physical_batch order by id"
-        }
+        order_qt_catalog_override_physical_batch "select * from unsafe_physical_batch order by id"
 
-        test {
-            sql """
+        order_qt_relation_reader_options """
                 select id from quoted_reader_options@options(
                     'read.batch-size'='4096',
                     'file-reader-async-threshold'='32 MB')
                 order by id
-            """
-        }
-        test {
-            sql """
+        """
+        order_qt_relation_option_isolation """
                 select small.id, large.id
                 from quoted_reader_options@options('read.batch-size'='1') small
                 join quoted_reader_options@options('read.batch-size'='8192') large
                 on small.id = large.id
                 order by small.id
-            """
-        }
+        """
 
         for (def invalidOption : [
                 ["read.batch-size", "0"],
@@ -183,9 +177,7 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
         }
         // A failed ALTER must not leave read.batch-size=0 behind; on the old path this follow-up
         // JNI scan can stop making progress instead of completing.
-        test {
-            sql "select count(*) from quoted_reader_options"
-        }
+        qt_failed_alter_preserves_catalog "select count(*) from quoted_reader_options"
 
         sql "drop catalog if exists ${physicalCatalogName}"
         sql(catalogDdl(physicalCatalogName, ""))
@@ -195,26 +187,31 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
             sql "select * from unsafe_physical_batch"
             exception "read.batch-size"
         }
+        order_qt_relation_override_physical_batch """
+            select * from unsafe_physical_batch@options('read.batch-size'='4096') order by id
+        """
         test {
-            sql "select * from unsafe_physical_batch@options('read.batch-size'='4096') order by id"
+            sql "select * from unsafe_partitioned_batch"
+            exception "read.batch-size"
         }
+        order_qt_partitioned_relation_override_physical_batch """
+            select * from unsafe_partitioned_batch@options('read.batch-size'='4096') order by id
+        """
         test {
             sql "select * from unsafe_physical_manifest"
             exception "scan.manifest.parallelism"
         }
-        test {
-            sql "select * from unsafe_physical_manifest@options('scan.manifest.parallelism'='1') order by id"
-        }
+        order_qt_relation_override_physical_manifest """
+            select * from unsafe_physical_manifest@options('scan.manifest.parallelism'='1') order by id
+        """
         test {
             sql "select count(*) from unsafe_physical_manifest\$partitions"
             exception "scan.manifest.parallelism"
         }
-        test {
-            sql """
+        qt_system_table_descriptor_with_safe_override """
                 select count(*) from unsafe_physical_manifest\$partitions
                 @options('scan.manifest.parallelism'='1')
-            """
-        }
+        """
     } finally {
         sql "set force_jni_scanner=false"
         sql "set enable_file_scanner_v2=${originalScannerV2}"

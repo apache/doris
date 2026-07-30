@@ -45,7 +45,7 @@ public final class PaimonPartitionInfoLoader {
             // maps null and blank strings to the same partition.default-name there, so those
             // specs cannot be used as logical partition identities. PartitionEntry retains the
             // typed BinaryRow and is also bound to the data snapshot represented by this table.
-            PaimonReaderOptions.validateEffectiveTable(snapshotTable);
+            PaimonReaderOptions.validateEffectivePlanningTable(snapshotTable);
             List<PartitionEntry> partitionEntries =
                     snapshotTable.newReadBuilder().newScan().listPartitionEntries();
             return PaimonUtil.generatePartitionInfo(snapshotTable, partitionColumns, partitionEntries);

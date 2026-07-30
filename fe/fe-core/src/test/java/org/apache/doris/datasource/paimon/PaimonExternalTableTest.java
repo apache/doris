@@ -250,6 +250,9 @@ public class PaimonExternalTableTest {
                 Collections.emptyList());
         Assert.assertTrue(systemTable.getSysPaimonTable(safeOverride) instanceof PartitionsTable);
         Assert.assertFalse(systemTable.isDataTable());
+        // Descriptor serialization happens after relation binding and must not fall back to
+        // validating the unsafe physical handle that the relation override already replaced.
+        Assert.assertNotNull(systemTable.toThrift());
     }
 
     @Test
@@ -305,6 +308,8 @@ public class PaimonExternalTableTest {
         Mockito.when(sourceTable.getRemoteName()).thenReturn("source");
         Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
         Mockito.when(sourceTable.getDatabase()).thenReturn(database);
+        Mockito.when(sourceTable.getPaimonCatalogType())
+                .thenReturn(PaimonExternalCatalog.PAIMON_FILESYSTEM);
         Mockito.doReturn(dataTable).when(sourceTable).getBasePaimonTable();
         return new PaimonSysExternalTable(sourceTable, "partitions");
     }

@@ -115,6 +115,21 @@ public class PaimonExternalMetaCacheTest {
         Assert.assertTrue(partitionInfo.getNameToPartition().isEmpty());
     }
 
+    @Test
+    public void testPartitionProjectionIgnoresReaderOnlyPhysicalOptions() throws Exception {
+        FileStoreTable table = newPartitionedTable(
+                "reader_only", Collections.singletonMap("read.batch-size", "0"));
+        PaimonPartitionInfoLoader loader = new PaimonPartitionInfoLoader();
+
+        // Partition metadata does not use the data-reader batch size. The final relation copy is
+        // validated separately before scanning, so a safe override can reuse this projection.
+        PaimonPartitionInfo partitionInfo = loader.load(
+                new NameMapping(1L, "db", "table", "db", "table"), table,
+                Collections.singletonList(new Column("part", Type.INT)));
+
+        Assert.assertTrue(partitionInfo.getNameToPartition().isEmpty());
+    }
+
     private FileStoreTable newPartitionedTable(String name, Map<String, String> options) throws Exception {
         TableSchema schema = new TableSchema(
                 0,

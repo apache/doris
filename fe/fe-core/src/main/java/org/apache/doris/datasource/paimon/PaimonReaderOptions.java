@@ -126,6 +126,18 @@ public final class PaimonReaderOptions {
         }
     }
 
+    public static void validateEffectivePlanningTable(Table table) {
+        // Partition projection never opens a data reader. Revalidating batch/async values here
+        // would reject a raw handle even when the final relation copy safely overrides them.
+        validateManifestParallelism(table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        if (table instanceof FallbackReadFileStoreTable) {
+            validateEffectivePlanningTable(((FallbackReadFileStoreTable) table).fallback());
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            validateEffectivePlanningTable(((DelegatedFileStoreTable) table).wrapped());
+        }
+    }
+
     private static void validateManifestParallelism(String value) {
         if (value == null) {
             return;
