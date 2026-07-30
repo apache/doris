@@ -143,33 +143,38 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 }
 
 void QueryContext::_init_query_mem_tracker() {
+    // If user not set query limit, will use default 1TB memory limit. It is large enough to cover most cases.
+    constexpr int64_t DEFAULT_QUERY_MEM_LIMIT = 1LL << 60;
     bool has_query_mem_limit = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
-    int64_t bytes_limit = has_query_mem_limit ? _query_options.mem_limit : -1;
-    if (bytes_limit > MemInfo::mem_limit() || bytes_limit == -1) {
-        VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+    int64_t user_set_mem_limit =
+            has_query_mem_limit ? _query_options.mem_limit : DEFAULT_QUERY_MEM_LIMIT;
+    int64_t adjusted_mem_limit = user_set_mem_limit;
+    if (adjusted_mem_limit > MemInfo::mem_limit()) {
+        VLOG_NOTICE << "Query memory limit "
+                    << PrettyPrinter::print(user_set_mem_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
                     << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-                    << " OR is -1. Using process memory limit instead.";
-        bytes_limit = MemInfo::mem_limit();
+                    << ". Using process memory limit instead.";
+        adjusted_mem_limit = MemInfo::mem_limit();
     }
     // If the query is a pure load task(streamload, routine load, group commit), then it should not use
     // memlimit per query to limit their memory usage.
     if (is_pure_load_task()) {
-        bytes_limit = MemInfo::mem_limit();
+        adjusted_mem_limit = MemInfo::mem_limit();
     }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
     if (_query_options.query_type == TQueryType::SELECT) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("Query#Id={}", print_id(_query_id)),
-                bytes_limit);
+                adjusted_mem_limit);
     } else if (_query_options.query_type == TQueryType::LOAD) {
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(_query_id)),
-                bytes_limit);
+                adjusted_mem_limit);
     } else if (_query_options.query_type == TQueryType::EXTERNAL) { // spark/flink/etc..
         query_mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::QUERY, fmt::format("External#Id={}", print_id(_query_id)),
-                bytes_limit);
+                adjusted_mem_limit);
     } else {
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
@@ -187,6 +192,7 @@ void QueryContext::_init_query_mem_tracker() {
     query_mem_tracker->set_enable_check_limit(!(_query_options.__isset.enable_reserve_memory &&
                                                 _query_options.enable_reserve_memory));
     _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
+    _resource_ctx->memory_context()->set_user_set_mem_limit(user_set_mem_limit);
 }
 
 void QueryContext::_init_resource_context() {
