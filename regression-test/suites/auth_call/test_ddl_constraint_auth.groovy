@@ -57,8 +57,10 @@ suite("test_ddl_constraint_auth", "p0,auth_call") {
     sql """use ${dbName}"""
     sql """ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} UNIQUE (id)"""
 
-    // dropping a constraint is refused as well, including when the user can not even resolve
-    // the table (the name-based fallback path must not skip the check)
+    // dropping a constraint is refused as well. Note this goes through the normal resolution path:
+    // the name-based fallback in DropConstraintCommand only triggers when resolution throws (e.g. an
+    // external table removed out of band), which is not reproducible from a suite, so the check on
+    // that branch is covered by inspection only.
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         test {

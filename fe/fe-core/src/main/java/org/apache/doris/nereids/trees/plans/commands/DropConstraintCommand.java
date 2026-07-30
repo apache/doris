@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
-import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -87,13 +86,14 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
             throw new AnalysisException(
                     String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
         }
-        if (constraint instanceof PrimaryKeyConstraint) {
-            // dropping a primary key cascades into ConstraintManager.cascadeDropForeignKeys(), which
-            // deletes the foreign key constraints of every referencing table, so those tables have to
-            // be authorized too. Checked before dropConstraint() because the cascade is atomic.
-            for (TableNameInfo fkTableInfo : ((PrimaryKeyConstraint) constraint).getForeignTableInfos()) {
-                checkAlterPriv(ctx, fkTableInfo);
-            }
+        // dropping a primary key cascades into ConstraintManager.cascadeDropForeignKeys(), which
+        // deletes the foreign key constraints of every referencing table, so those tables have to be
+        // authorized too. Checked before dropConstraint() because the cascade is atomic. The snapshot
+        // is taken under the manager lock; a foreign key added after it still needs ALTER on its own
+        // table to be created, so it cannot be used to bypass this.
+        for (TableNameInfo fkTableInfo
+                : Env.getCurrentEnv().getConstraintManager().getCascadeDropTables(constraint)) {
+            checkAlterPriv(ctx, fkTableInfo);
         }
         List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
         Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
