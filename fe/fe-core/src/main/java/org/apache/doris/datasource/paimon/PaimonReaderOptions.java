@@ -22,6 +22,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.Table;
 
@@ -117,6 +118,11 @@ public final class PaimonReaderOptions {
             // The fallback scan plans its private child independently, so the visible main options
             // cannot prove that every manifest executor input is safe.
             validateEffectiveTable(((FallbackReadFileStoreTable) table).fallback());
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            // Privilege and other supported delegates can hide a fallback planner behind their
+            // own visible main options, so traverse the complete planning-handle chain.
+            validateEffectiveTable(((DelegatedFileStoreTable) table).wrapped());
         }
     }
 

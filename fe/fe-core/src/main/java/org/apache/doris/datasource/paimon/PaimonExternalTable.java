@@ -196,6 +196,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             Map<String, String> resolvedOptions = scanParams.get().getOrResolveMapParams(
                     options -> PaimonScanParams.resolveOptions(baseTable, options));
             Table effectiveTable = PaimonScanParams.applyOptions(baseTable, resolvedOptions);
+            if (PaimonScanParams.hasOnlyReaderOptions(resolvedOptions)) {
+                // Reader tuning cannot change snapshot metadata. Reuse the memoized projection so
+                // a per-query batch-size change does not enumerate every partition again.
+                return PaimonUtils.getLatestSnapshotCacheValue(this);
+            }
             // The shared latest cache was built from the catalog-scoped handle. Relation options
             // need their own projection so partition enumeration uses the final safe table copy.
             return PaimonUtils.loadSnapshotProjection(this, effectiveTable);

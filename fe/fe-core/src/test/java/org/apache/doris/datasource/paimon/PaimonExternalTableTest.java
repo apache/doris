@@ -45,11 +45,13 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonExternalTableTest {
 
@@ -168,6 +170,68 @@ public class PaimonExternalTableTest {
     }
 
     @Test
+    public void testReaderOnlyOptionsReusePartitionedMemoizedProjection() {
+        PaimonExternalTable externalTable = Mockito.mock(
+                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doNothing().when(externalTable).makeSureInitialized();
+        FileStoreTable partitionedTable = newPartitionedFileStoreTable("reader_only_projection");
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("read.batch-size", "4096"),
+                Collections.emptyList());
+        PaimonSnapshotCacheValue memoizedProjection = Mockito.mock(PaimonSnapshotCacheValue.class);
+        PaimonSnapshotCacheValue directProjection = Mockito.mock(PaimonSnapshotCacheValue.class);
+        AtomicInteger directProjectionLoads = new AtomicInteger();
+
+        try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
+            paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(partitionedTable);
+            paimonUtils.when(() -> PaimonUtils.getLatestSnapshotCacheValue(externalTable))
+                    .thenReturn(memoizedProjection);
+            paimonUtils.when(() -> PaimonUtils.loadSnapshotProjection(
+                    Mockito.eq(externalTable), Mockito.any(Table.class))).thenAnswer(invocation -> {
+                        directProjectionLoads.incrementAndGet();
+                        return directProjection;
+                    });
+
+            PaimonMvccSnapshot snapshot = (PaimonMvccSnapshot) externalTable.loadSnapshot(
+                    Optional.empty(), Optional.of(scanParams));
+
+            Assert.assertSame(memoizedProjection, snapshot.getSnapshotCacheValue());
+            Assert.assertEquals(0, directProjectionLoads.get());
+        }
+    }
+
+    @Test
+    public void testSystemTableIsBuiltFromTheValidatedSourceHandle() {
+        FileStoreTable safeSource = newFileStoreTable(
+                "safe_cached_source", ImmutableMap.of("scan.manifest.parallelism", "1"), null);
+        FileStoreTable unsafeReload = newFileStoreTable(
+                "unsafe_catalog_reload", ImmutableMap.of("scan.manifest.parallelism", "0"), null);
+        Table divergentWrapper = new PartitionsTable(unsafeReload);
+        PaimonExternalTable sourceTable = Mockito.mock(PaimonExternalTable.class);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        Mockito.when(sourceTable.getId()).thenReturn(10L);
+        Mockito.when(sourceTable.getName()).thenReturn("source");
+        Mockito.when(sourceTable.getRemoteName()).thenReturn("source");
+        Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(sourceTable.getDatabase()).thenReturn(database);
+        Mockito.doReturn(safeSource).when(sourceTable).getBasePaimonTable();
+        Mockito.when(catalog.getPaimonTable(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(divergentWrapper);
+        PaimonSysExternalTable systemTable = new PaimonSysExternalTable(sourceTable, "partitions");
+
+        Table actual = systemTable.getSysPaimonTable();
+
+        Assert.assertNotSame(divergentWrapper, actual);
+        Mockito.verify(catalog, Mockito.never()).getPaimonTable(
+                Mockito.any(), Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
     public void testPartitionsTableValidatesHiddenDataTableWithOverridePrecedence() throws Exception {
         FileStoreTable unsafeDataTable = newFileStoreTable(
                 "partitions", ImmutableMap.of("scan.manifest.parallelism", "0"), null);
@@ -229,7 +293,7 @@ public class PaimonExternalTableTest {
         Assert.assertFalse(planningStarted.get());
     }
 
-    private PaimonSysExternalTable newSystemTable(FileStoreTable dataTable) throws Exception {
+    private PaimonSysExternalTable newSystemTable(FileStoreTable dataTable) {
         PaimonExternalTable sourceTable = Mockito.mock(PaimonExternalTable.class);
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
@@ -242,11 +306,7 @@ public class PaimonExternalTableTest {
         Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
         Mockito.when(sourceTable.getDatabase()).thenReturn(database);
         Mockito.doReturn(dataTable).when(sourceTable).getBasePaimonTable();
-        PaimonSysExternalTable systemTable = new PaimonSysExternalTable(sourceTable, "partitions");
-        java.lang.reflect.Field field = PaimonSysExternalTable.class.getDeclaredField("paimonSysTable");
-        field.setAccessible(true);
-        field.set(systemTable, new PartitionsTable(dataTable));
-        return systemTable;
+        return new PaimonSysExternalTable(sourceTable, "partitions");
     }
 
     private FileStoreTable newFileStoreTable(
@@ -269,5 +329,20 @@ public class PaimonExternalTableTest {
                 return super.newReadBuilder();
             }
         };
+    }
+
+    private FileStoreTable newPartitionedFileStoreTable(String name) {
+        TableSchema schema = new TableSchema(
+                0,
+                Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", new IntType())),
+                1,
+                Collections.singletonList("part"),
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                null);
+        return new AppendOnlyFileStoreTable(
+                Mockito.mock(FileIO.class), new Path("memory://" + name), schema, CatalogEnvironment.empty());
     }
 }

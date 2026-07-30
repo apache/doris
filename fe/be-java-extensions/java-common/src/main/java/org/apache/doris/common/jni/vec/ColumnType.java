@@ -448,6 +448,10 @@ public class ColumnType {
                                     // names before parsing, then restores the exact UTF-8 spelling.
                                     fieldName = new String(Base64.getDecoder().decode(fieldName.substring(1)),
                                             StandardCharsets.UTF_8);
+                                } else {
+                                    // The public legacy grammar historically normalized STRUCT keys
+                                    // to lowercase; only the versioned Paimon payload preserves spelling.
+                                    fieldName = fieldName.toLowerCase();
                                 }
                                 fields.add(parseType(fieldName,
                                         listFields.substring(pivot + 1, index), encodedStructFields));
