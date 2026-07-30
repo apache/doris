@@ -766,6 +766,7 @@ enum TMetadataType {
   PAIMON = 12,
   PARQUET = 13,
   STREAMS = 14,
+  BROKERS = 15,
 }
 
 // deprecated
