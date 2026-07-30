@@ -28,12 +28,11 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
@@ -61,29 +60,41 @@ import java.util.Optional;
  * Column name constants are defined in {@link Column}.
  */
 public class IvmUtil {
-    // Hidden storage columns shared by every IVM, rather than IVM-layout columns such as row-id and agg state.
-    public static final Map<String, Literal> COMMON_HIDDEN_SLOTS = ImmutableMap.of(
-            Column.DELETE_SIGN, new TinyIntLiteral((byte) 0),
-            Column.VERSION_COL, new BigIntLiteral(0L),
-            Column.SEQUENCE_COL, new BigIntLiteral(0L),
-            Column.COMMIT_TSO_COL, new BigIntLiteral(0L));
+    // Exceptional hidden-column defaults. Numeric and string-like hidden columns use zero and
+    // empty string by default; add an entry here only when a hidden column requires a different
+    // value.
+    public static final Map<String, Expression> SPECIAL_HIDDEN_SLOT_DEFAULTS = ImmutableMap.of();
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);
     }
 
     public static boolean isCommonHiddenSlot(String columnName) {
-        return COMMON_HIDDEN_SLOTS.containsKey(columnName);
+        return columnName != null && (columnName.equals(Column.DELETE_SIGN)
+                || (columnName.startsWith(Column.HIDDEN_COLUMN_PREFIX)
+                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)));
     }
 
-    public static Literal getCommonHiddenSlotDefault(String columnName, DataType targetType) {
-        Literal defaultValue = COMMON_HIDDEN_SLOTS.get(columnName);
-        if (defaultValue == null) {
+    public static Expression getCommonHiddenSlotDefault(String columnName, DataType targetType) {
+        if (!isCommonHiddenSlot(columnName)) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                     "not an IVM common hidden slot: " + columnName);
         }
-        return defaultValue.getDataType().equals(targetType)
-                ? defaultValue : (Literal) defaultValue.castTo(targetType);
+        Expression defaultValue = SPECIAL_HIDDEN_SLOT_DEFAULTS.get(columnName);
+        if (defaultValue != null) {
+            return defaultValue.castTo(targetType);
+        }
+        if (targetType.isNumericType()) {
+            return new IntegerLiteral(0).castTo(targetType);
+        } else if (targetType.isStringLikeType()) {
+            return new VarcharLiteral("").castTo(targetType);
+        } else if (targetType.isBitmapType()) {
+            // Column.SKIP_BITMAP_COL is a bitmap type and uses bitmap_empty() as its default.
+            return new BitmapEmpty();
+        } else {
+            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                    "no default value for IVM hidden slot: " + columnName + ", type=" + targetType);
+        }
     }
 
     /**
