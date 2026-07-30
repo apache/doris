@@ -40,7 +40,7 @@ class DorisColumnItem:
     def get_view_column_constraint(self):
         res = ""
         if self._col_comment != "":
-            res  = f"`{self._col_name}` COMMENT '{self._col_comment}'"
+            res = f"`{self._col_name}` COMMENT '{self._col_comment}'"
         else:
             res = f"`{self._col_name}`"
         return res

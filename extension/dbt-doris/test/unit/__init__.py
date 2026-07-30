@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,28 +17,3 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
-# Inline `#` comments are not allowed inside a value list. flake8 4.x tolerated
-# them; current versions abort with
-#   ValueError: Error code '#' supplied to 'ignore' option does not match ...
-# so the rationale for each code goes above the list instead.
-#
-# W503, W504, E203: line-break and whitespace-before-`:` rules that disagree with
-#                   black's formatting.
-# E741:             single-character names such as `l`, used in the existing code.
-# E501:             line length, left to black.
-[flake8]
-select =
-    E
-    W
-    F
-ignore =
-    W503
-    W504
-    E203
-    E741
-    E501
-exclude =
-    .tox
-    build
-    dist

@@ -30,4 +30,4 @@ Plugin = AdapterPlugin(
     adapter=DorisAdapter,
     credentials=DorisCredentials,
     include_path=doris.PACKAGE_PATH,
-    )
+)

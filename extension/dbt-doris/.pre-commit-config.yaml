@@ -22,7 +22,7 @@ exclude: "^tests/.*"
 
 
 default_language_version:
-  python: python3.8
+  python: python3.10
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -40,13 +40,13 @@ repos:
   - id: black
     args:
     - "--line-length=99"
-    - "--target-version=py38"
+    - "--target-version=py310"
   - id: black
     alias: black-check
     stages: [manual]
     args:
     - "--line-length=99"
-    - "--target-version=py38"
+    - "--target-version=py310"
     - "--check"
     - "--diff"
 - repo: https://gitlab.com/pycqa/flake8
@@ -69,4 +69,3 @@ repos:
     args: [--show-error-codes, --pretty, --ignore-missing-imports]
     files: ^dbt/adapters
     language: system
-
