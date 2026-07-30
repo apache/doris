@@ -31,8 +31,8 @@ final String HIT_RATIO_5M_METRIC_FALSE_MSG = HIT_RATIO_CHECK_FAILED_PREFIX + "hi
 
 // Constants for normal queue check
 final String NORMAL_QUEUE_CHECK_FAILED_PREFIX = "Normal queue check failed: "
-final String NORMAL_QUEUE_SIZE_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "size validation failed (curr_size should be > 0 and < max_size)"
-final String NORMAL_QUEUE_ELEMENTS_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "elements validation failed (curr_elements should be > 0 and < max_elements)"
+final String NORMAL_QUEUE_SIZE_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "size validation failed (curr_size should be > 0 and <= total cache capacity)"
+final String NORMAL_QUEUE_ELEMENTS_VALIDATION_FAILED_MSG = NORMAL_QUEUE_CHECK_FAILED_PREFIX + "elements validation failed (curr_elements should be > 0)"
 
 // Constants for hit and read counts check
 final String HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX = "Hit and read counts check failed: "
@@ -174,8 +174,20 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     // ===== Normal Queue Metrics Check =====
     // curr_size / curr_elements are monitor-published; poll until populated (> 0) across paths.
     // max_size / max_elements come from the queue's static capacity (not monitor-published), so
-    // they are read once without polling. SUM across paths preserves the curr < max inequality
-    // (sum of per-path curr < sum of per-path max, since each curr < max).
+    // they are read once without polling.
+    //
+    // A queue's own max_size is a SOFT limit, not a bound to assert against: when a queue is over
+    // its share, BlockFileCache::try_reserve_from_other_queue lets it keep growing as long as the
+    // WHOLE cache still fits (`_cur_cache_size + size > _capacity && cur_queue_size + size >
+    // cur_queue_max_size` is the only rejection), evicting from the under-used queues instead --
+    // see the "Hit the soft limit by self" branch and is_overflow(), which compares against
+    // _capacity alone. So normal_queue_curr_size legitimately exceeds normal_queue_max_size
+    // whenever the ttl/index/disposable queues are not full, which depends on whichever cases ran
+    // before on this shared cache. Asserting curr < max encoded that non-invariant and was flaky.
+    //
+    // The hard bound the BE actually enforces is the per-cache _capacity, and by construction in
+    // get_file_cache_settings() capacity == normal + index + ttl + disposable max sizes (the
+    // normal/query queue is defined as the remainder). Sum across paths and assert against that.
     pollMetric('normal_queue_curr_size', { it > 0 }, metricPollTimeoutSeconds)
     pollMetric('normal_queue_curr_elements', { it > 0 }, metricPollTimeoutSeconds)
 
@@ -188,16 +200,25 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     def normalQueueMaxElementsSum = cacheMetricSum('normal_queue_max_elements')
     logger.info("normal_queue_max_elements sum: " + normalQueueMaxElementsSum)
 
+    def indexQueueMaxSizeSum = cacheMetricSum('index_queue_max_size')
+    def ttlQueueMaxSizeSum = cacheMetricSum('ttl_queue_max_size')
+    def disposableQueueMaxSizeSum = cacheMetricSum('disposable_queue_max_size')
+    Double cacheCapacitySum = (normalQueueMaxSizeSum == null || indexQueueMaxSizeSum == null
+            || ttlQueueMaxSizeSum == null || disposableQueueMaxSizeSum == null) ? null
+            : normalQueueMaxSizeSum + indexQueueMaxSizeSum + ttlQueueMaxSizeSum + disposableQueueMaxSizeSum
+    logger.info("total file cache capacity sum (normal+index+ttl+disposable max_size): " + cacheCapacitySum)
+
     boolean hasNormalQueueCurrSize = normalQueueCurrSizeSum != null && normalQueueCurrSizeSum > 0
     boolean hasNormalQueueMaxSize = normalQueueMaxSizeSum != null && normalQueueMaxSizeSum > 0
     boolean hasNormalQueueCurrElements = normalQueueCurrElementsSum != null && normalQueueCurrElementsSum > 0
     boolean hasNormalQueueMaxElements = normalQueueMaxElementsSum != null && normalQueueMaxElementsSum > 0
 
-    // Check if current size is less than max size and current elements is less than max elements
+    // The queue must be in use and must stay within the cache's hard capacity. max_elements is only
+    // logged: element counts are not bounded by the sum of the per-queue element caps either, since
+    // a block may be smaller than max_file_block_size.
     boolean normalQueueSizeValid = hasNormalQueueCurrSize && hasNormalQueueMaxSize &&
-        normalQueueCurrSizeSum < normalQueueMaxSizeSum
-    boolean normalQueueElementsValid = hasNormalQueueCurrElements && hasNormalQueueMaxElements &&
-        normalQueueCurrElementsSum < normalQueueMaxElementsSum
+        cacheCapacitySum != null && normalQueueCurrSizeSum <= cacheCapacitySum
+    boolean normalQueueElementsValid = hasNormalQueueCurrElements && hasNormalQueueMaxElements
 
     logger.info("Normal queue metrics check result - size valid: ${normalQueueSizeValid}, " +
         "elements valid: ${normalQueueElementsValid}")
