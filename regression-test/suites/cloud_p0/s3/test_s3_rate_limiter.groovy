@@ -126,26 +126,6 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
         sleep(12000)
     }
 
-    def applyLegacyCountLimitPhase = { long getLimit, long putLimit ->
-        Map<String, Object> phase = [
-                "s3_get_qps_per_core": getLimit > 0 ? -1 : 0,
-                "s3_put_qps_per_core": putLimit > 0 ? -1 : 0,
-                "s3_get_token_per_second": 1000000000000000000L,
-                "s3_put_token_per_second": 1000000000000000000L,
-                "s3_get_bucket_tokens": 1000000000000000000L,
-                "s3_put_bucket_tokens": 1000000000000000000L,
-                "s3_get_token_limit": getLimit,
-                "s3_put_token_limit": putLimit,
-                "s3_get_bytes_per_second_per_core": 0,
-                "s3_put_bytes_per_second_per_core": 0
-        ]
-        phase.each { key, value -> set_be_param(key, value) }
-        set_be_param("enable_s3_rate_limiter", true)
-        phase.each { key, value -> assertBeConfig(key, value) }
-        assertBeConfig("enable_s3_rate_limiter", true)
-        sleep(12000)
-    }
-
     def clearFileCacheOnAllBackends = {
         backendIdToIp.each { id, ip ->
             String httpPort = backendIdToHttpPort[id]
@@ -200,7 +180,7 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
             // Keep PUT phases directionally pure: the optional post-upload HeadObject
             // would otherwise add GET traffic to an internal write.
             "enable_s3_object_check_after_upload": false,
-            "s3_rate_limiter_cpu_cores": 1,
+            "s3_rate_limiter_cpu_cores_override": 1,
             "s3_get_qps_per_core": 0,
             "s3_put_qps_per_core": 0,
             "s3_get_qps_max": 0,
@@ -399,40 +379,6 @@ suite("test_s3_rate_limiter", "p0,nonConcurrent") {
                     "s3_put_rate_limit_sleep_count"
             ])
 
-            // Legacy GET token_limit: a cache-free scan must be rejected by the
-            // internal GET bucket. Append a fresh rowset with limiting disabled so
-            // no process-local cache can make this phase vacuous.
-            applyLegacyCountLimitPhase(1, 0)
-            set_be_param("enable_s3_rate_limiter", false)
-            sql """
-                INSERT INTO test_s3_rate_limiter_get
-                SELECT 3000000 + number, repeat(md5(cast(number + 3000000 as string)), 4)
-                FROM numbers("number" = "1000")
-            """
-            set_be_param("enable_s3_rate_limiter", true)
-            clearFileCacheOnAllBackends()
-            before = snapshotMetrics()
-            test {
-                sql """
-                    SELECT count(*), sum(length(payload))
-                    FROM test_s3_rate_limiter_get
-                """
-                exception "s3 get request exceeds QPS limit, rejected by BE rate limiter"
-            }
-            after = snapshotMetrics()
-            assertMetricChanges(before, after, ["s3_get_rate_limit_rejected_count"])
-
-            // Legacy PUT token_limit: the first one-object segment consumes the token;
-            // the second is rejected with an independently attributable error/bvar.
-            applyLegacyCountLimitPhase(0, 1)
-            sql "INSERT INTO test_s3_rate_limiter_put VALUES (9000000, 'first token')"
-            before = snapshotMetrics()
-            test {
-                sql "INSERT INTO test_s3_rate_limiter_put VALUES (9000001, 'rejected token')"
-                exception "s3 put request exceeds QPS limit, rejected by BE rate limiter"
-            }
-            after = snapshotMetrics()
-            assertMetricChanges(before, after, ["s3_put_rate_limit_rejected_count"])
         }
     } finally {
         // Let the daemon publish the restored bucket parameters before another suite

@@ -1632,8 +1632,8 @@ DECLARE_mInt64(s3_put_bytes_per_second_per_core);
 // Hard caps for the CPU-derived GET/PUT bytes/s. 0 means no cap.
 DECLARE_mInt64(s3_get_bytes_per_second_max);
 DECLARE_mInt64(s3_put_bytes_per_second_max);
-// Cores used to derive effective limits: 0 = auto-detect from cgroup quota; >0 overrides.
-DECLARE_mInt64(s3_rate_limiter_cpu_cores);
+// Override for cores used to derive effective limits: 0 = auto-detect from cgroup quota.
+DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will

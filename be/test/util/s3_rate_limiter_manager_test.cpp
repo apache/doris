@@ -101,7 +101,7 @@ void expect_only_qps_sleep_grows(const RateLimiterMetricSnapshot& before,
 void verify_cpu_aware_bytes_and_legacy_qps_metrics(S3RateLimitType type, S3RateLimitType other_type,
                                                    int64_t& qps_per_core, int64_t& bytes_per_core) {
     config::enable_s3_rate_limiter = true;
-    config::s3_rate_limiter_cpu_cores = 1;
+    config::s3_rate_limiter_cpu_cores_override = 1;
     config::s3_get_qps_max = 0;
     config::s3_put_qps_max = 0;
     config::s3_get_bytes_per_second_max = 0;
@@ -177,7 +177,7 @@ struct RateLimiterConfigGuard {
     int64_t put_bytes_per_core = config::s3_put_bytes_per_second_per_core;
     int64_t get_bytes_max = config::s3_get_bytes_per_second_max;
     int64_t put_bytes_max = config::s3_put_bytes_per_second_max;
-    int64_t cpu_cores = config::s3_rate_limiter_cpu_cores;
+    int32_t cpu_cores_override = config::s3_rate_limiter_cpu_cores_override;
 
     ~RateLimiterConfigGuard() {
         config::enable_s3_rate_limiter = enable;
@@ -195,7 +195,7 @@ struct RateLimiterConfigGuard {
         config::s3_put_bytes_per_second_per_core = put_bytes_per_core;
         config::s3_get_bytes_per_second_max = get_bytes_max;
         config::s3_put_bytes_per_second_max = put_bytes_max;
-        config::s3_rate_limiter_cpu_cores = cpu_cores;
+        config::s3_rate_limiter_cpu_cores_override = cpu_cores_override;
         S3RateLimiterManager::instance().refresh();
     }
 };
@@ -211,7 +211,7 @@ TEST(S3RateLimiterResolveTest, registered_defaults_preserve_legacy_compatibility
     EXPECT_STREQ("-1", fields.at("s3_put_qps_per_core").defval);
     EXPECT_STREQ("-1", fields.at("s3_get_bytes_per_second_per_core").defval);
     EXPECT_STREQ("-1", fields.at("s3_put_bytes_per_second_per_core").defval);
-    EXPECT_STREQ("0", fields.at("s3_rate_limiter_cpu_cores").defval);
+    EXPECT_STREQ("0", fields.at("s3_rate_limiter_cpu_cores_override").defval);
 }
 
 TEST(S3RateLimiterConfigTest, invalid_dynamic_values_are_rejected_without_changing_config) {
@@ -220,6 +220,7 @@ TEST(S3RateLimiterConfigTest, invalid_dynamic_values_are_rejected_without_changi
     config::s3_get_qps_per_core = -1;
     config::s3_get_bytes_per_second_per_core = -1;
     config::s3_put_bytes_per_second_max = 0;
+    config::s3_rate_limiter_cpu_cores_override = 0;
 
     auto status = config::set_config("s3_get_qps_per_core", "-2");
     EXPECT_FALSE(status.ok());
@@ -241,6 +242,11 @@ TEST(S3RateLimiterConfigTest, invalid_dynamic_values_are_rejected_without_changi
     EXPECT_NE(std::string::npos,
               status.to_string().find("convert '9223372036854775808' as int64_t failed"));
     EXPECT_EQ(0, config::s3_put_bytes_per_second_max);
+
+    status = config::set_config("s3_rate_limiter_cpu_cores_override", "2147483648");
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("convert '2147483648' as int32_t failed"));
+    EXPECT_EQ(0, config::s3_rate_limiter_cpu_cores_override);
 }
 
 TEST(S3RateLimiterResolveTest, legacy_config_wins_when_per_core_unset) {
@@ -373,10 +379,10 @@ TEST(S3RateLimiterResolveTest, get_and_put_bytes_caps_are_resolved_independently
 
 TEST(S3RateLimiterResolveTest, cpu_cores_override_config_wins) {
     RateLimiterConfigGuard guard;
-    config::s3_rate_limiter_cpu_cores = 16;
+    config::s3_rate_limiter_cpu_cores_override = 16;
     EXPECT_EQ(16, s3_rate_limiter_cpu_cores());
 
-    config::s3_rate_limiter_cpu_cores = 0;
+    config::s3_rate_limiter_cpu_cores_override = 0;
     EXPECT_GE(s3_rate_limiter_cpu_cores(), 1); // auto-detect always yields >= 1
 }
 
@@ -433,7 +439,7 @@ TEST(S3RateLimiterManagerTest, refresh_applies_qps_speed_burst_and_limit_changes
     EXPECT_EQ(200, get_qps->get_max_burst());
     EXPECT_EQ(300, get_qps->get_limit());
 
-    config::s3_rate_limiter_cpu_cores = kCores;
+    config::s3_rate_limiter_cpu_cores_override = kCores;
     config::s3_get_qps_per_core = 100;
     config::s3_get_qps_max = 0;
     manager.refresh();
@@ -442,7 +448,7 @@ TEST(S3RateLimiterManagerTest, refresh_applies_qps_speed_burst_and_limit_changes
     EXPECT_EQ(0, get_qps->get_limit());
 
     // Simulate a serverless resize: the core count is an input of refresh().
-    config::s3_rate_limiter_cpu_cores = 2 * kCores;
+    config::s3_rate_limiter_cpu_cores_override = 2 * kCores;
     manager.refresh();
     EXPECT_EQ(100 * 2 * kCores, get_qps->get_max_speed());
     EXPECT_EQ(100 * 2 * kCores, get_qps->get_max_burst());
@@ -454,7 +460,7 @@ TEST(S3RateLimiterManagerTest, refresh_applies_bytes_limit_and_enables_bucket) {
     auto& manager = S3RateLimiterManager::instance();
     auto* put_bytes = manager.bytes_limiter(S3RateLimitType::PUT);
 
-    config::s3_rate_limiter_cpu_cores = kCores;
+    config::s3_rate_limiter_cpu_cores_override = kCores;
     config::s3_put_bytes_per_second_per_core = -1;
     manager.refresh();
     EXPECT_FALSE(put_bytes->is_enabled());

@@ -1575,11 +1575,12 @@ DEFINE_Validator(s3_get_bytes_per_second_max, [](int64_t config) -> bool { retur
 DEFINE_mInt64(s3_put_bytes_per_second_max, "0");
 DEFINE_Validator(s3_put_bytes_per_second_max, [](int64_t config) -> bool { return config >= 0; });
 
-// CPU cores used to derive the effective S3 rate limits. 0 means auto-detect from the
-// cgroup cpu quota (fall back to physical cores). A positive value overrides detection;
-// the control plane can push it via /api/update_config when resizing a serverless BE.
-DEFINE_mInt64(s3_rate_limiter_cpu_cores, "0");
-DEFINE_Validator(s3_rate_limiter_cpu_cores, [](int64_t config) -> bool { return config >= 0; });
+// Override the CPU cores used to derive the effective S3 rate limits. 0 means auto-detect
+// from the cgroup cpu quota (fall back to physical cores); the control plane can push a
+// positive value via /api/update_config when resizing a serverless BE.
+DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
+DEFINE_Validator(s3_rate_limiter_cpu_cores_override,
+                 [](int32_t config) -> bool { return config >= 0; });
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 

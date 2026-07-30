@@ -43,7 +43,7 @@ struct S3EffectiveRateLimit {
 // `cores` does not participate; otherwise qps = min(per_core * cores, qps_max).
 S3EffectiveRateLimit resolve_s3_rate_limit(S3RateLimitType type, int64_t cores);
 
-// Cores used to derive effective limits: config::s3_rate_limiter_cpu_cores override
+// Cores used to derive effective limits: config::s3_rate_limiter_cpu_cores_override
 // (> 0) wins; otherwise re-read the cgroup cpu quota (serverless BEs can be resized
 // in place), falling back to physical cores. Always >= 1.
 int64_t s3_rate_limiter_cpu_cores();

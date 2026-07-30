@@ -31,7 +31,7 @@ suite("test_s3_rate_limiter_cgroup_cpu_resize", "docker") {
     options.recyclerNum = 0
     options.beConfigs += [
             "enable_s3_rate_limiter=true",
-            "s3_rate_limiter_cpu_cores=0",
+            "s3_rate_limiter_cpu_cores_override=0",
             "s3_get_qps_per_core=${getQpsPerCore}",
             "s3_put_qps_per_core=${putQpsPerCore}",
             "s3_get_qps_max=0",

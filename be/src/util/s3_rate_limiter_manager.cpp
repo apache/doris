@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <limits>
 #include <thread>
+#include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -38,16 +39,32 @@ bvar::Adder<int64_t> s3_put_bytes_rate_limit_rejected_count(
 
 namespace {
 
+constexpr int64_t kBytesRateLimitLongSleepNs = 500 * 1000 * 1000;
+constexpr int kBytesRateLimitLongSleepLogInterval = 50;
+
+std::function<void(int64_t)> bytes_rate_limiter_metric_func_with_log(
+        S3RateLimitType type, bvar::Adder<int64_t>& sleep_ns_bvar,
+        bvar::Adder<int64_t>& sleep_count_bvar, bvar::Adder<int64_t>& rejected_count_bvar) {
+    auto metric_func = metric_func_factory(sleep_ns_bvar, sleep_count_bvar, &rejected_count_bvar);
+    return [type, metric_func = std::move(metric_func)](int64_t sleep_ns) {
+        metric_func(sleep_ns);
+        LOG_IF_EVERY_N(WARNING, sleep_ns > kBytesRateLimitLongSleepNs,
+                       kBytesRateLimitLongSleepLogInterval)
+                << "S3 " << to_string(type) << " request is throttled by bytes rate limiter"
+                << ", sleep_ms=" << sleep_ns / 1000000;
+    };
+}
+
 std::function<void(int64_t)> bytes_rate_limiter_metric_func(S3RateLimitType type) {
     switch (type) {
     case S3RateLimitType::GET:
-        return metric_func_factory(s3_get_bytes_rate_limit_sleep_ns,
-                                   s3_get_bytes_rate_limit_sleep_count,
-                                   &s3_get_bytes_rate_limit_rejected_count);
+        return bytes_rate_limiter_metric_func_with_log(type, s3_get_bytes_rate_limit_sleep_ns,
+                                                       s3_get_bytes_rate_limit_sleep_count,
+                                                       s3_get_bytes_rate_limit_rejected_count);
     case S3RateLimitType::PUT:
-        return metric_func_factory(s3_put_bytes_rate_limit_sleep_ns,
-                                   s3_put_bytes_rate_limit_sleep_count,
-                                   &s3_put_bytes_rate_limit_rejected_count);
+        return bytes_rate_limiter_metric_func_with_log(type, s3_put_bytes_rate_limit_sleep_ns,
+                                                       s3_put_bytes_rate_limit_sleep_count,
+                                                       s3_put_bytes_rate_limit_rejected_count);
     default:
         return [](int64_t) {};
     }
@@ -104,7 +121,7 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
 }
 
 int64_t s3_rate_limiter_cpu_cores() {
-    if (int64_t overridden = config::s3_rate_limiter_cpu_cores; overridden > 0) {
+    if (int32_t overridden = config::s3_rate_limiter_cpu_cores_override; overridden > 0) {
         return overridden;
     }
     int physical = static_cast<int>(std::thread::hardware_concurrency());
