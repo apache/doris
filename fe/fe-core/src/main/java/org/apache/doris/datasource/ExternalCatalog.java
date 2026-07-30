@@ -47,6 +47,7 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
+import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -951,6 +952,8 @@ public abstract class ExternalCatalog
                 return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
             case REMOTE_DORIS:
                 return new RemoteDorisExternalDatabase(this, dbId, localDbName, remoteDbName);
+            case LANCE:
+                return new LanceExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }

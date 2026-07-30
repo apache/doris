@@ -76,11 +76,11 @@
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/lance/lance_reader.h"
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
+#include "format_v2/table/lance_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -864,6 +864,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         constexpr size_t fetch_schema_batch_size = 4064;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
+        std::vector<std::string> col_names;
+        std::vector<DataTypePtr> col_types;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
         case TFileFormatType::FORMAT_CSV_GZ:
@@ -906,8 +908,22 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_LANCE: {
-            reader = LanceReader::create_unique(file_slots, nullptr, profile.get(), range, &params);
-            break;
+            auto lance_reader = std::make_unique<format::lance::LanceTableReader>();
+            st = lance_reader->fetch_schema(range, params, &col_names, &col_types);
+            if (!st.ok()) {
+                LOG(WARNING) << "fetch Lance table schema failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            result->set_column_nums(col_names.size());
+            for (const auto& col_name : col_names) {
+                result->add_column_names(col_name);
+            }
+            for (const auto& col_type : col_types) {
+                col_type->to_protobuf(result->add_column_types());
+            }
+            st.to_protobuf(result->mutable_status());
+            return;
         }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
@@ -926,8 +942,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st.to_protobuf(result->mutable_status());
             return;
         }
-        std::vector<std::string> col_names;
-        std::vector<DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;

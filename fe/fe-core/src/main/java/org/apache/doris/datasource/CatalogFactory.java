@@ -26,6 +26,7 @@ import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -101,6 +102,9 @@ public class CatalogFactory {
             case "paimon":
                 catalog = PaimonExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
                 break;
+            case "lance":
+                catalog = new LanceExternalCatalog(catalogId, name, resource, props, comment);
+                break;
             case "trino-connector":
                 catalog = TrinoConnectorExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
                 break;
@@ -140,5 +144,4 @@ public class CatalogFactory {
         return catalog;
     }
 }
-
 

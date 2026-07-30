@@ -172,6 +172,7 @@ services:
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
+      /usr/bin/mc cp -r /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       "
 

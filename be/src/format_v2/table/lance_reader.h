@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "format_v2/table_reader.h"
+#include "runtime/runtime_profile.h"
 
 struct LanceBatch;
 struct LanceDataset;
@@ -37,11 +38,17 @@ struct LanceScanner;
 namespace doris::format::lance {
 
 // A FORMAT_LANCE table reader. Unlike file formats such as Parquet, a Lance split is not a
-// physical-file range. It is a set of fragments in one fixed dataset snapshot, so the dataset is
-// owned by this table reader and each split owns only its scanner.
+// physical-file range. It either selects fragments from a fixed snapshot or scans the whole
+// latest snapshot, so the dataset is owned by this table reader and each split owns its scanner.
 class LanceTableReader final : public TableReader {
 public:
     ~LanceTableReader() override;
+
+    // Fetch the schema of a Lance dataset without initializing the scan path. Version zero opens
+    // the latest snapshot, which is used by backend-local TVF schema discovery.
+    Status fetch_schema(const TFileRangeDesc& range, const TFileScanRangeParams& scan_params,
+                        std::vector<std::string>* column_names,
+                        std::vector<DataTypePtr>* column_types) const;
 
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
@@ -57,14 +64,14 @@ private:
         bool operator==(const DatasetKey&) const = default;
     };
 
-    Status _validate_split(const TFileRangeDesc& range) const;
+    Status _validate_range(const TFileRangeDesc& range) const;
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_arrow(LanceBatch* batch, Block* block, size_t* rows);
     Status _prepare_conjuncts();
-    std::vector<std::string> _storage_options() const;
+    static std::vector<std::string> _storage_options(const TFileScanRangeParams* scan_params);
     DatasetKey _dataset_key(const TFileRangeDesc& range) const;
     static Status _lance_error(std::string_view operation);
 
