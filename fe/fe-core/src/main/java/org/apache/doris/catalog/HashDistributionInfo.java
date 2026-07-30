@@ -200,4 +200,8 @@ public class HashDistributionInfo extends DistributionInfo {
     public void setDistributionColumns(List<Column> column) {
         this.distributionColumns = column;
     }
+
+    public void setHashType(HashType hashType) {
+        this.hashType = hashType;
+    }
 }
