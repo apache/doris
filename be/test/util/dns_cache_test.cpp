@@ -501,7 +501,7 @@ TEST_F(DNSCacheTest, negative_cache_honors_decreased_ttl) {
 
     // Decrease TTL to 1 second and backdate the entry to make it look older.
     config::dns_cache_negative_ttl_seconds = 1;
-    cache._expire_negative_cache_for_test(); // backdate to epoch → past any 1s deadline
+    cache._expire_negative_cache_for_test(); // backdate far → past any 1s deadline
 
     should_fail = false;
     EXPECT_TRUE(cache.get("fake-host.test", &ip).ok())
@@ -571,7 +571,9 @@ TEST_F(DNSCacheTest, refresh_does_not_erase_negative_cache_tombstone) {
     ASSERT_EQ(1u, cache.negative_cache_size_for_test());
     cache._expire_negative_cache_for_test();
 
-    // Run another refresh cycle — must NOT erase the expired tombstone.
+    // Run another refresh cycle — must NOT erase the expired tombstone.  The
+    // tombstone is what keeps get() from issuing a blocking getaddrinfo on every
+    // call, so it must outlive refresh cycles regardless of age.
     cache.refresh_for_test();
     EXPECT_EQ(1u, cache.negative_cache_size_for_test())
             << "refresh must not erase negative-cache tombstones";

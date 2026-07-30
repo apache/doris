@@ -102,13 +102,16 @@ private:
     // the object was constructed with the test constructor (no background thread).
     void refresh_for_test() { _refresh_once(); }
 
-    // Backdate all negative-cache entries to epoch so they appear expired
-    // without removing them.  Use this to simulate TTL expiry in tests that
-    // need the re-arm path in get() to trigger.
+    // Backdate all negative-cache entries far into the past so they appear
+    // expired without removing them.  Use this to simulate TTL expiry in tests
+    // that need the re-arm path in get() to trigger.
+    // Backdating relative to now() (rather than to steady_clock's epoch, which is
+    // typically boot time) keeps this correct on a freshly booted host.
     void _expire_negative_cache_for_test() {
         std::unique_lock<std::shared_mutex> lock(mutex);
+        auto backdated = std::chrono::steady_clock::now() - std::chrono::hours(24 * 365);
         for (auto& [k, v] : _negative_cache) {
-            v = std::chrono::steady_clock::time_point {};
+            v = backdated;
         }
     }
 
