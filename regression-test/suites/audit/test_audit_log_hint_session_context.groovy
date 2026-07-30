@@ -75,5 +75,40 @@ suite("test_audit_log_hint_session_context", "nonConcurrent") {
     // The per-query SET_VAR hint session_context must be visible in changed_variables.
     assertTrue(found >= 1)
 
+    if (isCloudMode()) {
+        def computeGroups = sql "SHOW COMPUTE GROUPS"
+        if (computeGroups.size() < 2) {
+            log.warn("skip Compute Group audit assertion because fewer than two Compute Groups exist")
+        } else {
+            def sessionComputeGroup = computeGroups[0][0]
+            def hintComputeGroup = computeGroups[1][0]
+            def computeGroupMarker = "audit_hint_cg_marker_7F3A2B"
+
+            sql "use @${sessionComputeGroup}"
+            sql "truncate table __internal_schema.audit_log"
+            sql """select /*+ SET_VAR(cloud_cluster = '${hintComputeGroup}') */
+                       1, '${computeGroupMarker}'"""
+
+            def computeGroupRetry = 60
+            def computeGroupQuery = """select compute_group
+                                      from __internal_schema.audit_log
+                                      where stmt like '%${computeGroupMarker}%'
+                                        and compute_group = '${hintComputeGroup}'
+                                      order by time desc limit 1"""
+            def computeGroupResult = sql "${computeGroupQuery}"
+            while (computeGroupResult.isEmpty()) {
+                if (computeGroupRetry-- < 0) {
+                    throw new RuntimeException("audit_log row for the hint query was not found in the "
+                            + "hint Compute Group")
+                }
+                sleep(3000)
+                sql "call flush_audit_log()"
+                computeGroupResult = sql "${computeGroupQuery}"
+            }
+
+            assertEquals(hintComputeGroup, computeGroupResult[0][0].toString())
+        }
+    }
+
     sql "set global enable_audit_plugin = false"
 }

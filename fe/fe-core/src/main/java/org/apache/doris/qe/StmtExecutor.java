@@ -672,6 +672,7 @@ public class StmtExecutor {
 
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
+        context.setEffectiveCloudCluster(null);
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
@@ -698,6 +699,11 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Preserve the effective per-query compute group before SET_VAR values are reverted.
+            // Audit logging runs after this method returns and otherwise sees the session value.
+            if (Config.isCloudMode()) {
+                context.setEffectiveCloudCluster(sessionVariable.getCloudCluster());
+            }
             // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
             // so the audit log (logged after execute() returns, i.e. after the revert below) can
             // reflect what was actually in effect for this statement instead of the reverted values.
