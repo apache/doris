@@ -157,4 +157,30 @@ public class PaimonConnectorMetadataStatisticsTest {
         Assertions.assertSame(sysFake, ops.lastRowCountTable,
                 "a sys handle must plan its OWN synthetic table's splits");
     }
+
+    @Test
+    public void systemTableStatisticsValidatePinnedSourceGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.rowCount = 7;
+        FakePaimonTable pinnedSource = new FakePaimonTable(
+                "pinned", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        pinnedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable reloadedSource = new FakePaimonTable(
+                "reloaded", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        reloadedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        ops.sysTable = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle base = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        base.setPaimonTable(pinnedSource);
+        PaimonTableHandle system = (PaimonTableHandle) metadataWith(ops)
+                .getSysTableHandle(null, base, "snapshots").orElseThrow(AssertionError::new);
+        ops.table = reloadedSource;
+
+        Optional<ConnectorTableStatistics> stats = metadataWith(ops).getTableStatistics(null, system);
+
+        Assertions.assertFalse(stats.isPresent());
+        Assertions.assertFalse(ops.log.contains("rowCount"),
+                "statistics must reject the pinned unsafe source before planning the system wrapper");
+    }
 }

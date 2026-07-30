@@ -344,8 +344,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         try {
-            Table dataTable = catalogOps.getTable(
-                    Identifier.create(handle.getDatabaseName(), handle.getTableName()));
+            Table dataTable = handle.getSysBaseTable();
+            if (dataTable == null) {
+                dataTable = catalogOps.getTable(
+                        Identifier.create(handle.getDatabaseName(), handle.getTableName()));
+            }
             if (PaimonScanParams.isOptionsPin(scanOptions)) {
                 // Read-only system wrappers plan manifests through their hidden data table, so the
                 // same relation copy must establish precedence on both visible and hidden handles.
@@ -1252,6 +1255,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return table;
         }
         if (table instanceof ReadOptimizedTable) {
+            FileStoreTable pinnedSource = handle.getSysBaseTable();
+            if (pinnedSource != null) {
+                // $ro reads the field ids of its embedded source; a catalog reload here can observe
+                // schema generation B while the wrapper still plans generation A's files.
+                return pinnedSource;
+            }
             return reloadBaseTable(handle);
         }
         return null;

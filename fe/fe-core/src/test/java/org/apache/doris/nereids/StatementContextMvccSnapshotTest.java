@@ -66,6 +66,11 @@ public class StatementContextMvccSnapshotTest {
         return new TableScanParams("branch", ImmutableMap.of(), ImmutableList.of(name));
     }
 
+    private static TableScanParams options(String value) {
+        return new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.plan-sort-partition", value), ImmutableList.of());
+    }
+
     @Test
     public void mainAndBranchOfSameTablePinSeparateSnapshots() {
         StatementContext ctx = newStatementContext();
@@ -137,6 +142,53 @@ public class StatementContextMvccSnapshotTest {
         // back to latest (rather than returning an arbitrary branch, the pre-fix bug).
         Assertions.assertFalse(ctx.getSnapshot(table).isPresent(),
                 "version-blind read is ambiguous with multiple versions pinned and no default");
+    }
+
+    @Test
+    public void aliasesWithDifferentRelationOptionsPinSeparateSnapshots() {
+        StatementContext ctx = newStatementContext();
+        MvccTable table = mockMvccTable("t");
+        MvccSnapshot first = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot second = Mockito.mock(MvccSnapshot.class);
+        TableScanParams enabled = options("true");
+        TableScanParams disabled = options("false");
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(enabled))).thenReturn(first);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(disabled))).thenReturn(second);
+
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(enabled));
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(disabled));
+
+        Assertions.assertSame(first,
+                ctx.getSnapshot(table, Optional.empty(), Optional.of(options("true"))).orElse(null));
+        Assertions.assertSame(second,
+                ctx.getSnapshot(table, Optional.empty(), Optional.of(options("false"))).orElse(null));
+        Assertions.assertFalse(ctx.getSnapshot(table).isPresent(),
+                "relation-scoped options on two aliases must not share an arbitrary snapshot");
+    }
+
+    @Test
+    public void optionAndPlainAliasesAreOrderIndependent() {
+        MvccTable table = mockMvccTable("t");
+        MvccSnapshot plain = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot option = Mockito.mock(MvccSnapshot.class);
+        TableScanParams enabled = options("true");
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(plain);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(enabled))).thenReturn(option);
+
+        for (boolean optionFirst : new boolean[] {true, false}) {
+            StatementContext ctx = newStatementContext();
+            if (optionFirst) {
+                ctx.loadSnapshots(table, Optional.empty(), Optional.of(enabled));
+                ctx.loadSnapshots(table, Optional.empty(), Optional.empty());
+            } else {
+                ctx.loadSnapshots(table, Optional.empty(), Optional.empty());
+                ctx.loadSnapshots(table, Optional.empty(), Optional.of(enabled));
+            }
+            Assertions.assertSame(plain,
+                    ctx.getSnapshot(table, Optional.empty(), Optional.empty()).orElse(null));
+            Assertions.assertSame(option,
+                    ctx.getSnapshot(table, Optional.empty(), Optional.of(options("true"))).orElse(null));
+        }
     }
 
     @Test

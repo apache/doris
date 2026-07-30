@@ -529,6 +529,33 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveSystemScanTableValidatesPinnedSourceGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable pinnedSource = new FakePaimonTable(
+                "pinned", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        pinnedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable reloadedSource = new FakePaimonTable(
+                "reloaded", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        reloadedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = systemTable;
+        PaimonTableHandle base = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        base.setPaimonTable(pinnedSource);
+        PaimonTableHandle system = (PaimonTableHandle) new PaimonConnectorMetadata(
+                ops, Collections.emptyMap(), new RecordingConnectorContext())
+                .getSysTableHandle(null, base, "partitions").orElseThrow(AssertionError::new);
+        ops.table = reloadedSource;
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.resolveScanTable(system));
+        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
+    }
+
+    @Test
     public void resolveSystemScanTableAppliesSafeOverrideToHiddenDataTable() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable dataTable = new FakePaimonTable(
@@ -744,6 +771,49 @@ public class PaimonScanPlanProviderTest {
                     "the $ro schema dict must carry history_schema_info entries");
             Assertions.assertEquals(-1L, params.getCurrentSchemaId(),
                     "the current/target schema id must be the -1 sentinel (legacy parity)");
+        }
+    }
+
+    @Test
+    public void readOptimizedSchemaDictionaryUsesPinnedSourceGeneration(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier pinnedId = Identifier.create("db", "pinned");
+            catalog.createTable(pinnedId, Schema.newBuilder()
+                    .column("pinned_id", DataTypes.INT())
+                    .primaryKey("pinned_id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Identifier reloadedId = Identifier.create("db", "reloaded");
+            catalog.createTable(reloadedId, Schema.newBuilder()
+                    .column("reloaded_id", DataTypes.INT())
+                    .primaryKey("reloaded_id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable pinned = (FileStoreTable) catalog.getTable(pinnedId);
+            FileStoreTable reloaded = (FileStoreTable) catalog.getTable(reloadedId);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle base = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            base.setPaimonTable(pinned);
+            PaimonTableHandle ro = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, Collections.emptyMap(), new RecordingConnectorContext())
+                    .getSysTableHandle(null, base, "ro").orElseThrow(AssertionError::new);
+            ops.table = reloaded;
+
+            Map<String, String> props = new PaimonScanPlanProvider(Collections.emptyMap(), ops)
+                    .getScanNodeProperties(null, ro, Collections.emptyList(), Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(
+                    params, props.get("paimon.schema_evolution"));
+            String currentName = params.getHistorySchemaInfo().get(0)
+                    .getRootField().getFields().get(0).getFieldPtr().getName();
+
+            Assertions.assertEquals("pinned_id", currentName,
+                    "$ro splits and schema dictionary must come from the same pinned generation");
         }
     }
 

@@ -1131,7 +1131,7 @@ public class StatementContext implements Closeable {
         }
         if (scanParams != null && scanParams.isPresent()) {
             TableScanParams sp = scanParams.get();
-            key.append("p:").append(sp.getParamType()).append(':').append(sp.getMapParams())
+            key.append("p:").append(sp.getParamType()).append(':').append(new TreeMap<>(sp.getMapParams()))
                     .append(':').append(sp.getListParams());
         }
         return key.toString();

@@ -1508,8 +1508,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (!handle.isSystemTable()) {
             return;
         }
-        Table dataTable = catalogOps.getTable(
-                Identifier.create(handle.getDatabaseName(), handle.getTableName()));
+        Table dataTable = handle.getSysBaseTable();
+        if (dataTable == null) {
+            dataTable = catalogOps.getTable(
+                    Identifier.create(handle.getDatabaseName(), handle.getTableName()));
+        }
         if (PaimonScanParams.isOptionsPin(scanOptions)) {
             PaimonScanParams.applyOptions(dataTable, scanOptions);
         } else {
