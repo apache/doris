@@ -458,8 +458,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Optional.empty();
         }
         List<Column> writeSchema = ConnectorColumnConverter.convertColumns(connectorSchema.get());
+        String remoteDbName = db != null ? db.getRemoteName() : "";
         for (Column column : writeSchema) {
-            column.setName(metadata.fromRemoteColumnName(session, dbName, tableName, column.getName()));
+            column.setName(metadata.fromRemoteColumnName(
+                    session, remoteDbName, getRemoteName(), column.getName()));
         }
         return Optional.of(writeSchema);
     }
