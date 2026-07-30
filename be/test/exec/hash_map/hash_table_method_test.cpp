@@ -130,6 +130,33 @@ TEST(HashTableMethodTest, testMethodStringNoCache) {
               {0, 1, -1, 3, -1, 4});
 }
 
+// For join, null keys are routed to a dedicated null bucket and matched by raw key
+// comparison. The nested column of a null row may hold residual bytes left by expression
+// evaluation, so init_serialized_keys must normalize null keys to a canonical empty
+// StringRef to make null keys equal (e.g. single-column null-safe equal join).
+TEST(HashTableMethodTest, testMethodStringNoCacheNullKeyNormalized) {
+    MethodStringNoCache<StringHashMap<IColumn::ColumnIndex>> method;
+
+    // Row 1 is null but its nested data holds residual bytes, row 2 is a real empty string.
+    auto column =
+            ColumnHelper::create_nullable_column<DataTypeString>({"a", "residual", ""}, {0, 1, 0});
+    ColumnRawPtrs key_columns {column.get()};
+    const auto& null_map = assert_cast<const ColumnNullable&>(*column).get_null_map_data();
+
+    const uint32_t bucket_size = 8;
+    method.init_serialized_keys(key_columns, 3, null_map.data(), true, false, bucket_size);
+
+    // Null key is normalized to a canonical empty StringRef instead of the residual bytes.
+    EXPECT_TRUE(method._stored_keys[1] == StringRef());
+    // Non-null rows keep their real bytes, including the real empty string.
+    EXPECT_TRUE(method._stored_keys[0] == StringRef("a", 1));
+    EXPECT_TRUE(method._stored_keys[2] == StringRef("", 0));
+    // Null row is routed to the dedicated null bucket, real rows to normal hash buckets.
+    EXPECT_EQ(method.bucket_nums[1], bucket_size);
+    EXPECT_LT(method.bucket_nums[0], bucket_size);
+    EXPECT_LT(method.bucket_nums[2], bucket_size);
+}
+
 // Verify that iterating a DataWithNullKey hash map via init_iterator()/begin/end
 // does NOT visit the null key entry. The null key must be accessed separately
 // through has_null_key_data()/get_null_key_data().

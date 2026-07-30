@@ -262,6 +262,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
                 writeSchemaContext.getMergeColumns(),
                 outputExprs,
                 deleteCtx,
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.of(writeSchemaContext),

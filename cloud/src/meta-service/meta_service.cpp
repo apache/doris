@@ -4576,6 +4576,10 @@ static bool put_delete_bitmap_update_lock_key(MetaServiceCode& code, std::string
     return true;
 }
 
+static bool can_load_force_take_delete_bitmap_lock(int64_t current_lock_id) {
+    return current_lock_id != SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+}
+
 bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
@@ -4950,7 +4954,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (urgent) {
+            if (urgent && can_load_force_take_delete_bitmap_lock(lock_info.lock_id())) {
                 // since currently only the FE Master initiates the lock request for import tasks,
                 // and it does so in a single-threaded manner, there is no need to check the lock id here
                 DCHECK(request->lock_id() > 0);
@@ -5204,7 +5208,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (urgent) {
+            if (urgent && can_load_force_take_delete_bitmap_lock(lock_info.lock_id())) {
                 // since currently only the FE Master initiates the lock request for import tasks,
                 // and it does so in a single-threaded manner, there is no need to check the lock id here
                 DCHECK(request->lock_id() > 0);

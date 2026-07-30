@@ -111,7 +111,7 @@ private:
                     predicates,
             const std::vector<FunctionFilter>& function_filters);
 
-    [[nodiscard]] Status _init_tso_predicates();
+    [[nodiscard]] Status _init_tso_pushdown();
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
 #ifndef NDEBUG

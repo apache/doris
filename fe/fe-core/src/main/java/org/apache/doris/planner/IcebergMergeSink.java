@@ -71,6 +71,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
     private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
+    private final boolean requireMergeCardinalityCheck;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -82,11 +83,22 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
     private Map<StorageTypeId, StorageAdapter> storagePropertiesMap;
 
     public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext) {
-        this(targetTable, deleteContext, Optional.empty());
+        this(targetTable, deleteContext, false, Optional.empty());
+    }
+
+    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+            boolean requireMergeCardinalityCheck) {
+        this(targetTable, deleteContext, requireMergeCardinalityCheck, Optional.empty());
+    }
+
+    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+            Optional<IcebergWriteSchemaContext> writeSchemaContext) {
+        this(targetTable, deleteContext, false, writeSchemaContext);
     }
 
     /** Constructor with the schema pinned by the Nereids merge plan. */
     public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+            boolean requireMergeCardinalityCheck,
             Optional<IcebergWriteSchemaContext> writeSchemaContext) {
         super();
         if (targetTable.isView()) {
@@ -95,6 +107,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         this.targetTable = targetTable;
         this.deleteContext = deleteContext;
         this.writeSchemaContext = writeSchemaContext;
+        this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
 
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
@@ -174,6 +187,8 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         tSink.setSchemaJson(writerSchemaJson);
         tSink.setCollectColumnStats(
                 IcebergUtils.shouldCollectColumnStats(schema, metricsConfig, fileFormat));
+        // UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
+        tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
 
         // partition spec
         if (partitionSpec.isPartitioned()) {

@@ -198,7 +198,7 @@ suite("regression_test_variant", "p0"){
         table_name = "t_json_parallel"
         create_table table_name
         sql """INSERT INTO t_json_parallel SELECT *, '{"k1":1, "k2": "some", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "50000");"""
-        qt_sql_25 """ SELECT sum(cast(v['k1'] as int)), sum(cast(v['k4'] as double)), sum(cast(json_extract(v['k5'], "\$.[0].[0]") as int)) from t_json_parallel; """
+        qt_sql_25 """ SELECT sum(cast(v['k1'] as int)), sum(cast(v['k4'] as double)), sum(cast(json_extract(cast(v['k5'] as JSONB), "\$.[0].[0]") as int)) from t_json_parallel; """
             //50000  61700000        55000.00000000374       6150000
         // 7. gh data
         table_name = "ghdata"
@@ -262,11 +262,11 @@ suite("regression_test_variant", "p0"){
         create_table table_name
         sql """insert into  sparse_columns select * from (select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 1, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
-        qt_sql_30 """ select v from sparse_columns where json_extract_string(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_30 """ select v from sparse_columns where cast(v as string) != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
         sql """insert into  sparse_columns select * from (select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 1, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096"))t order by 1 limit 4096 ;"""
-        qt_sql_31 """ select v from sparse_columns where json_extract_string(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_31 """ select v from sparse_columns where cast(v as string) != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
 
         table_name = "github_events"
@@ -391,11 +391,6 @@ suite("regression_test_variant", "p0"){
         qt_sql_records3 """SELECT value FROM records WHERE   value['text99'] MATCH_ALL '来 广州 但是嗯嗯 还 不能 在'  OR (  value['text47'] MATCH_ALL '你 觉得 超 好看 的 动' ) OR (  value['text43'] MATCH_ALL ' 楼主 拒绝 了 一个 女生 我 傻逼 吗手' )  LIMIT 0, 100"""
         qt_sql_records4 """SELECT value FROM records WHERE  value['id16'] = '39960' AND (  value['text59'] = '非 明显 是 一 付 很 嫌') AND (  value['text99'] = '来 广州 但是嗯嗯 还 不能 在 ')  """
         qt_sql_records5 """SELECT value FROM records WHERE  value['text3'] MATCH_ALL '伊心 是 来 搞笑 的'  LIMIT 0, 100"""
-
-        test {
-            sql "select v['a'] from ${table_name} group by v['a']"
-            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
-        }
 
         test {
             sql """

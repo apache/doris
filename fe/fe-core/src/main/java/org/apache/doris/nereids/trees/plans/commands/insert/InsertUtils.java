@@ -106,6 +106,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -446,12 +447,24 @@ public class InsertUtils {
             staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
             staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        } else if (unboundLogicalSink instanceof UnboundHiveTableSink) {
+            staticPartitions = ((UnboundHiveTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
         if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
-            Set<String> staticPartitionColNames = staticPartitions.keySet();
+            // Static partition columns get their values from the PARTITION clause instead of the
+            // inline VALUES list, so they must be excluded from the implicit target schema before
+            // the column-count check below. Otherwise e.g. Hive table (v, dt) with
+            // PARTITION(dt='x') VALUES (1) would be checked against 2 columns and fail with
+            // "Column count doesn't match value count".
+            // Match case-insensitively via Locale.ROOT because partition column names are
+            // case-insensitive (Hive stores them lowercase in HMS), avoiding locale-dependent
+            // folding (e.g. the Turkish 'I').
+            Set<String> staticPartitionColNames = staticPartitions.keySet().stream()
+                    .map(name -> name.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
             columns = columns.stream()
-                    .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                    .filter(column -> !staticPartitionColNames.contains(column.getName().toLowerCase(Locale.ROOT)))
                     .collect(ImmutableList.toImmutableList());
         }
 

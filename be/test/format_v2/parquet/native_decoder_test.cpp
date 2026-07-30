@@ -176,8 +176,16 @@ TEST(ParquetV2NativeDecoderTest, RawExprPreservesFloatNanOrdering) {
     EXPECT_EQ(matches, (std::array<uint8_t, values.size()> {0, 0, 0, 1}));
 }
 
-TEST(ParquetV2NativeDecoderTest, RawFixedFilterSupportsIdentityWidthEncodingTypes) {
+TEST(ParquetV2NativeDecoderTest, RawFilterSupportsDecoderEncodingTypes) {
     using Reader = ColumnChunkReader<false, false>;
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::PLAIN,
+                                                           tparquet::Type::BOOLEAN));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::RLE,
+                                                           tparquet::Type::BOOLEAN));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::PLAIN,
+                                                           tparquet::Type::INT96));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::PLAIN,
+                                                           tparquet::Type::FIXED_LEN_BYTE_ARRAY));
     EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
                                                            tparquet::Type::INT32));
     EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
@@ -186,6 +194,10 @@ TEST(ParquetV2NativeDecoderTest, RawFixedFilterSupportsIdentityWidthEncodingType
                                                            tparquet::Type::FLOAT));
     EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
                                                            tparquet::Type::DOUBLE));
+    EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                                           tparquet::Type::FIXED_LEN_BYTE_ARRAY));
+    EXPECT_TRUE(Reader::supports_raw_binary_filter_encoding(tparquet::Encoding::BYTE_STREAM_SPLIT,
+                                                            tparquet::Type::FIXED_LEN_BYTE_ARRAY));
     EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::DELTA_BINARY_PACKED,
                                                            tparquet::Type::INT32));
     EXPECT_TRUE(Reader::supports_raw_fixed_filter_encoding(tparquet::Encoding::DELTA_BINARY_PACKED,
@@ -1171,11 +1183,18 @@ TEST(ParquetV2NativeDecoderTest, RawExprMapsNullableSparseRowsDirectly) {
     IColumn::Filter physical_matches;
     auto projected_column = make_nullable(field.data_type)->create_column();
     IColumn::Filter row_filter;
+    DataTypeNumberSerDe<TYPE_INT> serde;
+    ParquetDecodeContext decode_context;
+    decode_context.physical_type = ParquetPhysicalType::INT32;
+    decode_context.encoding = ParquetValueEncoding::PLAIN;
     bool used_filter = false;
+    IColumn::Filter conversion_nulls;
+    DirectPredicateExecutionKind execution_kind = DirectPredicateExecutionKind::NONE;
     ASSERT_TRUE(chunk_reader
-                        .filter_fixed_width_values(predicates, 0, select_vector, &selected_nulls,
-                                                   &physical_matches, projected_column.get(),
-                                                   &row_filter, &used_filter)
+                        .filter_fixed_width_values(
+                                predicates, 0, select_vector, &selected_nulls, &physical_matches,
+                                projected_column.get(), &conversion_nulls, &row_filter, serde,
+                                decode_context, false, &used_filter, &execution_kind)
                         .ok());
 
     EXPECT_TRUE(used_filter);
@@ -3425,9 +3444,10 @@ TEST(ParquetV2NativeDecoderTest, LazyFixedWidthFilterUsesReconciledFirstPageRang
     size_t rows = 0;
     bool eof = false;
     bool used_filter = false;
+    DirectPredicateExecutionKind execution_kind = DirectPredicateExecutionKind::NONE;
     const auto status = reader.read_fixed_width_filter(
             {create_int32_raw_comparison(0, "ge", TExprOpcode::GE, 0)}, 0, filter, 2, nullptr,
-            &row_filter, &rows, &eof, &used_filter);
+            &row_filter, &rows, &eof, &used_filter, &execution_kind);
     ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(used_filter);
     EXPECT_EQ(rows, 2);
@@ -4844,6 +4864,24 @@ TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHystere
     const size_t released_bytes = reader.retained_batch_scratch_bytes_for_test();
     EXPECT_LT(released_bytes, oversized_bytes);
     EXPECT_LE(released_bytes, max_retained_bytes + sizeof(void*));
+}
+
+TEST(ParquetV2NativeDecoderTest, NestedBatchScratchEnforcesAggregateRetentionLimit) {
+    ::doris::RowRanges row_ranges;
+    tparquet::ColumnChunk chunk;
+    ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
+
+    constexpr size_t max_retained_bytes = 64UL << 10;
+    constexpr size_t elements_per_level_buffer = 24UL << 10;
+    reader.reserve_level_scratch_for_test(elements_per_level_buffer);
+    const size_t aggregate_bytes = reader.retained_batch_scratch_bytes_for_test();
+    ASSERT_GT(aggregate_bytes, max_retained_bytes);
+    ASSERT_LT(elements_per_level_buffer * sizeof(level_t), max_retained_bytes);
+
+    reader.release_batch_scratch(max_retained_bytes);
+    reader.release_batch_scratch(max_retained_bytes);
+    reader.release_batch_scratch(max_retained_bytes);
+    EXPECT_LE(reader.retained_batch_scratch_bytes_for_test(), max_retained_bytes);
 }
 
 } // namespace

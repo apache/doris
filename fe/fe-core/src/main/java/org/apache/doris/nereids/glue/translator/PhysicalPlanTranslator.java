@@ -641,6 +641,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         IcebergMergeSink sink = new IcebergMergeSink(
                 (IcebergExternalTable) icebergMergeSink.getTargetTable(),
                 icebergMergeSink.getDeleteContext(),
+                icebergMergeSink.isRequireMergeCardinalityCheck(),
                 icebergMergeSink.getWriteSchemaContext());
         rootFragment.setSink(sink);
         return rootFragment;
