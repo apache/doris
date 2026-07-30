@@ -27,6 +27,8 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -47,6 +50,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +67,7 @@ public class ExecuteCommand extends Command {
     private final String stmtName;
     private final PrepareCommand prepareCommand;
     private final StatementContext statementContext;
+    private Instant executionStartTime;
 
     public ExecuteCommand(String stmtName, PrepareCommand prepareCommand, StatementContext statementContext) {
         super(PlanType.EXECUTE_COMMAND);
@@ -89,6 +94,10 @@ public class ExecuteCommand extends Command {
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         StatementContext statementContext = preparedStmtCtx.getStatementContext();
+        if (executionStartTime == null) {
+            executionStartTime = Instant.now();
+        }
+        statementContext.resetStatementStartTime(executionStartTime);
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
         // A prepared EXECUTE reuses this one StatementContext across executions; drop the connector
@@ -139,11 +148,13 @@ public class ExecuteCommand extends Command {
                 && hasShortCircuitContext
                 && shortCircuitContextReusable
                 && !statementContext.hasNondeterministic()) {
+            applySetVarHints(logicalPlan, statementContext);
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
         if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
             if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
+                applySetVarHints(logicalPlan, statementContext);
                 OlapGroupCommitInsertExecutor.fastAnalyzeGroupCommit(ctx, prepareCommand);
             } else {
                 OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, prepareCommand);
@@ -169,6 +180,19 @@ public class ExecuteCommand extends Command {
                     new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
             statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
         }
+    }
+
+    static void applySetVarHints(LogicalPlan logicalPlan, StatementContext statementContext) {
+        logicalPlan.foreach(plan -> {
+            if (plan instanceof LogicalSelectHint) {
+                for (SelectHint hint : ((LogicalSelectHint<?>) plan).getHints()) {
+                    if (hint instanceof SelectHintSetVar) {
+                        ((SelectHintSetVar) hint).setVarOnceInSql(statementContext);
+                    }
+                }
+            }
+            return false;
+        });
     }
 
     private StatementContext refreshPreparedPlan(PreparedStatementContext preparedStmtCtx, StmtExecutor executor,
@@ -200,6 +224,7 @@ public class ExecuteCommand extends Command {
 
             LogicalPlanAdapter reparsedAdapter = (LogicalPlanAdapter) reparsedStmt;
             StatementContext reparsedStatementContext = reparsedAdapter.getStatementContext();
+            reparsedStatementContext.resetStatementStartTime(executionStartTime);
             List<Placeholder> reparsedPlaceholders = reparsedStatementContext.getPlaceholders();
             List<Placeholder> currentPlaceholders = currentCommand.getPlaceholders();
             if (reparsedPlaceholders.size() != currentPlaceholders.size()) {

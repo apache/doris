@@ -70,6 +70,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -126,10 +127,19 @@ public class NereidsCoordinator extends Coordinator {
             List<PlanFragment> fragments, List<PipelineDistributedPlan> distributedPlans,
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
             boolean enableProfile) {
-        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+        this(jobId, queryId, descTable, fragments, distributedPlans, scanNodes, timezone, loadZeroTolerance,
+                enableProfile, Instant.now());
+    }
+
+    public NereidsCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
+            List<PlanFragment> fragments, List<PipelineDistributedPlan> distributedPlans,
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
+            boolean enableProfile, Instant statementStartTime) {
+        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile,
+                statementStartTime);
         this.coordinatorContext = CoordinatorContext.buildForLoad(
                 this, jobId, queryId, fragments, distributedPlans, scanNodes,
-                descTable, timezone, loadZeroTolerance, enableProfile
+                descTable, timezone, loadZeroTolerance, enableProfile, statementStartTime
         );
         // same reason in `setForInsert`
         this.coordinatorContext.queryOptions.setDisableFileCache(true);

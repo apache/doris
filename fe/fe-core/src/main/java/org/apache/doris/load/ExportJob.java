@@ -61,6 +61,7 @@ import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -74,6 +75,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -115,6 +118,12 @@ public class ExportJob implements Writable {
     private ExportJobState state;
     @SerializedName("createTimeMs")
     private long createTimeMs;
+    @SerializedName("statementStartTimeSecond")
+    private long statementStartTimeSecond;
+    @SerializedName("statementStartTimeNano")
+    private int statementStartTimeNano;
+    @SerializedName("statementTimeZone")
+    private String statementTimeZone;
     @SerializedName("qualifiedUser")
     private String qualifiedUser;
     @SerializedName("userIdentity")
@@ -192,6 +201,8 @@ public class ExportJob implements Writable {
         this.state = ExportJobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
+        setStatementStartTime(Instant.now());
+        this.statementTimeZone = TimeUtils.DEFAULT_TIME_ZONE;
         this.startTimeMs = -1;
         this.finishTimeMs = -1;
         this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
@@ -337,16 +348,29 @@ public class ExportJob implements Writable {
         return plan;
     }
 
-    private StatementBase generateLogicalPlanAdapter(LogicalPlan outfileLogicalPlan) {
-        StatementContext statementContext = new StatementContext();
+    @VisibleForTesting
+    StatementBase generateLogicalPlanAdapter(LogicalPlan outfileLogicalPlan) {
+        OriginStatement originStatement = new OriginStatement("", 0);
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            statementContext.setConnectContext(connectContext);
-        }
+        StatementContext statementContext = new StatementContext(connectContext, originStatement,
+                getStatementStartTime(), ZoneId.of(statementTimeZone, TimeUtils.timeZoneAliasMap));
 
         StatementBase statementBase = new LogicalPlanAdapter(outfileLogicalPlan, statementContext);
-        statementBase.setOrigStmt(new OriginStatement("", 0));
+        statementBase.setOrigStmt(originStatement);
         return statementBase;
+    }
+
+    public Instant getStatementStartTime() {
+        return Instant.ofEpochSecond(statementStartTimeSecond, statementStartTimeNano);
+    }
+
+    public void setStatementStartTime(Instant statementStartTime) {
+        this.statementStartTimeSecond = statementStartTime.getEpochSecond();
+        this.statementStartTimeNano = statementStartTime.getNano();
+    }
+
+    public void setStatementTimeZone(String statementTimeZone) {
+        this.statementTimeZone = statementTimeZone;
     }
 
     public List<? extends TransientTaskExecutor> getCopiedTaskExecutors() {

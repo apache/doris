@@ -1100,7 +1100,10 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SessionVariableField;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -2227,17 +2230,81 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (DorisParser.StatementContext statement : ctx.statement()) {
             StatementContext statementContext = new StatementContext();
             ConnectContext connectContext = ConnectContext.get();
+            SessionVariable sessionVariable = connectContext == null ? null : connectContext.getSessionVariable();
+            boolean previousSingleSetVar = sessionVariable != null && sessionVariable.getIsSingleSetVar();
+            Map<SessionVariableField, String> previousOriginValues = sessionVariable == null
+                    ? null : new HashMap<>(sessionVariable.getSessionOriginValue());
+            Map<SessionVariableField, String> previousScopedValues = sessionVariable == null
+                    ? null : snapshotScopedSetVarValues(sessionVariable, previousOriginValues);
             if (connectContext != null) {
                 connectContext.setStatementContext(statementContext);
                 statementContext.setConnectContext(connectContext);
             }
-            logicalPlans.add(Pair.of(
-                    ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
-            List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
-            statementContext.setPlaceholders(params);
-            tokenPosToParameters.clear();
+            try {
+                logicalPlans.add(Pair.of(
+                        ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
+                List<Placeholder> params = new ArrayList<>(tokenPosToParameters.values());
+                statementContext.setPlaceholders(params);
+                tokenPosToParameters.clear();
+            } finally {
+                if (sessionVariable != null && hasParsedStatementSetVarChanges(
+                        sessionVariable, previousSingleSetVar, previousOriginValues, previousScopedValues)) {
+                    restoreSetVarScope(sessionVariable, previousSingleSetVar,
+                            previousOriginValues, previousScopedValues);
+                }
+            }
         }
         return logicalPlans;
+    }
+
+    private static Map<SessionVariableField, String> snapshotScopedSetVarValues(
+            SessionVariable sessionVariable, Map<SessionVariableField, String> originValues) {
+        Map<SessionVariableField, String> scopedValues = new HashMap<>();
+        for (SessionVariableField variableField : originValues.keySet()) {
+            scopedValues.put(variableField, getSessionVariableValue(sessionVariable, variableField));
+        }
+        return scopedValues;
+    }
+
+    private static boolean hasParsedStatementSetVarChanges(SessionVariable sessionVariable,
+            boolean previousSingleSetVar, Map<SessionVariableField, String> previousOriginValues,
+            Map<SessionVariableField, String> previousScopedValues) {
+        if (!sessionVariable.getIsSingleSetVar()) {
+            return false;
+        }
+        if (!previousSingleSetVar
+                || !sessionVariable.getSessionOriginValue().keySet().equals(previousOriginValues.keySet())) {
+            return true;
+        }
+        for (Map.Entry<SessionVariableField, String> entry : previousScopedValues.entrySet()) {
+            if (!entry.getValue().equals(getSessionVariableValue(sessionVariable, entry.getKey()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void restoreSetVarScope(SessionVariable sessionVariable, boolean previousSingleSetVar,
+            Map<SessionVariableField, String> previousOriginValues,
+            Map<SessionVariableField, String> previousScopedValues) {
+        sessionVariable.getSessionOriginValue().putAll(previousScopedValues);
+        try {
+            VariableMgr.revertSessionValue(sessionVariable);
+        } catch (org.apache.doris.common.DdlException e) {
+            throw new AnalysisException("Failed to restore SET_VAR hint after parsing", e);
+        }
+        sessionVariable.clearSessionOriginValue();
+        sessionVariable.getSessionOriginValue().putAll(previousOriginValues);
+        sessionVariable.setIsSingleSetVar(previousSingleSetVar);
+    }
+
+    private static String getSessionVariableValue(
+            SessionVariable sessionVariable, SessionVariableField variableField) {
+        try {
+            return variableField.getField().get(sessionVariable).toString();
+        } catch (IllegalAccessException e) {
+            throw new AnalysisException("Failed to snapshot SET_VAR scope before parsing", e);
+        }
     }
 
     /**

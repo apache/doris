@@ -29,12 +29,15 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
  * Abstract class for all load tasks in Nereids.
  */
 public interface NereidsLoadTaskInfo {
+
+    Instant getStatementStartTime();
 
     boolean getNegative();
 

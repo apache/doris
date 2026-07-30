@@ -20,7 +20,9 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -28,9 +30,32 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 public class BaseAnalysisTaskTest {
+
+    @Test
+    public void testInternalStatementsKeepTaskTimeZone() {
+        BaseAnalysisTask task = new OlapAnalysisTask();
+        task.statementStartTime = Instant.parse("2026-07-17T08:00:00Z");
+        task.statementTimeZone = ZoneId.of("UTC");
+
+        try (AutoCloseConnectContext firstContext = StatisticsUtil.buildConnectContext(false)) {
+            firstContext.connectContext.getSessionVariable().setTimeZone("+00:00");
+            StmtExecutor executor = task.createStmtExecutor(firstContext.connectContext, "select now()");
+            Assertions.assertEquals(ZoneId.of("UTC"),
+                    executor.getContext().getStatementContext().getStatementTimeZone());
+        }
+
+        try (AutoCloseConnectContext secondContext = StatisticsUtil.buildConnectContext(false)) {
+            secondContext.connectContext.getSessionVariable().setTimeZone("+08:00");
+            StmtExecutor executor = task.createStmtExecutor(secondContext.connectContext, "select now()");
+            Assertions.assertEquals(ZoneId.of("UTC"),
+                    executor.getContext().getStatementContext().getStatementTimeZone());
+        }
+    }
 
     @Test
     public void testGetFunctions() {

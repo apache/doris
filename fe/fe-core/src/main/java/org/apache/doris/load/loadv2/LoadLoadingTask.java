@@ -49,6 +49,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -82,6 +83,7 @@ public class LoadLoadingTask extends LoadTask {
 
     private final boolean enableMemTableOnSinkNode;
     private final int batchSize;
+    private final Instant statementStartTime;
 
     private NereidsLoadingTaskPlanner planner;
 
@@ -99,7 +101,8 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
+            Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
+            Instant statementStartTime) {
         super(callback, TaskType.LOADING, priority);
         this.userInfo = userInfo;
         this.db = db;
@@ -123,6 +126,7 @@ public class LoadLoadingTask extends LoadTask {
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
         this.batchSize = batchSize;
+        this.statementStartTime = statementStartTime;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
@@ -134,7 +138,8 @@ public class LoadLoadingTask extends LoadTask {
         }
         planner = new NereidsLoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc,
                 brokerFileGroups, strictMode, isPartialUpdate, partialUpdateNewKeyPolicy, timezone, timeoutS,
-                loadParallelism, sendBatchParallelism, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
+                loadParallelism, sendBatchParallelism, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode,
+                statementStartTime);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -162,7 +167,7 @@ public class LoadLoadingTask extends LoadTask {
         Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
                 loadId, planner.getDescTable(),
                 planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enableProfile);
+                enableProfile, planner.getStatementStartTime());
         if (enableProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }

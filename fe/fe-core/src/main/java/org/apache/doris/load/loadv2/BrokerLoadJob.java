@@ -69,6 +69,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -258,14 +259,14 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
-            BrokerPendingTaskAttachment attachment) throws UserException {
+            BrokerPendingTaskAttachment attachment, Instant statementStartTime) throws UserException {
         LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
                 transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize, statementStartTime);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -295,6 +296,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
         MetaLockUtils.readLockTables(tableList);
+        Instant statementStartTime = Instant.now();
         try {
             for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry
                     : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
@@ -326,7 +328,7 @@ public class BrokerLoadJob extends BulkLoadJob {
 
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
-                        isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);
+                        isEnableMemtableOnSinkNode, batchSize, aggKey, attachment, statementStartTime);
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.

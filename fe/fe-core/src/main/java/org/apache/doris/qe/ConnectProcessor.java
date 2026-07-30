@@ -97,6 +97,7 @@ import org.apache.thrift.TException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -286,7 +287,7 @@ public abstract class ConnectProcessor {
         List<StatementBase> cachedStmts = null;
         CacheKeyType cacheKeyType = null;
         if (wantToParseSqlFromSqlCache) {
-            cachedStmts = parseFromSqlCache(originStmt);
+            cachedStmts = parseFromSqlCache(originStmt, currentStatementStartTime());
             Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
                     .getStatementContext().getSqlCacheContext();
             if (sqlCacheContext.isPresent()) {
@@ -336,6 +337,7 @@ public abstract class ConnectProcessor {
                 StatementBase parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                prepareStatementExecutionTime(parsedStmt, cachedStmts != null);
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
@@ -413,8 +415,20 @@ public abstract class ConnectProcessor {
         }
     }
 
-    private List<StatementBase> parseFromSqlCache(String originStmt) {
-        StatementContext statementContext = new StatementContext(ctx, new OriginStatement(originStmt, 0));
+    protected Instant currentStatementStartTime() {
+        return Instant.now();
+    }
+
+    protected void prepareStatementExecutionTime(StatementBase parsedStmt, boolean fromSqlCache) {
+        if (parsedStmt instanceof LogicalPlanAdapter && !fromSqlCache) {
+            ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                    .resetStatementStartTime(currentStatementStartTime());
+        }
+    }
+
+    private List<StatementBase> parseFromSqlCache(String originStmt, Instant statementStartTime) {
+        StatementContext statementContext = new StatementContext(
+                ctx, new OriginStatement(originStmt, 0), statementStartTime);
         ctx.setStatementContext(statementContext);
 
         // the mysql protocol has different between COM_QUERY and COM_STMT_EXECUTE,

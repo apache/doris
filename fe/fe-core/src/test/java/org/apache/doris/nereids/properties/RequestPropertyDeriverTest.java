@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.hint.DistributeHint;
@@ -25,6 +27,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -47,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
@@ -54,14 +58,18 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMer
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -134,6 +142,39 @@ class RequestPropertyDeriverTest {
         new Group(null, groupExpression, null);
 
         return new RequestPropertyDeriver(ctx, jobContext).getRequestChildrenPropertyList(groupExpression);
+    }
+
+    @Test
+    void testHttpStreamStrictConsistencyScopeSurvivesParsing() throws Exception {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        SessionVariable sessionVariable = testConnectContext.getSessionVariable();
+        Assertions.assertTrue(sessionVariable.setVarOnce(
+                SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false"));
+
+        try (MockedStatic<ConnectContext> connectContextMockedStatic = Mockito.mockStatic(ConnectContext.class)) {
+            connectContextMockedStatic.when(ConnectContext::get).thenReturn(testConnectContext);
+            new NereidsParser().parseSQL("insert into test_db.test_table values (1)");
+
+            Assertions.assertFalse(sessionVariable.isEnableStrictConsistencyDml());
+            Assertions.assertTrue(sessionVariable.getIsSingleSetVar());
+            Assertions.assertEquals(1, sessionVariable.getSessionOriginValue().size());
+            PhysicalOlapTableSink<GroupPlan> sink = new PhysicalOlapTableSink<>(
+                    Mockito.mock(DatabaseIf.class), Mockito.mock(OlapTable.class),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false, false,
+                    TPartialUpdateNewRowPolicy.APPEND, DMLCommandType.INSERT, ImmutableList.of(),
+                    ImmutableMap.of(), ImmutableList.of(), Optional.empty(), logicalProperties, groupPlan);
+            GroupExpression sinkExpression = new GroupExpression(sink);
+            new Group(null, sinkExpression, null);
+
+            List<List<PhysicalProperties>> childProperties = new RequestPropertyDeriver(
+                    testConnectContext, PhysicalProperties.ANY)
+                    .getRequestChildrenPropertyList(sinkExpression);
+            Assertions.assertEquals(ImmutableList.of(ImmutableList.of(PhysicalProperties.ANY)), childProperties);
+        } finally {
+            VariableMgr.revertSessionValue(sessionVariable);
+            sessionVariable.setIsSingleSetVar(false);
+            sessionVariable.clearSessionOriginValue();
+        }
     }
 
     @Test

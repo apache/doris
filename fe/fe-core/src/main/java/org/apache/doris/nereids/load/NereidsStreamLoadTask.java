@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -49,6 +50,7 @@ import java.util.stream.Collectors;
  * Nereids Stream Load Task
  */
 public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
+    private Instant statementStartTime = Instant.now();
     private TUniqueId id;
     private long txnId;
     private TFileType fileType;
@@ -120,6 +122,15 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
 
     public TUniqueId getId() {
         return id;
+    }
+
+    @Override
+    public Instant getStatementStartTime() {
+        return statementStartTime;
+    }
+
+    public void setStatementStartTime(Instant statementStartTime) {
+        this.statementStartTime = statementStartTime;
     }
 
     public long getTxnId() {
@@ -356,6 +367,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         NereidsStreamLoadTask streamLoadTask = new NereidsStreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() != null) {
+            streamLoadTask.setStatementStartTime(
+                    connectContext.getStatementContext().getStatementStartTime());
+        }
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         streamLoadTask.setGroupCommit(request.getGroupCommitMode());
         if (request.isSetFileSize()) {
