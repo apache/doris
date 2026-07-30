@@ -69,6 +69,28 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     def res = sql "show create table auto_recycle"
     assertTrue(res[0][1].contains('"partition.retention_count" = "3"'))
 
+    sql "drop table if exists auto_recycle_with_dynamic"
+    sql """
+        create table auto_recycle_with_dynamic(
+            k0 datetime(6) not null
+        )
+        auto partition by range (date_trunc(k0, 'day')) ()
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 1
+        properties(
+            "dynamic_partition.enable" = "true",
+            "dynamic_partition.time_unit" = "DAY",
+            "dynamic_partition.start" = "-3",
+            "dynamic_partition.end" = "3",
+            "dynamic_partition.prefix" = "p",
+            "dynamic_partition.buckets" = "1",
+            "replication_num" = "1"
+        );
+    """
+    test {
+        sql "alter table auto_recycle_with_dynamic set ('partition.retention_count' = '3')"
+        exception "Can not use partition.retention_count and dynamic_partition properties at the same time"
+    }
+
     sql "drop table auto_recycle force"
     sql """
         create table auto_recycle(
