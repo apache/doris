@@ -29,6 +29,8 @@ import java.util.Map;
  */
 public class TrinoConnectorProvider implements ConnectorProvider {
 
+    static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
+
     @Override
     public String getType() {
         return "trino-connector";
@@ -37,5 +39,14 @@ public class TrinoConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new TrinoDorisConnector(properties, context);
+    }
+
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        String connectorName = properties.get(TRINO_CONNECTOR_NAME);
+        if (connectorName == null || connectorName.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Required property '" + TRINO_CONNECTOR_NAME + "' is missing");
+        }
     }
 }
