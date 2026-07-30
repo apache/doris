@@ -117,7 +117,11 @@ jobs:
           "${CUSTOM_CMAKE}" --version
           pushd thirdparty
           branch="${{ github.base_ref }}"
-          asset="doris-thirdparty-prebuilt-darwin-x86_64.tar.xz"
+          case "$(uname -m)" in
+            arm64) asset="doris-thirdparty-prebuilt-darwin-arm64.tar.xz" ;;
+            x86_64) asset="doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
           common_url="https://github.com/apache/doris-thirdparty/releases/download/automation/${asset}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
             curl -fL "${common_url}" -o "${asset}"
@@ -151,7 +155,8 @@ jobs:
           fi
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          export JAVA_HOME
+          JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 
           # Match the retired macos-13 image's Xcode generation while branch-4.1
           # is made compatible with the newer macOS 15 libc++ toolchain.
