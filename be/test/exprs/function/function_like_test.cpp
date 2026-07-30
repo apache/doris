@@ -259,6 +259,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
             // group index 0 also works for patterns without capturing groups
             {{std::string("ab1cd22"), std::string("[0-9]+"), (int64_t)0},
              std::string("['1','22']")},
+            // advancing past a match must use the match offset, not a textual find
+            {{std::string("ab b"), std::string("\\bb"), (int64_t)0}, std::string("['b']")},
             // null
             {{std::string("abc"), Null(), (int64_t)1}, Null()},
             {{Null(), std::string("i([0-9]+)"), (int64_t)1}, Null()}};
@@ -278,6 +280,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
              std::string("['18','17']")},
             {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")}, std::string("['i']")},
+            // legacy behavior: patterns without capturing groups yield an empty result
+            {{std::string("xxfs"), std::string("f")}, std::string("")},
             {{std::string("abc"), Null()}, Null()},
             {{Null(), std::string("i([0-9]+)")}, Null()}};
     InputTypeSet two_arg_input_types = {PrimitiveType::TYPE_VARCHAR,
@@ -475,7 +479,7 @@ TEST(FunctionLikeTest, regexp_extract_all_invalid_group_index) {
         auto col_str = ColumnString::create();
         col_str->insert_data("hitdecisiondlist", 16);
         auto col_pattern = ColumnString::create();
-        col_pattern->insert_data("(i)(.*?)(e)", 10);
+        col_pattern->insert_data("(i)(.*?)(e)", 11);
         auto col_idx = ColumnInt64::create();
         col_idx->insert_value(idx);
 

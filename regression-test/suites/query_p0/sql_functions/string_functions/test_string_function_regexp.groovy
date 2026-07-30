@@ -264,6 +264,25 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_array_group3 "select regexp_extract_all_array('hitdecisiondlist', '(i)(.*?)(e)', 3);"
 
     // column input
+    // column input: the table was dropped earlier in this suite, recreate it first
+    sql "DROP TABLE IF EXISTS test_string_function_regexp"
+    sql """
+            CREATE TABLE IF NOT EXISTS test_string_function_regexp (
+                k varchar(32),
+                v int,
+            )
+            DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");
+        """
+    sql """
+        INSERT INTO test_string_function_regexp VALUES
+            ("billie eillish",1),
+            ("It's ok",2),
+            ("Emmy eillish",3),
+            ("It's true",4),
+            (null,5),
+            ("",6),
+            ("billie eillish",null)
+        """
     qt_sql_regexp_extract_all_col_group0 "SELECT regexp_extract_all(k, '(ll)(i)', 0) from test_string_function_regexp ORDER BY k;"
     qt_sql_regexp_extract_all_col_group1 "SELECT regexp_extract_all(k, '(ll)(i)', 1) from test_string_function_regexp ORDER BY k;"
     qt_sql_regexp_extract_all_col_group2 "SELECT regexp_extract_all(k, '(ll)(i)', 2) from test_string_function_regexp ORDER BY k;"

@@ -174,10 +174,9 @@ struct RegexpExtractEngine {
                         results.emplace_back();
                     }
                 }
-                // Move position forward
-                auto offset = std::string(str_pos, str_size)
-                                      .find(std::string(matches[0].data(), matches[0].size()));
-                pos += offset + matches[0].size();
+                // Move position forward. matches[0] points into the searched string,
+                // so its address gives the exact match offset — no textual find needed.
+                pos += (matches[0].data() - str_pos) + matches[0].size();
             }
         } else if (is_boost()) {
             const char* search_start = data;
@@ -189,10 +188,12 @@ struct RegexpExtractEngine {
                     results.emplace_back(matches[index].str());
                 }
                 if (matches[0].length() == 0) {
-                    if (search_start == search_end) {
+                    // Advance past the zero-width match itself, not from the old origin,
+                    // otherwise a match found after the origin would be emitted twice.
+                    if (matches[0].first == search_end) {
                         break;
                     }
-                    search_start += 1;
+                    search_start = matches[0].first + 1;
                 } else {
                     search_start = matches[0].second;
                 }
@@ -795,8 +796,8 @@ struct RegexpExtractAllImpl {
                         const Int64 index_data =
                                 has_index ? index_col->get_int(index_check_const(i, is_const)) : 1;
                         status = regexp_extract_all_inner_loop<is_const>(
-                                context, str_col, pattern_col, index_data, handler, null_map_data,
-                                i);
+                                context, str_col, pattern_col, index_data, has_index, handler,
+                                null_map_data, i);
                         if (!status.ok()) {
                             return;
                         }
@@ -816,8 +817,9 @@ private:
     static Status regexp_extract_all_inner_loop(FunctionContext* context,
                                                 const ColumnString* str_col,
                                                 const ColumnString* pattern_col,
-                                                const Int64 index_data, Handler& handler,
-                                                NullMap& null_map, const size_t index_now) {
+                                                const Int64 index_data, const bool has_index,
+                                                Handler& handler, NullMap& null_map,
+                                                const size_t index_now) {
         auto* engine = reinterpret_cast<RegexpExtractEngine*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<RegexpExtractEngine> scoped_engine;
@@ -836,14 +838,21 @@ private:
             engine = scoped_engine.get();
         }
 
-        // Same contract as Spark: the group index must be within
-        // [0, number_of_capturing_groups], anything else is an error.
         const int num_groups = engine->number_of_capturing_groups();
-        if (index_data < 0 || index_data > num_groups) {
-            return Status::InvalidArgument(
-                    "The value of parameter(s) `idx` in `{}` is invalid: Expects group index "
-                    "between 0 and {}, but got {}.",
-                    name, num_groups, index_data);
+        if (has_index) {
+            // Same contract as Spark: an explicit group index must be within
+            // [0, number_of_capturing_groups], anything else is an error.
+            if (index_data < 0 || index_data > num_groups) {
+                return Status::InvalidArgument(
+                        "The value of parameter(s) `idx` in `{}` is invalid: Expects group index "
+                        "between 0 and {}, but got {}.",
+                        name, num_groups, index_data);
+            }
+        } else if (num_groups == 0) {
+            // Legacy two-argument behavior: patterns without capturing groups
+            // yield an empty result instead of an error.
+            handler.push_empty(index_now);
+            return Status::OK();
         }
 
         const auto& str = str_col->get_data_at(index_now);
