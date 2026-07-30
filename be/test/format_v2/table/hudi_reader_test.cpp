@@ -141,6 +141,18 @@ public:
     }
 };
 
+class RefreshTrackingTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+        ++refresh_count;
+        return TableReader::refresh_conjuncts(std::move(conjuncts));
+    }
+
+    int refresh_count = 0;
+};
+
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
 // file schema before TableColumnMapper runs. This keeps schema-evolved Hudi files on field-id
 // mapping, including renamed nested children.
@@ -267,6 +279,39 @@ TEST(HudiHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {
     reader.TEST_install_batch_size_children();
     reader.TEST_set_child_condition_cache_hits(2, 7);
     EXPECT_EQ(reader.condition_cache_hit_count(), 9);
+}
+
+TEST(HudiHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TFileScanRangeParams scan_params;
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    hudi::HudiHybridReader reader;
+    RefreshTrackingTableReader* child = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [&] {
+                auto tracking = std::make_unique<RefreshTrackingTableReader>();
+                child = tracking.get();
+                return tracking;
+            },
+            [] { return std::make_unique<TableReader>(); });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_split_format = FileFormat::PARQUET;
+    split.current_range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    ASSERT_NE(child, nullptr);
+    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    EXPECT_EQ(child->refresh_count, 1);
 }
 
 TEST(HudiHybridReaderTest, NativeCountStarReportsMetadataRowsThroughHybridReader) {
