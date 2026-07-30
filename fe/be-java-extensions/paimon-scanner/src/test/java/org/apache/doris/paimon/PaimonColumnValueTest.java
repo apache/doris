@@ -39,6 +39,7 @@ import org.apache.paimon.types.VarCharType;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -184,6 +185,30 @@ public class PaimonColumnValueTest {
     }
 
     @Test
+    public void testNestedArrayCacheRetainsOnlyCurrentShape() throws Exception {
+        int outerSize = 4;
+        int innerSize = 32;
+        ArrayType paimonNestedArrayType = new ArrayType(new ArrayType(new IntType()));
+        ColumnType dorisNestedArrayType = ColumnType.parseType("a", "array<array<int>>");
+        PaimonColumnValue arrayValue = new PaimonColumnValue(
+                nestedArrayRow(outerSize, innerSize, 0, -1), 0,
+                dorisNestedArrayType, paimonNestedArrayType, "UTC");
+
+        consumeNestedArray(arrayValue);
+        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+
+        // Moving the large child to position 1 makes position 0 a smaller, non-null array.
+        arrayValue.setOffsetRow(nestedArrayRow(outerSize, innerSize, 1, -1));
+        consumeNestedArray(arrayValue);
+        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+
+        // Moving it again makes position 1 null, which must release that position's descendants.
+        arrayValue.setOffsetRow(nestedArrayRow(outerSize, innerSize, 2, 1));
+        consumeNestedArray(arrayValue);
+        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+    }
+
+    @Test
     public void testTimestampConversionsPreserveBoundaryValues() {
         Timestamp timestamp = Timestamp.fromEpochMillis(-1, 999_999);
         ColumnType dorisTimestampType = ColumnType.parseType("t", "datetimev2(9)");
@@ -208,6 +233,54 @@ public class PaimonColumnValueTest {
         Assert.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+
+        localZonedValue.setTimeZone("CST");
+        Assert.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
+                localZonedValue.getDateTime());
+    }
+
+    private InternalRow nestedArrayRow(int outerSize, int innerSize, int populatedIndex, int nullIndex) {
+        Object[] outerValues = new Object[outerSize];
+        for (int i = 0; i < outerSize; i++) {
+            if (i == nullIndex) {
+                outerValues[i] = null;
+            } else if (i == populatedIndex) {
+                outerValues[i] = new GenericArray(new int[innerSize]);
+            } else {
+                outerValues[i] = new GenericArray(new int[0]);
+            }
+        }
+        return GenericRow.of(new GenericArray(outerValues));
+    }
+
+    private void consumeNestedArray(PaimonColumnValue arrayValue) {
+        List<ColumnValue> outerValues = new ArrayList<>();
+        arrayValue.unpackArray(outerValues);
+        for (ColumnValue outerValue : outerValues) {
+            if (!outerValue.isNull()) {
+                outerValue.unpackArray(new ArrayList<>());
+            }
+        }
+    }
+
+    private int retainedCachedValues(PaimonColumnValue value) throws Exception {
+        int retained = 0;
+        for (String fieldName : Arrays.asList("arrayValues", "mapKeys", "mapValues", "structValues")) {
+            Field field = PaimonColumnValue.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            List<?> children = (List<?>) field.get(value);
+            if (children == null) {
+                continue;
+            }
+            for (Object child : children) {
+                if (child != null) {
+                    retained++;
+                    retained += retainedCachedValues((PaimonColumnValue) child);
+                }
+            }
+        }
+        return retained;
     }
 
     private PaimonColumnValue createStructValue() {

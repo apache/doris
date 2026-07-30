@@ -39,10 +39,26 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class PaimonColumnValue implements ColumnValue {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
+    private static final Map<String, String> DORIS_TIME_ZONE_ALIASES;
+
+    static {
+        Map<String, String> aliases = new HashMap<>(ZoneId.SHORT_IDS);
+        // The scanner cannot depend on FE's TimeUtils, so keep its accepted aliases and CST
+        // interpretation identical at this JNI boundary.
+        aliases.put("CST", "Asia/Shanghai");
+        aliases.put("PRC", "Asia/Shanghai");
+        aliases.put("UTC", "UTC");
+        aliases.put("GMT", "UTC");
+        DORIS_TIME_ZONE_ALIASES = Collections.unmodifiableMap(aliases);
+    }
+
     private int idx;
     private DataGetters record;
     private ColumnType dorisType;
@@ -58,7 +74,7 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType, DataType dataType, String timeZone) {
-        this(record, idx, columnType, dataType, ZoneId.of(timeZone));
+        this(record, idx, columnType, dataType, resolveTimeZone(timeZone));
     }
 
     private PaimonColumnValue(
@@ -81,7 +97,7 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     public void setTimeZone(String timeZone) {
-        this.timeZone = ZoneId.of(timeZone);
+        this.timeZone = resolveTimeZone(timeZone);
     }
 
     @Override
@@ -169,7 +185,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public boolean isNull() {
-        return record.isNullAt(idx);
+        boolean isNull = record.isNullAt(idx);
+        if (isNull) {
+            // A null complex value has no live descendants; release wrappers retained by its prior row.
+            clearChildCaches();
+        }
+        return isNull;
     }
 
     @Override
@@ -189,6 +210,7 @@ public class PaimonColumnValue implements ColumnValue {
             values.add(reuseColumnValue(arrayValues, i, (DataGetters) recordArray, i,
                     elementDorisType, elementPaimonType));
         }
+        trimCache(arrayValues, recordArray.size());
     }
 
     @Override
@@ -205,6 +227,7 @@ public class PaimonColumnValue implements ColumnValue {
             keys.add(reuseColumnValue(mapKeys, i, (DataGetters) key, i,
                     keyDorisType, keyPaimonType));
         }
+        trimCache(mapKeys, key.size());
         InternalArray value = map.valueArray();
         ColumnType valueDorisType = dorisType.getChildTypes().get(1);
         DataType valuePaimonType = ((MapType) dataType).getValueType();
@@ -212,6 +235,7 @@ public class PaimonColumnValue implements ColumnValue {
             values.add(reuseColumnValue(mapValues, i, (DataGetters) value, i,
                     valueDorisType, valuePaimonType));
         }
+        trimCache(mapValues, value.size());
     }
 
     @Override
@@ -253,5 +277,23 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
         this.dataType = dataType;
         this.timeZone = timeZone;
+    }
+
+    private static ZoneId resolveTimeZone(String timeZone) {
+        return ZoneId.of(timeZone, DORIS_TIME_ZONE_ALIASES);
+    }
+
+    private static void trimCache(List<PaimonColumnValue> cache, int liveSize) {
+        if (cache.size() > liveSize) {
+            // Retain only wrappers addressable by the current container, not its historical maximum.
+            cache.subList(liveSize, cache.size()).clear();
+        }
+    }
+
+    private void clearChildCaches() {
+        arrayValues = null;
+        mapKeys = null;
+        mapValues = null;
+        structValues = null;
     }
 }
