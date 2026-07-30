@@ -21,13 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -65,13 +63,10 @@ class IvmLinearDeltaHandler {
 
     private Optional<IvmDeltaRewriteResult> buildDeltaScanResult(LogicalOlapScan originalScan,
             LogicalOlapTableStreamScan deltaScan, IvmDeltaRewriteState state) {
-        long subSeqPrefix = state.nextSubSeqPrefix();
+        int deltaIndex = state.nextDeltaIndex();
         Expression factorExpr = buildDmlFactorExpr(deltaScan);
         Alias factorAlias = new Alias(factorExpr, Column.IVM_DML_FACTOR_COL);
-        Expression sequenceExpr = new If(
-                new GreaterThan(factorExpr, new TinyIntLiteral((byte) 0)),
-                new BigIntLiteral(state.toSequence(subSeqPrefix | 1)),
-                new BigIntLiteral(state.toSequence(subSeqPrefix)));
+        Expression sequenceExpr = state.toSequenceByDmlFactor(factorExpr, deltaIndex);
         Alias sequenceAlias = new Alias(sequenceExpr, Column.SEQUENCE_COL);
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
                 deltaScan.getOutput().size() + 2);
@@ -100,7 +95,7 @@ class IvmLinearDeltaHandler {
         Slot dmlFactorSlot = project.getOutput().get(lastIdx - 1);
         Slot sequenceSlot = project.getOutput().get(lastIdx);
         return Optional.of(new IvmDeltaRewriteResult(project, dmlFactorSlot, sequenceSlot,
-                state.maxSeqSuffix(subSeqPrefix)));
+                deltaIndex));
     }
 
     private Expression buildDmlFactorExpr(LogicalOlapTableStreamScan scan) {
@@ -140,7 +135,7 @@ class IvmLinearDeltaHandler {
         LogicalProject<?> newProject = project.withProjectsAndChild(newOutputs.build(), child.plan);
         Slot newDmlFactor = helper.findSlotByName(newProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot newSequence = helper.findSlotByName(newProject.getOutput(), Column.SEQUENCE_COL);
-        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence, child.maxSeqSuffix));
+        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence, child.maxDeltaIndex));
     }
 
     Optional<IvmDeltaRewriteResult> rewriteFilter(LogicalFilter<? extends Plan> filter,
@@ -164,12 +159,12 @@ class IvmLinearDeltaHandler {
         Plan newPlan = plan.withChildren(ImmutableList.of(deltaChild.plan));
         if (!remapHiddenSlotsFromOutput) {
             return Optional.of(new IvmDeltaRewriteResult(newPlan,
-                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxSeqSuffix));
+                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxDeltaIndex));
         } else {
             Slot newDmlFactorSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
             Slot newSequenceSlot = helper.findSlotByName(newPlan.getOutput(), Column.SEQUENCE_COL);
             return Optional.of(new IvmDeltaRewriteResult(newPlan, newDmlFactorSlot,
-                    newSequenceSlot, deltaChild.maxSeqSuffix));
+                    newSequenceSlot, deltaChild.maxDeltaIndex));
         }
     }
 
@@ -196,7 +191,7 @@ class IvmLinearDeltaHandler {
             Slot newDmlFactor = helper.findSlotByName(mappedProject.getOutput(), Column.IVM_DML_FACTOR_COL);
             Slot newSequence = helper.findSlotByName(mappedProject.getOutput(), Column.SEQUENCE_COL);
             childResults.add(new IvmDeltaRewriteResult(mappedProject, newDmlFactor, newSequence,
-                    deltaChild.maxSeqSuffix));
+                    deltaChild.maxDeltaIndex));
         }
         return helper.combineDeltaResults(childResults, union.getOutput());
     }
@@ -227,6 +222,6 @@ class IvmLinearDeltaHandler {
         LogicalProject<Plan> project = new LogicalProject<>(projects.build(), newRepeat);
         return Optional.of(new IvmDeltaRewriteResult(project,
                 helper.findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL),
-                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), child.maxSeqSuffix));
+                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), child.maxDeltaIndex));
     }
 }

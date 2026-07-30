@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.HashMap;
@@ -71,7 +72,7 @@ public class IvmDeltaRewriter {
         IvmDeltaRewriteResult result = deltaResult.get();
         IvmDeltaRewriteResult mergedResult = new IvmDeltaRewriteResult(deltaPlan,
                 helper.findSlotByName(deltaPlan.getOutput(), Column.IVM_DML_FACTOR_COL),
-                helper.findSlotByName(deltaPlan.getOutput(), Column.SEQUENCE_COL), result.maxSeqSuffix);
+                helper.findSlotByName(deltaPlan.getOutput(), Column.SEQUENCE_COL), result.maxDeltaIndex);
         Slot rootRowId = IvmUtil.findRowIdSlot(rootPlan.getOutput(), "normalized plan root");
         if (!refreshContext.getRewriteResult().isDeterministic(rootRowId)) {
             mergedResult = helper.wrapDmlFactorWithRootNonDetGuard(mergedResult);
@@ -126,7 +127,8 @@ public class IvmDeltaRewriter {
             OlapTableStream stream = IvmUtil.getIvmStream(ctx.getMtmv(), (OlapTable) scan.getTable());
             streams.put((OlapTable) scan.getTable(), stream);
         });
-        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), refreshVersion);
+        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), refreshVersion,
+                DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType()));
     }
 
     boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {

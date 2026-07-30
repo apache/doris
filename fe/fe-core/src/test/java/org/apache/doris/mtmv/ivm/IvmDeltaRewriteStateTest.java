@@ -17,6 +17,11 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.LargeIntType;
+
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,28 +30,45 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
 
     @Test
     void testSequenceEncodesRefreshVersionAndDeltaIndex() {
-        IvmDeltaRewriteState state = new IvmDeltaRewriteState(ImmutableMap.of(), false, 7L);
+        IvmDeltaRewriteState state = new IvmDeltaRewriteState(
+                ImmutableMap.of(), false, 7L, BigIntType.INSTANCE);
 
         for (int i = 0; i < 5; i++) {
-            state.nextSubSeqPrefix();
+            state.nextDeltaIndex();
         }
-        Assertions.assertEquals((7L << 11) | (5L << 1), state.toSequence(state.nextSubSeqPrefix()));
+        Assertions.assertEquals((7L << 11) | (5L << 1) | 1,
+                ((BigIntLiteral) state.toSequence(state.nextDeltaIndex())).getValue());
+    }
+
+    @Test
+    void testLargeIntSequenceEncodesRefreshVersionAndDeltaIndex() {
+        IvmDeltaRewriteState state = new IvmDeltaRewriteState(
+                ImmutableMap.of(), false, 7L, LargeIntType.INSTANCE);
+
+        for (int i = 0; i < 3; i++) {
+            state.nextDeltaIndex();
+        }
+        LargeIntLiteral sequence = (LargeIntLiteral) state.toSequence(state.nextDeltaIndex());
+        Assertions.assertEquals(java.math.BigInteger.valueOf(7).shiftLeft(75)
+                .or(java.math.BigInteger.valueOf(3).shiftLeft(65)).or(java.math.BigInteger.ONE), sequence.getValue());
     }
 
     @Test
     void testSequenceRejectsTooManyDeltaScans() {
-        IvmDeltaRewriteState state = new IvmDeltaRewriteState(ImmutableMap.of(), false, 1L);
+        IvmDeltaRewriteState state = new IvmDeltaRewriteState(
+                ImmutableMap.of(), false, 1L, BigIntType.INSTANCE);
 
         for (int i = 0; i < 1024; i++) {
-            state.nextSubSeqPrefix();
+            state.nextDeltaIndex();
         }
-        IvmException exception = Assertions.assertThrows(IvmException.class, state::nextSubSeqPrefix);
+        IvmException exception = Assertions.assertThrows(IvmException.class, state::nextDeltaIndex);
         Assertions.assertTrue(exception.getMessage().contains("too many delta scans"));
     }
 
     @Test
     void testExcludedTableDoesNotCreateDeltaScan() {
-        IvmDeltaRewriteState state = new IvmDeltaRewriteState(ImmutableMap.of(), false, 1L);
+        IvmDeltaRewriteState state = new IvmDeltaRewriteState(
+                ImmutableMap.of(), false, 1L, BigIntType.INSTANCE);
 
         Assertions.assertTrue(state.isExcluded(buildScan()));
         Assertions.assertFalse(state.createDeltaScan(buildScan()).isPresent());

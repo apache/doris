@@ -77,8 +77,8 @@ allowed. FULL OUTER JOIN requires deterministic row-ids on both sides.
   left post snapshot. Non-empty child contributions are combined with `UNION ALL`.
 - `preSnapshot(plan)` and `postSnapshot(plan)` rewrite scans on demand and then fresh-copy the plan.
 - Delta rows carry `dml_factor` and `sequence` together. `sequence` is allocated at delta scan
-  leaves and propagated upward; `maxSeqSuffix` is metadata used by outer-join padding rows.
-- Aggregate IVM output uses the refresh-version-encoded `maxSeqSuffix` from its child delta. Aggregate refresh
+  leaves and propagated upward; `maxDeltaIndex` is metadata used by outer-join padding rows.
+- Aggregate IVM output uses the sequence encoded from its child delta's `maxDeltaIndex`. Aggregate refresh
   does not require row event ordering, but it must retain the normal sequence-column contract.
 
 ## Explain Refresh Plans

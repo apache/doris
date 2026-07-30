@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -107,7 +108,7 @@ public class IvmDeltaRewriteHelper {
                 .orElseThrow(() -> new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM: lost dml_factor after non-det guard"));
         Slot newSequenceSlot = findSlotByName(guardProject.getOutput(), Column.SEQUENCE_COL);
-        return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot, newSequenceSlot, result.maxSeqSuffix);
+        return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot, newSequenceSlot, result.maxDeltaIndex);
     }
 
     Optional<IvmDeltaRewriteResult> combineDeltaResults(List<IvmDeltaRewriteResult> children,
@@ -119,10 +120,10 @@ public class IvmDeltaRewriteHelper {
             return Optional.of(children.get(0));
         }
         List<Plan> unionChildren = new java.util.ArrayList<>(children.size());
-        long maxSeqSuffix = 0;
+        int maxDeltaIndex = 0;
         for (IvmDeltaRewriteResult child : children) {
             unionChildren.add(freshDeltaResult(child).plan);
-            maxSeqSuffix = Math.max(maxSeqSuffix, child.maxSeqSuffix);
+            maxDeltaIndex = Math.max(maxDeltaIndex, child.maxDeltaIndex);
         }
         LogicalUnion union = buildUnionAll(unionChildren);
         List<Slot> projectionTargets = new java.util.ArrayList<>(targetOutputs);
@@ -131,13 +132,13 @@ public class IvmDeltaRewriteHelper {
         LogicalProject<Plan> project = projectUnionOutputs(union, projectionTargets);
         Slot dmlFactorSlot = findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = findSlotByName(project.getOutput(), Column.SEQUENCE_COL);
-        return Optional.of(new IvmDeltaRewriteResult(project, dmlFactorSlot, sequenceSlot, maxSeqSuffix));
+        return Optional.of(new IvmDeltaRewriteResult(project, dmlFactorSlot, sequenceSlot, maxDeltaIndex));
     }
 
     IvmDeltaRewriteResult freshDeltaResult(IvmDeltaRewriteResult source) {
         Pair<Plan, Map<Slot, Slot>> copied = freshPlan(source.plan);
         return new IvmDeltaRewriteResult(copied.first, copied.second.get(source.dmlFactorSlot),
-                copied.second.get(source.sequenceSlot), source.maxSeqSuffix);
+                copied.second.get(source.sequenceSlot), source.maxDeltaIndex);
     }
 
     /**
@@ -204,7 +205,9 @@ public class IvmDeltaRewriteHelper {
         }
         Slot sequenceSlot = findSlotByNameOrNull(output, Column.SEQUENCE_COL);
         outputs.add(sequenceSlot != null ? sequenceSlot
-                : new Alias(IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL), Column.SEQUENCE_COL));
+                : new Alias(IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL,
+                        DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType())),
+                        Column.SEQUENCE_COL));
         outputs.add(new Alias(
                 new If(new LessThan(result.dmlFactorSlot, new TinyIntLiteral((byte) 0)),
                         new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0)),
@@ -424,7 +427,7 @@ public class IvmDeltaRewriteHelper {
     Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
         String name = oldExpr.getName();
         if (IvmUtil.isCommonHiddenSlot(name)) {
-            return IvmUtil.getCommonHiddenSlotDefault(name);
+            return IvmUtil.getCommonHiddenSlotDefault(name, oldExpr.getDataType());
         }
         return new NullLiteral(oldExpr.getDataType());
     }

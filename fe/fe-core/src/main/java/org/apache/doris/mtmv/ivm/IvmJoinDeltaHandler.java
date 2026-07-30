@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -111,7 +110,7 @@ class IvmJoinDeltaHandler {
         LogicalProject<?> project = new LogicalProject<>(projects.build(), delta.plan);
         return new IvmDeltaRewriteResult(project,
                 helper.findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL),
-                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), delta.maxSeqSuffix);
+                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), delta.maxDeltaIndex);
     }
 
     private IvmDeltaRewriteResult rewriteJoinContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
@@ -149,7 +148,7 @@ class IvmJoinDeltaHandler {
         return rewriteNullSideDelta(new NullSideDeltaContext(join, deltaOnLeft, delta, leftInput, rightInput,
                 IvmDeltaRewriter.preSnapshot(deltaSideChild, rewriteState),
                 IvmDeltaRewriter.postSnapshot(deltaSideChild, rewriteState),
-                rewriteState.toSequence(delta.maxSeqSuffix)));
+                rewriteState, delta.maxDeltaIndex));
     }
 
     private IvmDeltaRewriteResult rewriteInnerJoinContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
@@ -165,7 +164,7 @@ class IvmJoinDeltaHandler {
         Slot dmlFactorSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL);
         IvmDeltaRewriteResult joinResult = new IvmDeltaRewriteResult(rewrittenJoin,
-                dmlFactorSlot, sequenceSlot, delta.maxSeqSuffix);
+                dmlFactorSlot, sequenceSlot, delta.maxDeltaIndex);
         return projectJoinContribution(join, joinResult, slotMapping);
     }
 
@@ -180,7 +179,7 @@ class IvmJoinDeltaHandler {
         LogicalProject<Plan> project = new LogicalProject<>(projects.build(), joinResult.plan);
         return new IvmDeltaRewriteResult(project,
                 helper.findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL),
-                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), joinResult.maxSeqSuffix);
+                helper.findSlotByName(project.getOutput(), Column.SEQUENCE_COL), joinResult.maxDeltaIndex);
     }
 
     private void mapJoinConjunctInputs(LogicalJoin<? extends Plan, ? extends Plan> join,
@@ -241,7 +240,7 @@ class IvmJoinDeltaHandler {
                 leftInput.plan, rightInput.plan, JoinReorderContext.EMPTY);
         IvmDeltaRewriteResult joinResult = new IvmDeltaRewriteResult(rewrittenJoin,
                 helper.findSlotByName(rewrittenJoin.getOutput(), Column.IVM_DML_FACTOR_COL),
-                helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL), delta.maxSeqSuffix);
+                helper.findSlotByName(rewrittenJoin.getOutput(), Column.SEQUENCE_COL), delta.maxDeltaIndex);
         return projectJoinContribution(join, joinResult, slotMapping);
     }
 
@@ -304,7 +303,7 @@ class IvmJoinDeltaHandler {
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequence = findSlotByName(outputProject.getOutput(), Column.SEQUENCE_COL);
         return new IvmDeltaRewriteResult(outputProject, dmlFactor, sequence,
-                deltaContext.deltaSideResult().maxSeqSuffix);
+                deltaContext.deltaSideResult().maxDeltaIndex);
     }
 
     /**
@@ -330,7 +329,7 @@ class IvmJoinDeltaHandler {
                 new IvmDeltaRewriteResult(newJoin,
                         helper.findSlotByName(newJoin.getOutput(), Column.IVM_DML_FACTOR_COL),
                         helper.findSlotByName(newJoin.getOutput(), Column.SEQUENCE_COL),
-                        deltaContext.deltaSideResult().maxSeqSuffix), slotMapping).plan;
+                        deltaContext.deltaSideResult().maxDeltaIndex), slotMapping).plan;
     }
 
     /**
@@ -446,7 +445,7 @@ class IvmJoinDeltaHandler {
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequence = findSlotByName(outputProject.getOutput(), Column.SEQUENCE_COL);
         return new IvmDeltaRewriteResult(outputProject, dmlFactor, sequence,
-                deltaContext.deltaSideResult().maxSeqSuffix);
+                deltaContext.deltaSideResult().maxDeltaIndex);
     }
 
     private List<Slot> buildOuterDeltaOutputs(NullSideDeltaContext deltaContext) {
@@ -532,7 +531,7 @@ class IvmJoinDeltaHandler {
             }
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
-        projects.add(new Alias(new BigIntLiteral(deltaContext.paddingSequence), Column.SEQUENCE_COL));
+        projects.add(new Alias(deltaContext.paddingSequence(), Column.SEQUENCE_COL));
         return new LogicalProject<>(projects.build(), source);
     }
 
@@ -630,7 +629,7 @@ class IvmJoinDeltaHandler {
             projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
-        projects.add(new Alias(new BigIntLiteral(deltaContext.paddingSequence), Column.SEQUENCE_COL));
+        projects.add(new Alias(deltaContext.paddingSequence(), Column.SEQUENCE_COL));
         return new LogicalProject<>(projects.build(), antiJoin);
     }
 
@@ -865,7 +864,8 @@ class IvmJoinDeltaHandler {
         private final SideInput rightInput;
         private final Pair<Plan, Map<Slot, Slot>> deltaSidePreSnapshot;
         private final Pair<Plan, Map<Slot, Slot>> deltaSidePostSnapshot;
-        private final long paddingSequence;
+        private final IvmDeltaRewriteState rewriteState;
+        private final int maxDeltaIndex;
 
         /**
          * Map physical left/right results to rewrite-local delta and non-delta roles.
@@ -874,7 +874,8 @@ class IvmJoinDeltaHandler {
                 boolean deltaOnLeft, IvmDeltaRewriteResult deltaSideResult,
                 SideInput leftInput, SideInput rightInput,
                 Pair<Plan, Map<Slot, Slot>> deltaSidePreSnapshot,
-                Pair<Plan, Map<Slot, Slot>> deltaSidePostSnapshot, long paddingSequence) {
+                Pair<Plan, Map<Slot, Slot>> deltaSidePostSnapshot, IvmDeltaRewriteState rewriteState,
+                int maxDeltaIndex) {
             this.join = join;
             this.isDeltaOnLeft = deltaOnLeft;
             this.deltaSideResult = deltaSideResult;
@@ -882,7 +883,8 @@ class IvmJoinDeltaHandler {
             this.rightInput = rightInput;
             this.deltaSidePreSnapshot = deltaSidePreSnapshot;
             this.deltaSidePostSnapshot = deltaSidePostSnapshot;
-            this.paddingSequence = paddingSequence;
+            this.rewriteState = rewriteState;
+            this.maxDeltaIndex = maxDeltaIndex;
         }
 
         /**
@@ -890,6 +892,10 @@ class IvmJoinDeltaHandler {
          */
         private IvmDeltaRewriteResult deltaSideResult() {
             return deltaSideResult;
+        }
+
+        private Expression paddingSequence() {
+            return rewriteState.toSequence(maxDeltaIndex);
         }
 
         private SideInput nonDeltaSideInput() {
