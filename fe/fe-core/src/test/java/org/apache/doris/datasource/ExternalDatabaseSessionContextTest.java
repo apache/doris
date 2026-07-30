@@ -168,6 +168,12 @@ public class ExternalDatabaseSessionContextTest {
         }
 
         @Override
+        public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+            // identity mapping; these tests exercise lower_case_table_names rather than connector name mapping.
+            return remoteTableName;
+        }
+
+        @Override
         protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
             String token = ctx.getDelegatedCredential().get().getToken();
             tokensUsedToListTables.add(token);

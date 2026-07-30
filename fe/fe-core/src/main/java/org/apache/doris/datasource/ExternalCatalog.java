@@ -42,10 +42,10 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.log.InitCatalogLog;
-import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
@@ -491,6 +491,7 @@ public abstract class ExternalCatalog
      * <p>
      * The method also handles conflicts in database names under case-insensitive conditions
      * and throws an exception if such conflicts are detected.
+     * This live-loading helper is shared by the names snapshot loader and session cache-bypass paths.
      * <p>
      * Steps:
      * 1. Fetch all database names from the remote source.
@@ -508,12 +509,6 @@ public abstract class ExternalCatalog
      */
     @NotNull
     private List<Pair<String, String>> getFilteredDatabaseNames() {
-        return getFilteredDatabaseNames(true);
-    }
-
-    /** Live database-name loading used by both the shared snapshot loader and session cache-bypass paths. */
-    @NotNull
-    private List<Pair<String, String>> getFilteredDatabaseNames(boolean updateDbNameLookup) {
         List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
@@ -679,7 +674,7 @@ public abstract class ExternalCatalog
         SessionContext sessionContext = SessionContext.current();
         if (shouldBypassDbNameCache(sessionContext)) {
             // Per-user listing: read live and do not populate the shared names snapshot.
-            return getFilteredDatabaseNames(false).stream()
+            return getFilteredDatabaseNames().stream()
                     .map(Pair::value)
                     .collect(Collectors.toList());
         }
@@ -760,7 +755,7 @@ public abstract class ExternalCatalog
             requestedDbName = MysqlDb.DATABASE_NAME;
         }
         final String target = requestedDbName;
-        Optional<Pair<String, String>> dbNamePair = getFilteredDatabaseNames(false).stream()
+        Optional<Pair<String, String>> dbNamePair = getFilteredDatabaseNames().stream()
                 .filter(pair -> matchesLocalDbName(pair.value(), target))
                 .findFirst();
         if (!dbNamePair.isPresent()) {

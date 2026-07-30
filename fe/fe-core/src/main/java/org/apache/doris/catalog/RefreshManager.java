@@ -181,6 +181,11 @@ public class RefreshManager {
         }
         // See comment in refreshDbInternal for why db and table may be null.
         if (!db.isPresent()) {
+            if (!catalog.isInitialized()) {
+                LOG.info("catalog is uninitialized when replaying refresh table; skip cache invalidation: {}",
+                        log.debugForRefreshTable());
+                return;
+            }
             if (!Strings.isNullOrEmpty(log.getDbName()) && !Strings.isNullOrEmpty(log.getTableName())) {
                 Env.getCurrentEnv().getExtMetaCacheMgr()
                         .invalidateTable(catalog.getId(), log.getDbName(), log.getTableName());

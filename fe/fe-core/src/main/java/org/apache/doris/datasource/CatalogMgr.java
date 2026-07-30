@@ -777,8 +777,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        // registerDatabase is overridden by HMSExternalCatalog (legacy) and PluginDrivenExternalCatalog
-        // (flipped); the generic ExternalCatalog base throws (fail-loud for catalogs that cannot register).
+        // Plugin-driven catalogs implement event registration; the generic ExternalCatalog base throws
+        // (fail-loud for catalogs that cannot register).
         ((ExternalCatalog) catalog).registerDatabase(dbId, dbName);
     }
 
