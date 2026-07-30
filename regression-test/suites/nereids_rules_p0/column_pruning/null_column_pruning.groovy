@@ -226,7 +226,7 @@ suite("null_column_pruning") {
         sql "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null"
         contains "nested columns"
         contains "struct_col.city"
-        contains "predicate access paths: [struct_col.NULL, struct_col.city.NULL]"
+        contains "predicate access paths: [struct_col.city.NULL]"
     }
 
     order_qt_13 "select element_at(struct_col, 'city') from ncp_tbl where element_at(struct_col, 'city') is null";
@@ -384,7 +384,6 @@ suite("null_column_pruning") {
         sql "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null"
         contains "nested columns"
         contains "struct_col.city.NULL"
-        contains "struct_col.NULL"
     }
 
     order_qt_24 "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null";

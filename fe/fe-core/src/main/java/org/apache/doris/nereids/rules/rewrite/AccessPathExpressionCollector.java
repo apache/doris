@@ -371,19 +371,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             Expression fieldName = arguments.get(1);
             DataType fieldType = fieldName.getDataType();
             if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
-                // element_at(s, 'field') IS NULL has two-layer null semantics:
-                //   s IS NULL OR s.field IS NULL
-                // Always emit META [s, NULL] for the struct-level null map.
                 // Only emit META [s, field, NULL] when the selected field itself is nullable.
                 if (context.type == ColumnAccessPathType.META
                         && isUnderIsNull(context.accessPathBuilder.getPathList())) {
                     StructField field = resolveStructField(
                             (StructType) first.getDataType(), fieldName);
-                    // Path 1: struct-level null check — bypass field prefix
-                    continueCollectAccessPath(first, copyContext(context));
-                    if (field != null && !field.isNullable()) {
-                        // Non-nullable leaf: struct-level NULL is sufficient for the
-                        // IS NULL check, so no META NULL path for the field is needed.
+                    if (field == null || !field.isNullable()) {
+                        // Non-nullable leaf: no META NULL path for the field is needed.
                         // However the field must still appear in the type so pruneDataType
                         // preserves it — the filter expression still references
                         // element_at(s, 'f') IS NULL and won't be rewritten to s IS NULL.
