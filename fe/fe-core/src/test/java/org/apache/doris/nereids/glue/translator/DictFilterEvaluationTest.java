@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.glue.translator;
 
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -36,12 +35,13 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit test for {@link PhysicalPlanTranslator#canEvaluateOnDictionary(Expression)}. Verifies that
+ * Unit test for {@link ExpressionUtils#canEvaluateOnDictionary(Expression)}. Verifies that
  * only NULL-preserving (null-in implies null-out), single-slot, deterministic value sides are
  * marked dict-filterable, so a NULL row -- which has no dictionary entry -- can never be wrongly
  * dropped or kept when the predicate is rewritten into a dict-code filter.
@@ -52,7 +52,7 @@ public class DictFilterEvaluationTest {
     private final SlotReference other = new SlotReference("other", VarcharType.SYSTEM_DEFAULT);
 
     private static boolean canEvaluateOnDictionary(Expression conjunct) {
-        return Deencapsulation.invoke(PhysicalPlanTranslator.class, "canEvaluateOnDictionary", conjunct);
+        return ExpressionUtils.canEvaluateOnDictionary(conjunct);
     }
 
     private static EqualTo eq(Expression valueSide) {
