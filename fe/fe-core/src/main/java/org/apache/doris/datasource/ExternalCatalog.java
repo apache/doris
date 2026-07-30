@@ -880,6 +880,19 @@ public abstract class ExternalCatalog
     }
 
     /**
+     * Resolve the retained local database name for replay without loading database metadata.
+     *
+     * <p>The ID map intentionally outlives object-cache eviction so legacy ID-only refresh edit logs written by
+     * Doris 2.1 and 3.0 can still invalidate independent engine and connector caches during rolling upgrades.
+     */
+    public Optional<String> getDbNameForReplay(long dbId) {
+        if (!isInitialized()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(dbIdToName.get(dbId));
+    }
+
+    /**
      * Same as "getDbForReplay(long dbId)", but resolves the local name from the cached names snapshot first.
      * Replay misses still skip synchronous load-through. If the names entry is already hot, cache internals may
      * schedule asynchronous refresh-after-write, but this method never waits for remote metadata loading.

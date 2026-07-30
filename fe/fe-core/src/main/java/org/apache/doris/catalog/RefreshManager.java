@@ -100,19 +100,20 @@ public class RefreshManager {
         if (catalog == null) {
             LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
         }
-        Optional<ExternalDatabase<? extends ExternalTable>> db;
-        if (!Strings.isNullOrEmpty(log.getDbName())) {
-            db = catalog.getDbForReplay(log.getDbName());
-        } else {
-            db = catalog.getDbForReplay(log.getDbId());
-        }
+        boolean hasDbName = !Strings.isNullOrEmpty(log.getDbName());
+        String localDbName = hasDbName
+                ? log.getDbName()
+                : catalog.getDbNameForReplay(log.getDbId()).orElse(null);
+        Optional<ExternalDatabase<? extends ExternalTable>> db =
+                localDbName == null ? Optional.empty() : catalog.getDbForReplay(localDbName);
 
         if (!db.isPresent()) {
-            if (!Strings.isNullOrEmpty(log.getDbName())) {
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(catalog.getId(), log.getDbName());
-                LOG.info("database object cache is cold when replaying refresh database; "
-                                + "invalidated engine caches by local name {} from edit log: {}",
-                        log.getDbName(), log.debugForRefreshDb());
+            if (localDbName != null) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(catalog.getId(), localDbName);
+                invalidateAllConnectorCachesIfPresent(catalog);
+                LOG.info("database object cache is cold when replaying refresh database; invalidated caches by "
+                                + "local name {} from {}: {}",
+                        localDbName, hasDbName ? "edit log" : "retained ID mapping", log.debugForRefreshDb());
                 return;
             }
             LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
@@ -173,12 +174,12 @@ public class RefreshManager {
             LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<ExternalDatabase<? extends ExternalTable>> db;
-        if (!Strings.isNullOrEmpty(log.getDbName())) {
-            db = catalog.getDbForReplay(log.getDbName());
-        } else {
-            db = catalog.getDbForReplay(log.getDbId());
-        }
+        boolean hasDbName = !Strings.isNullOrEmpty(log.getDbName());
+        String localDbName = hasDbName
+                ? log.getDbName()
+                : catalog.getDbNameForReplay(log.getDbId()).orElse(null);
+        Optional<ExternalDatabase<? extends ExternalTable>> db =
+                localDbName == null ? Optional.empty() : catalog.getDbForReplay(localDbName);
         // See comment in refreshDbInternal for why db and table may be null.
         if (!db.isPresent()) {
             if (!catalog.isInitialized()) {
@@ -186,12 +187,22 @@ public class RefreshManager {
                         log.debugForRefreshTable());
                 return;
             }
-            if (!Strings.isNullOrEmpty(log.getDbName()) && !Strings.isNullOrEmpty(log.getTableName())) {
-                Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .invalidateTable(catalog.getId(), log.getDbName(), log.getTableName());
-                LOG.info("database object cache is cold when replaying refresh table; "
-                                + "invalidated engine caches by local names {}.{} from edit log: {}",
-                        log.getDbName(), log.getTableName(), log.debugForRefreshTable());
+            if (localDbName != null) {
+                if (hasDbName && !Strings.isNullOrEmpty(log.getTableName())) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr()
+                            .invalidateTable(catalog.getId(), localDbName, log.getTableName());
+                    LOG.info("database object cache is cold when replaying refresh table; "
+                                    + "invalidated caches by local names {}.{} from edit log: {}",
+                            localDbName, log.getTableName(), log.debugForRefreshTable());
+                } else {
+                    // Doris 2.1/3.0 edit logs contain only database/table IDs. Once the database object is cold,
+                    // its table ID map is unreachable, so invalidate the database scope conservatively.
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(catalog.getId(), localDbName);
+                    LOG.info("database object cache is cold when replaying legacy ID-only refresh table; "
+                                    + "invalidated database caches by local name {} from retained ID mapping: {}",
+                            localDbName, log.debugForRefreshTable());
+                }
+                invalidateAllConnectorCachesIfPresent(catalog);
                 return;
             }
             LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
@@ -257,6 +268,12 @@ public class RefreshManager {
         // Legacy partition-bearing refresh logs are conservatively replayed as a full table invalidation now that
         // connector plugins own their partition caches.
         refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+    }
+
+    private void invalidateAllConnectorCachesIfPresent(ExternalCatalog catalog) {
+        if (catalog instanceof PluginDrivenExternalCatalog) {
+            ((PluginDrivenExternalCatalog) catalog).invalidateAllConnectorCachesIfPresent();
+        }
     }
 
     public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,

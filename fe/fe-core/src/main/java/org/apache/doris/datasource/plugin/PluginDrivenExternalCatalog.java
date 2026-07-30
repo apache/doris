@@ -292,10 +292,21 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void onRefreshCache(boolean invalidCache) {
         super.onRefreshCache(invalidCache);
         if (invalidCache) {
-            Connector localConnector = connector;
-            if (localConnector != null) {
-                localConnector.invalidateAll();
-            }
+            invalidateAllConnectorCachesIfPresent();
+        }
+    }
+
+    /**
+     * Invalidates connector-owned caches without initializing or rebuilding the connector.
+     *
+     * <p>This is also used by edit-log replay when only a retained local database name is available. Without a
+     * database object, replay cannot recover the remote database/table identity, so whole-connector invalidation is
+     * the conservative cache-only fallback.
+     */
+    public void invalidateAllConnectorCachesIfPresent() {
+        Connector localConnector = connector;
+        if (localConnector != null) {
+            localConnector.invalidateAll();
         }
     }
 
