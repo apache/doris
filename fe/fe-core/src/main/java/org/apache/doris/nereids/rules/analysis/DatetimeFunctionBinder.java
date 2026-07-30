@@ -55,7 +55,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteMicrosecondAdd;
@@ -103,6 +105,7 @@ import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -124,29 +127,53 @@ public class DatetimeFunctionBinder {
             .addAll(TIMESTAMP_ADD_FUNCTION_NAMES)
             .build();
 
-    private static final ImmutableSet<String> ADD_DATE_FUNCTION_NAMES
-            = ImmutableSet.of("ADDDATE", "DAYS_ADD", "DATE_ADD");
-    private static final ImmutableSet<String> SUB_DATE_FUNCTION_NAMES
-            = ImmutableSet.of("SUBDATE", "DAYS_SUB", "DATE_SUB");
-    private static final ImmutableSet<String> DATE_ADD_SUB_SERIES_FUNCTION_NAMES
-            = ImmutableSet.<String>builder()
-            .addAll(ADD_DATE_FUNCTION_NAMES)
-            .addAll(SUB_DATE_FUNCTION_NAMES)
+    // An explicit INTERVAL overrides these units; they preserve the meaning of a plain numeric argument.
+    private static final ImmutableMap<String, TimeUnit> ADD_DATE_FUNCTION_DEFAULT_UNITS
+            = ImmutableMap.<String, TimeUnit>builder()
+            .put("ADDDATE", TimeUnit.DAY)
+            .put("DATE_ADD", TimeUnit.DAY)
+            .put("DAYS_ADD", TimeUnit.DAY)
+            .put("YEARS_ADD", TimeUnit.YEAR)
+            .put("QUARTERS_ADD", TimeUnit.QUARTER)
+            .put("MONTHS_ADD", TimeUnit.MONTH)
+            .put("ADD_MONTHS", TimeUnit.MONTH)
+            .put("WEEKS_ADD", TimeUnit.WEEK)
+            .put("HOURS_ADD", TimeUnit.HOUR)
+            .put("MINUTES_ADD", TimeUnit.MINUTE)
+            .put("SECONDS_ADD", TimeUnit.SECOND)
+            .put("MICROSECONDS_ADD", TimeUnit.MICROSECOND)
             .build();
+    private static final ImmutableMap<String, TimeUnit> SUB_DATE_FUNCTION_DEFAULT_UNITS
+            = ImmutableMap.<String, TimeUnit>builder()
+            .put("SUBDATE", TimeUnit.DAY)
+            .put("DATE_SUB", TimeUnit.DAY)
+            .put("DAYS_SUB", TimeUnit.DAY)
+            .put("YEARS_SUB", TimeUnit.YEAR)
+            .put("QUARTERS_SUB", TimeUnit.QUARTER)
+            .put("MONTHS_SUB", TimeUnit.MONTH)
+            .put("WEEKS_SUB", TimeUnit.WEEK)
+            .put("HOURS_SUB", TimeUnit.HOUR)
+            .put("MINUTES_SUB", TimeUnit.MINUTE)
+            .put("SECONDS_SUB", TimeUnit.SECOND)
+            .put("MICROSECONDS_SUB", TimeUnit.MICROSECOND)
+            .build();
+    private static final ImmutableSet<String> ADD_DATE_FUNCTION_NAMES
+            = ADD_DATE_FUNCTION_DEFAULT_UNITS.keySet();
+    private static final ImmutableSet<String> SUB_DATE_FUNCTION_NAMES
+            = SUB_DATE_FUNCTION_DEFAULT_UNITS.keySet();
     private static final ImmutableSet<String> DATE_FLOOR_FUNCTION_NAMES
             = ImmutableSet.of("DATE_FLOOR");
     private static final ImmutableSet<String> DATE_CEIL_FUNCTION_NAMES
             = ImmutableSet.of("DATE_CEIL");
-    private static final ImmutableSet<String> DATE_FLOOR_CEIL_SERIES_FUNCTION_NAMES
-            = ImmutableSet.<String>builder()
-            .addAll(DATE_FLOOR_FUNCTION_NAMES)
-            .addAll(DATE_CEIL_FUNCTION_NAMES)
+    private static final ImmutableMap<String, TimeUnit> DATE_FUNCTION_DEFAULT_UNITS
+            = ImmutableMap.<String, TimeUnit>builder()
+            .putAll(ADD_DATE_FUNCTION_DEFAULT_UNITS)
+            .putAll(SUB_DATE_FUNCTION_DEFAULT_UNITS)
+            .put("DATE_FLOOR", TimeUnit.SECOND)
+            .put("DATE_CEIL", TimeUnit.SECOND)
             .build();
     private static final ImmutableSet<String> DATE_SERIES_FUNCTION_NAMES
-            = ImmutableSet.<String>builder()
-            .addAll(DATE_ADD_SUB_SERIES_FUNCTION_NAMES)
-            .addAll(DATE_FLOOR_CEIL_SERIES_FUNCTION_NAMES)
-            .build();
+            = DATE_FUNCTION_DEFAULT_UNITS.keySet();
 
     private static final ImmutableSet<String> ARRAY_RANGE_FUNCTION_NAMES
             = ImmutableSet.of("ARRAY_RANGE", "SEQUENCE");
@@ -195,7 +222,7 @@ public class DatetimeFunctionBinder {
                 unit = TimeUnit.valueOf(unitName);
             } catch (IllegalArgumentException e) {
                 throw new AnalysisException("Unsupported time stamp diff time unit: " + unitName
-                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
             }
             if (TIMESTAMP_DIFF_FUNCTION_NAMES.contains(functionName)) {
                 // timestampdiff(unit, start, end)
@@ -208,11 +235,7 @@ public class DatetimeFunctionBinder {
                         + "' with " + unboundFunction.arity() + " arguments");
             }
         } else if (DATE_SERIES_FUNCTION_NAMES.contains(functionName)) {
-            TimeUnit unit = TimeUnit.DAY;
-            // date_add and date_sub's default unit is DAY, date_ceil and date_floor's default unit is SECOND
-            if (DATE_FLOOR_CEIL_SERIES_FUNCTION_NAMES.contains(functionName)) {
-                unit = TimeUnit.SECOND;
-            }
+            TimeUnit unit = DATE_FUNCTION_DEFAULT_UNITS.get(functionName);
             Expression base;
             Expression amount;
             switch (unboundFunction.arity()) {
@@ -239,7 +262,8 @@ public class DatetimeFunctionBinder {
                         unit = TimeUnit.valueOf(unitName);
                     } catch (IllegalArgumentException e) {
                         throw new AnalysisException("Unsupported time stamp diff time unit: " + unitName
-                                + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                                + ", supported time unit: "
+                                + "YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
                     }
                     break;
                 default:
@@ -250,7 +274,7 @@ public class DatetimeFunctionBinder {
                 // date_add(date, interval amount unit | amount)
                 return processDateAdd(unit, base, amount);
             } else if (SUB_DATE_FUNCTION_NAMES.contains(functionName)) {
-                // date_add(date, interval amount unit | amount)
+                // date_sub(date, interval amount unit | amount)
                 return processDateSub(unit, base, amount);
             } else if (DATE_FLOOR_FUNCTION_NAMES.contains(functionName)) {
                 // date_floor(date, interval amount unit | amount)
@@ -328,6 +352,8 @@ public class DatetimeFunctionBinder {
                 return new MinutesAdd(timestamp, amount);
             case SECOND:
                 return new SecondsAdd(timestamp, amount);
+            case MICROSECOND:
+                return new MicroSecondsAdd(timestamp, amount);
             case YEAR_MONTH:
                 return new YearMonthAdd(timestamp, amount);
             case DAY_SECOND:
@@ -352,7 +378,7 @@ public class DatetimeFunctionBinder {
                 return new SecondMicrosecondAdd(timestamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp add time unit: " + unit
-                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
         }
     }
 
@@ -374,6 +400,8 @@ public class DatetimeFunctionBinder {
                 return new MinutesSub(timeStamp, amount);
             case SECOND:
                 return new SecondsSub(timeStamp, amount);
+            case MICROSECOND:
+                return new MicroSecondsSub(timeStamp, amount);
             case YEAR_MONTH:
                 return new YearMonthSub(timeStamp, amount);
             case DAY_SECOND:
@@ -398,7 +426,7 @@ public class DatetimeFunctionBinder {
                 return new SecondMicrosecondSub(timeStamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp sub time unit: " + unit
-                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
         }
     }
 

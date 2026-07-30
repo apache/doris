@@ -116,6 +116,12 @@ suite("test_datetimev2_nano_functions") {
         ORDER BY id
     """
 
+    sql """
+        SELECT microseconds_add(
+            '2024-02-05 02:03:04.123+12:00',
+            INTERVAL 1 DAY)
+    """
+
     test {
         sql """
             SELECT second_floor(dt9)

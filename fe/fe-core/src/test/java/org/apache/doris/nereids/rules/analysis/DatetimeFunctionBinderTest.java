@@ -42,7 +42,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
@@ -75,10 +77,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -94,6 +98,7 @@ public class DatetimeFunctionBinderTest {
     private final Interval hourInterval = new Interval(tinyIntLiteral, "HOUR");
     private final Interval minuteInterval = new Interval(tinyIntLiteral, "MINUTE");
     private final Interval secondInterval = new Interval(tinyIntLiteral, "SECOND");
+    private final Interval microsecondInterval = new Interval(tinyIntLiteral, "MICROSECOND");
 
     private final SlotReference yearUnit = new SlotReference(new ExprId(-1), "YEAR",
             TinyIntType.INSTANCE, false, ImmutableList.of());
@@ -270,6 +275,13 @@ public class DatetimeFunctionBinderTest {
             Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
             Assertions.assertEquals(tinyIntLiteral, result.child(1));
 
+            timeAdd = new UnboundFunction(functionName, ImmutableList.of(
+                    microsecondUnit, tinyIntLiteral, dateTimeV2Literal1));
+            result = DatetimeFunctionBinder.INSTANCE.bind(timeAdd);
+            Assertions.assertInstanceOf(MicroSecondsAdd.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
             Assertions.assertThrowsExactly(AnalysisException.class,
                     () -> DatetimeFunctionBinder.INSTANCE.bind(
                             new UnboundFunction(functionName, ImmutableList.of(
@@ -351,6 +363,13 @@ public class DatetimeFunctionBinderTest {
             Assertions.assertEquals(tinyIntLiteral, result.child(1));
 
             dateAdd = new UnboundFunction(functionName, ImmutableList.of(
+                    dateTimeV2Literal1, microsecondInterval));
+            result = DatetimeFunctionBinder.INSTANCE.bind(dateAdd);
+            Assertions.assertInstanceOf(MicroSecondsAdd.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
+            dateAdd = new UnboundFunction(functionName, ImmutableList.of(
                     dateTimeV2Literal1, tinyIntLiteral));
             result = DatetimeFunctionBinder.INSTANCE.bind(dateAdd);
             Assertions.assertInstanceOf(DaysAdd.class, result);
@@ -360,6 +379,82 @@ public class DatetimeFunctionBinderTest {
             Assertions.assertThrowsExactly(AnalysisException.class,
                     () -> DatetimeFunctionBinder.INSTANCE.bind(
                             new UnboundFunction(functionName, ImmutableList.of(dateTimeV2Literal1))));
+        }
+    }
+
+    @Test
+    void testUnitSpecificDateAddSubWithInterval() {
+        Expression timestamp = new StringLiteral("2024-02-05 02:03:04.123+12:00");
+        ImmutableMap<String, Class<? extends Expression>> addFunctionDefaultTypes
+                = ImmutableMap.<String, Class<? extends Expression>>builder()
+                .put("adddate", DaysAdd.class)
+                .put("date_add", DaysAdd.class)
+                .put("days_add", DaysAdd.class)
+                .put("years_add", YearsAdd.class)
+                .put("quarters_add", QuartersAdd.class)
+                .put("months_add", MonthsAdd.class)
+                .put("add_months", MonthsAdd.class)
+                .put("weeks_add", WeeksAdd.class)
+                .put("hours_add", HoursAdd.class)
+                .put("minutes_add", MinutesAdd.class)
+                .put("seconds_add", SecondsAdd.class)
+                .put("microseconds_add", MicroSecondsAdd.class)
+                .build();
+        ImmutableMap<String, Class<? extends Expression>> subFunctionDefaultTypes
+                = ImmutableMap.<String, Class<? extends Expression>>builder()
+                .put("subdate", DaysSub.class)
+                .put("date_sub", DaysSub.class)
+                .put("days_sub", DaysSub.class)
+                .put("years_sub", YearsSub.class)
+                .put("quarters_sub", QuartersSub.class)
+                .put("months_sub", MonthsSub.class)
+                .put("weeks_sub", WeeksSub.class)
+                .put("hours_sub", HoursSub.class)
+                .put("minutes_sub", MinutesSub.class)
+                .put("seconds_sub", SecondsSub.class)
+                .put("microseconds_sub", MicroSecondsSub.class)
+                .build();
+
+        for (String functionName : addFunctionDefaultTypes.keySet()) {
+            Assertions.assertTrue(DatetimeFunctionBinder.isDatetimeFunction(functionName));
+            Expression result = DatetimeFunctionBinder.INSTANCE.bind(
+                    new UnboundFunction(functionName, ImmutableList.of(timestamp, tinyIntLiteral)));
+            Assertions.assertEquals(addFunctionDefaultTypes.get(functionName), result.getClass());
+            Assertions.assertEquals(timestamp, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
+            result = DatetimeFunctionBinder.INSTANCE.bind(
+                    new UnboundFunction(functionName, ImmutableList.of(timestamp, dayInterval)));
+            Assertions.assertInstanceOf(DaysAdd.class, result);
+            Assertions.assertEquals(timestamp, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
+            result = DatetimeFunctionBinder.INSTANCE.bind(
+                    new UnboundFunction(functionName, ImmutableList.of(timestamp, microsecondInterval)));
+            Assertions.assertInstanceOf(MicroSecondsAdd.class, result);
+            Assertions.assertEquals(timestamp, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+        }
+
+        for (String functionName : subFunctionDefaultTypes.keySet()) {
+            Assertions.assertTrue(DatetimeFunctionBinder.isDatetimeFunction(functionName));
+            Expression result = DatetimeFunctionBinder.INSTANCE.bind(
+                    new UnboundFunction(functionName, ImmutableList.of(timestamp, tinyIntLiteral)));
+            Assertions.assertEquals(subFunctionDefaultTypes.get(functionName), result.getClass());
+            Assertions.assertEquals(timestamp, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
+            result = DatetimeFunctionBinder.INSTANCE.bind(
+                    new UnboundFunction(functionName, ImmutableList.of(timestamp, dayInterval)));
+            Assertions.assertInstanceOf(DaysSub.class, result);
+            Assertions.assertEquals(timestamp, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
+            result = DatetimeFunctionBinder.INSTANCE.bind(
+                    new UnboundFunction(functionName, ImmutableList.of(timestamp, microsecondInterval)));
+            Assertions.assertInstanceOf(MicroSecondsSub.class, result);
+            Assertions.assertEquals(timestamp, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
         }
     }
 
@@ -499,6 +594,13 @@ public class DatetimeFunctionBinderTest {
                     dateTimeV2Literal1, secondInterval));
             result = DatetimeFunctionBinder.INSTANCE.bind(dateSub);
             Assertions.assertInstanceOf(SecondsSub.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
+
+            dateSub = new UnboundFunction(functionName, ImmutableList.of(
+                    dateTimeV2Literal1, microsecondInterval));
+            result = DatetimeFunctionBinder.INSTANCE.bind(dateSub);
+            Assertions.assertInstanceOf(MicroSecondsSub.class, result);
             Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
             Assertions.assertEquals(tinyIntLiteral, result.child(1));
 
