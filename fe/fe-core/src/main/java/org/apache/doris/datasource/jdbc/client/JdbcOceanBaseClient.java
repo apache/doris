@@ -57,6 +57,7 @@ public class JdbcOceanBaseClient extends JdbcClient {
             throw new JdbcClientException("Failed to initialize JdbcOceanBaseClient: %s", e.getMessage());
         } finally {
             close(rs, stmt, conn);
+            closeClient();
         }
     }
 
