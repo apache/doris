@@ -83,40 +83,6 @@ constexpr int kIcebergDeletionVectorContent = 3;
 
 std::string table_format_name(const TFileRangeDesc& range);
 
-bool contains_variant_type(const DataTypePtr& input) {
-    const auto type = remove_nullable(input);
-    switch (type->get_primitive_type()) {
-    case TYPE_VARIANT:
-        return true;
-    case TYPE_ARRAY:
-        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
-    case TYPE_MAP: {
-        const auto& map = assert_cast<const DataTypeMap&>(*type);
-        return contains_variant_type(map.get_key_type()) ||
-               contains_variant_type(map.get_value_type());
-    }
-    case TYPE_STRUCT: {
-        const auto& structure = assert_cast<const DataTypeStruct&>(*type);
-        return std::ranges::any_of(structure.get_elements(), contains_variant_type);
-    }
-    default:
-        return false;
-    }
-}
-
-Status validate_iceberg_variant_file_format(const TFileRangeDesc& range,
-                                            TFileFormatType::type format_type,
-                                            bool projects_variant) {
-    if (table_format_name(range) == "iceberg" && projects_variant &&
-        format_type != TFileFormatType::FORMAT_PARQUET) {
-        return Status::NotSupported(
-                "Iceberg Variant is supported only for Parquet files in FileScannerV2; file "
-                "format {} (including ORC/Avro readers) is not supported",
-                to_string(format_type));
-    }
-    return Status::OK();
-}
-
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
                                              : "NotSet";
@@ -291,12 +257,6 @@ FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
 Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
                                                const TFileRangeDesc& range) {
     return _validate_scan_range(params, range);
-}
-
-Status FileScannerV2::TEST_validate_iceberg_variant_file_format(const TFileRangeDesc& range,
-                                                                TFileFormatType::type format_type,
-                                                                bool projects_variant) {
-    return validate_iceberg_variant_file_format(range, format_type, projects_variant);
 }
 
 Status FileScannerV2::TEST_to_file_format(TFileFormatType::type format_type,
@@ -673,12 +633,6 @@ Status FileScannerV2::_create_table_reader_for_format(
 Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
                                                   std::map<std::string, Field> partition_values) {
     const auto format_type = get_range_format_type(*_params, range);
-    const bool projects_variant =
-            !_local_state->is_count_star_pushdown() &&
-            std::ranges::any_of(_projected_columns, [](const format::ColumnDefinition& column) {
-                return contains_variant_type(column.type);
-            });
-    RETURN_IF_ERROR(validate_iceberg_variant_file_format(range, format_type, projects_variant));
     format::FileFormat current_split_format;
     RETURN_IF_ERROR(_to_file_format(format_type, &current_split_format));
     VExprContextSPtrs conjuncts;
@@ -809,23 +763,6 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     // Field 34 is the rollout boundary for root and nested exact-name precedence.
     const bool prefer_exact_name_match =
             !_params->__isset.history_schema_info || supports_iceberg_scan_semantics_v1(_params);
-
-    const auto format_type = get_range_format_type(*_params, _current_range);
-    if (table_format_name(_current_range) == "iceberg" &&
-        format_type != TFileFormatType::FORMAT_PARQUET) {
-        const bool projects_variant =
-                !_local_state->is_count_star_pushdown() &&
-                std::ranges::any_of(_params->required_slots, [&](const auto& slot_info) {
-                    const auto it = _slot_id_to_desc.find(slot_info.slot_id);
-                    return it != _slot_id_to_desc.end() &&
-                           contains_variant_type(it->second->get_data_type_ptr());
-                });
-        // Run before format-specific projection validation so ORC/Avro cannot fail with a
-        // misleading type-conversion error first. The split-level check remains necessary for
-        // scans whose ranges do not all use the same physical file format.
-        RETURN_IF_ERROR(validate_iceberg_variant_file_format(_current_range, format_type,
-                                                             projects_variant));
-    }
 
     for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
         const auto& slot_info = _params->required_slots[slot_idx];

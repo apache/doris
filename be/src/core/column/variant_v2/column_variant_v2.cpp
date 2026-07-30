@@ -555,7 +555,9 @@ void ColumnVariantV2::for_each_subcolumn(ColumnCallback callback) const {
 
 void ColumnVariantV2::mutate_subcolumns() {
     if (_shredded) {
-        ensure_encoded();
+        // Shredded state is immutable and reference-counted. COW ownership detachment must keep a
+        // partial leaf projection usable until an expression actually requests canonical bytes.
+        return;
     }
     if (_typed) {
         mutate_subcolumn(_typed);
@@ -792,9 +794,12 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         return;
     }
 
-    if (!_shredded && !_typed && empty() && _metadatas->empty() && source._shredded && start == 0 &&
-        length == source.size()) {
-        _shredded = source._shredded;
+    if (!_shredded && !_typed && empty() && _metadatas->empty() && source._shredded) {
+        // IColumn::cut() inserts into an empty clone. Select the physical tree directly because an
+        // incomplete leaf projection cannot be reconstructed merely to copy a row range.
+        _shredded = start == 0 && length == source.size()
+                             ? source._shredded
+                             : source._shredded->select_range(start, length);
         _check_invariants();
         return;
     }
@@ -892,6 +897,13 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
 
     if (_shredded) {
         ensure_encoded();
+    }
+    if (!_typed && empty() && _metadatas->empty() && source._shredded) {
+        // Gather into the native shredded representation for the same reason as range selection:
+        // row selection does not require, and may not have, a complete logical Variant value.
+        _shredded = source._shredded->select_indices(indices_begin, indices_end);
+        _check_invariants();
+        return;
     }
     if (source._shredded) {
         insert_indices_from(source._shredded->materialized_column(), indices_begin, indices_end);

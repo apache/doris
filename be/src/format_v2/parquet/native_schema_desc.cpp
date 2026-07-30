@@ -132,9 +132,11 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
                                   group_schema.name);
     }
 
+    enum class WrapperContext : uint8_t { OBJECT_FIELD, ARRAY_ELEMENT };
     std::function<Status(const NativeFieldSchema&)> validate_typed_value;
-    std::function<Status(const NativeFieldSchema&)> validate_wrapper;
-    validate_wrapper = [&](const NativeFieldSchema& wrapper) -> Status {
+    std::function<Status(const NativeFieldSchema&, WrapperContext)> validate_wrapper;
+    validate_wrapper = [&](const NativeFieldSchema& wrapper,
+                           WrapperContext context) -> Status {
         if (!wrapper.parquet_schema.__isset.repetition_type ||
             wrapper.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
             return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
@@ -144,25 +146,56 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
         const NativeFieldSchema* typed = nullptr;
         for (const auto& child : wrapper.children) {
             if (child.name == "value") {
+                if (fallback != nullptr) {
+                    return Status::Corruption(
+                            "Parquet Variant wrapper {} has duplicate value child", wrapper.name);
+                }
                 fallback = &child;
             } else if (child.name == "typed_value") {
+                if (typed != nullptr) {
+                    return Status::Corruption(
+                            "Parquet Variant wrapper {} has duplicate typed_value child",
+                            wrapper.name);
+                }
                 typed = &child;
             } else {
                 return Status::Corruption("Parquet Variant wrapper {} has unexpected child {}",
                                           wrapper.name, child.name);
             }
         }
-        if (fallback == nullptr || typed == nullptr || !fallback->children.empty() ||
-            fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
-            !fallback->parquet_schema.__isset.repetition_type ||
-            fallback->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL ||
-            !typed->parquet_schema.__isset.repetition_type ||
-            typed->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL) {
+        if (fallback == nullptr && typed == nullptr) {
             return Status::Corruption(
-                    "Parquet Variant shredded wrapper {} requires optional value and typed_value",
+                    "Parquet Variant shredded wrapper {} requires at least one of value or "
+                    "typed_value",
                     wrapper.name);
         }
-        return validate_typed_value(*typed);
+        // Object fields always retain the fallback value carrier; only typed_value is optional.
+        // Array elements may omit either carrier when every element uses the remaining one.
+        if (context == WrapperContext::OBJECT_FIELD && fallback == nullptr) {
+            return Status::Corruption(
+                    "Parquet Variant object wrapper {} requires an optional value child",
+                    wrapper.name);
+        }
+        if (fallback != nullptr &&
+            (!fallback->children.empty() ||
+             fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
+             !fallback->parquet_schema.__isset.repetition_type ||
+             fallback->parquet_schema.repetition_type !=
+                     tparquet::FieldRepetitionType::OPTIONAL)) {
+            return Status::Corruption(
+                    "Parquet Variant wrapper {} value must be an optional BYTE_ARRAY",
+                    wrapper.name);
+        }
+        if (typed != nullptr) {
+            if (!typed->parquet_schema.__isset.repetition_type ||
+                typed->parquet_schema.repetition_type !=
+                        tparquet::FieldRepetitionType::OPTIONAL) {
+                return Status::Corruption(
+                        "Parquet Variant wrapper {} typed_value must be optional", wrapper.name);
+            }
+            return validate_typed_value(*typed);
+        }
+        return Status::OK();
     };
     validate_typed_value = [&](const NativeFieldSchema& typed) -> Status {
         if (!typed.unsupported_reason.empty()) {
@@ -215,12 +248,12 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
         const PrimitiveType primitive = remove_nullable(typed.data_type)->get_primitive_type();
         if (primitive == TYPE_STRUCT) {
             for (const auto& child : typed.children) {
-                RETURN_IF_ERROR(validate_wrapper(child));
+                RETURN_IF_ERROR(validate_wrapper(child, WrapperContext::OBJECT_FIELD));
             }
             return Status::OK();
         }
         if (primitive == TYPE_ARRAY && typed.children.size() == 1) {
-            return validate_wrapper(typed.children[0]);
+            return validate_wrapper(typed.children[0], WrapperContext::ARRAY_ELEMENT);
         }
         return Status::Corruption("Invalid Parquet Variant typed_value schema {}", typed.name);
     };
