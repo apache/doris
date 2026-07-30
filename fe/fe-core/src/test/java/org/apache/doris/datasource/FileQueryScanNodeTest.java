@@ -21,15 +21,19 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -44,15 +48,19 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class FileQueryScanNodeTest {
     private static final long MB = 1024L * 1024L;
     private static final Method UPDATE_REQUIRED_SLOTS_METHOD;
+    private static final Method SET_COLUMN_POSITION_MAPPING_METHOD;
 
     static {
         try {
             UPDATE_REQUIRED_SLOTS_METHOD = FileQueryScanNode.class.getDeclaredMethod("updateRequiredSlots");
             UPDATE_REQUIRED_SLOTS_METHOD.setAccessible(true);
+            SET_COLUMN_POSITION_MAPPING_METHOD = FileQueryScanNode.class.getDeclaredMethod("setColumnPositionMapping");
+            SET_COLUMN_POSITION_MAPPING_METHOD.setAccessible(true);
         } catch (ReflectiveOperationException e) {
             throw new ExceptionInInitializerError(e);
         }
@@ -160,6 +168,65 @@ public class FileQueryScanNodeTest {
         Assert.assertSame(slotInfo, updatedSlotInfo);
         Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+    }
+
+    @Test
+    public void testColumnPositionMappingUsesRelationSnapshotSchema() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        IcebergExternalTable externalTable = Mockito.mock(IcebergExternalTable.class);
+        MvccSnapshot relationSnapshot = Mockito.mock(MvccSnapshot.class);
+        Column oldColumn = new Column("old_name", Type.INT);
+        node.setTargetTable(externalTable);
+        node.getTupleDescriptor().setTable(externalTable);
+        node.setRelationSnapshot(Optional.of(relationSnapshot));
+        Mockito.when(externalTable.getFullSchema(Optional.of(relationSnapshot)))
+                .thenReturn(Collections.singletonList(oldColumn));
+
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), node.getTupleDescriptor());
+        slot.setColumn(oldColumn);
+        node.getTupleDescriptor().addSlot(slot);
+        TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+        slotInfo.setSlotId(slot.getId().asInt());
+        slotInfo.setCategory(TColumnCategory.REGULAR);
+        slotInfo.setIsFileSlot(true);
+        node.params = new TFileScanRangeParams();
+        node.params.setRequiredSlots(Collections.singletonList(slotInfo));
+
+        SET_COLUMN_POSITION_MAPPING_METHOD.invoke(node);
+
+        Assert.assertEquals(Collections.singletonList(0), node.params.getColumnIdxs());
+        Mockito.verify(externalTable).getFullSchema(Optional.of(relationSnapshot));
+        Mockito.verify(externalTable, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
+        Mockito.verify(externalTable, Mockito.never()).getFullSchema();
+    }
+
+    @Test
+    public void testDefaultValueUsesRelationSnapshotSchema() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        IcebergExternalTable externalTable = Mockito.mock(IcebergExternalTable.class);
+        MvccSnapshot relationSnapshot = Mockito.mock(MvccSnapshot.class);
+        Column historicalColumn = new Column("x", Type.INT, true);
+        Column latestSameNamedColumn = new Column(
+                "x", Type.INT, false, AggregateType.NONE, true, "42", "");
+        node.setTargetTable(externalTable);
+        node.getTupleDescriptor().setTable(externalTable);
+        node.setRelationSnapshot(Optional.of(relationSnapshot));
+        Mockito.when(externalTable.getBaseSchema(Optional.of(relationSnapshot), false))
+                .thenReturn(Collections.singletonList(historicalColumn));
+        Mockito.when(externalTable.getFullSchema(Optional.of(relationSnapshot)))
+                .thenReturn(Collections.singletonList(historicalColumn));
+        Mockito.when(externalTable.getFullSchema())
+                .thenReturn(Collections.singletonList(latestSameNamedColumn));
+
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), node.getTupleDescriptor());
+        slot.setColumn(historicalColumn);
+        node.getTupleDescriptor().addSlot(slot);
+
+        node.initSchemaParams();
+
+        TExpr defaultExpr = node.params.getDefaultValueOfSrcSlot().get(slot.getId().asInt());
+        Assert.assertEquals(TExprNodeType.NULL_LITERAL, defaultExpr.getNodes().get(0).getNodeType());
+        Mockito.verify(externalTable, Mockito.never()).getFullSchema();
     }
 
 }

@@ -38,6 +38,9 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -106,6 +109,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected SessionVariable sessionVariable;
 
     protected TableScanParams scanParams;
+    private Optional<MvccSnapshot> relationSnapshot = Optional.empty();
+    private boolean relationSnapshotInitialized = false;
 
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
@@ -182,7 +187,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params = new TFileScanRangeParams();
         params.setDestTupleId(desc.getId().asInt());
         List<String> partitionKeys = getPathPartitionKeys();
-        List<Column> columns = desc.getTable().getBaseSchema(false);
+        List<Column> columns = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getBaseSchema(getRelationSnapshot(), false)
+                : desc.getTable().getBaseSchema(false);
         params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
@@ -192,7 +199,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
-        setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
+        // Defaults are field semantics, so resolve them from the same relation schema as the
+        // tuple slots; matching a newer same-named field could attach the wrong default.
+        List<Column> defaultValueColumns = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getFullSchema(getRelationSnapshot())
+                : desc.getTable().getFullSchema();
+        setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false, defaultValueColumns);
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
@@ -308,7 +320,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     protected List<String> getFileColumnNames() {
-        return desc.getTable().getFullSchema().stream()
+        // Default positions must follow this relation's snapshot when one statement scans
+        // multiple versions; format-specific subclasses may instead expose a processed schema.
+        List<Column> columns = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getFullSchema(getRelationSnapshot())
+                : desc.getTable().getFullSchema();
+        return columns.stream()
                 .map(Column::getName)
                 .collect(Collectors.toList());
     }
@@ -597,7 +614,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // We need to save mapping from slot name to schema position
     protected void genSlotToSchemaIdMapForOrc() {
         Preconditions.checkNotNull(params);
-        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        // ORC positions are relation-local for the same reason as the regular column mapping.
+        List<Column> baseSchema = desc.getTable() instanceof ExternalTable
+                ? ((ExternalTable) desc.getTable()).getBaseSchema(getRelationSnapshot(), false)
+                : desc.getTable().getBaseSchema();
         Map<String, Integer> columnNameToPosition = Maps.newHashMap();
         for (SlotDescriptor slot : desc.getSlots()) {
             int idx = 0;
@@ -741,6 +761,35 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return scan;
         }
         return this.scanParams;
+    }
+
+    public void setRelationSnapshot(Optional<MvccSnapshot> relationSnapshot) {
+        // The resolved snapshot is part of the bound relation; reloading a movable ref here
+        // could make execution use different metadata from the schema used during analysis.
+        this.relationSnapshot = relationSnapshot;
+        this.relationSnapshotInitialized = true;
+    }
+
+    /**
+     * Return metadata pinned for this scan relation.
+     */
+    protected Optional<MvccSnapshot> getRelationSnapshot() {
+        if (relationSnapshotInitialized) {
+            return relationSnapshot;
+        }
+        relationSnapshotInitialized = true;
+        TableIf targetTable = desc.getTable();
+        if (!(targetTable instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        if (tableSnapshot != null || scanParams != null) {
+            // Legacy planner callers do not carry a bound snapshot, so resolve their qualifiers here.
+            relationSnapshot = Optional.of(((MvccTable) targetTable).loadSnapshot(
+                    Optional.ofNullable(tableSnapshot), Optional.ofNullable(scanParams)));
+            return relationSnapshot;
+        }
+        relationSnapshot = MvccUtil.getSnapshotFromContext(targetTable);
+        return relationSnapshot;
     }
 
     protected boolean fileCacheAdmissionCheck() throws UserException {

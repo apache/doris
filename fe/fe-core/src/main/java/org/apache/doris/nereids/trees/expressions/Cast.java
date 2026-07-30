@@ -79,13 +79,18 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean nullable() {
-        if (child().nullable()) {
+        return castNullable(child().nullable(), child().getDataType(), targetType);
+    }
+
+    /** Compute whether a cast can produce null for the given source and target types. */
+    public static boolean castNullable(boolean srcNullable, DataType srcType, DataType targetType) {
+        if (srcNullable) {
             return true;
         }
         // Not allowed cast is forbidden in CheckCast, and all the Propagation Nullable cases are handled above
         // and the default return false below.
         // The if branches below only handle 2 cases: always nullable and nullable that may overflow.
-        DataType childDataType = child().getDataType();
+        DataType childDataType = srcType;
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;

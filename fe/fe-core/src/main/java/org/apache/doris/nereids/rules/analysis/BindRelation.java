@@ -43,6 +43,8 @@ import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -408,7 +410,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
-            List<String> qualifiedTableName) {
+            List<String> qualifiedTableName, CascadesContext cascadesContext) {
         Optional<SysTableResolver.SysTablePlan> sysTablePlanOpt = SysTableResolver.resolveForPlan(
                 table, qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
         if (!sysTablePlanOpt.isPresent()) {
@@ -425,6 +427,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 validatePaimonSystemTableScanParams(
                         (PaimonSysExternalTable) sysExternalTable, unboundRelation.getScanParams());
             }
+            TableIf snapshotTable = sysExternalTable instanceof IcebergSysExternalTable
+                    ? ((IcebergSysExternalTable) sysExternalTable).getSourceTable()
+                    : sysExternalTable;
+            // A metadata-table scan reads base-table snapshots, so bind its fence from the base
+            // relation even though the synthetic system-table wrapper is not itself MVCC-aware.
+            Optional<MvccSnapshot> relationSnapshot = cascadesContext.getStatementContext().loadSnapshots(
+                    snapshotTable, unboundRelation.getTableSnapshot(),
+                    Optional.ofNullable(unboundRelation.getScanParams()));
             return Optional.of(new LogicalFileScan(
                     unboundRelation.getRelationId(),
                     sysExternalTable,
@@ -433,7 +443,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getTableSample(),
                     unboundRelation.getTableSnapshot(),
                     Optional.ofNullable(unboundRelation.getScanParams()),
-                    Optional.empty()));
+                    Optional.empty(), relationSnapshot));
         }
 
         // TVF path: create table-valued function and return LogicalTVFRelation
@@ -454,13 +464,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // Handle meta table like "table_name$partitions"
         // qualifiedTableName should be like "ctl.db.tbl$partitions"
-        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation, qualifiedTableName);
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(
+                table, unboundRelation, qualifiedTableName, cascadesContext);
         if (logicalPlan.isPresent()) {
             return logicalPlan.get();
         }
 
         List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
-        cascadesContext.getStatementContext().loadSnapshots(
+        Optional<MvccSnapshot> relationSnapshot = cascadesContext.getStatementContext().loadSnapshots(
                 table,
                 unboundRelation.getTableSnapshot(),
                 Optional.ofNullable(unboundRelation.getScanParams()));
@@ -491,7 +502,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, ImmutableList.of(), Optional.empty(),
                                 unboundRelation.getTableSample(), unboundRelation.getTableSnapshot(),
-                                Optional.empty());
+                                Optional.empty(), relationSnapshot);
                         hudiScan = hudiScan.withScanParams(
                                 hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
@@ -501,7 +512,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 ImmutableList.of(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot(),
-                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                                Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty(),
+                                relationSnapshot);
                     }
                 case ICEBERG_EXTERNAL_TABLE:
                     IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
@@ -531,7 +543,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         qualifierWithoutTableName, ImmutableList.of(),
                         unboundRelation.getTableSample(),
                         unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty(), relationSnapshot);
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
@@ -540,7 +552,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty(), relationSnapshot);
                 case DORIS_EXTERNAL_TABLE:
                     ConnectContext ctx = cascadesContext.getConnectContext();
                     RemoteDorisExternalTable externalTable = (RemoteDorisExternalTable) table;
@@ -558,7 +570,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
-                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                            Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty(), relationSnapshot);
                 case SCHEMA:
                     LogicalSchemaScan schemaScan = new LogicalSchemaScan(unboundRelation.getRelationId(), table,
                             qualifierWithoutTableName);

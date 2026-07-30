@@ -414,7 +414,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 return false;
             }
             for (int i = 0; i < targetFields.size(); i++) {
-                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                // A nullable target can safely accept a required source, but the inverse would
+                // allow a possible NULL into a required nested field.
+                if (originalFields.get(i).isNullable() && !targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                // A required source field is not sufficient: value conversion itself can still
+                // produce NULL, so required targets only accept casts that preserve non-nullness.
+                if (!targetFields.get(i).isNullable()
+                        && Cast.castNullable(false, originalFields.get(i).getDataType(),
+                                targetFields.get(i).getDataType())) {
                     return false;
                 }
                 if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType(), isStrictMode)) {

@@ -53,6 +53,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -60,6 +61,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     private List<Expr> outputExprs;
     private final IcebergExternalTable targetTable;
+    private final Table icebergTable;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_ORC);
             add(TFileFormatType.FORMAT_PARQUET);
@@ -75,11 +77,27 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             throw new UnsupportedOperationException("Write data to iceberg view is not supported");
         }
         this.targetTable = targetTable;
+        this.icebergTable = targetTable.getIcebergTable();
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
                 catalog.getCatalogProperty().getStoragePropertiesMap(),
-                targetTable.getIcebergTable());
+                icebergTable);
+    }
+
+    public IcebergTableSink(IcebergExternalTable targetTable, Table icebergTable) {
+        super();
+        if (targetTable.isView()) {
+            throw new UnsupportedOperationException("Write data to iceberg view is not supported");
+        }
+        this.targetTable = targetTable;
+        // Keep credentials and every writer option on the metadata generation pinned during analysis.
+        this.icebergTable = Objects.requireNonNull(icebergTable, "icebergTable is not null");
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
+        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable);
     }
 
     @Override
@@ -98,10 +116,9 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         if (explainLevel == TExplainLevel.BRIEF) {
             return strBuilder.toString();
         }
-        Table icebergTable = targetTable.getIcebergTable();
         strBuilder.append(prefix).append("Table: ").append(icebergTable.name()).append("\n");
         if (icebergTable.sortOrder().isSorted()) {
-            strBuilder.append(prefix).append(targetTable.getSortOrderSql()).append("\n");
+            strBuilder.append(prefix).append(targetTable.getSortOrderSql(icebergTable)).append("\n");
         }
 
         // TODO: explain partitions
@@ -113,8 +130,6 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             throws AnalysisException {
 
         TIcebergTableSink tSink = new TIcebergTableSink();
-
-        Table icebergTable = targetTable.getIcebergTable();
 
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());

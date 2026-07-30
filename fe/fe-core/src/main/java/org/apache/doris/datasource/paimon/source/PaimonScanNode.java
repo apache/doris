@@ -31,8 +31,12 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
+import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonUtils;
@@ -62,6 +66,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -184,7 +189,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        if (source == null) {
+        Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+        if (desc.getTable() instanceof PaimonExternalTable) {
+            // Rebuild the source before applying query options so both layers use this relation's snapshot.
+            source = new PaimonSource(desc, relationSnapshot);
+        } else if (source == null) {
             source = new PaimonSource(desc);
         }
         processedTable = getProcessedTable();
@@ -290,7 +299,14 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
 
-            TableSchema tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
+            TableSchema tableSchema;
+            if (targetTable instanceof PaimonExternalTable) {
+                // Schema IDs are scoped to the resolved relation table, so a branch ID must
+                // never be looked up through the base table's schema cache namespace.
+                tableSchema = ((DataTable) source.getPaimonTable()).schemaManager().schema(schemaId);
+            } else {
+                tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
+            }
             params.addToHistorySchemaInfo(PaimonUtil.getHistorySchemaInfo(targetTable, tableSchema,
                     source.getCatalog().getEnableMappingVarbinary(),
                     source.getCatalog().getEnableMappingTimestampTz()));
@@ -656,6 +672,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() throws UserException {
         long startTime = System.currentTimeMillis();
         try {
+            Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+            if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
+                    && ((PaimonMvccSnapshot) relationSnapshot.get()).getSnapshotCacheValue()
+                            .getSnapshot().getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+                // An empty snapshot is a bound generation: consulting the live table here could
+                // expose the first commit made after analysis completed.
+                return Collections.emptyList();
+            }
             Table paimonTable = getProcessedTable();
             Map<String, String> resolvedOptions = scanParams == null
                     ? Collections.emptyMap()

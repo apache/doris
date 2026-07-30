@@ -63,6 +63,7 @@ import java.util.Set;
 public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
+    private final Table targetIcebergTable;
     private final DeleteCommandContext deleteContext;
     private final boolean requireMergeCardinalityCheck;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
@@ -77,11 +78,17 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
                             boolean requireMergeCardinalityCheck) {
+        this(targetTable, targetTable.getIcebergTable(), deleteContext, requireMergeCardinalityCheck);
+    }
+
+    public IcebergMergeSink(IcebergExternalTable targetTable, Table targetIcebergTable,
+            DeleteCommandContext deleteContext, boolean requireMergeCardinalityCheck) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("UPDATE on iceberg view is not supported");
         }
         this.targetTable = targetTable;
+        this.targetIcebergTable = targetIcebergTable;
         this.deleteContext = deleteContext;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
 
@@ -89,7 +96,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
                 catalog.getCatalogProperty().getStoragePropertiesMap(),
-                targetTable.getIcebergTable());
+                targetIcebergTable);
     }
 
     public void setRewritableDeleteFileSets(List<TIcebergRewritableDeleteFileSet> deleteFileSets) {
@@ -122,7 +129,8 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
         TIcebergMergeSink tSink = new TIcebergMergeSink();
 
-        Table icebergTable = targetTable.getIcebergTable();
+        // Serialize exactly the schema/spec that the analyzed merge plan and transaction retain.
+        Table icebergTable = targetIcebergTable;
 
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());

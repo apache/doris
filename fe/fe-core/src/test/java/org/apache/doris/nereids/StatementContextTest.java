@@ -175,6 +175,7 @@ public class StatementContextTest {
         HMSExternalTable hmsExternalTable = Mockito.mock(HMSExternalTable.class);
         DatabaseIf<TableIf> database = mockDatabase();
         CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnablePreloadExternalMetadata(true);
 
@@ -191,6 +192,9 @@ public class StatementContextTest {
         Mockito.when(hmsExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
         Mockito.when(hmsExternalTable.supportsLatestSnapshotPreload()).thenReturn(true);
         Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.HUDI);
+        // StatementContext stores the returned snapshot, so null is not a valid preload result.
+        Mockito.when(hmsExternalTable.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(mvccSnapshot);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -575,6 +579,130 @@ public class StatementContextTest {
             Mockito.verify(paimonExternalTable, Mockito.times(1))
                     .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
             Mockito.verify(paimonExternalTable, Mockito.times(1)).getBaseSchema();
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testLoadSnapshotsKeepsEachRelationSnapshotCurrent() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot firstSnapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot secondSnapshot = Mockito.mock(MvccSnapshot.class);
+
+        Mockito.when(table.getName()).thenReturn("historical_table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(table.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(firstSnapshot, secondSnapshot);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.loadSnapshots(table,
+                    Optional.of(new TableSnapshot("1", TableSnapshot.VersionType.VERSION)), Optional.empty());
+            org.junit.jupiter.api.Assertions.assertSame(firstSnapshot,
+                    statementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+
+            statementContext.loadSnapshots(table,
+                    Optional.of(new TableSnapshot("2", TableSnapshot.VersionType.VERSION)), Optional.empty());
+
+            org.junit.jupiter.api.Assertions.assertSame(secondSnapshot,
+                    statementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+            Mockito.verify(table, Mockito.times(2))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testLatestSnapshotIsIndependentOfHistoricalRelationOrder() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot latestSnapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot historicalSnapshot = Mockito.mock(MvccSnapshot.class);
+
+        Mockito.when(table.getName()).thenReturn("mixed_version_table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(table.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenAnswer(invocation -> ((Optional<?>) invocation.getArgument(0)).isPresent()
+                        ? historicalSnapshot : latestSnapshot);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+            statementContext.loadSnapshots(table,
+                    Optional.of(new TableSnapshot("1", TableSnapshot.VersionType.VERSION)), Optional.empty());
+            org.junit.jupiter.api.Assertions.assertSame(historicalSnapshot,
+                    statementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+
+            statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+            org.junit.jupiter.api.Assertions.assertSame(latestSnapshot,
+                    statementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+            Mockito.verify(table, Mockito.times(2))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+
+        StatementContext reverseStatementContext = new StatementContext(
+                connectContext, new OriginStatement("select 1", 0));
+        try {
+            reverseStatementContext.loadSnapshots(table,
+                    Optional.of(new TableSnapshot("1", TableSnapshot.VersionType.VERSION)), Optional.empty());
+            org.junit.jupiter.api.Assertions.assertSame(historicalSnapshot,
+                    reverseStatementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+
+            reverseStatementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+
+            org.junit.jupiter.api.Assertions.assertSame(latestSnapshot,
+                    reverseStatementContext.getSnapshot(table).orElseThrow(AssertionError::new));
+            Mockito.verify(table, Mockito.times(4))
+                    .loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any());
+        } finally {
+            reverseStatementContext.close();
+        }
+    }
+
+    @Test
+    public void testInjectedSnapshotRemainsAuthoritativeForLatestRelation() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PaimonExternalTable table = Mockito.mock(PaimonExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        MvccSnapshot injectedSnapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot reloadedSnapshot = Mockito.mock(MvccSnapshot.class);
+
+        Mockito.when(table.getName()).thenReturn("mtmv_base_table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(table.loadSnapshot(Mockito.<Optional<TableSnapshot>>any(), Mockito.any()))
+                .thenReturn(reloadedSnapshot);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.setSnapshot(new org.apache.doris.datasource.mvcc.MvccTableInfo(table),
+                    injectedSnapshot);
+
+            Optional<MvccSnapshot> loaded = statementContext.loadSnapshots(
+                    table, Optional.empty(), Optional.empty());
+
+            org.junit.jupiter.api.Assertions.assertSame(injectedSnapshot,
+                    loaded.orElseThrow(AssertionError::new));
+            Mockito.verify(table, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
         } finally {
             statementContext.close();
         }

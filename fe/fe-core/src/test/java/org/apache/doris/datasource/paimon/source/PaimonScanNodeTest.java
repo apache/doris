@@ -27,12 +27,18 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonPartitionInfo;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
+import org.apache.doris.datasource.paimon.PaimonSnapshot;
+import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.planner.PlanNodeId;
@@ -56,6 +62,7 @@ import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -71,6 +78,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
@@ -687,12 +695,29 @@ public class PaimonScanNodeTest {
                 Collections.emptyList());
         scanParams.getOrResolveMapParams(options -> PaimonScanParams.resolveOptions(table, options));
         node.setScanParams(scanParams);
+        // This reader-filter test deliberately has no bound MVCC snapshot; avoid asking the
+        // otherwise unstubbed external-table mock to manufacture one from scan options.
+        node.setRelationSnapshot(Optional.empty());
 
         Assert.assertTrue(node.getPaimonSplitFromAPI().isEmpty());
 
         Mockito.verify(reader).withLevelFilter(ArgumentMatchers.any());
         Mockito.verify(reader).enableValueFilter();
         Mockito.verify(reader).onlyReadRealBuckets();
+    }
+
+    @Test
+    public void testBoundEmptySnapshotDoesNotReadLaterCommit() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table liveTable = Mockito.mock(Table.class);
+        node.setSource(source);
+        node.setRelationSnapshot(Optional.of(new PaimonMvccSnapshot(
+                new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(PaimonSnapshot.INVALID_SNAPSHOT_ID, 1L, liveTable)))));
+
+        Assert.assertTrue(node.getPaimonSplitFromAPI().isEmpty());
+        Mockito.verify(liveTable, Mockito.never()).newReadBuilder();
     }
 
     @Test
@@ -837,7 +862,9 @@ public class PaimonScanNodeTest {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         Column latestColumn = Mockito.mock(Column.class);
         Mockito.when(latestColumn.getName()).thenReturn("renamed_name");
-        Mockito.when(node.getTupleDesc().getTable().getFullSchema())
+        PaimonExternalTable externalTable = (PaimonExternalTable) node.getTupleDesc().getTable();
+        // File scan metadata is resolved against the relation snapshot, so mock the snapshot-aware lookup.
+        Mockito.when(externalTable.getFullSchema(Mockito.<Optional<MvccSnapshot>>any()))
                 .thenReturn(Collections.singletonList(latestColumn));
 
         Table staleTableHandle = Mockito.mock(Table.class);
@@ -1168,8 +1195,12 @@ public class PaimonScanNodeTest {
     }
 
     @Test
-    public void testSetPaimonParamsUsesJniForDataSplit() throws Exception {
-        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+    public void testSetPaimonParamsUsesJniWhenCppOptionEnabled() throws Exception {
+        // Keep this as real session state because the JNI-only path need not read the option;
+        // strict mocks should not make the test depend on whether that implementation detail is consulted.
+        SessionVariable cppEnabledSession = new SessionVariable();
+        cppEnabledSession.setEnablePaimonCppReader(true);
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), cppEnabledSession);
         PaimonSource source = Mockito.mock(PaimonSource.class);
         Table paimonTable = mockPaimonTableWithPartitionKeys(Collections.emptyList());
         Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
@@ -1192,6 +1223,33 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(1, PaimonScanNode.getFieldIndex(fieldNames, "mixed_col"));
         Assert.assertEquals(2, PaimonScanNode.getFieldIndex(fieldNames, "part"));
         Assert.assertEquals(-1, PaimonScanNode.getFieldIndex(fieldNames, "missing_col"));
+    }
+
+    @Test
+    public void testHistorySchemaUsesRelationPaimonTable() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        DataTable branchTable = Mockito.mock(DataTable.class, Mockito.RETURNS_DEEP_STUBS);
+        TableSchema branchSchema = Mockito.mock(TableSchema.class);
+        Mockito.when(branchTable.schemaManager().schema(3L)).thenReturn(branchSchema);
+        Mockito.when(branchSchema.id()).thenReturn(3L);
+        Mockito.when(branchSchema.fields()).thenReturn(Collections.emptyList());
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(branchTable);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+        node.setSource(source);
+        setField(FileQueryScanNode.class, node, "params", new TFileScanRangeParams());
+
+        try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
+            invokePrivateMethod(node, "putHistorySchemaInfo", new Class<?>[] {Long.class}, 3L);
+            paimonUtils.verify(
+                    () -> PaimonUtils.getSchemaCacheValue(externalTable, 3L), Mockito.never());
+        }
+
+        Mockito.verify(branchTable.schemaManager()).schema(3L);
+        Assert.assertEquals(3L, node.getFileScanRangeParams().getHistorySchemaInfo().get(0).getSchemaId());
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

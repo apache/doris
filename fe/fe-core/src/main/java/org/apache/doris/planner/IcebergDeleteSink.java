@@ -51,6 +51,7 @@ import java.util.Set;
 public class IcebergDeleteSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
+    private final Table targetIcebergTable;
     private final DeleteCommandContext deleteContext;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
@@ -62,19 +63,23 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
     // Store PropertiesMap, including vended credentials or static credentials
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
-    public IcebergDeleteSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext) {
+    public IcebergDeleteSink(IcebergExternalTable targetTable, Table targetIcebergTable,
+            DeleteCommandContext deleteContext) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("DELETE from iceberg view is not supported");
         }
         this.targetTable = targetTable;
+        // Keep writer configuration on the generation scanned by DELETE so a concurrent commit cannot
+        // mix its spec, location, or credentials with delete files derived from an older generation.
+        this.targetIcebergTable = targetIcebergTable;
         this.deleteContext = deleteContext;
 
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
                 catalog.getCatalogProperty().getStoragePropertiesMap(),
-                targetTable.getIcebergTable());
+                targetIcebergTable);
     }
 
     public void setRewritableDeleteFileSets(List<TIcebergRewritableDeleteFileSet> deleteFileSets) {
@@ -107,7 +112,7 @@ public class IcebergDeleteSink extends BaseExternalTableDataSink {
 
         TIcebergDeleteSink tSink = new TIcebergDeleteSink();
 
-        Table icebergTable = targetTable.getIcebergTable();
+        Table icebergTable = targetIcebergTable;
 
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());

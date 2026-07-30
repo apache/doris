@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -42,7 +43,10 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -66,6 +70,7 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -74,6 +79,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -177,6 +183,75 @@ public class TypeCoercionUtilsTest {
                 v1, anotherV1).isPresent());
         Assertions.assertEquals(VariantType.COMPUTE_V2_INSTANCE,
                 TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v2, anotherV2).get());
+    }
+
+    @Test
+    public void testCoalesceCastsRequiredStructFieldsToNullableLayout() {
+        StructType nullableStruct = new StructType(ImmutableList.of(
+                new StructField("name", VarcharType.createVarcharType(10), true, ""),
+                new StructField("age", IntegerType.INSTANCE, true, "")));
+        SlotReference nullableStructSlot = new SlotReference("value", nullableStruct, true);
+        StructLiteral requiredStruct = new StructLiteral(ImmutableList.of(
+                new StringLiteral("Charlie"), new IntegerLiteral(18)));
+
+        Expression coerced = TypeCoercionUtils.processBoundFunction(
+                new Coalesce(nullableStructSlot, requiredStruct));
+
+        Assertions.assertInstanceOf(Cast.class, coerced.child(1));
+        StructType castType = (StructType) coerced.child(1).getDataType();
+        Assertions.assertTrue(castType.getFields().get(0).isNullable());
+        Assertions.assertTrue(castType.getFields().get(1).isNullable());
+    }
+
+    @Test
+    public void testLegacyCaseWhenUnionsStructFieldNullabilityInBothOrders() {
+        StructType required = new StructType(ImmutableList.of(
+                new StructField("event_time", DateTimeV2Type.of(3), false, "")));
+        StructType nullable = new StructType(ImmutableList.of(
+                new StructField("event_time", DateTimeV2Type.of(6), true, "")));
+
+        StructType leftRequired = (StructType) TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                ImmutableList.of(required, nullable)).get();
+        StructType leftNullable = (StructType) TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                ImmutableList.of(nullable, required)).get();
+
+        Assertions.assertTrue(leftRequired.getFields().get(0).isNullable());
+        Assertions.assertTrue(leftNullable.getFields().get(0).isNullable());
+    }
+
+    @Test
+    public void testLegacySetOperationIncludesCastNullability() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        GlobalVariable.enableNewTypeCoercionBehavior = false;
+        try {
+            StructType millis = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(3), false, "")));
+            StructType micros = new StructType(ImmutableList.of(
+                    new StructField("event_time", DateTimeV2Type.of(6), false, "")));
+
+            StructType common = (StructType) org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation
+                    .getAssignmentCompatibleType(millis, micros);
+
+            Assertions.assertTrue(common.getFields().get(0).isNullable());
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
+    }
+
+    @Test
+    public void testInPredicateStructCastKeepsNullableCastResult() {
+        StructLiteral stringStruct = new StructLiteral(ImmutableList.of(
+                new IntegerLiteral(1), new StringLiteral("2")));
+        StructLiteral integerStruct = new StructLiteral(ImmutableList.of(
+                new IntegerLiteral(1), new IntegerLiteral(3)));
+        InPredicate predicate = new InPredicate(stringStruct,
+                ImmutableList.of(integerStruct, NullLiteral.INSTANCE));
+
+        InPredicate coerced = (InPredicate) TypeCoercionUtils.processInPredicate(predicate);
+
+        StructType commonType = (StructType) coerced.getCompareExpr().getDataType();
+        Assertions.assertTrue(commonType.getFields().get(1).isNullable(),
+                "String-to-decimal coercion can produce NULL inside the struct field");
     }
 
     @Test

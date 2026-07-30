@@ -18,11 +18,16 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
@@ -30,6 +35,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 public class PaimonExternalTableTest {
@@ -93,5 +99,28 @@ public class PaimonExternalTableTest {
                 "7".equals(options.get("scan.snapshot-id"))
                         && options.containsKey("scan.mode")
                         && options.get("scan.mode") == null));
+    }
+
+    @Test
+    public void testBranchSnapshotUsesEffectiveTableSchema() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        PaimonExternalTable externalTable = new PaimonExternalTable(
+                1L, "local_table", "remote_table", catalog, database);
+        FileStoreTable branchTable = Mockito.mock(FileStoreTable.class);
+        TableSchema branchSchema = new TableSchema(3L,
+                Collections.singletonList(new DataField(1, "branch_column", DataTypes.INT())),
+                1, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), "");
+        Mockito.when(branchTable.schema()).thenReturn(branchSchema);
+        Mockito.when(branchTable.schemaManager()).thenThrow(
+                new AssertionError("branch schema must not be looked up through the base namespace"));
+        PaimonSnapshotCacheValue cacheValue = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(7L, 3L, branchTable), true);
+
+        List<Column> schema = externalTable.getFullSchema(
+                Optional.of(new PaimonMvccSnapshot(cacheValue)));
+
+        Assert.assertEquals(1, schema.size());
+        Assert.assertEquals("branch_column", schema.get(0).getName());
     }
 }

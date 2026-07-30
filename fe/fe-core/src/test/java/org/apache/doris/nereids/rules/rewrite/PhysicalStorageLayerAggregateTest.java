@@ -169,7 +169,7 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
                 .thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(nullableColumn));
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(ImmutableList.of(nullableColumn));
         Mockito.when(table.getName()).thenReturn("nullable_file_table");
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
         Mockito.when(catalog.getName()).thenReturn("catalog");

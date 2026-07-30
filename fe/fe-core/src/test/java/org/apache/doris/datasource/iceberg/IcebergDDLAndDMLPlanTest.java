@@ -171,10 +171,6 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         }).when(spyTable).getFullSchema();
         Mockito.doReturn(ImmutableList.of()).when(spyTable)
                 .getPartitionColumns(ArgumentMatchers.any());
-        IcebergSnapshotCacheValue snapshotCacheValue = new IcebergSnapshotCacheValue(
-                IcebergPartitionInfo.empty(), new IcebergSnapshot(0L, 0L));
-        Mockito.doReturn(new IcebergMvccSnapshot(snapshotCacheValue)).when(spyTable)
-                .loadSnapshot(ArgumentMatchers.any(), ArgumentMatchers.any());
         Table mockedIcebergTable = Mockito.mock(Table.class);
         PartitionSpec mockedSpec = Mockito.mock(PartitionSpec.class);
         Mockito.doReturn(false).when(mockedSpec).isPartitioned();
@@ -187,6 +183,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(icebergSchema).when(mockedIcebergTable).schema();
+        IcebergSnapshotCacheValue snapshotCacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(0L, 0L), Optional.empty(), mockedIcebergTable);
+        Mockito.doReturn(new IcebergMvccSnapshot(snapshotCacheValue)).when(spyTable)
+                .loadSnapshot(ArgumentMatchers.any(), ArgumentMatchers.any());
         // The scan now resolves initial defaults from the statement-pinned schema id, so the
         // mocked table must expose the same historical-schema lookup as a real Iceberg table.
         Mockito.doAnswer(invocation -> ImmutableMap.of(
@@ -674,10 +674,8 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     @Test
     public void testIcebergUpdateExchangeUsesPartitionColumnsWhenEnabled() throws Exception {
         useIceberg();
-        IcebergExternalTable table = getIcebergTable();
-        Column partitionColumn = new Column("age", PrimitiveType.INT);
-        Mockito.doReturn(ImmutableList.of(partitionColumn)).when(table)
-                .getPartitionColumns(ArgumentMatchers.any());
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).identity("age").build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
         boolean previous = connectContext.getSessionVariable().enableIcebergMergePartitioning;
         connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
         try {
@@ -707,17 +705,15 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             Assertions.assertEquals(rowIdExprId, spec.getDeletePartitionExprIds().get(0));
         } finally {
             connectContext.getSessionVariable().enableIcebergMergePartitioning = previous;
-            Mockito.doReturn(ImmutableList.of()).when(table).getPartitionColumns(ArgumentMatchers.any());
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
         }
     }
 
     @Test
     public void testIcebergUpdatePartitionExpressionUsesPartitionColumnWhenEnabled() throws Exception {
         useIceberg();
-        IcebergExternalTable table = getIcebergTable();
-        Column partitionColumn = new Column("age", PrimitiveType.INT);
-        Mockito.doReturn(ImmutableList.of(partitionColumn)).when(table)
-                .getPartitionColumns(ArgumentMatchers.any());
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).identity("age").build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
         boolean previous = connectContext.getSessionVariable().enableIcebergMergePartitioning;
         connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
         try {
@@ -746,7 +742,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             Assertions.assertEquals(ImmutableList.of(rowIdExprId), spec.getDeletePartitionExprIds());
         } finally {
             connectContext.getSessionVariable().enableIcebergMergePartitioning = previous;
-            Mockito.doReturn(ImmutableList.of()).when(table).getPartitionColumns(ArgumentMatchers.any());
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
         }
     }
 

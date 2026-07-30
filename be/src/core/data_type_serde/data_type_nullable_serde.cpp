@@ -493,7 +493,17 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
     const auto& null_map_tmp = column_nullable.get_null_map_data();
-    auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
+    const NullMap* effective_null_map = &null_map_tmp;
+    NullMap combined_null_map;
+    if (null_map != nullptr && null_map != &null_map_tmp) {
+        DORIS_CHECK(null_map->size() == null_map_tmp.size());
+        combined_null_map.assign(null_map_tmp.begin(), null_map_tmp.end());
+        for (size_t row = start; row < static_cast<size_t>(end); ++row) {
+            combined_null_map[row] |= (*null_map)[row];
+        }
+        effective_null_map = &combined_null_map;
+    }
+    auto orc_null_map = revert_null_map(effective_null_map, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
     // because orc_col_batch->notNull.data() begins at 0
     // orc_null_map.data() do not need add 'start' (+ start),
@@ -501,8 +511,8 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
-                                                      &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, arena, options));
+                                                      effective_null_map, orc_col_batch, start, end,
+                                                      arena, options));
     return Status::OK();
 }
 
