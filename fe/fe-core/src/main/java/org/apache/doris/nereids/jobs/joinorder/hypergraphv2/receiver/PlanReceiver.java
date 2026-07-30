@@ -160,6 +160,18 @@ public class PlanReceiver extends AbstractReceiver {
         LogicalPlan logicalJoin = proposeJoin(joinType, leftPlan, rightPlan, hashConjuncts,
                 otherConjuncts);
 
+        // Reject join orders where cross-bitmap alias layers have an
+        // unresolvable dependency — a later layer references an alias from
+        // an earlier layer whose source spans both children.  The producer
+        // layer must be fully contained in one child before the consumer
+        // can be emitted, otherwise CheckAfterRewrite rejects the plan.
+        if (hyperGraph.hasUnresolvableAliasDependency(left, right)) {
+            if (fullKeyEmitted) {
+                missingEdgeFail = true;
+            }
+            return EmitState.CONTINUE;
+        }
+
         LogicalPlan logicalPlan = proposeProject(logicalJoin, edges, left, right);
 
         // Second, we copy all physical plan to Group and generate properties and calculate cost

@@ -162,6 +162,74 @@ public class HyperGraph {
     }
 
     /**
+     * Returns true if the cross-bitmap alias layers that would be emitted at
+     * this join step have a dependency that cannot be resolved.  Specifically,
+     * if a later layer references an alias from an earlier layer whose bitmap
+     * key is also split across both children (not yet emitted), then emitting
+     * both in one flat Project causes CheckAfterRewrite to reject the plan.
+     * Rejecting the join order forces DPHyp to find an alternative where the
+     * producer layer's source is fully contained in one child.
+     */
+    public boolean hasUnresolvableAliasDependency(long left, long right) {
+        List<Map.Entry<Long, List<NamedExpression>>> entries = getProjectedAliasEntries(
+                left, right);
+        if (entries.size() < 2) {
+            return false;
+        }
+        Set<ExprId> producedExprIds = new HashSet<>();
+        for (Map.Entry<Long, List<NamedExpression>> entry : entries) {
+            long key = entry.getKey();
+            // If this layer's key spans both children, the layer is being
+            // emitted NOW (not pre-existing in a child).
+            boolean keySpansBoth = !LongBitmap.isSubset(key, left)
+                    && !LongBitmap.isSubset(key, right);
+            if (keySpansBoth) {
+                for (NamedExpression alias : entry.getValue()) {
+                    for (Slot inputSlot : alias.getInputSlots()) {
+                        if (producedExprIds.contains(inputSlot.getExprId())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            for (NamedExpression alias : entry.getValue()) {
+                producedExprIds.add(alias.getExprId());
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the projected alias entries in insertion order that should be
+     * emitted when joining {@code left} and {@code right}. Each entry is a
+     * separate layer keyed by its source bitmap.  Unlike
+     * {@link #getProjectedAliases} which flattens all layers, this preserves
+     * layer boundaries so that cross-bitmap dependent aliases (e.g., y = x + C.v
+     * on key {A,B,C} where x is on key {A,B}) can be emitted as nested
+     * Project nodes in dependency order.
+     */
+    public List<Map.Entry<Long, List<NamedExpression>>> getProjectedAliasEntries(
+            long left, long right) {
+        List<Map.Entry<Long, List<NamedExpression>>> result = new ArrayList<>();
+        if (left == right) {
+            List<NamedExpression> layer = nodeToProjectedAliases.get(left);
+            if (layer != null) {
+                result.add(Map.entry(left, layer));
+            }
+        } else {
+            long nodes = LongBitmap.newBitmapUnion(left, right);
+            for (Map.Entry<Long, List<NamedExpression>> entry : nodeToProjectedAliases.entrySet()) {
+                long key = entry.getKey();
+                if (!LongBitmap.isSubset(key, left) && !LongBitmap.isSubset(key, right)
+                        && LongBitmap.isSubset(key, nodes)) {
+                    result.add(entry);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns the union of input slots of all projected aliases whose bitmap
      * is a superset of the given nodes. Used by PlanReceiver to preserve
      * columns in intermediate join outputs that are needed by pending aliases

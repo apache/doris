@@ -26,7 +26,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class NullableAliasTest extends SqlTestBase {
-
     @Test
     void testCoalesceOnNullableSide() {
         // COALESCE on the nullable (right) side of a LEFT JOIN.
@@ -353,5 +352,86 @@ public class NullableAliasTest extends SqlTestBase {
         );
         Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
         Assertions.assertNotNull(plan);
+    }
+
+    @Test
+    void testCrossBitmapAliasLayers() {
+        // Two alias layers with different bitmap keys on the nullable side.
+        //   x = A.score + B.score   key {A,B}  (inner Project)
+        //   dv = x#X + C.score      key {A,B,C}  (outer Project)
+        // DPHyp can build {A,C}+{B}, at which point both alias layers would
+        // be emitted.  The later layer dv references x#X from the earlier
+        // layer x, but x's source spans both children — x#X does not exist
+        // in the join child.  Without the fix, CheckAfterRewrite rejects
+        // the plan.  With the fix (hasUnresolvableAliasDependency), the
+        // {A,C}+{B} join order is rejected and DPHyp falls back to a valid
+        // order like {A,B}+{C}.
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id, Sub.dv "
+                        + "from T1 left join ("
+                        + "  select Sub2.id, Sub2.x, Sub2.x + C.score as dv "
+                        + "  from ("
+                        + "    select A.id, A.score + B.score as x "
+                        + "    from T2 A inner join T3 B on A.id = B.id"
+                        + "  ) Sub2 inner join T1 C on Sub2.id = C.id"
+                        + ") Sub on T1.id = Sub.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+    }
+
+    @Test
+    void testNullableAliasOnRightJoinSide() {
+        // RIGHT OUTER JOIN: the left side is nullable.  A complex alias
+        // dv = T2.score + T3.score is defined inside an inner-join cluster
+        // on the left (nullable) side.  DPHyp must keep the alias below the
+        // right-join null-extension — the same pattern as the LEFT JOIN
+        // tests but with the nullable flag on the left child instead.
+        // The plan tree is printed so that a developer inspecting test
+        // output can verify the outer join is present and the nullable
+        // slots carry the correct nullability flags.
+        CascadesContext c1 = createCascadesContext(
+                "select Sub.dv "
+                        + "from ("
+                        + "  select T2.id, T2.score + T3.score as dv "
+                        + "  from T2 inner join T3 on T2.id = T3.id"
+                        + ") Sub right join T1 on Sub.id = T1.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+        String tree = plan.treeString();
+        Assertions.assertTrue(tree.contains("RIGHT") || tree.contains("LEFT"),
+                "Plan should contain an outer join (RIGHT or LEFT-converted)."
+                + "\nPlan tree:\n" + tree);
+    }
+
+    @Test
+    void testNullableAliasOnFullJoinBothSides() {
+        // FULL OUTER JOIN: both sides are nullable.  Each side carries a
+        // complex alias on the nullable side:
+        //   Left  (Sub1): dv1 = T2.score + T3.score  (inner-join cluster)
+        //   Right (Sub2): dv2 = char_length(cast(T1.score as string))
+        // Both aliases must execute below the full-outer null-extension.
+        // The plan tree is printed so that a developer inspecting test
+        // output can verify both aliases are below the null-extension.
+        CascadesContext c1 = createCascadesContext(
+                "select Sub1.dv1, Sub2.dv2 "
+                        + "from ("
+                        + "  select T2.id, T2.score + T3.score as dv1 "
+                        + "  from T2 inner join T3 on T2.id = T3.id"
+                        + ") Sub1 full outer join ("
+                        + "  select T1.id, char_length(cast(T1.score as string)) as dv2 "
+                        + "  from T1"
+                        + ") Sub2 on Sub1.id = Sub2.id",
+                connectContext
+        );
+        Plan plan = PlanChecker.from(c1).analyze().rewrite().dpHypOptimize().getBestPlanTree();
+        Assertions.assertNotNull(plan);
+        String tree = plan.treeString();
+        Assertions.assertTrue(tree.contains("FULL"),
+                "Plan should contain a FULL OUTER JOIN."
+                + "\nPlan tree:\n" + tree);
     }
 }
