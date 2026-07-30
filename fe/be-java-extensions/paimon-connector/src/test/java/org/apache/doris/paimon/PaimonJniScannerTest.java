@@ -82,6 +82,19 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testOldFeSerializedZeroReadBatchIsRejected() {
+        Table configuredTable = tableWithOptions(Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), "0"));
+
+        try {
+            PaimonJniScanner.applyDefaultReadBatchSize(configuredTable, 1024);
+            Assert.fail("an unvalidated old-FE batch size must not reach the Paimon reader");
+        } catch (IllegalArgumentException e) {
+            Assert.assertTrue(e.getMessage().contains(CoreOptions.READ_BATCH_SIZE.key()));
+        }
+    }
+
+    @Test
     public void testSerializedReadBatchSizeReachesReaderTableInitialization() throws Exception {
         Table configuredTable = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
                 new Class[] {Table.class}, new SerializableTableHandler(

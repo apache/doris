@@ -676,6 +676,7 @@ public class PaimonJniScanner extends JniScanner {
         if (table.options().containsKey(CoreOptions.READ_BATCH_SIZE.key())) {
             // Doris' output block size and Paimon's reader batch are independent controls; an
             // explicitly validated Paimon value must survive transport to the actual reader.
+            validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
             return table;
         }
         // The serialized table may pin an older data snapshot while carrying the latest schema
@@ -686,6 +687,21 @@ public class PaimonJniScanner extends JniScanner {
         return table instanceof FileStoreTable
                 ? ((FileStoreTable) table).copyWithoutTimeTravel(readOptions)
                 : table.copy(readOptions);
+    }
+
+    private static void validateSerializedReadBatchSize(String value) {
+        try {
+            int batchSize = Integer.parseInt(value);
+            if (batchSize < 1 || batchSize > 65536) {
+                throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
+                        + "' must be between 1 and 65536, but was " + value);
+            }
+        } catch (NumberFormatException e) {
+            // Serialized tables can come from an older FE that did not validate reader options;
+            // fail fast instead of allowing an invalid batch size to reach Paimon's read loop.
+            throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
+                    + "' must be an integer between 1 and 65536, but was " + value, e);
+        }
     }
 
     private static String[] splitParam(String value, String delimiter) {

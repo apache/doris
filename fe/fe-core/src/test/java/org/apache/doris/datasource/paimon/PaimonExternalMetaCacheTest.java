@@ -18,8 +18,10 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -29,22 +31,33 @@ import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.Table;
+import org.apache.paimon.table.sink.StreamTableCommit;
+import org.apache.paimon.table.sink.StreamTableWrite;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -69,9 +82,9 @@ public class PaimonExternalMetaCacheTest {
         TableSchema latestSchema = Mockito.mock(TableSchema.class);
         Mockito.when(snapshot.id()).thenReturn(12L);
         Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.options()).thenReturn(Collections.emptyMap());
         Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
-        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Collections.singletonMap(
-                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"))).thenReturn(pinnedTable);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(pinnedTable);
         Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
         Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
         Mockito.when(latestSchema.id()).thenReturn(4L);
@@ -81,8 +94,81 @@ public class PaimonExternalMetaCacheTest {
         Assert.assertEquals(12L, value.getSnapshot().getSnapshotId());
         Assert.assertEquals(4L, value.getSnapshot().getSchemaId());
         Assert.assertSame(pinnedTable, value.getSnapshot().getTable());
-        Mockito.verify(latestSchemaTable).copyWithoutTimeTravel(Collections.singletonMap(
-                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"));
+        Mockito.verify(latestSchemaTable).copyWithoutTimeTravel(
+                Mockito.argThat(options -> "12".equals(options.get(CoreOptions.SCAN_SNAPSHOT_ID.key()))
+                        && options.entrySet().stream()
+                                .filter(entry -> entry.getValue() != null)
+                                .count() == 1));
+    }
+
+    @Test
+    public void testTagProjectionKeepsOnlyRepinnedSnapshotSelector() throws Exception {
+        Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder("tag_projection").toURI()));
+        catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        catalog.createTable(identifier, Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .build(), false);
+        FileStoreTable table = (FileStoreTable) catalog.getTable(identifier);
+        try (StreamTableWrite write = table.newWrite("test");
+                StreamTableCommit commit = table.newCommit("test")) {
+            write.write(BinaryRow.singleColumn(1));
+            commit.commit(0, write.prepareCommit(false, 1));
+        }
+        table.createTag("stable", 1L);
+        Table selected = PaimonScanParams.applyOptions(
+                table, Collections.singletonMap(CoreOptions.SCAN_TAG_NAME.key(), "stable"));
+        PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                new PaimonPartitionInfoLoader(),
+                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), null));
+
+        PaimonSnapshotCacheValue value = loader.load(
+                new NameMapping(1L, "db", "table", "db", "table"), selected);
+
+        Assert.assertEquals("1", value.getSnapshot().getTable().options()
+                .get(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        Assert.assertFalse(value.getSnapshot().getTable().options()
+                .containsKey(CoreOptions.SCAN_TAG_NAME.key()));
+    }
+
+    @Test
+    public void testNeutralCacheLoadDefersPhysicalManifestValidation() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("neutral_cache");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                91L, "paimon_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        dorisCatalog.catalog.createTable(identifier, Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .option(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "0")
+                .build(), false);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(91L), Mockito.any());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+            cache.initCatalog(91L, Collections.emptyMap());
+
+            Table table = cache.getPaimonTable(
+                    new NameMapping(91L, "db", "table", "db", "table"));
+
+            Assert.assertEquals("0", table.options().get(
+                    CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

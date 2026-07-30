@@ -21,11 +21,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonPartitionInfo;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
+import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSchemaCacheValue;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
 
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
@@ -34,6 +35,7 @@ import org.apache.paimon.table.Table;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -79,8 +81,17 @@ public final class PaimonLatestSnapshotProjectionLoader {
             // Pin the data snapshot for MVCC while retaining the latest table schema. A normal
             // copy applies time travel and falls back to the snapshot's schema, which can be stale
             // immediately after a schema change that has not produced a new data snapshot.
-            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(
-                    Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(latestSnapshotId)));
+            Map<String, String> projectionOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
+                    latestSchemaTable, PaimonScanParams.isolateSnapshotRead(latestSnapshotId));
+            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(projectionOptions);
+        } else {
+            Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
+                    latestSchemaTable, Collections.emptyMap());
+            if (!runtimeOptions.isEmpty()) {
+                // The shared cache stays relation-neutral; only its planning projection receives
+                // CPU-local caps so persisted catalog semantics remain replay-stable.
+                snapshotTable = latestSchemaTable.copyWithoutTimeTravel(runtimeOptions);
+            }
         }
         DataTable dataTable = (DataTable) latestSchemaTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);

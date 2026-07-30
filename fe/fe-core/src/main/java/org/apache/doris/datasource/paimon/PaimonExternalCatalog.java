@@ -141,11 +141,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
             return executionAuthenticator.execute(() -> {
                 Table table = catalog.getTable(identifier);
                 Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
-                // Relation options are applied after this cached handle is returned. Defer final
-                // validation so a safe relation value can override an unsafe physical value.
-                Map<String, String> runtimeOptions =
-                        PaimonReaderOptions.runtimeSafeCopyOptions(table, tableOptions);
-                return runtimeOptions.isEmpty() ? table : table.copy(runtimeOptions);
+                // This handle is relation-neutral. Runtime validation and CPU-local capping belong
+                // to the final relation copy, where relation options can override physical values.
+                return tableOptions.isEmpty() ? table : table.copy(tableOptions);
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."

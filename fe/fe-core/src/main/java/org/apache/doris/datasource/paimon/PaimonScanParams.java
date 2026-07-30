@@ -347,6 +347,15 @@ public final class PaimonScanParams {
         return isolatedOptions;
     }
 
+    public static Map<String, String> isolateSnapshotRead(long snapshotId) {
+        Map<String, String> isolatedOptions = new HashMap<>();
+        // A repinned MVCC projection must carry exactly one selector; inherited tag or watermark
+        // state would make Paimon reject the table before snapshot planning starts.
+        INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
+        isolatedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId));
+        return isolatedOptions;
+    }
+
     private static boolean isCompatibleStartupMode(String position, String mode) {
         if ("default".equals(mode)) {
             return true;

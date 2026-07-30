@@ -264,6 +264,7 @@ public class StatementContext implements Closeable {
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
@@ -944,8 +945,17 @@ public class StatementContext implements Closeable {
         if (scanParams != null && scanParams.isPresent() && scanParams.get().isOptions()) {
             // OPTIONS defines a relation-scoped projection, so aliases with the same selector
             // reuse one handle while different selectors never overwrite each other.
-            snapshot = snapshots.computeIfAbsent(mvccTableInfo,
-                    key -> ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+            snapshot = snapshots.get(mvccTableInfo);
+            if (snapshot == null) {
+                snapshot = ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams);
+                snapshots.put(mvccTableInfo, snapshot);
+                scanParams.flatMap(TableScanParams::getResolvedMapParams)
+                        .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));
+            } else if (resolvedSnapshotScanParams.containsKey(mvccTableInfo)) {
+                // Snapshot de-duplication also de-duplicates dynamic option resolution. Seed later
+                // aliases so their scan phase consumes the selector used by the cached snapshot.
+                scanParams.get().reuseResolvedMapParams(resolvedSnapshotScanParams.get(mvccTableInfo));
+            }
         } else if (tableSnapshot.isPresent() || scanParams.isPresent()) {
             snapshot = ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams);
         } else {
@@ -1001,10 +1011,28 @@ public class StatementContext implements Closeable {
         // exact content key shared by analysis and scan planning.
         if (scanParams != null && scanParams.isPresent() && scanParams.get().isOptions()) {
             TableScanParams params = scanParams.get();
-            return "p:" + params.getParamType() + ':' + new TreeMap<>(params.getMapParams())
-                    + ':' + params.getListParams();
+            StringBuilder key = new StringBuilder("p");
+            appendVersionKeyPart(key, params.getParamType());
+            Map<String, String> sortedParams = new TreeMap<>(params.getMapParams());
+            key.append('m').append(sortedParams.size()).append(':');
+            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
+                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
+                // delimiters; sorting separately keeps semantically identical maps order-independent.
+                appendVersionKeyPart(key, entry.getKey());
+                appendVersionKeyPart(key, entry.getValue());
+            }
+            key.append('l').append(params.getListParams().size()).append(':');
+            for (String value : params.getListParams()) {
+                appendVersionKeyPart(key, value);
+            }
+            return key.toString();
         }
         return "";
+    }
+
+    private static void appendVersionKeyPart(StringBuilder key, Object value) {
+        String text = String.valueOf(value);
+        key.append(text.length()).append(':').append(text);
     }
 
     /**
