@@ -182,6 +182,50 @@ MutableColumnPtr projected_shredded_object_physical(const std::vector<int64_t>& 
     return ColumnNullable::create(std::move(root), ColumnUInt8::create(values.size(), 0));
 }
 
+MutableColumnPtr projected_two_field_object_physical(const std::vector<int64_t>& first,
+                                                     const std::vector<int64_t>& second) {
+    DORIS_CHECK(first.size() == second.size());
+    auto wrapper = [](const std::vector<int64_t>& values) {
+        auto integers = ColumnInt64::create();
+        integers->get_data().assign(values.begin(), values.end());
+        auto leaf =
+                ColumnNullable::create(std::move(integers), ColumnUInt8::create(values.size(), 0));
+        MutableColumns fields;
+        fields.push_back(std::move(leaf));
+        return ColumnNullable::create(ColumnStruct::create(std::move(fields)),
+                                      ColumnUInt8::create(values.size(), 0));
+    };
+
+    MutableColumns object_fields;
+    object_fields.push_back(wrapper(first));
+    object_fields.push_back(wrapper(second));
+    auto object = ColumnStruct::create(std::move(object_fields));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            ColumnNullable::create(std::move(object), ColumnUInt8::create(first.size(), 0)));
+    auto root = ColumnStruct::create(std::move(root_fields));
+    return ColumnNullable::create(std::move(root), ColumnUInt8::create(first.size(), 0));
+}
+
+MutableColumnPtr projected_wide_object_physical(size_t field_count, int64_t value) {
+    MutableColumns object_fields;
+    object_fields.reserve(field_count);
+    for (size_t field = 0; field < field_count; ++field) {
+        auto integers = ColumnInt64::create();
+        integers->insert_value(value + field);
+        MutableColumns wrapper_fields;
+        wrapper_fields.push_back(
+                ColumnNullable::create(std::move(integers), ColumnUInt8::create(1, 0)));
+        object_fields.push_back(ColumnNullable::create(
+                ColumnStruct::create(std::move(wrapper_fields)), ColumnUInt8::create(1, 0)));
+    }
+    MutableColumns root_fields;
+    root_fields.push_back(ColumnNullable::create(
+            ColumnStruct::create(std::move(object_fields)), ColumnUInt8::create(1, 0)));
+    return ColumnNullable::create(ColumnStruct::create(std::move(root_fields)),
+                                  ColumnUInt8::create(1, 0));
+}
+
 } // namespace
 
 TEST(VariantColumnReaderTest, UnshreddedRowsPreserveSqlNullAndVariantNull) {
@@ -429,6 +473,8 @@ TEST(VariantColumnReaderTest, AppendsProjectedShreddedBatchesWithoutMaterializin
     plan.schema = &schema;
     plan.contains_variant = true;
     plan.variant_projection = std::move(projection);
+    plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+    ASSERT_EQ(plan.variant_state_schema.use_count(), 1);
 
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     const IColumn* first_decoded_leaf = nullptr;
@@ -436,6 +482,7 @@ TEST(VariantColumnReaderTest, AppendsProjectedShreddedBatchesWithoutMaterializin
             materialize_variant_columns(
                     plan, projected_shredded_object_physical({10, 20}, &first_decoded_leaf), output)
                     .ok());
+    EXPECT_EQ(plan.variant_state_schema.use_count(), 2);
     const auto append_status =
             materialize_variant_columns(plan, projected_shredded_object_physical({30}), output);
     ASSERT_TRUE(append_status.ok()) << append_status;
@@ -452,6 +499,136 @@ TEST(VariantColumnReaderTest, AppendsProjectedShreddedBatchesWithoutMaterializin
     const auto& values = assert_cast<const ColumnInt64&>(
             assert_cast<const ColumnNullable&>(*match->column).get_nested_column());
     EXPECT_EQ(values.get_data(), ColumnInt64::Container({10, 20, 30}));
+
+    IColumn::Filter filter {1, 0, 1};
+    ColumnPtr filtered = output->filter(filter, 2);
+    EXPECT_EQ(filtered->size(), 2);
+    EXPECT_EQ(plan.variant_state_schema.use_count(), 3);
+}
+
+TEST(VariantColumnReaderTest, WideProjectionSharesSchemaAcrossBatchesAndSelections) {
+    constexpr size_t width = 64;
+    constexpr size_t batch_count = 16;
+    auto schema = unshredded_schema();
+    schema.local_id = 0;
+    schema.children[0]->local_id = 0;
+    schema.children[1]->local_id = 1;
+
+    auto typed = std::make_unique<ParquetColumnSchema>();
+    typed->name = "typed_value";
+    typed->kind = ParquetColumnSchemaKind::STRUCT;
+    typed->local_id = 2;
+    auto projection = format::LocalColumnIndex::partial_local(schema.local_id);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(typed->local_id));
+    for (size_t field = 0; field < width; ++field) {
+        auto wrapper = std::make_unique<ParquetColumnSchema>();
+        wrapper->name = "field_" + std::to_string(field);
+        wrapper->kind = ParquetColumnSchemaKind::STRUCT;
+        wrapper->local_id = static_cast<int>(field);
+        auto leaf = std::make_unique<ParquetColumnSchema>();
+        leaf->name = "typed_value";
+        leaf->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        leaf->local_id = 0;
+        leaf->type = make_nullable(std::make_shared<DataTypeInt64>());
+        leaf->type_descriptor.integer_bit_width = 64;
+        wrapper->children.push_back(std::move(leaf));
+        typed->children.push_back(std::move(wrapper));
+
+        auto wrapper_projection =
+                format::LocalColumnIndex::partial_local(static_cast<int>(field));
+        wrapper_projection.children.push_back(format::LocalColumnIndex::local(0));
+        projection.children.back().children.push_back(std::move(wrapper_projection));
+    }
+    schema.children.push_back(std::move(typed));
+
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+    plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    for (size_t batch = 0; batch < batch_count; ++batch) {
+        ASSERT_TRUE(materialize_variant_columns(
+                            plan, projected_wide_object_physical(width, batch * width), output)
+                            .ok());
+    }
+    ASSERT_EQ(output->size(), batch_count);
+    ASSERT_EQ(plan.variant_state_schema.use_count(), 2);
+
+    // Holding derived slices makes schema ownership observable: every state must retain the same
+    // reader-scoped schema instead of allocating a width-sized clone for each row selection.
+    std::vector<ColumnPtr> slices;
+    slices.reserve(batch_count);
+    for (size_t row = 0; row < batch_count; ++row) {
+        slices.push_back(output->cut(row, 1));
+    }
+    EXPECT_EQ(plan.variant_state_schema.use_count(), 2 + batch_count);
+}
+
+TEST(VariantColumnReaderTest, RetainedSchemaFollowsDecodedProjectionOrder) {
+    auto schema = unshredded_schema();
+    schema.local_id = 0;
+    schema.children[0]->local_id = 0;
+    schema.children[1]->local_id = 1;
+
+    auto typed = std::make_unique<ParquetColumnSchema>();
+    typed->name = "typed_value";
+    typed->kind = ParquetColumnSchemaKind::STRUCT;
+    typed->local_id = 2;
+    auto make_wrapper = [](std::string name, int local_id) {
+        auto wrapper = std::make_unique<ParquetColumnSchema>();
+        wrapper->name = std::move(name);
+        wrapper->kind = ParquetColumnSchemaKind::STRUCT;
+        wrapper->local_id = local_id;
+        auto leaf = std::make_unique<ParquetColumnSchema>();
+        leaf->name = "typed_value";
+        leaf->kind = ParquetColumnSchemaKind::PRIMITIVE;
+        leaf->local_id = 0;
+        leaf->type = make_nullable(std::make_shared<DataTypeInt64>());
+        leaf->type_descriptor.integer_bit_width = 64;
+        wrapper->children.push_back(std::move(leaf));
+        return wrapper;
+    };
+    typed->children.push_back(make_wrapper("z", 0));
+    typed->children.push_back(make_wrapper("a", 1));
+    schema.children.push_back(std::move(typed));
+
+    auto projection = format::LocalColumnIndex::partial_local(schema.local_id);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    for (int local_id : {1, 0}) {
+        projection.children.back().children.push_back(
+                format::LocalColumnIndex::partial_local(local_id));
+        projection.children.back().children.back().children.push_back(
+                format::LocalColumnIndex::local(0));
+    }
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_columns(plan, projected_two_field_object_physical({11}, {22}),
+                                            output)
+                        .ok());
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    const std::array a_path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    const std::array z_path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("z")}};
+    const auto a = variants.find_shredded_typed_value(a_path);
+    const auto z = variants.find_shredded_typed_value(z_path);
+    ASSERT_TRUE(a.has_value());
+    ASSERT_TRUE(z.has_value());
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(
+                      assert_cast<const ColumnNullable&>(*a->column).get_nested_column())
+                      .get_data()[0],
+              11);
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(
+                      assert_cast<const ColumnNullable&>(*z->column).get_nested_column())
+                      .get_data()[0],
+              22);
 }
 
 TEST(VariantColumnReaderTest, AmbiguousTypedIdentityRequiresCanonicalMaterialization) {

@@ -94,15 +94,21 @@ public class IcebergScanNodeTest {
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
+        private final boolean batchMode;
         private TableScan tableScan;
 
         TestIcebergScanNode(SessionVariable sv) {
-            this(sv, false);
+            this(sv, false, false);
         }
 
         TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary) {
+            this(sv, enableMappingVarbinary, false);
+        }
+
+        TestIcebergScanNode(SessionVariable sv, boolean enableMappingVarbinary, boolean batchMode) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
             this.enableMappingVarbinary = enableMappingVarbinary;
+            this.batchMode = batchMode;
         }
 
         void setTableScan(TableScan tableScan) {
@@ -116,7 +122,7 @@ public class IcebergScanNodeTest {
 
         @Override
         public boolean isBatchMode() {
-            return false;
+            return batchMode;
         }
 
         @Override
@@ -813,6 +819,27 @@ public class IcebergScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
             Assert.assertTrue(e.getMessage().contains("Variant"));
+        }
+    }
+
+    @Test
+    public void testBatchVariantProjectionUsesSharedCompatibilityGate() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), false, true);
+        node.addSlot(1, new Column("payload", Type.VARIANT));
+
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10003L);
+
+        Assert.assertTrue(node.isBatchMode());
+        try {
+            node.checkVariantBackendCompatibilityForCurrentScan(
+                    List.of(currentBackend, smoothUpgradeSource));
+            Assert.fail("batch Variant projection must use the shared backend compatibility gate");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10003 is a smooth upgrade source"));
         }
     }
 

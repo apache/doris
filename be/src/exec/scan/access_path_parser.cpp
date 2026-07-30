@@ -190,6 +190,20 @@ void insert_access_path(AccessPathNode* root, const std::vector<std::string>& pa
     insert_access_path(&root->children[path[path_idx]], path, path_idx + 1);
 }
 
+void collect_variant_access_paths(const AccessPathNode& node, std::vector<std::string>* path,
+                                  std::vector<std::vector<std::string>>* result) {
+    DORIS_CHECK(path != nullptr && result != nullptr);
+    for (const auto& [segment, child] : node.children) {
+        path->push_back(segment);
+        if (child.project_all || child.children.empty()) {
+            result->push_back(*path);
+        } else {
+            collect_variant_access_paths(child, path, result);
+        }
+        path->pop_back();
+    }
+}
+
 Status build_nested_children_from_access_node(format::ColumnDefinition* column,
                                               const DataTypePtr& type, const AccessPathNode& node,
                                               const std::string& path,
@@ -454,6 +468,19 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
         return build_map_children_from_access_node(
                 column, assert_cast<const DataTypeMap&>(*nested_type), node, path, schema_column,
                 prefer_exact_name_match);
+    case TYPE_VARIANT: {
+        // A Variant nested below STRUCT/ARRAY/MAP owns paths relative to this terminal. Keeping
+        // them on the nested ColumnDefinition lets ColumnMapper select the same physical leaves
+        // as a root Variant without flattening away the surrounding container.
+        column->variant_access_paths.clear();
+        std::vector<std::string> variant_path;
+        collect_variant_access_paths(node, &variant_path, &column->variant_access_paths);
+        std::ranges::sort(column->variant_access_paths);
+        column->variant_access_paths.erase(std::unique(column->variant_access_paths.begin(),
+                                                       column->variant_access_paths.end()),
+                                           column->variant_access_paths.end());
+        return Status::OK();
+    }
     default:
         return Status::NotSupported("AccessPathParser does not support access path {} for slot {}",
                                     path, column->name);

@@ -144,6 +144,7 @@ std::unique_ptr<VariantMaterializationNode> build_variant_plan(
         if (projection != nullptr) {
             plan->variant_projection = *projection;
         }
+        plan->variant_state_schema = create_variant_state_schema(schema, projection);
         return plan;
     }
     if (schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
