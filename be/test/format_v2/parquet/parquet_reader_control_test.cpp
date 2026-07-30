@@ -33,6 +33,7 @@
 #include "format_v2/parquet/reader/global_rowid_column_reader.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
+#include "runtime/query_dictionary_filter_cache.h"
 #include "storage/utils.h"
 
 namespace doris::format::parquet {
@@ -179,9 +180,43 @@ TEST(SelectionVectorTest, MaterializedFilterIsReusedUntilSelectionChanges) {
 
 TEST(SelectionVectorTest, IdentitySelectionDoesNotMaterializeFilter) {
     SelectionVector selection(4);
+    EXPECT_FALSE(selection.is_set());
     const uint8_t* filter = reinterpret_cast<const uint8_t*>(1);
     ASSERT_TRUE(selection.materialize_filter(4, 4, &filter).ok());
     EXPECT_EQ(filter, nullptr);
+}
+
+TEST(SelectionVectorTest, BulkCompactionSupportsBothFilterCoordinates) {
+    SelectionVector selection(6);
+    const uint8_t row_filter[] = {0, 1, 1, 0, 1, 0};
+    ASSERT_EQ(selection.compact_with_row_filter(row_filter, 6), 3);
+    EXPECT_EQ(selection.get_index(0), 1);
+    EXPECT_EQ(selection.get_index(1), 2);
+    EXPECT_EQ(selection.get_index(2), 4);
+
+    const uint8_t compact_filter[] = {1, 0, 1};
+    ASSERT_EQ(selection.compact_with_selection_filter(compact_filter, 3), 2);
+    EXPECT_EQ(selection.get_index(0), 1);
+    EXPECT_EQ(selection.get_index(1), 4);
+    EXPECT_TRUE(selection.verify(2, 6).ok());
+}
+
+TEST(QueryDictionaryFilterCacheTest, ReusesBitmapWithinMemoryLimit) {
+    QueryDictionaryFilterCache cache(128);
+    QueryDictionaryFilterCacheKey key {.expression_digest = 11,
+                                       .dictionary_hash_low = 22,
+                                       .dictionary_hash_high = 33,
+                                       .dictionary_entries = 4,
+                                       .primitive_type = TYPE_INT};
+    std::vector<uint8_t> result;
+    EXPECT_FALSE(cache.lookup(key, &result));
+    EXPECT_TRUE(cache.insert(key, {1, 0, 1, 0}));
+    ASSERT_TRUE(cache.lookup(key, &result));
+    EXPECT_EQ(result, std::vector<uint8_t>({1, 0, 1, 0}));
+
+    QueryDictionaryFilterCache tiny_cache(2);
+    EXPECT_FALSE(tiny_cache.insert(key, {1, 0, 1, 0}));
+    EXPECT_FALSE(tiny_cache.lookup(key, &result));
 }
 
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
@@ -241,6 +276,23 @@ TEST(ParquetColumnReaderControlTest, SchedulerOrsPageCrossingOncePerBatch) {
     EXPECT_TRUE(scheduler.finish_current_reader_batch_profiles());
     EXPECT_EQ(predicate_ptr->page_crossing_checks(), 1);
     EXPECT_EQ(lazy_ptr->page_crossing_checks(), 1);
+}
+
+TEST(ParquetColumnReaderControlTest, PendingRequestActivatesOnlyAtRowGroupBoundary) {
+    ParquetScanScheduler scheduler;
+    auto initial = std::make_shared<format::FileScanRequest>();
+    auto refreshed = std::make_shared<format::FileScanRequest>();
+    refreshed->predicate_only_columns.push_back(format::LocalColumnId(7));
+
+    scheduler.set_scan_request(initial);
+    scheduler._has_current_row_group = true;
+    scheduler.queue_scan_request(refreshed);
+    scheduler.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_EQ(scheduler._active_request, initial);
+
+    scheduler._has_current_row_group = false;
+    scheduler.activate_pending_scan_request_at_row_group_boundary();
+    EXPECT_EQ(scheduler._active_request, refreshed);
 }
 
 TEST(ParquetColumnReaderControlTest, PendingOutputDrainsBeforePageCrossingSample) {

@@ -219,6 +219,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictFilterUnsupportedColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_read_failures = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterReadFailures",
                                                              TUnit::UNIT, parquet_profile, 1);
+    query_dict_filter_cache_hits = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "QueryDictionaryFilterCacheHits", TUnit::UNIT, parquet_profile, 1);
+    query_dict_filter_cache_misses = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "QueryDictionaryFilterCacheMisses", TUnit::UNIT, parquet_profile, 1);
     rows_filtered_by_dict_filter = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowsFilteredByDictFilter",
                                                                 TUnit::UNIT, parquet_profile, 1);
     bloom_filter_read_time =
@@ -363,6 +367,8 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
                     dict_filter_vectorized_runtime_filter_columns,
             .dict_filter_unsupported_columns = dict_filter_unsupported_columns,
             .dict_filter_read_failures = dict_filter_read_failures,
+            .query_dict_filter_cache_hits = query_dict_filter_cache_hits,
+            .query_dict_filter_cache_misses = query_dict_filter_cache_misses,
             .rows_filtered_by_dict_filter = rows_filtered_by_dict_filter,
             .column_reader_profile = column_reader_profile(),
     };

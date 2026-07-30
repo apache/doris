@@ -40,6 +40,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
+#include "runtime/query_dictionary_filter_cache.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -259,6 +260,13 @@ QueryContext::~QueryContext() {
                          (now.tv_nsec - _query_arrival_timestamp.tv_nsec) / 1000000LL;
     LOG_INFO("Query {} deconstructed, elapsed_ms: {}, mem_tracker: {}", print_id(this->_query_id),
              elapsed_ms, mem_tracker_msg);
+}
+
+QueryDictionaryFilterCache& QueryContext::query_dictionary_filter_cache() {
+    std::call_once(_query_dictionary_filter_cache_once, [this] {
+        _query_dictionary_filter_cache = std::make_unique<QueryDictionaryFilterCache>();
+    });
+    return *_query_dictionary_filter_cache;
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {

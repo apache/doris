@@ -765,6 +765,50 @@ Status TableReader::_build_table_filters_from_conjuncts() {
     return Status::OK();
 }
 
+Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    _conjuncts = std::move(conjuncts);
+    if (_data_reader.reader == nullptr) {
+        // The split is prepared but its physical reader has not opened yet. open_reader() will use
+        // this newest snapshot directly, so no pending request is needed.
+        return Status::OK();
+    }
+    if (!_data_reader.reader->supports_scan_request_refresh()) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
+    auto refreshed_request = std::make_shared<FileScanRequest>();
+    RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
+            _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
+            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
+        _push_down_count_columns->empty()) {
+        for (const auto& column : refreshed_request->non_predicate_columns) {
+            refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
+        }
+    }
+    RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(_open_local_filter_exprs(*refreshed_request));
+    if (_file_scan_request == nullptr ||
+        refreshed_request->local_positions != _file_scan_request->local_positions) {
+        // A reader cannot reinterpret columns already materialized with another block layout.
+        // Keep scanner-level filtering as the correctness fallback for this uncommon hidden-slot
+        // shape instead of switching an incompatible request mid-file.
+        return Status::OK();
+    }
+
+    if (_condition_cache_ctx != nullptr && !_condition_cache_ctx->is_hit) {
+        // Rows before and after a late RF were evaluated by different predicate snapshots. Such a
+        // partial MISS bitmap must never be published under either snapshot's cache key.
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        _data_reader.reader->set_condition_cache_context(nullptr);
+    }
+    RETURN_IF_ERROR(_data_reader.reader->queue_scan_request(refreshed_request));
+    _file_scan_request = std::move(refreshed_request);
+    return Status::OK();
+}
+
 Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request) {
     RowDescriptor row_desc;
     for (const auto& conjunct : file_request.conjuncts) {
