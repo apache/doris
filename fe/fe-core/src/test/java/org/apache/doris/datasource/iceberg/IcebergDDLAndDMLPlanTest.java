@@ -204,6 +204,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             return new IcebergMvccSnapshot(snapshotCacheValue);
         }).when(spyTable).loadSnapshot(ArgumentMatchers.any(), ArgumentMatchers.any());
         Table mockedIcebergTable = Mockito.mock(Table.class);
+        Mockito.doReturn(UUID.randomUUID()).when(mockedIcebergTable).uuid();
         PartitionSpec mockedSpec = PartitionSpec.unpartitioned();
         Mockito.doReturn(ImmutableMap.of(
                 TableProperties.FORMAT_VERSION, "2",
