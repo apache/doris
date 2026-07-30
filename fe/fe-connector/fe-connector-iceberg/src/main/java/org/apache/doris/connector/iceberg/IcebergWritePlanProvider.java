@@ -284,6 +284,19 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     @Override
+    public Optional<List<ConnectorColumn>> getWriteSchema(ConnectorSession session,
+            ConnectorTableHandle tableHandle, boolean isRewrite) {
+        Table table = resolveTable(session, (IcebergTableHandle) tableHandle);
+        Schema schema = table.schema();
+        if (isRewrite && IcebergWriterHelper.getFormatVersion(table) >= 3) {
+            schema = IcebergWriterHelper.appendRowLineageFieldsForV3(schema);
+        }
+        boolean enableVarbinary = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
+        return Optional.of(IcebergConnectorMetadata.parseSchema(schema, enableVarbinary, true));
+    }
+
+    @Override
     public ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
         Table table = resolveTable(session, (IcebergTableHandle) tableHandle);

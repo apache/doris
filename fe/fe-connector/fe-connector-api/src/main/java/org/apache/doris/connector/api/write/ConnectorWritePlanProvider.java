@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.handle.WriteOperation;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -96,6 +97,20 @@ public interface ConnectorWritePlanProvider {
     default List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
         return null;
+    }
+
+    /**
+     * Returns the target schema used to coerce rows before they reach the connector writer.
+     *
+     * <p>The table schema exposed for reads may use compatibility types that differ from the native writer
+     * types. A connector can return its native write schema here so the engine performs the final coercion
+     * against the type expected by the writer. The columns must be in physical write order. An empty optional
+     * keeps the table's exposed schema and preserves existing behavior for connectors without a separate write
+     * type system.</p>
+     */
+    default Optional<List<ConnectorColumn>> getWriteSchema(ConnectorSession session,
+            ConnectorTableHandle tableHandle, boolean isRewrite) {
+        return Optional.empty();
     }
 
     /**

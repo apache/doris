@@ -432,6 +432,40 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return provider != null && provider.requiresFullSchemaWriteOrder();
     }
 
+    /** Returns the connector's native writer schema when it differs from the exposed table schema. */
+    public Optional<List<Column>> getConnectorWriteSchema(boolean isRewrite) {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Optional.empty();
+        }
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handleOpt.get());
+        if (provider == null) {
+            return Optional.empty();
+        }
+        Optional<List<ConnectorColumn>> connectorSchema =
+                provider.getWriteSchema(session, handleOpt.get(), isRewrite);
+        if (!connectorSchema.isPresent()) {
+            return Optional.empty();
+        }
+        List<Column> writeSchema = ConnectorColumnConverter.convertColumns(connectorSchema.get());
+        String remoteDbName = db != null ? db.getRemoteName() : "";
+        for (Column column : writeSchema) {
+            column.setName(metadata.fromRemoteColumnName(
+                    session, remoteDbName, getRemoteName(), column.getName()));
+        }
+        return Optional.of(writeSchema);
+    }
+
     /**
      * Returns whether the underlying connector's data files retain partition columns, so a static-partition
      * write must materialize the PARTITION-clause literal into the data column instead of NULL-filling it
