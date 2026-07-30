@@ -19,9 +19,13 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 
@@ -31,6 +35,7 @@ import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.math.BigInteger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -137,6 +142,47 @@ public class HashDistributionPrunerTest {
         }
 
         Assert.assertEquals(39, tablets.size());
+    }
+
+    // Identity bucketing prunes an equality predicate to the single bucket ((v % n) + n) % n,
+    // bit-identical with BE find_tablets. null -> bucket 0. LARGEINT uses full int128 width.
+    @Test
+    public void testIdentityPrune() {
+        List<Long> tabletIds = Lists.newArrayListWithExpectedSize(512);
+        for (long i = 0; i < 512; i++) {
+            tabletIds.add(i);
+        }
+        Column shardNum = new Column("shard_num", PrimitiveType.BIGINT, false);
+        List<Column> columns = Lists.newArrayList(shardNum);
+
+        // in-range: shard_num = 100 -> 100 % 512 = 100
+        assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(100), 100L);
+        // wraps: 600 % 512 = 88
+        assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(600), 88L);
+        // negative-safe: -1 -> 511
+        assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(-1), 511L);
+
+        // LARGEINT full int128 width matches BE memcpy + BigInteger.mod
+        Column bigId = new Column("big_id", PrimitiveType.LARGEINT, false);
+        List<Column> bigCols = Lists.newArrayList(bigId);
+        BigInteger huge = BigInteger.ONE.shiftLeft(100).add(BigInteger.valueOf(5));
+        long expected = huge.mod(BigInteger.valueOf(512)).longValue();
+        assertIdentityBucket(tabletIds, bigCols, "BIG_ID", new LargeIntLiteral(huge), expected);
+    }
+
+    private void assertIdentityBucket(List<Long> tabletIds, List<Column> columns, String colName, Expr value,
+            long expectedBucket) {
+        PartitionColumnFilter filter = new PartitionColumnFilter();
+        filter.setLowerBound((LiteralExpr) value, true);
+        filter.setUpperBound((LiteralExpr) value, true);
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
+        filters.put(colName, filter);
+
+        HashDistributionPruner pruner = new HashDistributionPruner(null, tabletIds, columns, filters, tabletIds.size(),
+                true, HashType.IDENTITY);
+        Collection<Long> results = pruner.prune();
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Long.valueOf(expectedBucket), results.iterator().next());
     }
 
 }
