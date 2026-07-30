@@ -43,10 +43,10 @@ be/output/lib/benchmark_test --benchmark_list_tests \
   | grep -c '^ParquetDecoder/'  # currently 228
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetKernel/'   # currently 86
+  | grep -c '^ParquetKernel/'   # currently 92
 
 be/output/lib/benchmark_test --benchmark_list_tests \
-  | grep -c '^ParquetReader/'   # currently 152
+  | grep -c '^ParquetReader/'   # currently 167
 ```
 
 When running the binary directly from `be/build_RELEASE/bin`, make sure the JVM and third-party
@@ -120,14 +120,16 @@ cache to manufacture a cold run.
 | DELTA_LENGTH_BYTE_ARRAY | BYTE_ARRAY |
 | DELTA_BYTE_ARRAY | BYTE_ARRAY |
 
-`ParquetKernel` contains 86 cases across six decode and selection stages: BYTE_STREAM_SPLIT,
+`ParquetKernel` contains 92 cases across six decode and selection stages: BYTE_STREAM_SPLIT,
 DELTA_PREFIX_SUM, DICTIONARY_GATHER, NULLABLE_EXPAND, RAW_PREDICATE, and NESTED_SELECTION. It covers
 the applicable four- and eight-byte types, three dictionary working-set sizes, 0% through 90% null
 rates with both placement patterns, 0% through 100% raw-predicate selectivities, and 1%, 10%, and
-50% nested parent-row selectivities with both placement patterns.
+50% nested parent-row selectivities with both placement patterns. Nested selection registers the
+legacy and fused implementations in the same binary and validates both against an independent
+source-level oracle before timing.
 
 `ParquetReader` deliberately uses a single-variable matrix rather than a Cartesian product. After
-deduplication it contains 152 cases covering:
+deduplication it contains 167 cases covering:
 
 - operations: open-to-first-block, full scan, predicate scan, complex residual scan, limit 1, and
   limit 1000;
@@ -300,7 +302,7 @@ be simulated by silently changing the local reader benchmark.
 
 ## Current validation record
 
-The current expected registration counts are 228 decoder, 86 kernel, and 152 reader cases. A smoke
+The current expected registration counts are 228 decoder, 92 kernel, and 167 reader cases. A smoke
 run is an execution record only, not a reviewed performance baseline, because repetitions, host
 isolation, warmups, cache control, `perf` data, variance, and before/after comparison are not
 collected.

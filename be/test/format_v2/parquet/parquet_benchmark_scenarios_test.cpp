@@ -66,7 +66,7 @@ TEST(ParquetBenchmarkScenariosTest, DecoderMatrixCoversNativeEncodingAndTypeFami
 
 TEST(ParquetBenchmarkScenariosTest, KernelMatrixCoversEverySimdStageAndBoundaryShape) {
     const auto scenarios = kernel_scenarios();
-    EXPECT_EQ(scenarios.size(), size_t {86});
+    EXPECT_EQ(scenarios.size(), size_t {92});
     const std::map<Kernel, std::vector<ValueType>> expected_types {
             {Kernel::BYTE_STREAM_SPLIT, {ValueType::FLOAT, ValueType::DOUBLE}},
             {Kernel::DELTA_PREFIX_SUM, {ValueType::INT32, ValueType::INT64}},
@@ -114,11 +114,15 @@ TEST(ParquetBenchmarkScenariosTest, NestedSelectionCoversSparseParentSurvivors) 
     const auto scenarios = kernel_scenarios();
     for (const int selectivity : {1, 10, 50}) {
         for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
-            EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
-                return scenario.kernel == Kernel::NESTED_SELECTION &&
-                       scenario.selectivity_percent == selectivity && scenario.null_percent == 10 &&
-                       scenario.pattern == pattern;
-            })) << "missing nested sparse-selection shape";
+            for (const auto implementation :
+                 {NestedSelectionImplementation::LEGACY, NestedSelectionImplementation::FUSED}) {
+                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const KernelScenario& scenario) {
+                    return scenario.kernel == Kernel::NESTED_SELECTION &&
+                           scenario.selectivity_percent == selectivity &&
+                           scenario.null_percent == 10 && scenario.pattern == pattern &&
+                           scenario.nested_implementation == implementation;
+                })) << "missing nested sparse-selection implementation";
+            }
         }
     }
 }
