@@ -109,9 +109,13 @@ public class S3Resource extends Resource {
         properties.putIfAbsent(S3ResourceCompat.REGION, region);
 
         if (needCheck) {
+            Map<String, String> pingProperties = new HashMap<>(properties);
+            String pingEndpoint = S3Util.buildEndpointUrl(endpoint);
+            pingProperties.put(S3ResourceCompat.ENDPOINT, pingEndpoint);
+            pingProperties.put(S3ResourceCompat.Env.ENDPOINT, pingEndpoint);
             String bucketName = properties.get(S3ResourceCompat.BUCKET);
             String rootPath = properties.get(S3ResourceCompat.ROOT_PATH);
-            pingS3(bucketName, rootPath, properties);
+            pingS3(bucketName, rootPath, pingProperties);
         }
         // optional
         S3ResourceCompat.optionalS3Property(properties);
@@ -119,11 +123,6 @@ public class S3Resource extends Resource {
 
     protected static void pingS3(String bucketName, String rootPath, Map<String, String> newProperties)
             throws DdlException {
-        Map<String, String> pingProperties = new HashMap<>(newProperties);
-        String endpoint = S3Util.buildEndpointUrl(pingProperties.get(S3ResourceCompat.ENDPOINT));
-        pingProperties.put(S3ResourceCompat.ENDPOINT, endpoint);
-        pingProperties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
-
         // Normalize rootPath: strip leading slashes to avoid "s3://bucket//path" double-slash
         if (rootPath != null) {
             rootPath = rootPath.replaceAll("^/+", "");
@@ -140,7 +139,7 @@ public class S3Resource extends Resource {
 
         try {
             org.apache.doris.filesystem.FileSystem fileSystem =
-                    FileSystemFactory.getFileSystem(pingProperties);
+                    FileSystemFactory.getFileSystem(newProperties);
             Preconditions.checkState(fileSystem instanceof ObjFileSystem,
                     "Expected object-storage filesystem for S3 resource");
             ObjStorage<?> objStorage = ((ObjFileSystem) fileSystem).getObjStorage();
@@ -245,6 +244,9 @@ public class S3Resource extends Resource {
             S3ResourceCompat.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
             changedProperties.putAll(properties);
+            String endpoint = S3Util.buildEndpointUrl(changedProperties.get(S3ResourceCompat.ENDPOINT));
+            changedProperties.put(S3ResourceCompat.ENDPOINT, endpoint);
+            changedProperties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
             String bucketName = properties.getOrDefault(S3ResourceCompat.BUCKET,
                     this.properties.get(S3ResourceCompat.BUCKET));
             String rootPath = properties.getOrDefault(S3ResourceCompat.ROOT_PATH,
