@@ -193,6 +193,9 @@ public:
     }
 
 protected:
+    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
+    [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
+
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
