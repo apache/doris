@@ -1550,14 +1550,15 @@ DEFINE_mInt64(s3_put_token_limit, "0");
 DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
 DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
-// CPU-aware S3 rate limiter. Effective GET/PUT QPS = qps_per_core * BE cpu cores, capped by
-// the corresponding qps_max. A negative value means unset: fall back to the legacy absolute
-// s3_{get,put}_token_* configs above. 0 disables QPS limiting for that operation.
-DEFINE_mInt64(s3_get_qps_per_core, "-1");
-DEFINE_mInt64(s3_put_qps_per_core, "-1");
+// CPU-aware S3 rate limiter. Effective GET/PUT requests per second =
+// requests_per_second_per_core * BE cpu cores, capped by the corresponding
+// requests_per_second_max. A negative value means unset: fall back to the legacy absolute
+// s3_{get,put}_token_* configs above. 0 disables request-rate limiting for that operation.
+DEFINE_mInt64(s3_get_requests_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_requests_per_second_per_core, "-1");
 // Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
-DEFINE_mInt64(s3_get_qps_max, "0");
-DEFINE_mInt64(s3_put_qps_max, "0");
+DEFINE_mInt64(s3_get_requests_per_second_max, "0");
+DEFINE_mInt64(s3_put_requests_per_second_max, "0");
 
 // CPU-aware S3 bandwidth limiter. Effective GET/PUT bytes/s = bytes_per_second_per_core *
 // BE cpu cores, capped by the corresponding bytes_per_second_max. A non-positive value disables

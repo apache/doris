@@ -88,8 +88,10 @@ size_t index_of(S3RateLimitType type) {
 
 S3EffectiveRateLimit resolve_s3_rate_limit(S3RateLimitType type, int64_t cores) {
     const bool is_get = type == S3RateLimitType::GET;
-    const int64_t qps_per_core = is_get ? config::s3_get_qps_per_core : config::s3_put_qps_per_core;
-    const int64_t qps_max = is_get ? config::s3_get_qps_max : config::s3_put_qps_max;
+    const int64_t qps_per_core = is_get ? config::s3_get_requests_per_second_per_core
+                                        : config::s3_put_requests_per_second_per_core;
+    const int64_t qps_max = is_get ? config::s3_get_requests_per_second_max
+                                   : config::s3_put_requests_per_second_max;
     const int64_t bytes_per_core = is_get ? config::s3_get_bytes_per_second_per_core
                                           : config::s3_put_bytes_per_second_per_core;
     const int64_t bytes_max =

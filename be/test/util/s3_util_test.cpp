@@ -90,10 +90,10 @@ TEST_F(S3UTILTest, refresh_rebuilds_limiter_on_config_change) {
     const int64_t orig_tps = config::s3_get_token_per_second;
     const int64_t orig_bucket = config::s3_get_bucket_tokens;
     const int64_t orig_limit = config::s3_get_token_limit;
-    const int64_t orig_per_core = config::s3_get_qps_per_core;
+    const int64_t orig_per_core = config::s3_get_requests_per_second_per_core;
 
     // Establish a known baseline (legacy path, no count limit, no throttling).
-    config::s3_get_qps_per_core = -1;
+    config::s3_get_requests_per_second_per_core = -1;
     config::s3_get_token_per_second = 1000000000;
     config::s3_get_bucket_tokens = 1000000000;
     config::s3_get_token_limit = 0;
@@ -121,7 +121,7 @@ TEST_F(S3UTILTest, refresh_rebuilds_limiter_on_config_change) {
     config::s3_get_token_per_second = orig_tps;
     config::s3_get_bucket_tokens = orig_bucket;
     config::s3_get_token_limit = orig_limit;
-    config::s3_get_qps_per_core = orig_per_core;
+    config::s3_get_requests_per_second_per_core = orig_per_core;
     manager.refresh();
 }
 

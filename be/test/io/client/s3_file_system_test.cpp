@@ -2458,13 +2458,13 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
     // Save original config values
     int64_t original_get_bucket_tokens = config::s3_get_bucket_tokens;
     int64_t original_get_token_per_second = config::s3_get_token_per_second;
-    int64_t original_get_qps_per_core = config::s3_get_qps_per_core;
+    int64_t original_get_requests_per_second_per_core = config::s3_get_requests_per_second_per_core;
 
     auto& manager = S3RateLimiterManager::instance();
     Defer restore_configs {[&] {
         config::s3_get_bucket_tokens = original_get_bucket_tokens;
         config::s3_get_token_per_second = original_get_token_per_second;
-        config::s3_get_qps_per_core = original_get_qps_per_core;
+        config::s3_get_requests_per_second_per_core = original_get_requests_per_second_per_core;
         manager.refresh();
     }};
 
@@ -2472,7 +2472,7 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
     int64_t new_s3_get_token_per_second_val = 1;
 
     // Legacy configs are only effective while the per-core config is unset.
-    ASSERT_TRUE(config::set_config("s3_get_qps_per_core", "-1").ok());
+    ASSERT_TRUE(config::set_config("s3_get_requests_per_second_per_core", "-1").ok());
     auto [success1, msg7] = config::set_config(
             "s3_get_bucket_tokens", std::to_string(new_s3_get_bucket_tokens_val), false, false);
     ASSERT_EQ(success1, 0) << "Failed to set s3_get_bucket_tokens: " << msg7;
