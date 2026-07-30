@@ -24,7 +24,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -254,9 +253,7 @@ Status adapt_runtime_filter_for_table_reader(VExprSPtr* expr) {
 #ifdef BE_TEST
 FileScannerV2::FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                              std::unique_ptr<format::TableReader> table_reader)
-        : Scanner(state, profile),
-          _table_reader(std::move(table_reader)),
-          _scanner_profile(profile) {}
+        : Scanner(state, profile), _table_reader(std::move(table_reader)) {}
 
 Status FileScannerV2::TEST_validate_scan_range(const TFileScanRangeParams& params,
                                                const TFileRangeDesc& range) {
@@ -362,9 +359,8 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
 
 Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
-    _initialize_scanner_residual_conjuncts();
+    _transfer_conjuncts_to_table_reader();
     auto* profile = _local_state->scanner_profile();
-    _scanner_profile = profile;
     const auto hierarchy = file_scan_profile::ensure_hierarchy(profile);
     _scanner_total_timer = hierarchy.scanner;
     _io_timer = hierarchy.io;
@@ -398,11 +394,6 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
             profile, "AdaptiveBatchActualBytes", TUnit::BYTES, file_scan_profile::SCANNER, 1);
     _adaptive_batch_probe_count_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "AdaptiveBatchProbeCount", TUnit::UNIT, file_scan_profile::SCANNER, 1);
-    _scanner_residual_filter_timer = ADD_CHILD_TIMER_WITH_LEVEL(
-            profile, "ScannerResidualFilterTime", file_scan_profile::SCANNER, 1);
-    _scanner_residual_rows_filtered_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "ScannerResidualRowsFiltered", TUnit::UNIT, file_scan_profile::SCANNER, 1);
-    _refresh_scanner_residual_profile();
     SCOPED_TIMER(_scanner_total_timer);
     SCOPED_TIMER(_init_timer);
     _file_cache_statistics = std::make_unique<io::FileCacheStatistics>();
@@ -453,12 +444,6 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
         }
 
         {
-            if (_table_reader_rf_num != _applied_rf_num) {
-                VExprContextSPtrs refreshed_conjuncts;
-                RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
-                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
-                _table_reader_rf_num = _applied_rf_num;
-            }
             if (_should_run_adaptive_batch_size()) {
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
@@ -500,22 +485,11 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 }
 
 Status FileScannerV2::_filter_output_block(Block* block) {
-    if (_scanner_residual_conjuncts.empty() || block->rows() == 0) {
-        return Status::OK();
-    }
-    SCOPED_TIMER(_scanner_residual_filter_timer);
-    const size_t rows_before_filter = block->rows();
-    auto status = VExprContext::filter_block(_scanner_residual_conjuncts, block, block->columns());
-    if (!status.ok() && _params != nullptr &&
-        _get_current_format_type() == TFileFormatType::FORMAT_ORC) {
-        status.prepend("Orc row reader nextBatch failed. reason = ");
-    }
-    RETURN_IF_ERROR(status);
-    const int64_t filtered_rows = cast_set<int64_t>(rows_before_filter - block->rows());
-    _counter.num_rows_unselected += filtered_rows;
-    if (_scanner_residual_rows_filtered_counter != nullptr) {
-        COUNTER_UPDATE(_scanner_residual_rows_filtered_counter, filtered_rows);
-    }
+    // TableReader is the single owner of predicates that cannot be localized, while FileReader is
+    // the exact owner of localized predicates. Re-evaluating either set here would duplicate
+    // mutable expression state and force predicate-only columns to be materialized for Scanner.
+    DORIS_CHECK(_conjuncts.empty());
+    (void)block;
     return Status::OK();
 }
 
@@ -581,7 +555,6 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         }
         COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
-        _table_reader_rf_num = _applied_rf_num;
         *eos = false;
         return Status::OK();
     }
@@ -594,19 +567,12 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
     DORIS_CHECK(_table_reader != nullptr);
 
     if (!_late_arrival_rf_conjuncts.empty()) {
-        const size_t owned_count = _scanner_residual_conjuncts.empty()
-                                           ? _safe_conjunct_prefix_size(_late_arrival_rf_conjuncts)
-                                           : 0;
-        _table_reader_owned_conjunct_count += owned_count;
-        _scanner_residual_conjuncts.insert(
-                _scanner_residual_conjuncts.end(),
-                _late_arrival_rf_conjuncts.begin() + cast_set<ptrdiff_t>(owned_count),
-                _late_arrival_rf_conjuncts.end());
+        _table_reader_owned_conjunct_count += _late_arrival_rf_conjuncts.size();
         _append_ordered_conjuncts.insert(_append_ordered_conjuncts.end(),
                                          _late_arrival_rf_conjuncts.begin(),
                                          _late_arrival_rf_conjuncts.end());
         _late_arrival_rf_conjuncts.clear();
-        _refresh_scanner_residual_profile();
+        _conjuncts.clear();
     }
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
@@ -699,7 +665,7 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             // A metadata COUNT split may span scheduler turns. Do not enter that irreversible
             // synthetic-row path while a runtime filter can still arrive between batches.
             .all_runtime_filters_applied = _applied_rf_num == _total_rf_num,
-            .condition_cache_digest = _current_condition_cache_digest(),
+            .condition_cache_digest = _current_table_condition_cache_digest(),
             .cache = _kv_cache,
             .current_range = range,
             .current_split_format = current_split_format,
@@ -899,41 +865,10 @@ Status FileScannerV2::_build_table_conjuncts(const VExprContextSPtrs& source,
     return Status::OK();
 }
 
-size_t FileScannerV2::_safe_conjunct_prefix_size(const VExprContextSPtrs& conjuncts) {
-    for (size_t conjunct_index = 0; conjunct_index < conjuncts.size(); ++conjunct_index) {
-        if (!format::TableReader::is_safe_to_pre_execute(conjuncts[conjunct_index])) {
-            return conjunct_index;
-        }
-    }
-    return conjuncts.size();
-}
-
-void FileScannerV2::_initialize_scanner_residual_conjuncts() {
-    _append_ordered_conjuncts = _conjuncts;
-    _table_reader_owned_conjunct_count = _safe_conjunct_prefix_size(_conjuncts);
-    // Preserve the entire suffix, not only the unsafe expression. Otherwise a later safe
-    // predicate could run below Scanner before a stateful/error-preserving ordering barrier.
-    _scanner_residual_conjuncts.assign(
-            _conjuncts.begin() + cast_set<ptrdiff_t>(_table_reader_owned_conjunct_count),
-            _conjuncts.end());
-    _refresh_scanner_residual_profile();
-}
-
-void FileScannerV2::_refresh_scanner_residual_profile() {
-    if (_scanner_profile == nullptr || _scanner_residual_conjuncts.empty()) {
-        return;
-    }
-    std::ostringstream predicates;
-    predicates << "[";
-    for (size_t conjunct_index = 0; conjunct_index < _scanner_residual_conjuncts.size();
-         ++conjunct_index) {
-        if (conjunct_index > 0) {
-            predicates << ", ";
-        }
-        predicates << _scanner_residual_conjuncts[conjunct_index]->root()->debug_string();
-    }
-    predicates << "]";
-    _scanner_profile->add_info_string("ScannerResidualPredicates", predicates.str());
+void FileScannerV2::_transfer_conjuncts_to_table_reader() {
+    _append_ordered_conjuncts = std::move(_conjuncts);
+    _conjuncts.clear();
+    _table_reader_owned_conjunct_count = _append_ordered_conjuncts.size();
 }
 
 Status FileScannerV2::_sync_table_reader_conjuncts() {
@@ -945,24 +880,26 @@ Status FileScannerV2::_sync_table_reader_conjuncts() {
     }
     VExprContextSPtrs appended;
     RETURN_IF_ERROR(_build_table_conjuncts(_late_arrival_rf_conjuncts, &appended));
-    const size_t owned_count = _scanner_residual_conjuncts.empty()
-                                       ? _safe_conjunct_prefix_size(_late_arrival_rf_conjuncts)
-                                       : 0;
-    // Preserve existing expression state and append the identity-tracked RF delta. Cost sorting
-    // may move a late RF ahead of an old stateful predicate in the full scanner snapshot.
+    const size_t owned_count = appended.size();
     RETURN_IF_ERROR(_table_reader->append_conjuncts_with_ownership(appended, owned_count));
     _append_ordered_conjuncts.insert(_append_ordered_conjuncts.end(),
                                      _late_arrival_rf_conjuncts.begin(),
                                      _late_arrival_rf_conjuncts.end());
     _table_reader_owned_conjunct_count += owned_count;
-    _scanner_residual_conjuncts.insert(
-            _scanner_residual_conjuncts.end(),
-            _late_arrival_rf_conjuncts.begin() + cast_set<ptrdiff_t>(owned_count),
-            _late_arrival_rf_conjuncts.end());
-    _refresh_scanner_residual_profile();
     _late_arrival_rf_conjuncts.clear();
+    _conjuncts.clear();
     _table_reader_applied_rf_num = _applied_rf_num;
     return Status::OK();
+}
+
+uint64_t FileScannerV2::_current_table_condition_cache_digest() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_local_state != nullptr);
+    if (_local_state->get_condition_cache_digest() == 0) {
+        return 0;
+    }
+    return _build_condition_cache_digest(_state->query_options().condition_cache_digest,
+                                         _append_ordered_conjuncts);
 }
 
 TFileFormatType::type FileScannerV2::_get_current_format_type() const {

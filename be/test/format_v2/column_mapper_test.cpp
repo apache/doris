@@ -2351,7 +2351,7 @@ TEST(ColumnMapperLocalizeFiltersTest, ReportsLocalizationForEachSplitMapping) {
     FilterLocalizationResult local_result;
     ASSERT_TRUE(local_mapper
                         .create_scan_request({filter}, table_schema, &local_request, nullptr,
-                                             &local_result)
+                                             nullptr, &local_result)
                         .ok());
     ASSERT_EQ(local_result.localized_filters.size(), 1);
     EXPECT_TRUE(local_result.localized_filters[0]);
@@ -2363,7 +2363,7 @@ TEST(ColumnMapperLocalizeFiltersTest, ReportsLocalizationForEachSplitMapping) {
     FilterLocalizationResult missing_result;
     ASSERT_TRUE(missing_mapper
                         .create_scan_request({filter}, table_schema, &missing_request, nullptr,
-                                             &missing_result)
+                                             nullptr, &missing_result)
                         .ok());
     ASSERT_EQ(missing_result.localized_filters.size(), 1);
     EXPECT_FALSE(missing_result.localized_filters[0]);
@@ -2414,7 +2414,7 @@ TEST(ColumnMapperLocalizeFiltersTest, VarcharWidthTruncationFilterStaysAboveFile
     FileScanRequest request;
     FilterLocalizationResult localization_result;
 
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request, &state,
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_column}, &request, &state, nullptr,
                                            &localization_result)
                         .ok());
     ASSERT_EQ(localization_result.localized_filters.size(), 1);
@@ -3130,6 +3130,37 @@ TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) 
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
 
     ASSERT_EQ(request.conjuncts.size(), 1);
+}
+
+TEST(ColumnMapperScanRequestTest, HiddenResidualColumnRetainsPayload) {
+    const auto int_type = i32();
+    const std::vector<ColumnDefinition> table_schema = {
+            field_id_col("id", 0, int_type),
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("id", 0, int_type, 0),
+            field_id_col("score", 1, int_type, 1),
+    };
+
+    auto filter_expr = int_gt(table_slot(7, 1, int_type, "score"), 10);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(1)},
+                        .can_localize = false};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    FileScanRequest request;
+    FilterLocalizationResult localization_result;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, table_schema, &request, nullptr, nullptr,
+                                           &localization_result)
+                        .ok());
+
+    ASSERT_EQ(localization_result.localized_filters, std::vector<bool>({false}));
+    EXPECT_TRUE(request.conjuncts.empty());
+    // A TableReader residual still consumes the decoded value, so replacing the hidden payload
+    // with a predicate-only placeholder would make the fallback expression observe wrong data.
+    EXPECT_TRUE(request.predicate_only_columns.empty());
 }
 
 // Scenario: a nested predicate targets a table-side renamed struct field; scan projection must

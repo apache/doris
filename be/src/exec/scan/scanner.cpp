@@ -242,9 +242,10 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
         return Status::OK();
     }
 
-    // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
-    RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    if (_retains_output_conjuncts()) {
+        RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    }
     _late_arrival_rf_conjuncts.insert(_late_arrival_rf_conjuncts.end(),
                                       std::make_move_iterator(arrived_conjuncts.begin()),
                                       std::make_move_iterator(arrived_conjuncts.end()));

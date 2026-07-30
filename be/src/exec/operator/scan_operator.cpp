@@ -91,14 +91,6 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(
             return a->execute_cost() < b->execute_cost();
         });
     };
-    // Only re-run partition pruning when try_append_late_arrival_runtime_filter
-    // actually appended new conjuncts. Otherwise this hook would re-scan all
-    // partition boundaries on every scheduler pass while there are still
-    // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
-    // CPU re-evaluating the same set of RFs against the same boundaries.
-    if (_conjuncts.size() > conjuncts_before) {
-        RETURN_IF_ERROR(_on_runtime_filter_update());
-    }
     for (const auto& [batch_arrived_rf_num, batch] : _late_arrival_conjunct_batches) {
         if (batch_arrived_rf_num <= applied_rf_num) {
             continue;

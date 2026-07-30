@@ -139,6 +139,11 @@ protected:
     // Filter the output block finally.
     virtual Status _filter_output_block(Block* block);
 
+    // Most scanners own their final predicate evaluation. FileScannerV2 transfers that ownership
+    // to TableReader and overrides this hook so late runtime-filter refreshes do not repopulate the
+    // Scanner execution list.
+    virtual bool _retains_output_conjuncts() const { return true; }
+
     Status _do_projections(Block* origin_block, Block* output_block);
 
 public:

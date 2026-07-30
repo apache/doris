@@ -83,8 +83,8 @@ struct TableFilter {
     VExprContextSPtr conjunct;
     std::vector<GlobalIndex> global_indices;
     size_t source_conjunct_index = 0;
-    // False after the first unsafe source conjunct so file-local execution cannot reorder a later
-    // predicate ahead of stateful or error-preserving table semantics.
+    // Only safe and deterministic predicates may move below table-schema materialization.
+    // Unsafe, non-deterministic, or unlocalizable predicates remain exact TableReader residuals.
     bool can_localize = true;
 };
 
@@ -148,8 +148,8 @@ struct TableReadOptions {
     // All complex conjuncts from scan operator
     const VExprContextSPtrs conjuncts;
     // Number of leading conjuncts whose row-level execution is owned by TableReader/FileReader.
-    // FileScannerV2 still passes the complete ordered list so mapping, pruning guards, aggregate
-    // eligibility, and condition-cache analysis see the exact query semantics. nullopt means all.
+    // FileScannerV2 transfers every conjunct; the explicit boundary remains for callers that pass
+    // analysis-only expressions. nullopt means all.
     const std::optional<size_t> table_reader_owned_conjunct_count = std::nullopt;
     // File format of the underlying data files, needed for reader initialization and reader-level
     // filter pushdown.
@@ -252,9 +252,8 @@ public:
         return _current_split_uses_metadata_count;
     }
 
-    // Runtime filters that arrive after a split has opened cannot be pushed into that file reader.
-    // Keep their expression contexts in TableReader and evaluate them as residual predicates for
-    // the active reader; later splits can localize them normally.
+    // Keep late runtime filters residual in TableReader until a physical reader activates the
+    // refreshed immutable request at its safe boundary; later splits can localize them at open.
     virtual Status append_conjuncts(const VExprContextSPtrs& conjuncts);
 
     // Append a full ordered snapshot delta while marking only its leading prefix as owned by
@@ -263,8 +262,8 @@ public:
     Status append_conjuncts_with_ownership(const VExprContextSPtrs& conjuncts,
                                            size_t table_reader_owned_conjunct_count);
 
-    // Shared safety classification for deciding which ordered conjunct prefix may execute below
-    // Scanner without changing stateful or error-preserving semantics.
+    // Shared safety classification for deciding whether one predicate may execute before
+    // table-schema materialization without changing stateful or error-preserving semantics.
     static bool is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
 
     virtual const MaterializedBlockStats& last_materialized_block_stats() const {
@@ -494,7 +493,7 @@ protected:
         auto file_request = std::make_shared<FileScanRequest>();
         FilterLocalizationResult localization_result;
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
-                _table_filters, _projected_columns, file_request.get(), _runtime_state,
+                _table_filters, _projected_columns, file_request.get(), _runtime_state, nullptr,
                 &localization_result));
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
@@ -586,6 +585,7 @@ protected:
     Status _prepare_remaining_conjuncts(const FilterLocalizationResult& localization_result);
     Status _prepare_all_conjuncts_as_remaining();
     Status _filter_remaining_conjuncts(Block* block, size_t* rows);
+    Status _queue_refreshed_scan_request();
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
     Status _build_partition_prune_block(Block* block) const;
@@ -596,14 +596,9 @@ protected:
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
-        DORIS_CHECK_LE(_constant_pruning_safe_filter_count, _table_filters.size());
         *can_filter_all = false;
-        // The bound was derived from the original `_conjuncts` order, which includes slotless
-        // expressions omitted from `_table_filters`. Iterating only this prefix therefore cannot
-        // skip an unsafe row-level predicate and pre-execute a later constant predicate.
-        for (size_t i = 0; i < _constant_pruning_safe_filter_count; ++i) {
-            const auto& table_filter = _table_filters[i];
-            if (table_filter.conjunct == nullptr) {
+        for (const auto& table_filter : _table_filters) {
+            if (table_filter.conjunct == nullptr || !table_filter.can_localize) {
                 continue;
             }
             DORIS_CHECK(is_safe_to_pre_execute(table_filter.conjunct));
@@ -822,7 +817,6 @@ protected:
             _data_reader.column_mapper.reset();
         }
         _table_filters.clear();
-        _constant_pruning_safe_filter_count = 0;
         _remaining_conjuncts.clear();
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
@@ -1806,10 +1800,6 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
-    // Number of localized filters before the first unsafe conjunct in the original row-level
-    // order. This differs from scanning `_table_filters` for safety because slotless predicates are
-    // intentionally absent from that vector but must still act as ordering barriers.
-    size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
     size_t _table_reader_owned_conjunct_count = 0;
     std::optional<size_t> _appended_table_reader_owned_conjunct_count;

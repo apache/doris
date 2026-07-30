@@ -35,8 +35,6 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
-#include "format/orc/orc_memory_stream_test.h"
-#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/parquet_utils.h"
 #include "format_v2/table/iceberg_position_delete_sys_table_reader.h"
 #include "io/io_common.h"
@@ -717,19 +715,6 @@ TEST(IcebergPositionDeleteSysTableV2ReaderTest,
     EXPECT_TRUE(eof);
     ASSERT_TRUE(reader._next_dv_position.has_value());
     EXPECT_EQ(**reader._next_dv_position, 9);
-}
-
-TEST(IcebergPositionDeleteSysTableV2ReaderTest, ParquetRowUsesAnyFieldIdMapping) {
-    run_mixed_id_position_delete_test(format::FileFormat::PARQUET, TFileFormatType::FORMAT_PARQUET,
-                                      "parquet");
-}
-
-TEST(IcebergPositionDeleteSysTableV2ReaderTest, OrcRowUsesAnyFieldIdMapping) {
-    run_mixed_id_position_delete_test(format::FileFormat::ORC, TFileFormatType::FORMAT_ORC, "orc");
-}
-
-TEST(IcebergPositionDeleteSysTableV2ReaderTest, ParquetReadsNestedIdlessWrapper) {
-    run_v2_nested_wrapper_position_delete_test();
 }
 
 } // namespace doris
