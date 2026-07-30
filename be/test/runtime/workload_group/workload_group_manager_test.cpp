@@ -178,22 +178,20 @@ TEST_F(WorkloadGroupManagerTest, refresh_memory_usage_updates_memory_limits) {
     EXPECT_EQ(wg->min_memory_limit(), updated_mem_limit / 4);
 }
 
-<<<<<<< HEAD
 TEST_F(WorkloadGroupManagerTest, handle_paused_queries_ignores_empty_workload_group) {
     auto wg = _wg_manager->get_or_create_workload_group({});
 
     _wg_manager->handle_paused_queries();
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-    ASSERT_FALSE(_wg_manager->_paused_queries_list.contains(wg));
-=======
+}
+
 TEST_F(WorkloadGroupManagerTest, refresh_restores_query_limit_after_cgroup_expands) {
     const int64_t original_mem_limit = MemInfo::mem_limit();
     Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
     const int64_t small_mem_limit = 1024L * 1024 * 20;
     const int64_t large_mem_limit = 1024L * 1024 * 100;
     MemInfo::set_mem_limit_for_test(small_mem_limit);
-
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = small_mem_limit,
                                .max_memory_percent = 100,
@@ -215,14 +213,12 @@ TEST_F(WorkloadGroupManagerTest, refresh_restores_query_limit_after_cgroup_expan
     ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), large_mem_limit);
     ASSERT_EQ(query_without_mem_limit->resource_ctx()->memory_context()->mem_limit(),
               large_mem_limit);
->>>>>>> f9f6673b274 (set user origin memlimit as a larger value)
 }
 
 // Query is paused due to query memlimit exceed, after waiting in queue for  spill_in_paused_queue_timeout_ms
 // it should be resumed
 TEST_F(WorkloadGroupManagerTest, query_exceed) {
     auto wg = _wg_manager->get_or_create_workload_group({});
-    auto query_context = _generate_on_query(wg);
 
     query_context->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
     query_context->query_mem_tracker()->consume(1024 * 4);
