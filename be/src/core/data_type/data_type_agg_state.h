@@ -160,4 +160,16 @@ inline DataTypePtr get_serialized_type(const DataTypePtr& type) {
     }
     return type;
 }
+
+inline bool is_raw_byte_agg_state(const DataTypePtr& type) {
+    const auto* agg_state_type = typeid_cast<const DataTypeAggState*>(remove_nullable(type).get());
+    if (agg_state_type == nullptr) {
+        return false;
+    }
+
+    // Complex states need their native SerDe builders; only byte columns can use raw binary.
+    const auto serialized_type = remove_nullable(agg_state_type->get_serialized_type());
+    return is_string_type(serialized_type->get_primitive_type()) ||
+           serialized_type->get_primitive_type() == TYPE_FIXED_LENGTH_OBJECT;
+}
 } // namespace doris

@@ -38,6 +38,8 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/cast/cast_base.h"
+#include "format/arrow/arrow_row_batch.h"
 
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
@@ -68,6 +70,10 @@ public:
     // DataTypeAggState---> column_string
     DataTypePtr datatype_agg_state_hll_union = std::make_shared<DataTypeAggState>(
             sub_types, false, "hll_union", BeExecVersionManager::get_newest_version());
+    // DataTypeAggState---> column_array
+    DataTypePtr datatype_agg_state_array_agg = std::make_shared<DataTypeAggState>(
+            DataTypes {make_nullable(sub_type)}, false, "array_agg",
+            BeExecVersionManager::get_newest_version());
     int rows_value;
 };
 
@@ -112,6 +118,105 @@ TEST_P(DataTypeAggStateTest, CreateColumnTest) {
     ASSERT_EQ(datatype_agg_state_count->get_uncompressed_serialized_bytes(
                       *column, BeExecVersionManager::get_newest_version()),
               33);
+}
+
+TEST_P(DataTypeAggStateTest, ConvertToArrowBinaryType) {
+    std::shared_ptr<arrow::DataType> arrow_type;
+    ASSERT_TRUE(convert_to_arrow_type(datatype_agg_state_count, &arrow_type, "UTC").ok());
+    EXPECT_EQ(arrow_type->id(), arrow::Type::BINARY);
+
+    ASSERT_TRUE(convert_to_arrow_type(datatype_agg_state_hll_union, &arrow_type, "UTC").ok());
+    EXPECT_EQ(arrow_type->id(), arrow::Type::BINARY);
+
+    ASSERT_TRUE(convert_to_arrow_type(datatype_agg_state_array_agg, &arrow_type, "UTC").ok());
+    EXPECT_EQ(arrow_type->id(), arrow::Type::LIST);
+
+    ASSERT_TRUE(convert_to_arrow_type(std::make_shared<DataTypeString>(), &arrow_type, "UTC").ok());
+    EXPECT_EQ(arrow_type->id(), arrow::Type::STRING);
+}
+
+TEST_P(DataTypeAggStateTest, ConvertArrayStateToArrowBatch) {
+    auto column = datatype_agg_state_array_agg->create_column();
+    Array state;
+    state.push_back(Field::create_field<TYPE_INT>(1));
+    state.push_back(Field::create_field<TYPE_INT>(2));
+    column->insert(Field::create_field<TYPE_ARRAY>(state));
+    Block block = {
+            {std::move(column), datatype_agg_state_array_agg, "array_state"},
+    };
+
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC").ok());
+    ASSERT_EQ(schema->field(0)->type()->id(), arrow::Type::LIST);
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone timezone;
+    ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &record_batch,
+                                       timezone)
+                        .ok());
+    ASSERT_EQ(record_batch->num_rows(), 1);
+    ASSERT_EQ(record_batch->column(0)->type_id(), arrow::Type::LIST);
+}
+
+TEST_P(DataTypeAggStateTest, CastStringToStringStateUsesIdentity) {
+    auto source_column = ColumnString::create();
+    source_column->insert_data("state", 5);
+    const auto* source_column_ptr = source_column.get();
+    auto source_type = std::make_shared<DataTypeString>();
+    Block block = {
+            {std::move(source_column), source_type, "source"},
+            {nullptr, datatype_agg_state_hll_union, "result"},
+    };
+
+    auto context = std::make_shared<FunctionContext>();
+    auto wrapper = get_cast_wrapper(context.get(), source_type, datatype_agg_state_hll_union);
+    ASSERT_TRUE(wrapper(context.get(), block, {0}, 1, block.rows(), nullptr).ok());
+    EXPECT_EQ(block.get_by_position(1).column.get(), source_column_ptr);
+}
+
+TEST_P(DataTypeAggStateTest, CastBinaryBytesToFixedState) {
+    auto expected_column = datatype_agg_state_count->create_column();
+    const auto expected_size =
+            assert_cast<const ColumnFixedLengthObject&>(*expected_column).item_size();
+    std::string state(expected_size, '\0');
+    state.front() = '\\';
+    state.back() = static_cast<char>(0xff);
+
+    auto source_column = ColumnString::create();
+    source_column->insert_data(state.data(), state.size());
+    auto source_type = std::make_shared<DataTypeString>();
+    Block block = {
+            {std::move(source_column), source_type, "source"},
+            {nullptr, datatype_agg_state_count, "result"},
+    };
+
+    auto context = std::make_shared<FunctionContext>();
+    auto wrapper = get_cast_wrapper(context.get(), source_type, datatype_agg_state_count);
+    ASSERT_TRUE(wrapper(context.get(), block, {0}, 1, block.rows(), nullptr).ok());
+    const auto& result =
+            assert_cast<const ColumnFixedLengthObject&>(*block.get_by_position(1).column);
+    EXPECT_EQ(result.item_size(), expected_size);
+    EXPECT_EQ(result.get_data_at(0).to_string(), state);
+}
+
+TEST_P(DataTypeAggStateTest, RejectInvalidFixedStateSize) {
+    const auto expected_size =
+            assert_cast<const ColumnFixedLengthObject&>(*datatype_agg_state_count->create_column())
+                    .item_size();
+    auto source_column = ColumnString::create();
+    source_column->insert_data("short", 5);
+    auto source_type = std::make_shared<DataTypeString>();
+    Block block = {
+            {std::move(source_column), source_type, "source"},
+            {nullptr, datatype_agg_state_count, "result"},
+    };
+
+    auto context = std::make_shared<FunctionContext>();
+    auto wrapper = get_cast_wrapper(context.get(), source_type, datatype_agg_state_count);
+    const auto status = wrapper(context.get(), block, {0}, 1, block.rows(), nullptr);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.msg().find(fmt::format("requires {} bytes", expected_size)),
+              std::string::npos);
 }
 
 void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_agg_state,

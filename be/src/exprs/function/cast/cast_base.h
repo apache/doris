@@ -129,6 +129,11 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                                    size_t input_rows_count,
                                    const NullMap::value_type* null_map = nullptr);
 
+Status cast_from_binary_to_agg_state(FunctionContext* context, Block& block,
+                                     const ColumnNumbers& arguments, uint32_t result,
+                                     size_t input_rows_count,
+                                     const NullMap::value_type* null_map = nullptr);
+
 Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, uint32_t result,
                                         size_t input_rows_count,
