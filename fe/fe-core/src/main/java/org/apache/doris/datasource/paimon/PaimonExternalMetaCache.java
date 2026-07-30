@@ -66,7 +66,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         super(ENGINE, refreshExecutor);
         tableLoader = new PaimonTableLoader();
         latestSnapshotProjectionLoader = new PaimonLatestSnapshotProjectionLoader(
-                new PaimonPartitionInfoLoader(tableLoader), this::getPaimonSchemaCacheValue);
+                new PaimonPartitionInfoLoader(), this::getPaimonSchemaCacheValue);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, PaimonTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));

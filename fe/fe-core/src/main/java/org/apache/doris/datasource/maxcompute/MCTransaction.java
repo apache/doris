@@ -71,6 +71,10 @@ public class MCTransaction implements Transaction {
 
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
         this.table = (MaxComputeExternalTable) dorisTable;
+        if (table.isUnsupportedOdpsTable()) {
+            throw new UserException("Writing MaxCompute external table or logical view is not supported: "
+                    + table.getDbName() + "." + table.getName());
+        }
 
         try {
             TableIdentifier tableId = catalog.getOdpsTableIdentifier(table.getDbName(), table.getName());

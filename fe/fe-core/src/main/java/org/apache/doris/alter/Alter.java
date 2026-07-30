@@ -392,6 +392,10 @@ public class Alter {
     private void processAlterTableForExternalTable(
             ExternalTable table,
             List<AlterClause> alterClauses) throws UserException {
+        if (alterClauses.size() > 1) {
+            throw new UserException("External table does not support multiple ALTER clauses "
+                    + "in one statement");
+        }
         long updateTime = System.currentTimeMillis();
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof ModifyTablePropertiesClause) {
@@ -418,20 +422,26 @@ public class Alter {
                         table.getDbName(), table.getName(), tableRename.getNewTableName());
             } else if (alterClause instanceof AddColumnClause) {
                 AddColumnClause addColumn = (AddColumnClause) alterClause;
-                table.getCatalog().addColumn(table, addColumn.getColumn(), addColumn.getColPos());
+                table.getCatalog().addColumn(
+                        table, addColumn.getColumnPath(), addColumn.getColumn(), addColumn.getColPos());
             } else if (alterClause instanceof AddColumnsClause) {
                 AddColumnsClause addColumns = (AddColumnsClause) alterClause;
                 table.getCatalog().addColumns(table, addColumns.getColumns());
             } else if (alterClause instanceof DropColumnClause) {
                 DropColumnClause dropColumn = (DropColumnClause) alterClause;
-                table.getCatalog().dropColumn(table, dropColumn.getColName());
+                table.getCatalog().dropColumn(table, dropColumn.getColumnPath());
             } else if (alterClause instanceof ColumnRenameClause) {
                 ColumnRenameClause columnRename = (ColumnRenameClause) alterClause;
                 table.getCatalog().renameColumn(
-                        table, columnRename.getColName(), columnRename.getNewColName());
+                        table, columnRename.getColumnPath(), columnRename.getNewColName());
             } else if (alterClause instanceof ModifyColumnClause) {
                 ModifyColumnClause modifyColumn = (ModifyColumnClause) alterClause;
-                table.getCatalog().modifyColumn(table, modifyColumn.getColumn(), modifyColumn.getColPos());
+                table.getCatalog().modifyColumn(
+                        table, modifyColumn.getColumnPath(), modifyColumn.getColumn(), modifyColumn.getColPos());
+            } else if (alterClause instanceof ModifyColumnCommentClause) {
+                ModifyColumnCommentClause modifyColumnComment = (ModifyColumnCommentClause) alterClause;
+                table.getCatalog().modifyColumnComment(
+                        table, modifyColumnComment.getColumnPath(), modifyColumnComment.getComment());
             } else if (alterClause instanceof ReorderColumnsClause) {
                 ReorderColumnsClause reorderColumns = (ReorderColumnsClause) alterClause;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());

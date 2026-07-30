@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -213,6 +214,11 @@ public class TypeCoercionUtils {
                 }
             }
             return Optional.of(new StructType(newFields));
+        } else if (input instanceof VariantType
+                && ((VariantType) input).isComputeV2()
+                && expected instanceof JsonType) {
+            // JSON functions require users to make this representation change explicit.
+            return Optional.empty();
         } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
             // variant could implicit cast to numric types and string like types
             return Optional.of(expected);
@@ -1150,6 +1156,8 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (right instanceof NullType) {
             return Optional.of(left);
+        } else if (left instanceof VariantType && right instanceof VariantType) {
+            return findCommonVariantType((VariantType) left, (VariantType) right);
         } else if (left instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
@@ -1216,6 +1224,13 @@ public class TypeCoercionUtils {
             return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
+    }
+
+    private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
+        if (!left.isExecutionCompatibleWith(right)) {
+            return Optional.empty();
+        }
+        return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : right);
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
@@ -1326,6 +1341,21 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
+        boolean leftIsVariantV2 = left.getDataType() instanceof VariantType
+                && ((VariantType) left.getDataType()).isComputeV2();
+        boolean rightIsVariantV2 = right.getDataType() instanceof VariantType
+                && ((VariantType) right.getDataType()).isComputeV2();
+        boolean isDirectVariantSubpathScalarComparison = leftIsVariantV2 != rightIsVariantV2
+                && ((leftIsVariantV2 && left instanceof ElementAt)
+                        || (rightIsVariantV2 && right instanceof ElementAt));
+        if ((leftIsVariantV2 || rightIsVariantV2)
+                && !isDirectVariantSubpathScalarComparison) {
+            DataType variantDataType = leftIsVariantV2
+                    ? left.getDataType() : right.getDataType();
+            throw new AnalysisException("data type " + variantDataType
+                    + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()
+                    + ". " + VariantType.UNSUPPORTED_ORDERING_COMPARISON_MESSAGE);
+        }
         // TODO: remove this restriction after supporting varbinary comparison in BE
         if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
             throw new AnalysisException("data type varbinary "
@@ -1980,6 +2010,11 @@ public class TypeCoercionUtils {
         }
         if (t2.isNullType()) {
             return Optional.of(t1);
+        }
+
+        if (t1 instanceof VariantType && t2 instanceof VariantType
+                && (((VariantType) t1).isComputeV2() || ((VariantType) t2).isComputeV2())) {
+            return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 
         // objectType only support compare with itself, so return empty here.

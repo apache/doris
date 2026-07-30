@@ -83,6 +83,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -281,10 +282,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = desc.getTable().getFullSchema();
-        Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
-        for (int i = 0; i < columns.size(); i++) {
-            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+        List<String> columnNames = getFileColumnNames();
+        Map<String, Integer> columnNameMap = new HashMap<>(columnNames.size());
+        for (int i = 0; i < columnNames.size(); i++) {
+            columnNameMap.putIfAbsent(columnNames.get(i), i);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
@@ -304,6 +305,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             columnIdxs.add(idx);
         }
         params.setColumnIdxs(columnIdxs);
+    }
+
+    protected List<String> getFileColumnNames() {
+        return desc.getTable().getFullSchema().stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
     }
 
     public TFileScanRangeParams getFileScanRangeParams() {
@@ -714,7 +721,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     public TableSnapshot getQueryTableSnapshot() {
-        TableSnapshot snapshot = desc.getRef().getTableSnapShot();
+        // Keep explicit snapshots available when a legacy or unit-built descriptor has no ref.
+        TableSnapshot snapshot = desc.getRef() == null ? null : desc.getRef().getTableSnapShot();
         if (snapshot != null) {
             return snapshot;
         }
@@ -726,7 +734,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     public TableScanParams getScanParams() {
-        TableScanParams scan = desc.getRef().getScanParams();
+        // Unit-built and legacy descriptors may not carry a relation reference; explicit scan
+        // parameters must remain usable for those callers.
+        TableScanParams scan = desc.getRef() == null ? null : desc.getRef().getScanParams();
         if (scan != null) {
             return scan;
         }

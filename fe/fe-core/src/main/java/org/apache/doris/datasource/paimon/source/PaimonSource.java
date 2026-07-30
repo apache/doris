@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
@@ -58,6 +59,17 @@ public class PaimonSource {
 
     public Table getPaimonTable() {
         return originTable;
+    }
+
+    public Table getPaimonTable(TableScanParams scanParams) {
+        if (paimonExtTable instanceof PaimonExternalTable) {
+            return ((PaimonExternalTable) paimonExtTable).getPaimonTable(scanParams);
+        }
+        if (paimonExtTable instanceof PaimonSysExternalTable) {
+            return ((PaimonSysExternalTable) paimonExtTable).getSysPaimonTable(scanParams);
+        }
+        throw new IllegalArgumentException(
+                "Expected Paimon table but got " + paimonExtTable.getClass().getSimpleName());
     }
 
     public TableIf getTargetTable() {

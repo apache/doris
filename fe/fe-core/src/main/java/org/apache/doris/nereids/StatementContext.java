@@ -34,6 +34,9 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonScanParams;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -481,7 +484,11 @@ public class StatementContext implements Closeable {
         }
         ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
                 id -> new ExternalTablePreloadInfo((ExternalTable) table));
-        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+        boolean selectorFreePaimonOptions = scanParams.isPresent()
+                && scanParams.get().isOptions()
+                && (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
+                && PaimonScanParams.usesStatementSnapshot(scanParams.get().getMapParams());
+        if (tableSnapshot.isPresent() || (scanParams.isPresent() && !selectorFreePaimonOptions)) {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();

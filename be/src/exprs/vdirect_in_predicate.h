@@ -99,6 +99,82 @@ public:
                std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
     }
 
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        return expr_zonemap::eval_in_dictionary(ctx, get_child(0), false, _seg_filter_values);
+    }
+
+    bool can_evaluate_dictionary_filter() const override {
+        return _zonemap_materialized &&
+               std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+    }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        if (!_hybrid_set_values_match_child_type || data_type == nullptr || _filter == nullptr ||
+            get_num_children() != 1) {
+            return false;
+        }
+        const auto slot = std::dynamic_pointer_cast<VSlotRef>(get_child(0));
+        if (slot == nullptr || slot->column_id() != column_id) {
+            return false;
+        }
+        const auto raw_type = remove_nullable(data_type);
+        if (!remove_nullable(slot->data_type())->equals(*raw_type)) {
+            return false;
+        }
+        return _raw_fixed_value_size(raw_type->get_primitive_type()) != 0;
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override {
+        if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+            return Status::NotSupported(
+                    "Direct IN predicate cannot evaluate raw fixed-width values");
+        }
+        DORIS_CHECK(values != nullptr || num_values == 0);
+        DORIS_CHECK(matches != nullptr || num_values == 0);
+        const size_t expected_width =
+                _raw_fixed_value_size(remove_nullable(data_type)->get_primitive_type());
+        if (value_width != expected_width) {
+            return Status::Corruption("Raw direct IN width {} does not match expected {}",
+                                      value_width, expected_width);
+        }
+        // Dispatch once per decoder batch so large runtime-filter sets retain the typed HybridSet
+        // loop instead of paying a virtual lookup for every physical value.
+        _filter->find_batch_raw_fixed(values, num_values, value_width, matches);
+        return Status::OK();
+    }
+
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        if (!_hybrid_set_values_match_child_type || data_type == nullptr || _filter == nullptr ||
+            get_num_children() != 1) {
+            return false;
+        }
+        const auto slot = std::dynamic_pointer_cast<VSlotRef>(get_child(0));
+        if (slot == nullptr || slot->column_id() != column_id || slot->data_type() == nullptr) {
+            return false;
+        }
+        return is_string_type(remove_nullable(data_type)->get_primitive_type()) &&
+               is_string_type(remove_nullable(slot->data_type())->get_primitive_type());
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Direct IN predicate cannot evaluate raw binary values");
+        }
+        DORIS_CHECK(values != nullptr || num_values == 0);
+        DORIS_CHECK(matches != nullptr || num_values == 0);
+        // Probe immutable decoder slices directly; constructing ColumnString first would copy
+        // every rejected payload and defeat predicate-only late materialization.
+        _filter->find_batch_raw_binary(values, num_values, matches);
+        return Status::OK();
+    }
+
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         *cloned_expr = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
@@ -156,6 +232,38 @@ public:
     }
 
 private:
+    static size_t _raw_fixed_value_size(PrimitiveType primitive_type) {
+        switch (primitive_type) {
+#define RETURN_RAW_FIXED_SIZE(TYPE) \
+    case TYPE:                      \
+        return sizeof(typename PrimitiveTypeTraits<TYPE>::CppType)
+            RETURN_RAW_FIXED_SIZE(TYPE_BOOLEAN);
+            RETURN_RAW_FIXED_SIZE(TYPE_TINYINT);
+            RETURN_RAW_FIXED_SIZE(TYPE_SMALLINT);
+            RETURN_RAW_FIXED_SIZE(TYPE_INT);
+            RETURN_RAW_FIXED_SIZE(TYPE_BIGINT);
+            RETURN_RAW_FIXED_SIZE(TYPE_LARGEINT);
+            RETURN_RAW_FIXED_SIZE(TYPE_FLOAT);
+            RETURN_RAW_FIXED_SIZE(TYPE_DOUBLE);
+            RETURN_RAW_FIXED_SIZE(TYPE_DATE);
+            RETURN_RAW_FIXED_SIZE(TYPE_DATETIME);
+            RETURN_RAW_FIXED_SIZE(TYPE_DATEV2);
+            RETURN_RAW_FIXED_SIZE(TYPE_DATETIMEV2);
+            RETURN_RAW_FIXED_SIZE(TYPE_TIMESTAMPTZ);
+            RETURN_RAW_FIXED_SIZE(TYPE_TIMEV2);
+            RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL32);
+            RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL64);
+            RETURN_RAW_FIXED_SIZE(TYPE_DECIMALV2);
+            RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL128I);
+            RETURN_RAW_FIXED_SIZE(TYPE_DECIMAL256);
+            RETURN_RAW_FIXED_SIZE(TYPE_IPV4);
+            RETURN_RAW_FIXED_SIZE(TYPE_IPV6);
+#undef RETURN_RAW_FIXED_SIZE
+        default:
+            return 0;
+        }
+    }
+
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
                        Selector* selector, size_t count, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const {

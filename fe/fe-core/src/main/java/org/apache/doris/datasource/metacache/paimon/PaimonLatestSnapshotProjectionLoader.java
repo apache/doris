@@ -29,6 +29,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Collections;
@@ -58,7 +59,8 @@ public final class PaimonLatestSnapshotProjectionLoader {
             PaimonSnapshot latestSnapshot = resolveLatestSnapshot(paimonTable);
             List<Column> partitionColumns = schemaValueLoader.load(nameMapping, latestSnapshot.getSchemaId())
                     .getPartitionColumns();
-            PaimonPartitionInfo partitionInfo = partitionInfoLoader.load(nameMapping, paimonTable, partitionColumns);
+            PaimonPartitionInfo partitionInfo =
+                    partitionInfoLoader.load(nameMapping, latestSnapshot.getTable(), partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (Exception e) {
             throw new CacheException("failed to load paimon snapshot %s.%s.%s: %s",
@@ -68,15 +70,19 @@ public final class PaimonLatestSnapshotProjectionLoader {
     }
 
     private PaimonSnapshot resolveLatestSnapshot(Table paimonTable) {
-        Table snapshotTable = paimonTable;
+        FileStoreTable latestSchemaTable = ((FileStoreTable) paimonTable).copyWithLatestSchema();
+        Table snapshotTable = latestSchemaTable;
         long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-        Optional<Snapshot> optionalSnapshot = paimonTable.latestSnapshot();
+        Optional<Snapshot> optionalSnapshot = latestSchemaTable.latestSnapshot();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
-            snapshotTable = paimonTable.copy(
+            // Pin the data snapshot for MVCC while retaining the latest table schema. A normal
+            // copy applies time travel and falls back to the snapshot's schema, which can be stale
+            // immediately after a schema change that has not produced a new data snapshot.
+            snapshotTable = latestSchemaTable.copyWithoutTimeTravel(
                     Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(latestSnapshotId)));
         }
-        DataTable dataTable = (DataTable) paimonTable;
+        DataTable dataTable = (DataTable) latestSchemaTable;
         long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
         return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
     }

@@ -91,7 +91,8 @@ private:
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 
-    bool _is_doris_table;
+    bool _is_doris_table = false;
+    int64_t _tablet_id = -1;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;

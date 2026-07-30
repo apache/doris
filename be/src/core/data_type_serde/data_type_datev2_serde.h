@@ -91,6 +91,11 @@ public:
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
                                     ParquetMaterializationState& state) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
     Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
                                    const ParquetDecodeContext& context) const override;
     Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;

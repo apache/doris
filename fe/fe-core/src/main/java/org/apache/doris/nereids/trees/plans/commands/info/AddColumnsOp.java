@@ -64,6 +64,10 @@ public class AddColumnsOp extends AlterTableOp {
         return columns;
     }
 
+    public List<ColumnDefinition> getColumnDefinitions() {
+        return columnDefs == null ? Collections.emptyList() : columnDefs;
+    }
+
     public String getRollupName() {
         return rollupName;
     }

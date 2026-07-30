@@ -21,14 +21,13 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -269,7 +268,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         boolean newHasCaseWhen = context.hasCaseWhen;
         if (!newHasCaseWhen) {
             for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
+                if (aggFunc.children().stream().anyMatch(
+                        arg -> arg.anyMatch(e ->
+                                NullToNonNullFunction.canConvertNullToNonNull((Expression) e)))) {
                     newHasCaseWhen = true;
                     break;
                 }

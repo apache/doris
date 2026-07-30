@@ -168,6 +168,8 @@ public class TimeUtilsTest {
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
             Assert.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
             Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
+            Assert.assertEquals("Asia/Shanghai", TimeUtils.getCanonicalTimeZone("CST"));
+            Assert.assertEquals("-05:00", TimeUtils.getCanonicalTimeZone("EST"));
         } catch (DdlException ex) {
             Assert.assertTrue(ex.getMessage(), false);
         }

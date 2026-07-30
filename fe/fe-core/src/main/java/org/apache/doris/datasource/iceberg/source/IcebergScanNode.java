@@ -489,11 +489,16 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.createScanRangeLocations();
         enableCurrentIcebergScanSemantics();
         // Extract name mapping from Iceberg table properties
-        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
+        initializeIcebergSchemaInfo(extractNameMapping());
+    }
 
+    @VisibleForTesting
+    void initializeIcebergSchemaInfo(Optional<Map<Integer, List<String>>> nameMapping) throws UserException {
         // Equality-delete keys are hidden scan dependencies and need not appear in the query
         // projection. Both scanners need the complete current schema to resolve field ids,
         // historical names, types, and initial defaults when an old data file lacks such a key.
+        // An identity partition column can also be a physical field in files written by an older
+        // partition spec, so preserving the complete schema is required for partition evolution.
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
                 getBase64EncodedInitialDefaultsForScan());
@@ -956,13 +961,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
-                        partitionData, k -> {
-                            return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
-                                    sessionVariable.getTimeZone());
-                        });
-                // Only set partition values if all partitions are identity transform
-                // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
-                if (partitionInfoMap != null) {
+                        partitionData, k -> IcebergUtils.getIdentityPartitionInfoMap(
+                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                // A spec may mix identity and transformed fields. Keep its identity values so a
+                // runtime filter can prune that split without treating source columns as constants
+                // for files written under another evolved spec.
+                if (!partitionInfoMap.isEmpty()) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {

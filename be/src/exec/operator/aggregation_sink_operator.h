@@ -160,6 +160,7 @@ public:
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(
                                      state);
         }
+
         const bool child_breaks_distribution = child_breaks_local_key_distribution(state);
         if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
             !child_breaks_distribution) {

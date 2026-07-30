@@ -148,6 +148,11 @@ public class TimeUtils {
         return getTimeZone().toZoneId();
     }
 
+    /** Resolve a Doris time-zone name to the canonical ID understood by execution backends. */
+    public static String getCanonicalTimeZone(String timeZone) {
+        return ZoneId.of(timeZone, timeZoneAliasMap).getId();
+    }
+
     public static TimeZone getUTCTimeZone() {
         return TimeZone.getTimeZone(UTC_TIME_ZONE);
     }
