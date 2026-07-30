@@ -26,7 +26,7 @@ RUN yum makecache && yum -y update && yum -y groupinstall 'Development Tools' &&
     devtoolset-10-libasan-devel
 
 # build cmake
-ARG CMAKE_VERSION=3.22.1
+ARG CMAKE_VERSION=3.25.3
 ARG CMAKE_BASE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
 RUN wget ${CMAKE_BASE_URL}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh -q -O /tmp/cmake-install.sh && \
     chmod u+x /tmp/cmake-install.sh && \
@@ -121,4 +121,3 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
 WORKDIR /root
 
 CMD ["/bin/bash"]
-

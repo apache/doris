@@ -195,9 +195,9 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
+          tar -xzf cmake-3.25.3-macos-universal.tar.gz
+          sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
@@ -260,9 +260,9 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
+          tar -xzf cmake-3.25.3-macos-universal.tar.gz
+          sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
@@ -278,4 +278,3 @@ jobs:
           cd thirdparty
           #./build-thirdparty.sh -j "$(nproc)"
           ./build-thirdparty.sh -j 2
-

@@ -732,13 +732,14 @@ fi
 # patch paimon-cpp
 if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
     cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        for patch_file in \
-            "${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" \
-            "${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"; do
-            patch -p1 <"${patch_file}"
-        done
-        touch "${PATCHED_MARK}"
+    PAIMON_CPP_ARROW_24_PATCHED_MARK="patched_mark_arrow_24"
+    if [[ ! -f "${PAIMON_CPP_ARROW_24_PATCHED_MARK}" ]]; then
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        patch -p1 <"${TP_PATCH_DIR}/paimon-cpp-arrow-24-compatibility.patch"
+        touch "${PAIMON_CPP_ARROW_24_PATCHED_MARK}"
     fi
     cd -
     echo "Finished patching ${PAIMON_CPP_SOURCE}"

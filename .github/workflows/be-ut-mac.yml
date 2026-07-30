@@ -48,9 +48,14 @@ jobs:
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
+            thirdparty_changes:
+              - 'thirdparty/**'
 
       - name: Ccache ${{ github.ref }}
-        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        if: |
+          github.event_name == 'schedule' ||
+          steps.filter.outputs.be_changes == 'true' ||
+          steps.filter.outputs.thirdparty_changes == 'true'
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
@@ -58,7 +63,10 @@ jobs:
           restore-keys: BE-UT-macOS-
 
       - name: Build BE ${{ github.ref }}
-        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        if: |
+          github.event_name == 'schedule' ||
+          steps.filter.outputs.be_changes == 'true' ||
+          steps.filter.outputs.thirdparty_changes == 'true'
         run: |
           cellars=(
             'm4'
@@ -101,6 +109,17 @@ jobs:
               -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
+
+          # A thirdparty upgrade can make the shared prebuilt archive stale.
+          # Rebuild the changed Arrow/Paimon stack before compiling BE so this
+          # job validates the versions selected by the PR.
+          if [[ "${{ steps.filter.outputs.thirdparty_changes }}" == "true" ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+              -o doris-thirdparty-source.tgz
+            tar -zxvf doris-thirdparty-source.tgz
+            export MACOSX_DEPLOYMENT_TARGET=12.0
+            ./build-thirdparty.sh -j "$(nproc)" arrow paimon_cpp
+          fi
           popd
 
           # macos-15 runners are Apple Silicon (arm64), so the JDK env var is
