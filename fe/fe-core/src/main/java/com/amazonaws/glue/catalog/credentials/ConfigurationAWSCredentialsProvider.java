@@ -20,6 +20,7 @@ package com.amazonaws.glue.catalog.credentials;
 import com.amazonaws.SdkClientException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.BasicSessionCredentials;
 import com.amazonaws.auth.STSAssumeRoleSessionCredentialsProvider;
@@ -32,7 +33,13 @@ import org.apache.hadoop.conf.Configuration;
 
 public class ConfigurationAWSCredentialsProvider implements AWSCredentialsProvider {
 
-    private Configuration conf;
+    private final Configuration conf;
+
+    // The SDK signer invokes getCredentials() on every request, so the underlying provider must
+    // be built only once: providers like InstanceProfileCredentialsProvider and
+    // STSAssumeRoleSessionCredentialsProvider cache their temporary credentials per instance,
+    // and rebuilding them per call would hit IMDS/STS on every single Glue request.
+    private volatile AWSCredentialsProvider delegate;
 
     public ConfigurationAWSCredentialsProvider(Configuration conf) {
         this.conf = conf;
@@ -40,17 +47,34 @@ public class ConfigurationAWSCredentialsProvider implements AWSCredentialsProvid
 
     @Override
     public AWSCredentials getCredentials() {
+        AWSCredentialsProvider provider = delegate;
+        if (provider == null) {
+            synchronized (this) {
+                if (delegate == null) {
+                    delegate = buildDelegate();
+                }
+                provider = delegate;
+            }
+        }
+        return provider.getCredentials();
+    }
+
+    private AWSCredentialsProvider buildDelegate() {
         String accessKey = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_ACCESS_KEY));
         String secretKey = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_SECRET_KEY));
         String sessionToken = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN));
         String roleArn = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_ROLE_ARN));
         String externalId = StringUtils.trim(conf.get(AWSGlueConfig.AWS_GLUE_EXTERNAL_ID));
         if (!StringUtils.isNullOrEmpty(accessKey) && !StringUtils.isNullOrEmpty(secretKey)) {
-            return (StringUtils.isNullOrEmpty(sessionToken) ? new BasicAWSCredentials(accessKey,
-                    secretKey) : new BasicSessionCredentials(accessKey, secretKey, sessionToken));
+            AWSCredentials credentials = StringUtils.isNullOrEmpty(sessionToken)
+                    ? new BasicAWSCredentials(accessKey, secretKey)
+                    : new BasicSessionCredentials(accessKey, secretKey, sessionToken);
+            return new AWSStaticCredentialsProvider(credentials);
         }
-        String credentialsProviderModeString = StringUtils.lowerCase(conf.get(AWSGlueConfig.AWS_CREDENTIALS_PROVIDER_MODE));
-        AwsCredentialsProviderMode credentialsProviderMode=AwsCredentialsProviderMode.fromString(credentialsProviderModeString);
+        String credentialsProviderModeString =
+                StringUtils.lowerCase(conf.get(AWSGlueConfig.AWS_CREDENTIALS_PROVIDER_MODE));
+        AwsCredentialsProviderMode credentialsProviderMode =
+                AwsCredentialsProviderMode.fromString(credentialsProviderModeString);
         AWSCredentialsProvider longLivedProvider = AwsCredentialsProviderFactory.createV1(credentialsProviderMode);
         if (!StringUtils.isNullOrEmpty(roleArn)) {
             STSAssumeRoleSessionCredentialsProvider.Builder builder =
@@ -60,19 +84,20 @@ public class ConfigurationAWSCredentialsProvider implements AWSCredentialsProvid
             if (!StringUtils.isNullOrEmpty(externalId)) {
                 builder.withExternalId(externalId);
             }
-            STSAssumeRoleSessionCredentialsProvider provider = builder.build();
-            return provider.getCredentials();
+            return builder.build();
         }
         if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
-            return longLivedProvider.getCredentials();
+            return longLivedProvider;
         }
         throw new SdkClientException("Unable to load AWS credentials from any provider in the chain");
-
     }
 
     @Override
     public void refresh() {
-
+        AWSCredentialsProvider provider = delegate;
+        if (provider != null) {
+            provider.refresh();
+        }
     }
 
     @Override
