@@ -1124,12 +1124,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return true;
         }
         MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
-        // Static metadata tables enumerate metadata history independently of the selected snapshot. Calling
-        // useSnapshot/useRef only rejects expired pins while leaving their returned rows unfenced.
+        // Static and ALL_* metadata tables enumerate metadata history independently of a selected snapshot;
+        // Iceberg's ALL_* scan also throws from useSnapshot/useRef instead of silently ignoring the pin.
         return type != MetadataTableType.HISTORY
                 && type != MetadataTableType.SNAPSHOTS
                 && type != MetadataTableType.REFS
-                && type != MetadataTableType.METADATA_LOG_ENTRIES;
+                && type != MetadataTableType.METADATA_LOG_ENTRIES
+                && type != MetadataTableType.ALL_DATA_FILES
+                && type != MetadataTableType.ALL_DELETE_FILES
+                && type != MetadataTableType.ALL_FILES
+                && type != MetadataTableType.ALL_MANIFESTS
+                && type != MetadataTableType.ALL_ENTRIES;
     }
 
     /**

@@ -3051,6 +3051,30 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanForAllMetadataTablesDoesNotSelectSnapshotOrRef() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        for (String systemTable : Arrays.asList(
+                "all_data_files", "all_delete_files", "all_files", "all_manifests", "all_entries")) {
+            Assertions.assertDoesNotThrow(() -> provider.planScan(null,
+                    ConnectorScanRequest.builder(
+                            IcebergTableHandle.forSystemTable(
+                                    "db1", "t1", systemTable, Long.MAX_VALUE, null, -1L),
+                            Collections.emptyList())
+                    .build()), systemTable + " must ignore an unsupported snapshot pin");
+            Assertions.assertDoesNotThrow(() -> provider.planScan(null,
+                    ConnectorScanRequest.builder(
+                            IcebergTableHandle.forSystemTable(
+                                    "db1", "t1", systemTable, table.currentSnapshot().snapshotId(), "main", -1L),
+                            Collections.emptyList())
+                    .build()), systemTable + " must ignore an unsupported ref pin");
+        }
+    }
+
+    @Test
     public void planScanForSystemTableLoadsMetadataInsideTheAuthScope() {
         // The base-table load + metadata-table build run inside ONE context.executeAuthenticated, so the
         // FE-injected Kerberos UGI covers the remote base load (mirrors IcebergConnectorMetadata.loadSysTable /

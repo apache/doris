@@ -1804,6 +1804,7 @@ public class CheckCastTest {
                 new StructField("metric", IntegerType.INSTANCE, false, "")));
         StructType requiredBigInt = new StructType(Collections.singletonList(
                 new StructField("metric", BigIntType.INSTANCE, false, "")));
+        Assertions.assertTrue(CheckCast.check(requiredString, requiredInt, true));
 
         // Un-strict mode
         Assertions.assertFalse(CheckCast.check(StructType.SYSTEM_DEFAULT, BooleanType.INSTANCE, false));
