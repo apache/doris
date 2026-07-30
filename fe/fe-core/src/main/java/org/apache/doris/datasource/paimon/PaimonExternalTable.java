@@ -191,6 +191,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                         "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
                         e);
             }
+        } else if (scanParams.isPresent() && scanParams.get().isOptions()) {
+            Table baseTable = getBasePaimonTable();
+            Map<String, String> resolvedOptions = scanParams.get().getOrResolveMapParams(
+                    options -> PaimonScanParams.resolveOptions(baseTable, options));
+            Table effectiveTable = PaimonScanParams.applyOptions(baseTable, resolvedOptions);
+            // The shared latest cache was built from the catalog-scoped handle. Relation options
+            // need their own projection so partition enumeration uses the final safe table copy.
+            return PaimonUtils.loadSnapshotProjection(this, effectiveTable);
         } else if (scanParams.isPresent() && scanParams.get().isBranch()) {
             try {
                 Table baseTable = getBasePaimonTable();
@@ -250,7 +258,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public long fetchRowCount() {
         makeSureInitialized();
         long rowCount = 0;
-        List<Split> splits = getBasePaimonTable().newReadBuilder().newScan().plan().splits();
+        Table effectiveTable = getBasePaimonTable();
+        // Statistics and row-count cache planning run before ScanNode and must not reach an
+        // unsafe manifest executor, even when the foreground relation later supplies an override.
+        PaimonReaderOptions.validateEffectiveTable(effectiveTable);
+        List<Split> splits = effectiveTable.newReadBuilder().newScan().plan().splits();
         for (Split split : splits) {
             rowCount += split.rowCount();
         }

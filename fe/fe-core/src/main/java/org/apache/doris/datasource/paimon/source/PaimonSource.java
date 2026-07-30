@@ -100,7 +100,9 @@ public class PaimonSource {
             return ((PaimonExternalTable) table).getPaimonTable(snapshot);
         }
         if (table instanceof PaimonSysExternalTable) {
-            return ((PaimonSysExternalTable) table).getSysPaimonTable();
+            // Relation options are unavailable during source construction, so defer validation of
+            // the wrapper's hidden data table until getProcessedTable has the complete precedence chain.
+            return ((PaimonSysExternalTable) table).getRawSysPaimonTable();
         }
         throw new IllegalArgumentException(
                 "Expected Paimon table but got " + table.getClass().getSimpleName());

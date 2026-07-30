@@ -1058,7 +1058,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         try {
             // This is the last common boundary before planning and serialization, including scans
             // with no relation copy and incremental/system-table paths that bypass applyOptions.
-            PaimonReaderOptions.validateEffectiveTableOptions(finalTable.options());
+            PaimonReaderOptions.validateEffectiveTable(finalTable);
+            if (source.getExternalTable() instanceof PaimonSysExternalTable) {
+                // Read-only system wrappers hide the data table that performs manifest planning.
+                ((PaimonSysExternalTable) source.getExternalTable())
+                        .validateEffectiveDataTable(theScanParams);
+            }
         } catch (IllegalArgumentException e) {
             throw new UserException(e.getMessage(), e);
         }

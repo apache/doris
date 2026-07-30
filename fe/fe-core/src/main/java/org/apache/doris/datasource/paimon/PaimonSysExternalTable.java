@@ -117,6 +117,12 @@ public class PaimonSysExternalTable extends ExternalTable {
      * Note: system tables currently ignore snapshot semantics.
      */
     public Table getSysPaimonTable() {
+        validateEffectiveDataTable(null);
+        return getRawSysPaimonTable();
+    }
+
+    /** Returns the cached wrapper without validating its hidden data table. */
+    public Table getRawSysPaimonTable() {
         if (paimonSysTable == null) {
             synchronized (this) {
                 if (paimonSysTable == null) {
@@ -135,19 +141,33 @@ public class PaimonSysExternalTable extends ExternalTable {
     }
 
     public Table getSysPaimonTable(TableScanParams scanParams) {
-        Table table = getSysPaimonTable();
         if (scanParams == null || !scanParams.isOptions()) {
-            return table;
+            return getSysPaimonTable();
         }
-        Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
-                options -> PaimonScanParams.resolveOptions(sourceTable.getBasePaimonTable(), options));
+        Map<String, String> resolvedOptions = resolvedOptions(scanParams);
+        validateEffectiveDataTable(scanParams);
         if (PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
             // Generic system-table wrappers cannot carry Paimon's manifest-entry predicate.
             // Reject the fallback instead of silently widening it to the whole pinned snapshot.
             throw new IllegalArgumentException(
                     "Paimon system tables cannot apply a creation-time file filter.");
         }
-        return PaimonScanParams.applyOptions(table, resolvedOptions);
+        return PaimonScanParams.applyOptions(getRawSysPaimonTable(), resolvedOptions);
+    }
+
+    public void validateEffectiveDataTable(TableScanParams scanParams) {
+        Table dataTable = sourceTable.getBasePaimonTable();
+        if (scanParams != null && scanParams.isOptions()) {
+            // Apply the same relation copy to the data table hidden by ReadonlyTable wrappers.
+            PaimonScanParams.applyOptions(dataTable, resolvedOptions(scanParams));
+        } else {
+            PaimonReaderOptions.validateEffectiveTable(dataTable);
+        }
+    }
+
+    private Map<String, String> resolvedOptions(TableScanParams scanParams) {
+        return scanParams.getOrResolveMapParams(
+                options -> PaimonScanParams.resolveOptions(sourceTable.getBasePaimonTable(), options));
     }
 
     public List<Column> getFullSchema(TableScanParams scanParams) {
@@ -211,7 +231,9 @@ public class PaimonSysExternalTable extends ExternalTable {
         if (isDataTable == null) {
             synchronized (this) {
                 if (isDataTable == null) {
-                    isDataTable = getSysPaimonTable() instanceof DataTable;
+                    // Type inspection happens before relation parameters reach ScanNode. It must not
+                    // reject a hidden physical value that a later OPTIONS copy safely overrides.
+                    isDataTable = getRawSysPaimonTable() instanceof DataTable;
                 }
             }
         }

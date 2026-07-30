@@ -35,6 +35,10 @@ public class PaimonUtils {
         return paimonExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
+    public static PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
+        return paimonExternalMetaCache(dorisTable).loadSnapshotProjection(dorisTable, effectiveTable);
+    }
+
     public static PaimonSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
             ExternalTable dorisTable) {
         if (snapshot.isPresent() && snapshot.get() instanceof PaimonMvccSnapshot) {

@@ -22,6 +22,8 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.Table;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -107,6 +109,15 @@ public final class PaimonReaderOptions {
                 .filter(options::containsKey)
                 .forEach(key -> validate(key, options.get(key)));
         validateManifestParallelism(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    public static void validateEffectiveTable(Table table) {
+        validateEffectiveTableOptions(table.options());
+        if (table instanceof FallbackReadFileStoreTable) {
+            // The fallback scan plans its private child independently, so the visible main options
+            // cannot prove that every manifest executor input is safe.
+            validateEffectiveTable(((FallbackReadFileStoreTable) table).fallback());
+        }
     }
 
     private static void validateManifestParallelism(String value) {

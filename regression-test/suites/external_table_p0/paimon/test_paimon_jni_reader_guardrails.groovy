@@ -89,9 +89,10 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
             tblproperties ('read.batch-size'='0');
             insert into paimon.${dbName}.unsafe_physical_batch values (1);
             drop table if exists paimon.${dbName}.unsafe_physical_manifest;
-            create table paimon.${dbName}.unsafe_physical_manifest (id int) using paimon
+            create table paimon.${dbName}.unsafe_physical_manifest (id int, part int) using paimon
+            partitioned by (part)
             tblproperties ('scan.manifest.parallelism'='0');
-            insert into paimon.${dbName}.unsafe_physical_manifest values (1);
+            insert into paimon.${dbName}.unsafe_physical_manifest values (1, 10);
             drop table if exists paimon.${dbName}.empty_identifier;
             create table paimon.${dbName}.empty_identifier (`` string) using paimon;
             insert into paimon.${dbName}.empty_identifier values ('empty-name');
@@ -203,6 +204,16 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
         }
         test {
             sql "select * from unsafe_physical_manifest@options('scan.manifest.parallelism'='1') order by id"
+        }
+        test {
+            sql "select count(*) from unsafe_physical_manifest\$partitions"
+            exception "scan.manifest.parallelism"
+        }
+        test {
+            sql """
+                select count(*) from unsafe_physical_manifest\$partitions
+                @options('scan.manifest.parallelism'='1')
+            """
         }
     } finally {
         sql "set force_jni_scanner=false"
