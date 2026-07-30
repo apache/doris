@@ -216,6 +216,41 @@ public class MetricsTest {
     }
 
     @Test
+    public void testVirtualComputeGroupSwitchMetricRename() {
+        String originCloudUniqueId = Config.cloud_unique_id;
+        AutoMappedMetric<LongCounterMetric> originMetric = CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER;
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                    "virtual_compute_group_switch_total", MetricUnit.NOUNIT,
+                    "virtual compute group active standby switch count"));
+
+            MetricRepo.increaseVirtualComputeGroupSwitch("virtual_id", "virtual_name",
+                    "src_id", "src_old_name", "dst_id", "dst_name");
+            MetricRepo.increaseVirtualComputeGroupSwitch("virtual_id", "virtual_name",
+                    "src_id", "src_new_name", "dst_id", "dst_name");
+
+            MetricVisitor visitor = new PrometheusMetricVisitor();
+            MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+            String metricResult = visitor.finish();
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_virtual_compute_group_switch_total counter"));
+            Assert.assertTrue(metricResult.contains("src_compute_group_name=\"src_new_name\""));
+            Assert.assertTrue(metricResult.contains("doris_fe_virtual_compute_group_switch_total"
+                    + "{virtual_compute_group_id=\"virtual_id\", virtual_compute_group_name=\"virtual_name\", "
+                    + "src_compute_group_id=\"src_id\", src_compute_group_name=\"src_new_name\", "
+                    + "dst_compute_group_id=\"dst_id\", dst_compute_group_name=\"dst_name\"} 2"));
+            Assert.assertFalse(metricResult.contains("src_compute_group_name=\"src_old_name\""));
+        } finally {
+            MetricRepo.DORIS_METRIC_REGISTER.removeMetrics("virtual_compute_group_switch_total");
+            if (CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER != null) {
+                CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getMetrics().clear();
+            }
+            CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = originMetric;
+            Config.cloud_unique_id = originCloudUniqueId;
+        }
+    }
+
+    @Test
     public void testCloudWarmUpSyncJobMetricsReadStatsDirectlyFromJob() {
         String oldCloudUniqueId = Config.cloud_unique_id;
         Config.cloud_unique_id = "test_cloud_unique_id";
