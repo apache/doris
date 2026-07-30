@@ -102,6 +102,33 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
     }
 
     @Test
+    void rejectOptionsOnUnsupportedTableType() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT * FROM db1.t@options('scan.snapshot-id'='1')"));
+
+        // WHY the wording differs from upstream ("only supported for Paimon tables"): post-cutover the gate
+        // is a CONNECTOR CAPABILITY (SUPPORTS_SCAN_PARAM_OPTIONS), not a table class, so any connector may
+        // declare it and naming paimon would be wrong. The rejection itself is what matters and must stay:
+        // @options only reaches a connector through the MVCC pin path, so a table that never enters it would
+        // silently drop the clause and answer a historical query with latest data.
+        // MUTATION: dropping validateOptionsTarget -> no exception -> red.
+        Assertions.assertEquals(
+                "OPTIONS scan params are not supported for table t.", exception.getMessage());
+    }
+
+    @Test
+    void rejectOptionsOnCteReference() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("WITH c AS (SELECT * FROM db1.t) "
+                                + "SELECT * FROM c@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertEquals(
+                "Table scan parameters are not supported on CTE references.", exception.getMessage());
+    }
+
+    @Test
     void bindSchemaTable() {
         boolean originValue = connectContext.getSessionVariable().isFetchAllFeForSystemTable();
         try {

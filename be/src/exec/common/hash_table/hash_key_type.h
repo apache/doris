@@ -112,6 +112,11 @@ inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types)
     }
 
     auto t = remove_nullable(data_types[0]);
+    if (t->get_primitive_type() == TYPE_VARIANT) {
+        // Variant equality is defined by its canonical serialized value, so it cannot use a
+        // fixed-width or string-key specialization even when it is the only grouping/join key.
+        return HashKeyType::serialized;
+    }
     // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.
     if (!t->have_maximum_size_of_value()) {
         if (is_string_type(t->get_primitive_type()) || t->get_primitive_type() == TYPE_ARRAY ||

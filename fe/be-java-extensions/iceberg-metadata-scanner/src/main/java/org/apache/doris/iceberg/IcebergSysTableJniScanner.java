@@ -21,8 +21,8 @@ import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
+import org.apache.doris.kerberos.PreExecutionAuthenticator;
+import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
 import org.apache.iceberg.FileScanTask;
@@ -110,8 +110,12 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 }
                 StructLike row = reader.next();
                 for (int i = 0; i < requiredFieldCount; i++) {
-                    // FE keeps the fields requested by BE at the start of the Iceberg projection.
-                    // FileScanTask.schema() is not the row schema for every DataTask implementation.
+                    // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
+                    // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
+                    // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
+                    // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
+                    // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
+                    // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
                     Object value = row.get(i, Object.class);
                     ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
                     appendData(i, columnValue);

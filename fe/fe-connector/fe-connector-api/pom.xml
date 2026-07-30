@@ -33,9 +33,15 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Connector API</name>
     <description>
-        Consumer-facing API for the Doris FE connector abstraction layer.
+        The interfaces a Doris FE connector plugin implements, and the engine consumes.
         Contains the core Connector interface, ConnectorMetadata sub-interfaces,
         opaque Handle types, ConnectorSession, value objects, and capability enums.
+        Design rules for the whole connector surface are documented in this module's
+        org.apache.doris.connector.api package-info.
+
+        Note that despite the module names, this is the module a connector implements;
+        fe-connector-spi holds the plugin entry point plus the engine services a
+        connector consumes.
 
         The fe-thrift dependency (provided scope) allows connectors to construct
         typed TTableDescriptor objects for the FE-BE protocol. At runtime the

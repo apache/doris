@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.api.pushdown;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -31,9 +32,20 @@ public final class ConnectorOr implements ConnectorExpression {
 
     private final List<ConnectorExpression> disjuncts;
 
+    /**
+     * @param disjuncts two or more disjuncts; fewer is a caller bug, not a degenerate node to absorb
+     *         silently. Consumers translate this node arm by arm, and an arm that never materializes
+     *         narrows the pushed predicate - the failure mode is missing rows, not an error. Copied
+     *         defensively so a caller mutating its own list afterwards cannot change this node,
+     *         matching {@link ConnectorIn}.
+     */
     public ConnectorOr(List<ConnectorExpression> disjuncts) {
         Objects.requireNonNull(disjuncts, "disjuncts");
-        this.disjuncts = Collections.unmodifiableList(disjuncts);
+        if (disjuncts.size() < 2) {
+            throw new IllegalArgumentException(
+                    "ConnectorOr requires at least two disjuncts, got " + disjuncts.size());
+        }
+        this.disjuncts = Collections.unmodifiableList(new ArrayList<>(disjuncts));
     }
 
     public List<ConnectorExpression> getDisjuncts() {

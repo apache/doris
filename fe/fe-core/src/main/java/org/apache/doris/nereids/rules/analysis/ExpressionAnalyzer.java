@@ -1031,6 +1031,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+        CascadesContext cascadesContext = getCascadesContext();
+        if (cast.isExplicitType() && cascadesContext != null
+                && cascadesContext.getConnectContext().getSessionVariable().isEnableVariantV2()
+                && VariantType.containsVariant(cast.getDataType())) {
+            // TODO: Remove this V1/V2 compatibility conversion after legacy Variant V1 is removed.
+            cast = cast.withTargetType(VariantType.toComputeV2(cast.getDataType()));
+        }
 
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {

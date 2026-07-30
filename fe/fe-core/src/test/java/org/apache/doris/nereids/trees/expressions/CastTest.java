@@ -39,6 +39,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -631,6 +632,17 @@ public class CastTest {
             cast = new Cast(child, JsonType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
         }
+    }
+
+    @Test
+    public void testCastFromVariant() {
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+        Assertions.assertFalse(Cast.castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
+        Assertions.assertTrue(Cast.castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
     }
 
     @Test

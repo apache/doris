@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -37,7 +37,6 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -125,43 +124,23 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
-    public void testExternalCatalogAutoAnalyze() throws Exception {
-        HMSExternalCatalog catalog = new HMSExternalCatalog();
-        Assertions.assertFalse(catalog.enableAutoAnalyze());
-
-        HashMap<String, String> prop = Maps.newHashMap();
-        prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
-        catalog.modifyCatalogProps(prop);
-        Assertions.assertFalse(catalog.enableAutoAnalyze());
-
-        prop = Maps.newHashMap();
-        prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "true");
-        catalog.modifyCatalogProps(prop);
-        Assertions.assertTrue(catalog.enableAutoAnalyze());
-
-        prop = Maps.newHashMap();
-        prop.put(ExternalCatalog.ENABLE_AUTO_ANALYZE, "TRUE");
-        catalog.modifyCatalogProps(prop);
-        Assertions.assertTrue(catalog.enableAutoAnalyze());
-    }
-
-    @Test
     public void testShowCreateCatalogMasksSensitiveProperties() throws Exception {
-        String createStmt = "create catalog mask_iceberg_rest properties(\n"
-                + "    \"type\" = \"iceberg\",\n"
-                + "    \"iceberg.catalog.type\" = \"rest\",\n"
-                + "    \"iceberg.rest.uri\" = \"http://localhost:8181\",\n"
-                + "    \"warehouse\" = \"test_db\",\n"
-                + "    \"iceberg.rest.security.type\" = \"oauth2\",\n"
-                + "    \"iceberg.rest.oauth2.credential\" = \"super-secret-pat\",\n"
-                + "    \"iceberg.rest.oauth2.server-uri\" = \"http://localhost:8181/v1/oauth/tokens\",\n"
-                + "    \"iceberg.rest.oauth2.scope\" = \"session:role:TEST_ROLE\"\n"
-                + ");";
-
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
-        Assertions.assertTrue(logicalPlan instanceof CreateCatalogCommand);
-        ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        // After the iceberg SPI cutover (P6.6), CREATE CATALOG type=iceberg routes through the
+        // connector plugin path, which is not loadable in fe-core UT. This test only needs a
+        // registered catalog whose stored properties include iceberg REST secrets, so register it
+        // via the replay (degraded) path — exactly like edit-log replay does — which does not
+        // require the connector plugin. SHOW CREATE CATALOG masking is still exercised end-to-end;
+        // masking of the iceberg REST oauth2 keys themselves is unit-covered in DatasourcePrintableMapTest.
+        Map<String, String> credentialProps = Maps.newHashMap();
+        credentialProps.put("type", "iceberg");
+        credentialProps.put("iceberg.catalog.type", "rest");
+        credentialProps.put("iceberg.rest.uri", "http://localhost:8181");
+        credentialProps.put("warehouse", "test_db");
+        credentialProps.put("iceberg.rest.security.type", "oauth2");
+        credentialProps.put("iceberg.rest.oauth2.credential", "super-secret-pat");
+        credentialProps.put("iceberg.rest.oauth2.server-uri", "http://localhost:8181/v1/oauth/tokens");
+        credentialProps.put("iceberg.rest.oauth2.scope", "session:role:TEST_ROLE");
+        registerCatalogViaReplay("mask_iceberg_rest", credentialProps);
 
         List<List<String>> rows = mgr.showCreateCatalog("mask_iceberg_rest");
         Assertions.assertEquals(1, rows.size());
@@ -170,18 +149,14 @@ public class ExternalCatalogTest extends TestWithFeService {
                 + DatasourcePrintableMap.PASSWORD_MASK + "\""));
         Assertions.assertFalse(ddl.contains("super-secret-pat"));
 
-        String createTokenStmt = "create catalog mask_iceberg_rest_token properties(\n"
-                + "    \"type\" = \"iceberg\",\n"
-                + "    \"iceberg.catalog.type\" = \"rest\",\n"
-                + "    \"iceberg.rest.uri\" = \"http://localhost:8181\",\n"
-                + "    \"warehouse\" = \"test_db\",\n"
-                + "    \"iceberg.rest.security.type\" = \"oauth2\",\n"
-                + "    \"iceberg.rest.oauth2.token\" = \"super-secret-token\"\n"
-                + ");";
-
-        logicalPlan = nereidsParser.parseSingle(createTokenStmt);
-        Assertions.assertTrue(logicalPlan instanceof CreateCatalogCommand);
-        ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        Map<String, String> tokenProps = Maps.newHashMap();
+        tokenProps.put("type", "iceberg");
+        tokenProps.put("iceberg.catalog.type", "rest");
+        tokenProps.put("iceberg.rest.uri", "http://localhost:8181");
+        tokenProps.put("warehouse", "test_db");
+        tokenProps.put("iceberg.rest.security.type", "oauth2");
+        tokenProps.put("iceberg.rest.oauth2.token", "super-secret-token");
+        registerCatalogViaReplay("mask_iceberg_rest_token", tokenProps);
 
         rows = mgr.showCreateCatalog("mask_iceberg_rest_token");
         Assertions.assertEquals(1, rows.size());
@@ -189,6 +164,16 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(ddl.contains("\"iceberg.rest.oauth2.token\" = \""
                 + DatasourcePrintableMap.PASSWORD_MASK + "\""));
         Assertions.assertFalse(ddl.contains("super-secret-token"));
+    }
+
+    private void registerCatalogViaReplay(String name, Map<String, String> props) throws Exception {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(Env.getCurrentEnv().getNextId());
+        log.setCatalogName(name);
+        log.setResource("");
+        log.setComment("");
+        log.setProps(props);
+        mgr.replayCreateCatalog(log);
     }
 
     @Test

@@ -519,6 +519,9 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
         _not_single_slot_filter_conjuncts.insert(_not_single_slot_filter_conjuncts.end(),
                                                  ctx->not_single_slot_filter_conjuncts->begin(),
                                                  ctx->not_single_slot_filter_conjuncts->end());
+        for (const auto& conjunct : _not_single_slot_filter_conjuncts) {
+            _block_dict_filter_for_slots(conjunct->root());
+        }
     }
     _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
     _obj_pool = std::make_unique<ObjectPool>();
@@ -587,7 +590,6 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     if (!_not_single_slot_filter_conjuncts.empty()) {
         _filter_conjuncts.insert(_filter_conjuncts.end(), _not_single_slot_filter_conjuncts.begin(),
                                  _not_single_slot_filter_conjuncts.end());
-        _disable_dict_filter = true;
     }
     if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
         for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
@@ -2994,8 +2996,7 @@ Status OrcReader::fill_dict_filter_column_names(
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {
         int slot_id = predicate_col_slot_ids[i];
-        if (!_disable_dict_filter &&
-            has_column_optimization(predicate_col_name, ColumnOptimizationTypes::DICT_FILTER) &&
+        if (has_column_optimization(predicate_col_name, ColumnOptimizationTypes::DICT_FILTER) &&
             _can_filter_by_dict(slot_id)) {
             _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
             column_names.emplace_back(
@@ -3013,7 +3014,25 @@ Status OrcReader::fill_dict_filter_column_names(
     return Status::OK();
 }
 
+void OrcReader::_block_dict_filter_for_slots(const VExprSPtr& expr) {
+    DORIS_CHECK(expr != nullptr);
+    if (auto impl = expr->get_impl()) {
+        _block_dict_filter_for_slots(impl);
+        return;
+    }
+    if (expr->is_slot_ref()) {
+        _dict_filter_blocked_slot_ids.insert(static_cast<const VSlotRef*>(expr.get())->slot_id());
+        return;
+    }
+    for (const auto& child : expr->children()) {
+        _block_dict_filter_for_slots(child);
+    }
+}
+
 bool OrcReader::_can_filter_by_dict(int slot_id) {
+    if (_dict_filter_blocked_slot_ids.contains(slot_id)) {
+        return false;
+    }
     SlotDescriptor* slot = nullptr;
     const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
     for (auto* each : slots) {

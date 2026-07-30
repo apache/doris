@@ -481,7 +481,6 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
                 "dfs.client.use.datanode.hostname" = "true",
                 "hadoop.security.token.service.use_ip" = "false",
                 "hadoop.security.authentication" = "kerberos", 
-                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
@@ -491,7 +490,6 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
                 "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
                 "dfs.client.use.datanode.hostname" = "true",
                 "hadoop.security.token.service.use_ip" = "false",
-                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"

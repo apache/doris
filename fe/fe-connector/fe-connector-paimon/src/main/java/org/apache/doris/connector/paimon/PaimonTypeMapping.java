@@ -18,22 +18,32 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
+import org.apache.paimon.types.BooleanType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DateType;
 import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.DoubleType;
+import org.apache.paimon.types.FloatType;
+import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -102,7 +112,11 @@ public final class PaimonTypeMapping {
 
     private static ConnectorType toVarcharType(VarCharType type) {
         int len = type.getLength();
-        if (len <= 0 || len >= 65533) {
+        // 65533 == ScalarType.MAX_VARCHAR_LENGTH is the legal exact-fit max VARCHAR, not the STRING
+        // wildcard; only a length strictly greater than it overflows to STRING. Use `> 65533` to
+        // match legacy PaimonUtil.paimonPrimitiveTypeToDorisType byte-for-byte (the `len <= 0` guard
+        // is unreachable for real paimon — VarCharType min length is 1 — kept defensively).
+        if (len <= 0 || len > 65533) {
             return ConnectorType.of("STRING");
         }
         return ConnectorType.of("VARCHAR", len, 0);
@@ -174,7 +188,115 @@ public final class PaimonTypeMapping {
         List<ConnectorType> types = fields.stream()
                 .map(f -> toConnectorType(f.type(), options))
                 .collect(Collectors.toCollection(ArrayList::new));
-        return ConnectorType.structOf(names, types);
+        // Carry the nested field nullability and comment (parity with the write path and with the
+        // iceberg read path) so DESCRIBE / SHOW CREATE TABLE report the struct field's NOT NULL
+        // constraint and COMMENT rather than defaulting every nested field to nullable / no comment.
+        List<Boolean> nullable = fields.stream()
+                .map(f -> f.type().isNullable())
+                .collect(Collectors.toCollection(ArrayList::new));
+        List<String> comments = fields.stream()
+                .map(DataField::description)
+                .collect(Collectors.toCollection(ArrayList::new));
+        return ConnectorType.structOf(names, types, nullable, comments);
+    }
+
+    /**
+     * Convert a Doris {@link ConnectorType} (as produced by the CREATE TABLE request path)
+     * to a Paimon {@link DataType}.
+     *
+     * <p>This is the faithful reverse of the legacy fe-core
+     * {@code DorisToPaimonTypeVisitor}: the scalar set is intentionally narrow (it mirrors
+     * the visitor's {@code atomic} branches and NOT MaxCompute's richer set), CHAR/VARCHAR/STRING
+     * all collapse to {@code VarChar(MAX)} (declared length dropped), DATETIME/DATETIMEV2 map to a
+     * plain {@code TimestampType()} (scale dropped), and the MAP key is forced non-null. Types the
+     * legacy visitor did not handle (TINYINT, SMALLINT, LARGEINT, TIME, IPV4/6, JSON, ...) throw,
+     * preserving the legacy gap.</p>
+     *
+     * <p>The returned type carries Paimon's default (nullable) flag; column-level nullability is
+     * applied by the caller via {@code .copy(nullable)} (mirroring legacy
+     * {@code PaimonMetadataOps.toPaimonSchema}). The map-key {@code .copy(false)} below is part of
+     * the type structure (not column nullability) and is kept.</p>
+     *
+     * @throws DorisConnectorException if the type cannot be represented in Paimon
+     */
+    public static DataType toPaimonType(ConnectorType type) {
+        String name = type.getTypeName().toUpperCase(Locale.ROOT);
+        switch (name) {
+            case "BOOLEAN":
+                return new BooleanType();
+            case "INT":
+            case "INTEGER":
+                return new IntType();
+            case "BIGINT":
+                return new BigIntType();
+            case "FLOAT":
+                return new FloatType();
+            case "DOUBLE":
+                return new DoubleType();
+            case "CHAR":
+            case "VARCHAR":
+            case "STRING":
+                // Legacy parity: all char-family types collapse to VarChar(MAX); declared
+                // length is intentionally dropped (DorisToPaimonTypeVisitor.atomic isCharFamily).
+                return new VarCharType(VarCharType.MAX_LENGTH);
+            case "DATE":
+            case "DATEV2":
+                return new DateType();
+            case "DECIMALV2":
+            case "DECIMALV3":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
+            case "DECIMAL256":
+                return new DecimalType(type.getPrecision(), type.getScale());
+            case "DATETIME":
+            case "DATETIMEV2":
+                // Legacy parity: no-arg TimestampType (precision defaults to 6); the datetime
+                // scale is intentionally dropped to match DorisToPaimonTypeVisitor.atomic, and it
+                // is a plain timestamp (NOT LocalZonedTimestampType).
+                return new TimestampType();
+            case "VARBINARY":
+                return new VarBinaryType(VarBinaryType.MAX_LENGTH);
+            case "VARIANT":
+                return new VariantType();
+            case "ARRAY":
+                // FIX-L13: preserve the declared element nullability (legacy DorisToPaimonTypeVisitor
+                // array = elementResult.copy(array.getContainsNull())).
+                return new ArrayType(
+                        toPaimonType(type.getChildren().get(0)).copy(type.isChildNullable(0)));
+            case "MAP":
+                // Legacy forces the map key non-null via .copy(false); the value preserves the declared
+                // nullability (FIX-L13: legacy map = valueResult.copy(map.getIsValueContainsNull())).
+                return new MapType(
+                        toPaimonType(type.getChildren().get(0)).copy(false),
+                        toPaimonType(type.getChildren().get(1)).copy(type.isChildNullable(1)));
+            case "STRUCT":
+            case "ROW":
+                return toPaimonRowType(type);
+            default:
+                throw new DorisConnectorException(
+                        "Unsupported type for Paimon: " + type.getTypeName());
+        }
+    }
+
+    private static DataType toPaimonRowType(ConnectorType type) {
+        List<ConnectorType> children = type.getChildren();
+        List<String> names = type.getFieldNames();
+        List<DataField> fields = new ArrayList<>(children.size());
+        // Legacy uses new AtomicInteger(-1).incrementAndGet() -> sequential ids 0,1,2,...
+        AtomicInteger fieldId = new AtomicInteger(-1);
+        for (int i = 0; i < children.size(); i++) {
+            String fieldName = i < names.size() && names.get(i) != null ? names.get(i) : "col" + i;
+            // FIX-L13: preserve the declared field nullability (legacy struct =
+            // fieldResults.get(i).copy(field.getContainsNull())). Also carry the field comment via the
+            // 4-arg DataField (parity with top-level columns in PaimonSchemaBuilder); getChildComment
+            // returns null when unset, which is byte-identical to the 3-arg form. The field id stays
+            // sequential (legacy parity).
+            fields.add(new DataField(fieldId.incrementAndGet(), fieldName,
+                    toPaimonType(children.get(i)).copy(type.isChildNullable(i)),
+                    type.getChildComment(i)));
+        }
+        return new RowType(fields);
     }
 
     /**
