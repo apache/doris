@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "format_v2/parquet/reader/native/common.h"
 #include "parquet_benchmark_scenarios.h"
 #include "util/byte_stream_split.h"
 #include "util/simd/parquet_kernels.h"
@@ -34,6 +35,87 @@ namespace doris::parquet_benchmark {
 namespace detail {
 
 constexpr size_t KERNEL_ROWS = 1UL << 16;
+constexpr size_t NESTED_VALUES_PER_ROW = 8;
+
+inline void run_nested_selection_kernel(benchmark::State& state, const KernelScenario& scenario) {
+    using format::parquet::native::ColumnSelectVector;
+    using format::parquet::native::FilterMap;
+    using format::parquet::native::level_t;
+
+    std::vector<level_t> source_repetition_levels;
+    std::vector<level_t> source_definition_levels;
+    source_repetition_levels.reserve(KERNEL_ROWS * NESTED_VALUES_PER_ROW);
+    source_definition_levels.reserve(KERNEL_ROWS * NESTED_VALUES_PER_ROW);
+    for (size_t row = 0; row < KERNEL_ROWS; ++row) {
+        if (row % 10 == 0) {
+            source_repetition_levels.push_back(0);
+            source_definition_levels.push_back(0);
+            continue;
+        }
+        for (size_t value = 0; value < NESTED_VALUES_PER_ROW; ++value) {
+            source_repetition_levels.push_back(value == 0 ? 0 : 1);
+            source_definition_levels.push_back((row + value) % 10 == 0 ? 2 : 3);
+        }
+    }
+
+    const auto parent_selection =
+            make_selection_plan(KERNEL_ROWS, scenario.selectivity_percent, scenario.pattern);
+    std::vector<uint8_t> parent_filter_data(KERNEL_ROWS, 0);
+    visit_selected_rows(parent_selection,
+                        [&](size_t row) { parent_filter_data[row] = uint8_t {1}; });
+    FilterMap parent_filter;
+    auto status = parent_filter.init(parent_filter_data.data(), parent_filter_data.size(), false);
+    if (!status.ok()) {
+        state.SkipWithError(status.to_string().c_str());
+        return;
+    }
+
+    std::vector<level_t> repetition_levels = source_repetition_levels;
+    std::vector<level_t> definition_levels = source_definition_levels;
+    ColumnSelectVector selection;
+    NullMap selected_nulls;
+    size_t ancestor_null_count = 0;
+    status = selection.init_nested(&repetition_levels, &definition_levels, 0,
+                                   /*repeated_parent_def_level=*/2,
+                                   /*definition_level=*/3, &selected_nulls, &parent_filter, 0,
+                                   &ancestor_null_count);
+    if (!status.ok() || repetition_levels.size() != definition_levels.size() ||
+        selection.num_values() + ancestor_null_count != source_repetition_levels.size()) {
+        state.SkipWithError(status.ok() ? "nested selection produced inconsistent counts"
+                                        : status.to_string().c_str());
+        return;
+    }
+
+    for (auto _ : state) {
+        state.PauseTiming();
+        repetition_levels = source_repetition_levels;
+        definition_levels = source_definition_levels;
+        selected_nulls.clear();
+        state.ResumeTiming();
+        status = selection.init_nested(&repetition_levels, &definition_levels, 0,
+                                       /*repeated_parent_def_level=*/2,
+                                       /*definition_level=*/3, &selected_nulls, &parent_filter, 0,
+                                       &ancestor_null_count);
+        if (!status.ok()) {
+            state.SkipWithError(status.to_string().c_str());
+            return;
+        }
+        auto* compacted_levels = repetition_levels.data();
+        size_t filtered_values = selection.num_filtered();
+        benchmark::DoNotOptimize(compacted_levels);
+        benchmark::DoNotOptimize(filtered_values);
+        benchmark::ClobberMemory();
+    }
+
+    state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) *
+                            static_cast<int64_t>(source_repetition_levels.size()));
+    state.SetBytesProcessed(
+            static_cast<int64_t>(state.iterations()) *
+            static_cast<int64_t>(source_repetition_levels.size() * 2 * sizeof(level_t)));
+    state.counters["parent_rows"] = static_cast<double>(KERNEL_ROWS);
+    state.counters["selected_parent_rows"] = static_cast<double>(parent_selection.selected_rows);
+    state.counters["level_entries"] = static_cast<double>(source_repetition_levels.size());
+}
 
 inline void decode_byte_stream_split(const uint8_t* src, size_t width, size_t offset,
                                      size_t num_values, size_t stride, uint8_t* dest) {
@@ -155,6 +237,9 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
             }
         }
         break;
+    case Kernel::NESTED_SELECTION:
+        state.SkipWithError("nested selection uses its dedicated level kernel");
+        return;
     }
 
     for (auto _ : state) {
@@ -193,6 +278,8 @@ void run_kernel(benchmark::State& state, const KernelScenario& scenario) {
             simd::raw_compare(reinterpret_cast<const uint8_t*>(input.data()), input.size(), literal,
                               simd::RawComparisonOp::LT, matches.data());
             break;
+        case Kernel::NESTED_SELECTION:
+            break;
         }
         benchmark::ClobberMemory();
     }
@@ -214,6 +301,10 @@ inline bool register_kernel_benchmarks() {
                                  to_string(scenario.pattern) + "/dict_" +
                                  std::to_string(scenario.dictionary_entries);
         benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State& state) {
+            if (scenario.kernel == Kernel::NESTED_SELECTION) {
+                run_nested_selection_kernel(state, scenario);
+                return;
+            }
             switch (scenario.value_type) {
             case ValueType::INT32:
                 run_kernel<int32_t>(state, scenario);

@@ -39,13 +39,14 @@ be/output/lib/benchmark_test \
 
 ## SIMD kernel cases
 
-`ParquetKernel` isolates the five SIMD-sensitive stages from reader setup and virtual consumer
+`ParquetKernel` isolates six decode and selection stages from reader setup and virtual consumer
 overhead: byte-stream-split transpose, delta prefix sum, numeric dictionary gather, nullable
-expansion, and raw predicate evaluation. It covers the applicable 4-byte and 8-byte integer and
-floating-point physical types, raw-predicate selectivities from 0% through 100%, and nullable
-rates from 0% through 90% with clustered and alternating placement. Dictionary gather uses 32-,
-4,096-, and 262,144-entry working sets to separate cache-resident and cache-miss-dominated
-behavior.
+expansion, raw predicate evaluation, and repeated-level sparse selection. It covers the applicable
+4-byte and 8-byte integer and floating-point physical types, raw-predicate selectivities from 0%
+through 100%, and nullable rates from 0% through 90% with clustered and alternating placement.
+Nested selection covers 1%, 10%, and 50% surviving parent rows with both placement patterns.
+Dictionary gather uses 32-, 4,096-, and 262,144-entry working sets to separate cache-resident and
+cache-miss-dominated behavior.
 
 ```shell
 be/output/lib/benchmark_test \
