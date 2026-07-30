@@ -82,7 +82,7 @@ class IvmLinearDeltaHandler {
                 remappedOutputs.add(new Alias(originalSlot.getExprId(), deltaSlot, originalSlot.getName()));
             } else if (originalSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                 remappedOutputs.add(new Alias(originalSlot.getExprId(),
-                        helper.hiddenColumnFallbackLiteral(originalSlot), originalSlot.getName()));
+                        helper.hiddenColumnFallbackExpression(originalSlot), originalSlot.getName()));
             } else {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM: delta scan missing column " + originalSlot.getName());

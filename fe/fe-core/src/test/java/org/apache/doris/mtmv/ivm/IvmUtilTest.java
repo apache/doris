@@ -22,12 +22,15 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -48,6 +51,9 @@ class IvmUtilTest {
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.VERSION_COL));
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.SEQUENCE_COL));
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.COMMIT_TSO_COL));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(Column.IVM_ROW_ID_COL));
+        Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.ROW_STORE_COL));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(Column.IVM_AGG_COUNT_COL));
         Assertions.assertFalse(IvmUtil.isCommonHiddenSlot("not_hidden"));
         TinyIntLiteral deleteSign = (TinyIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
                 Column.DELETE_SIGN, TinyIntType.INSTANCE);
@@ -59,11 +65,16 @@ class IvmUtilTest {
                 Column.SEQUENCE_COL, LargeIntType.INSTANCE);
         BigIntLiteral commitTso = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
                 Column.COMMIT_TSO_COL, BigIntType.INSTANCE);
+        VarcharLiteral rowStore = (VarcharLiteral) IvmUtil.getCommonHiddenSlotDefault(
+                Column.ROW_STORE_COL, VarcharType.SYSTEM_DEFAULT);
+        Expression skipBitmap = IvmUtil.getCommonHiddenSlotDefault(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE);
         Assertions.assertEquals((byte) 0, deleteSign.getValue());
         Assertions.assertEquals(0L, version.getValue());
         Assertions.assertEquals(0L, sequence.getValue());
         Assertions.assertEquals(0L, largeIntSequence.getValue().longValue());
         Assertions.assertEquals(0L, commitTso.getValue());
+        Assertions.assertEquals("", rowStore.getStringValue());
+        Assertions.assertInstanceOf(BitmapEmpty.class, skipBitmap);
     }
 
     private SlotReference intSlot(String name, boolean nullable) {

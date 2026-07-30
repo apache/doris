@@ -418,13 +418,13 @@ public class IvmDeltaRewriteHelper {
 
     /**
      * When a hidden column from the old plan is missing in the new plan's output,
-     * choose a suitable default literal instead of NULL. For MOW tables, the
+     * choose a suitable default expression instead of NULL. For MOW tables, the
      * bound OLAP scan is naturally guarded by {@code delete_sign = 0}; using
      * NULL for the stream scan's missing delete_sign column would make that
-     * filter always false. Version and sequence use their valid default value 0 when
-     * absent from the stream scan. Other hidden columns still fall back to NULL.
+     * filter always false. Common hidden columns use their type-aware defaults when absent
+     * from the stream scan; non-common hidden columns still fall back to NULL.
      */
-    Literal hiddenColumnFallbackLiteral(NamedExpression oldExpr) {
+    Expression hiddenColumnFallbackExpression(NamedExpression oldExpr) {
         String name = oldExpr.getName();
         if (IvmUtil.isCommonHiddenSlot(name)) {
             return IvmUtil.getCommonHiddenSlotDefault(name, oldExpr.getDataType());
@@ -455,7 +455,7 @@ public class IvmDeltaRewriteHelper {
                 projects.add(new Alias(oldSlot.getExprId(), newSlot, oldSlot.getName()));
             } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                 projects.add(new Alias(oldSlot.getExprId(),
-                        hiddenColumnFallbackLiteral(oldSlot), oldSlot.getName()));
+                        hiddenColumnFallbackExpression(oldSlot), oldSlot.getName()));
             } else {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM: new plan missing column "
@@ -484,11 +484,11 @@ public class IvmDeltaRewriteHelper {
                 if (childExpr instanceof Slot) {
                     newProjects.add(remapAliasToNewChild(alias, (Slot) childExpr, newSlotByName));
                 } else if (childExpr instanceof Literal
-                        && childExpr.equals(hiddenColumnFallbackLiteral(alias))) {
+                        && childExpr.equals(hiddenColumnFallbackExpression(alias))) {
                     Slot newSlot = newSlotByName.get(alias.getName());
                     if (newSlot == null) {
                         newProjects.add(new Alias(alias.getExprId(),
-                                hiddenColumnFallbackLiteral(alias), alias.getName()));
+                                hiddenColumnFallbackExpression(alias), alias.getName()));
                         continue;
                     }
                     newProjects.add(new Alias(alias.getExprId(), newSlot, alias.getName()));
@@ -502,7 +502,7 @@ public class IvmDeltaRewriteHelper {
                 if (newSlot == null) {
                     if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                         newProjects.add(new Alias(oldSlot.getExprId(),
-                                hiddenColumnFallbackLiteral(oldSlot), oldSlot.getName()));
+                                hiddenColumnFallbackExpression(oldSlot), oldSlot.getName()));
                         continue;
                     }
                     throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
