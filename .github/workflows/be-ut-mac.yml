@@ -160,6 +160,7 @@ jobs:
 
           LLVM_PREFIX="$(brew --prefix llvm@18)"
           export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export DORIS_CLANG_HOME="${LLVM_PREFIX}"
           export CC="${LLVM_PREFIX}/bin/clang"
           export CXX="${LLVM_PREFIX}/bin/clang++"
 
