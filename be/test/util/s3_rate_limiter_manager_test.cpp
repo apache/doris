@@ -22,7 +22,6 @@
 #include <limits>
 
 #include "common/config.h"
-#include "common/status.h"
 
 namespace doris {
 
@@ -214,41 +213,6 @@ TEST(S3RateLimiterResolveTest, registered_defaults_preserve_legacy_compatibility
     EXPECT_STREQ("0", fields.at("s3_rate_limiter_cpu_cores_override").defval);
 }
 
-TEST(S3RateLimiterConfigTest, invalid_dynamic_values_are_rejected_without_changing_config) {
-    RateLimiterConfigGuard guard;
-    config::enable_s3_rate_limiter = false;
-    config::s3_get_qps_per_core = -1;
-    config::s3_get_bytes_per_second_per_core = -1;
-    config::s3_put_bytes_per_second_max = 0;
-    config::s3_rate_limiter_cpu_cores_override = 0;
-
-    auto status = config::set_config("s3_get_qps_per_core", "-2");
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos, status.to_string().find("validate s3_get_qps_per_core=-2 failed"));
-    EXPECT_EQ(-1, config::s3_get_qps_per_core);
-
-    status = config::set_config("s3_get_bytes_per_second_per_core", "Ab");
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos, status.to_string().find("convert 'Ab' as int64_t failed"));
-    EXPECT_EQ(-1, config::s3_get_bytes_per_second_per_core);
-
-    status = config::set_config("enable_s3_rate_limiter", "A");
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos, status.to_string().find("convert 'A' as bool failed"));
-    EXPECT_FALSE(config::enable_s3_rate_limiter);
-
-    status = config::set_config("s3_put_bytes_per_second_max", "9223372036854775808");
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos,
-              status.to_string().find("convert '9223372036854775808' as int64_t failed"));
-    EXPECT_EQ(0, config::s3_put_bytes_per_second_max);
-
-    status = config::set_config("s3_rate_limiter_cpu_cores_override", "2147483648");
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos, status.to_string().find("convert '2147483648' as int32_t failed"));
-    EXPECT_EQ(0, config::s3_rate_limiter_cpu_cores_override);
-}
-
 TEST(S3RateLimiterResolveTest, legacy_config_wins_when_per_core_unset) {
     RateLimiterConfigGuard guard;
     config::s3_get_qps_per_core = -1;
@@ -368,7 +332,7 @@ TEST(S3RateLimiterResolveTest, get_and_put_bytes_caps_are_resolved_independently
     get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);
     EXPECT_EQ(2048, get_limit.bytes_per_second);
 
-    // -1 and 0 both disable bandwidth limiting.
+    // Non-positive per-core values disable bandwidth limiting.
     config::s3_get_bytes_per_second_per_core = 0;
     config::s3_put_bytes_per_second_per_core = -1;
     get_limit = resolve_s3_rate_limit(S3RateLimitType::GET, kCores);

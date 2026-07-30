@@ -1551,43 +1551,31 @@ DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
 DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
 // CPU-aware S3 rate limiter. Effective GET/PUT QPS = qps_per_core * BE cpu cores, capped by
-// the corresponding qps_max. -1 means unset: fall back to the legacy absolute
+// the corresponding qps_max. A negative value means unset: fall back to the legacy absolute
 // s3_{get,put}_token_* configs above. 0 disables QPS limiting for that operation.
 DEFINE_mInt64(s3_get_qps_per_core, "-1");
-DEFINE_Validator(s3_get_qps_per_core, [](int64_t config) -> bool { return config >= -1; });
 DEFINE_mInt64(s3_put_qps_per_core, "-1");
-DEFINE_Validator(s3_put_qps_per_core, [](int64_t config) -> bool { return config >= -1; });
-// Hard caps for the CPU-derived GET/PUT QPS. 0 means no cap.
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
 DEFINE_mInt64(s3_get_qps_max, "0");
-DEFINE_Validator(s3_get_qps_max, [](int64_t config) -> bool { return config >= 0; });
 DEFINE_mInt64(s3_put_qps_max, "0");
-DEFINE_Validator(s3_put_qps_max, [](int64_t config) -> bool { return config >= 0; });
 
 // CPU-aware S3 bandwidth limiter. Effective GET/PUT bytes/s = bytes_per_second_per_core *
-// BE cpu cores, capped by the corresponding bytes_per_second_max. -1 and 0 both disable
+// BE cpu cores, capped by the corresponding bytes_per_second_max. A non-positive value disables
 // byte-rate limiting for that operation (there is no legacy fallback for bandwidth).
 // Note: the derived per-BE bytes/s should not be set below the single IO upper bound
 // per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
 // of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
 // (reservation clamp in S3RateLimitGuard).
 DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
-DEFINE_Validator(s3_get_bytes_per_second_per_core,
-                 [](int64_t config) -> bool { return config >= -1; });
 DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
-DEFINE_Validator(s3_put_bytes_per_second_per_core,
-                 [](int64_t config) -> bool { return config >= -1; });
-// Hard caps for the CPU-derived GET/PUT bytes/s. 0 means no cap.
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
 DEFINE_mInt64(s3_get_bytes_per_second_max, "0");
-DEFINE_Validator(s3_get_bytes_per_second_max, [](int64_t config) -> bool { return config >= 0; });
 DEFINE_mInt64(s3_put_bytes_per_second_max, "0");
-DEFINE_Validator(s3_put_bytes_per_second_max, [](int64_t config) -> bool { return config >= 0; });
 
-// Override the CPU cores used to derive the effective S3 rate limits. 0 means auto-detect
-// from the cgroup cpu quota (fall back to physical cores); the control plane can push a
-// positive value via /api/update_config when resizing a serverless BE.
+// Override the CPU cores used to derive the effective S3 rate limits. A non-positive value
+// means auto-detect from the cgroup cpu quota (fall back to physical cores); the control plane
+// can push a positive value via /api/update_config when resizing a serverless BE.
 DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
-DEFINE_Validator(s3_rate_limiter_cpu_cores_override,
-                 [](int32_t config) -> bool { return config >= 0; });
 
 // The dir TrinoConnectorPluginLoader loads Trino's own plugins from, used verbatim. Keep the default
 // in sync with FE Config.trino_connector_plugin_dir: FE and BE load the same plugins and an operator
@@ -2252,7 +2240,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
-        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2262,6 +2249,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \

@@ -70,7 +70,7 @@ std::function<void(int64_t)> bytes_rate_limiter_metric_func(S3RateLimitType type
     }
 }
 
-// min(per_core * cores, cap) with overflow protection; cap == 0 means no cap.
+// min(per_core * cores, cap) with overflow protection; cap <= 0 means no cap.
 int64_t cap_multiply(int64_t per_core, int64_t cores, int64_t cap) {
     cap = cap > 0 ? cap : std::numeric_limits<int64_t>::max();
     if (per_core > cap / cores) {

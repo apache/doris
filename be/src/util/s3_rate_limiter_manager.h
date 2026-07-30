@@ -39,7 +39,7 @@ struct S3EffectiveRateLimit {
 };
 
 // Pure function of configs and `cores`; no side effects.
-// s3_{get,put}_qps_per_core == -1 falls back to the legacy absolute token configs and
+// s3_{get,put}_qps_per_core < 0 falls back to the legacy absolute token configs and
 // `cores` does not participate; otherwise qps = min(per_core * cores, qps_max).
 S3EffectiveRateLimit resolve_s3_rate_limit(S3RateLimitType type, int64_t cores);
 

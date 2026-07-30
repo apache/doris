@@ -144,10 +144,8 @@ struct AzureBatchDeleter {
         }
         auto resp = do_azure_client_call(
                 [&]() {
-                    {
-                        SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
-                        _client->SubmitBatch(_batch);
-                    }
+                    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_objects_latency);
+                    _client->SubmitBatch(_batch);
                 },
                 _opts, _tls_debug_context);
         if (resp.status.code != ErrorCode::OK) {
@@ -209,11 +207,8 @@ ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathO
     auto client = _client->GetBlockBlobClient(opts.key);
     return do_azure_client_call(
             [&]() {
-                {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
-                    client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()),
-                                      stream.size());
-                }
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
+                client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
             },
             opts, _tls_debug_context);
 }
@@ -227,10 +222,8 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                 Azure::Core::IO::MemoryBodyStream memory_body(
                         reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
                 // The blockId must be base64 encoded
-                {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                    client.StageBlock(base64_encode_part_num(part_num), memory_body);
-                }
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+                client.StageBlock(base64_encode_part_num(part_num), memory_body);
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
@@ -285,11 +278,9 @@ ObjectStorageResponse AzureObjStorageClient::get_object(const ObjectStoragePathO
                 DownloadBlobToOptions download_opts;
                 Azure::Core::Http::HttpRange range {static_cast<int64_t>(offset), bytes_read};
                 download_opts.Range = range;
-                auto resp = [&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
-                    return client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read,
-                                             download_opts);
-                }();
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
+                auto resp = client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read,
+                                              download_opts);
                 *size_return = resp.Value.ContentRange.Length.Value();
             },
             opts, _tls_debug_context);
@@ -307,17 +298,18 @@ ObjectStorageResponse AzureObjStorageClient::list_objects(const ObjectStoragePat
             [&]() {
                 ListBlobsOptions list_opts;
                 list_opts.Prefix = opts.prefix;
-                auto resp = [&]() {
+                ListBlobsPagedResponse resp;
+                {
                     SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                    return _client->ListBlobs(list_opts);
-                }();
+                    resp = _client->ListBlobs(list_opts);
+                }
                 get_file_file(resp);
                 while (resp.NextPageToken.HasValue()) {
                     list_opts.ContinuationToken = resp.NextPageToken;
-                    resp = [&]() {
+                    {
                         SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                        return _client->ListBlobs(list_opts);
-                    }();
+                        resp = _client->ListBlobs(list_opts);
+                    }
                     get_file_file(resp);
                 }
             },
@@ -353,10 +345,8 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects(const ObjectStorageP
 ObjectStorageResponse AzureObjStorageClient::delete_object(const ObjectStoragePathOptions& opts) {
     return do_azure_client_call(
             [&]() {
-                auto resp = [&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
-                    return _client->DeleteBlob(opts.key);
-                }();
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_delete_object_latency);
+                auto resp = _client->DeleteBlob(opts.key);
                 if (!resp.Value.Deleted) {
                     throw Exception(Status::IOError<false>("Delete azure blob failed"));
                 }
@@ -384,10 +374,8 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
     ListBlobsPagedResponse resp;
     auto list_resp = do_azure_client_call(
             [&]() {
-                resp = [&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                    return _client->ListBlobs(list_opts);
-                }();
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+                resp = _client->ListBlobs(list_opts);
             },
             opts, _tls_debug_context);
     if (list_resp.status.code != ErrorCode::OK) {
@@ -402,10 +390,8 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
         list_opts.ContinuationToken = resp.NextPageToken;
         list_resp = do_azure_client_call(
                 [&]() {
-                    resp = [&]() {
-                        SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
-                        return _client->ListBlobs(list_opts);
-                    }();
+                    SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
+                    resp = _client->ListBlobs(list_opts);
                 },
                 opts, _tls_debug_context);
         if (list_resp.status.code != ErrorCode::OK) {
