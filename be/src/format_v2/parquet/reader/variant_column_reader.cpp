@@ -546,6 +546,44 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     }
 }
 
+bool same_data_type(const DataTypePtr& left, const DataTypePtr& right) {
+    return (!left && !right) || (left && right && left->equals(*right));
+}
+
+bool same_type_descriptor(const ParquetTypeDescriptor& left, const ParquetTypeDescriptor& right) {
+    return same_data_type(left.doris_type, right.doris_type) &&
+           same_data_type(left.physical_doris_type, right.physical_doris_type) &&
+           left.extra_type_info == right.extra_type_info && left.time_unit == right.time_unit &&
+           left.physical_type == right.physical_type &&
+           left.integer_bit_width == right.integer_bit_width &&
+           left.decimal_precision == right.decimal_precision &&
+           left.decimal_scale == right.decimal_scale && left.fixed_length == right.fixed_length &&
+           left.is_unsigned_integer == right.is_unsigned_integer &&
+           left.is_decimal == right.is_decimal && left.is_timestamp == right.is_timestamp &&
+           left.timestamp_is_adjusted_to_utc == right.timestamp_is_adjusted_to_utc &&
+           left.is_string_like == right.is_string_like &&
+           left.is_string_annotation == right.is_string_annotation &&
+           left.is_uuid == right.is_uuid && left.unsupported_reason == right.unsupported_reason;
+}
+
+bool same_shredded_schema(const ParquetColumnSchema& left, const ParquetColumnSchema& right) {
+    if (left.name != right.name || left.kind != right.kind ||
+        !same_data_type(left.type, right.type) ||
+        !same_type_descriptor(left.type_descriptor, right.type_descriptor) ||
+        left.children.size() != right.children.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < left.children.size(); ++i) {
+        if (!same_shredded_schema(*left.children[i], *right.children[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void append_compatible_column(IColumn& output, const IColumn& converted);
+void validate_compatible_column(const IColumn& output, const IColumn& converted);
+
 class ParquetVariantShreddedState final : public VariantShreddedState {
 public:
     ParquetVariantShreddedState(const ParquetColumnSchema& schema, ColumnPtr physical,
@@ -603,6 +641,21 @@ public:
         selected->insert_indices_from(*_physical, indices_begin, indices_end);
         return std::make_shared<ParquetVariantShreddedState>(clone_schema(*_schema),
                                                              std::move(selected), _complete);
+    }
+
+    bool try_append(const VariantShreddedState& source) override {
+        const auto* parquet_source = dynamic_cast<const ParquetVariantShreddedState*>(&source);
+        if (parquet_source == nullptr || _complete != parquet_source->_complete ||
+            !same_shredded_schema(*_schema, *parquet_source->_schema)) {
+            return false;
+        }
+        validate_compatible_column(*_physical, *parquet_source->_physical);
+        auto mutable_physical = IColumn::mutate(std::move(_physical));
+        append_compatible_column(*mutable_physical, *parquet_source->_physical);
+        _physical = std::move(mutable_physical);
+        std::lock_guard lock(_materialization_lock);
+        _materialized.reset();
+        return true;
     }
 
     std::optional<VariantShreddedTypedValue> find_typed_value(
