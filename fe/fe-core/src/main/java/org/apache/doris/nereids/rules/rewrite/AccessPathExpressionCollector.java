@@ -127,7 +127,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(
                     ImmutableList.of(slotReference.getName()),
-                    context.bottomFilter, ColumnAccessPathType.DATA));
+                    context.bottomFilter, TAccessPathType.DATA));
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {

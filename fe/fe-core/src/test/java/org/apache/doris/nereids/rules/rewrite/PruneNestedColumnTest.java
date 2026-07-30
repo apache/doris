@@ -898,10 +898,10 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         StructType type = new StructType(ImmutableList.of(
                 new StructField("payload", VariantType.INSTANCE, true, "")));
         SlotReference slot = new SlotReference("info", type);
-        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.DATA);
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(slot, TAccessPathType.DATA);
 
         tree.setAccessByPath(ImmutableList.of("info", "payload", "typed_col"), 0,
-                ColumnAccessPathType.DATA);
+                TAccessPathType.DATA);
 
         DataType prunedType = tree.pruneDataType().get();
         Assertions.assertInstanceOf(StructType.class, prunedType);

@@ -615,7 +615,7 @@ public:
     }
     void sanity_check() const override { _physical->sanity_check(); }
 
-    void for_each_subcolumn(const IColumn::ColumnCallback& callback) const override {
+    void for_each_subcolumn(const IColumn::ImutableColumnCallback& callback) const override {
         callback(*_physical);
     }
 

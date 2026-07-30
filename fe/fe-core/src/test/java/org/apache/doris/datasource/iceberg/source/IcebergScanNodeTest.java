@@ -1091,7 +1091,7 @@ public class IcebergScanNodeTest {
         Backend smoothUpgradeSource = Mockito.mock(Backend.class);
         Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
         Mockito.when(smoothUpgradeSource.getId()).thenReturn(10002L);
-        List<Backend> backends = List.of(currentBackend, smoothUpgradeSource);
+        List<Backend> backends = ImmutableList.of(currentBackend, smoothUpgradeSource);
 
         IcebergScanNode.checkVariantBackendCompatibility(false, backends);
         try {
@@ -1117,7 +1117,7 @@ public class IcebergScanNodeTest {
         Assert.assertTrue(node.isBatchMode());
         try {
             node.checkVariantBackendCompatibilityForCurrentScan(
-                    List.of(currentBackend, smoothUpgradeSource));
+                    ImmutableList.of(currentBackend, smoothUpgradeSource));
             Assert.fail("batch Variant projection must use the shared backend compatibility gate");
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("backend 10003 is a smooth upgrade source"));

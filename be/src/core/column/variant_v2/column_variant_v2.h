@@ -65,7 +65,9 @@ public:
     virtual size_t byte_size() const = 0;
     virtual size_t allocated_bytes() const = 0;
     virtual void sanity_check() const = 0;
-    virtual void for_each_subcolumn(const IColumn::ColumnCallback& callback) const = 0;
+    // The 4.1 ColumnCallback is mutable COW traversal, while shredded columns are immutable and
+    // shared. Expose the physical tree only through the immutable callback contract.
+    virtual void for_each_subcolumn(const IColumn::ImutableColumnCallback& callback) const = 0;
     // Row selection must remain in the native shredded representation. A scanner may compact a
     // predicate column before every logical Variant value is available for materialization.
     virtual std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
