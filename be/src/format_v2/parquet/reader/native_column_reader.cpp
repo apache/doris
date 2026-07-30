@@ -738,7 +738,6 @@ Status NativeColumnReader::select_with_fixed_width_filter(
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK(execution_kind != nullptr);
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
     int64_t rows_read = 0;
@@ -768,7 +767,6 @@ Status NativeColumnReader::select_with_runtime_filter(
     DORIS_CHECK(row_filter != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
-    RETURN_IF_ERROR(selection.verify(selected_rows, batch_rows));
     row_filter->clear();
     *used_filter = false;
     if (_nested || conjuncts.empty() || !std::ranges::all_of(conjuncts, [&](const auto& conjunct) {

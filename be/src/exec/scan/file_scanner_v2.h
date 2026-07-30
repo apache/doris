@@ -178,6 +178,7 @@ private:
     std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
     bool _has_prepared_split = false;
+    int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
     std::string _current_range_path;
 

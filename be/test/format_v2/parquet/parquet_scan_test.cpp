@@ -3193,6 +3193,8 @@ TEST_F(ParquetScanTest, PredicateOnlyDictionaryTopNUsesDictionaryIds) {
     EXPECT_EQ(counter_value(profile, "DictFilterColumns"), 1);
     EXPECT_EQ(counter_value(profile, "RowsFilteredByDictFilter"), 3);
     EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 1);
+    EXPECT_EQ(counter_value(profile, "QueryDictionaryFilterCacheHits"), 0);
+    EXPECT_EQ(counter_value(profile, "QueryDictionaryFilterCacheMisses"), 0);
     prepared.conjunct->close();
 }
 

@@ -1050,6 +1050,7 @@ struct FakeFileReaderState {
     int init_count = 0;
     int open_count = 0;
     int close_count = 0;
+    int refresh_count = 0;
     int64_t total_rows = 2;
     int64_t aggregate_count = -1;
     int64_t condition_cache_base_granule = 0;
@@ -1060,6 +1061,7 @@ struct FakeFileReaderState {
     bool stop_during_read = false;
     bool not_found_during_init = false;
     std::shared_ptr<FileScanRequest> last_request;
+    std::shared_ptr<FileScanRequest> pending_request;
     std::optional<FileAggregateRequest> last_aggregate_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
     std::shared_ptr<io::IOContext> io_ctx;
@@ -1098,6 +1100,14 @@ public:
         _state->last_request = _request;
         ++_state->open_count;
         _returned_batch = false;
+        return Status::OK();
+    }
+
+    bool supports_scan_request_refresh() const override { return true; }
+
+    Status queue_scan_request(std::shared_ptr<FileScanRequest> request) override {
+        _state->pending_request = std::move(request);
+        ++_state->refresh_count;
         return Status::OK();
     }
 
@@ -1607,6 +1617,55 @@ TEST(TableReaderTest, PrepareSplitReplacesInitialConjunctSnapshot) {
     ASSERT_NE(fake_state->last_request, nullptr);
     ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
     EXPECT_TRUE(fake_state->last_request->conjuncts.front()->root()->is_rf_wrapper());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ActiveReaderQueuesRefreshedRuntimeFilterRequest) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    file_schema.push_back(make_file_column(1, "value", std::make_shared<DataTypeString>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->eof_with_first_batch = false;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    VExprContextSPtrs refreshed {VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 1)))};
+    ASSERT_TRUE(reader.refresh_conjuncts(std::move(refreshed)).ok());
+    ASSERT_EQ(fake_state->refresh_count, 1);
+    ASSERT_NE(fake_state->pending_request, nullptr);
+    EXPECT_EQ(fake_state->pending_request->local_positions,
+              fake_state->last_request->local_positions);
+    EXPECT_EQ(projection_ids(fake_state->pending_request->predicate_columns),
+              std::vector<int32_t>({0}));
+    EXPECT_EQ(projection_ids(fake_state->pending_request->non_predicate_columns),
+              std::vector<int32_t>({1}));
+    ASSERT_EQ(fake_state->pending_request->conjuncts.size(), 1);
+    EXPECT_TRUE(fake_state->pending_request->conjuncts.front()->root()->is_rf_wrapper());
     ASSERT_TRUE(reader.close().ok());
 }
 
