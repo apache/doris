@@ -106,6 +106,18 @@ jobs:
           test -n "$HEAD_SHA"
           test -n "$BASE_SHA"
 
+          if [ "$MANAGE_STATUS" = "true" ]; then
+            PR_JSON="${PR_JSON:-$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")}"
+            LIVE_HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
+            LIVE_BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
+            if [ "$LIVE_HEAD_SHA" != "$HEAD_SHA" ] || [ "$LIVE_BASE_SHA" != "$BASE_SHA" ]; then
+              echo "Refusing to update status for a PR/head/base mismatch." >&2
+              echo "Declared base/head: $BASE_SHA $HEAD_SHA" >&2
+              echo "Current base/head:  $LIVE_BASE_SHA $LIVE_HEAD_SHA" >&2
+              exit 1
+            fi
+          fi
+
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
