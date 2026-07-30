@@ -83,6 +83,11 @@ private:
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
+    // Total number of vectors fed into this segment's index.
+    int64_t _total_rows = 0;
+    // Minimum number of training points the index type requires (e.g. IVF needs
+    // at least nlist points for k-means). 0 means no training requirement.
+    int64_t _min_train_rows = 0;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2
