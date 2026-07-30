@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -88,7 +89,8 @@ public class ListPartitionDesc extends PartitionDesc {
         List<Column> partitionColumns = new ArrayList<>();
 
         // check and get partition column
-        for (String colName : partitionColNames) {
+        for (int i = 0; i < partitionColNames.size(); i++) {
+            String colName = partitionColNames.get(i);
             boolean find = false;
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
@@ -98,7 +100,30 @@ public class ListPartitionDesc extends PartitionDesc {
                         throw new DdlException(e.getMessage());
                     }
 
-                    partitionColumns.add(column);
+                    // For AUTO LIST partitioning with a function expression at this position
+                    // (e.g. from_unixtime(bigint_col, 'yyyy-MM-dd')), the partition key literal
+                    // is the function output, not the raw column value. Override the partition
+                    // column's stored type to match the function return type so PartitionKey
+                    // serialization/deserialization stays consistent. The original schema
+                    // column is left untouched.
+                    Column partitionCol = column;
+                    if (isAutoCreatePartitions && partitionExprs != null && i < partitionExprs.size()) {
+                        Expr expr = partitionExprs.get(i);
+                        if (expr instanceof FunctionCallExpr) {
+                            try {
+                                Type effective = PartitionExprUtil
+                                        .getEffectivePartitionColumnType(expr, column.getType());
+                                if (!effective.equals(column.getType())) {
+                                    partitionCol = new Column(column);
+                                    partitionCol.setType(effective);
+                                }
+                            } catch (AnalysisException e) {
+                                throw new DdlException(e.getMessage());
+                            }
+                        }
+                    }
+
+                    partitionColumns.add(partitionCol);
                     find = true;
                     break;
                 }

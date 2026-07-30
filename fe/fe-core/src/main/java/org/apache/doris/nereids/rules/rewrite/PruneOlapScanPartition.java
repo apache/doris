@@ -179,7 +179,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         if (filter != null) {
             return PartitionPruner.pruneWithResult(
                     partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
-                    PartitionTableType.OLAP, sortedPartitionRanges);
+                    PartitionTableType.OLAP, sortedPartitionRanges, partitionInfo.getPartitionExprs());
         } else if (!manuallySpecifiedPartitions.isEmpty()) {
             return new PartitionPruneResult<>(Utils.fastToImmutableList(idToPartitions.keySet()),
                     Optional.empty(), true);

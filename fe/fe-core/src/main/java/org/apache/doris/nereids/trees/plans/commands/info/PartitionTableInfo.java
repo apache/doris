@@ -168,11 +168,11 @@ public class PartitionTableInfo {
             boolean isExternal) {
 
         if (identifierPartitionColumns != null) {
-
             if (identifierPartitionColumns.size() != partitionList.size()) {
-                if (!isExternal && partitionType.equalsIgnoreCase(PartitionType.LIST.name())) {
-                    throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
-                }
+                // partitionList has more entries than identifierPartitionColumns iff there are
+                // function expressions (e.g. date_trunc/from_unixtime) in the partition clause.
+                // Both RANGE and LIST accept function expressions; downstream PartitionDesc
+                // will enforce per-partition-type whitelists and column-type constraints.
                 isAutoPartition = true;
             }
 
