@@ -410,6 +410,7 @@ protected:
         DORIS_CHECK(file_schema != nullptr);
         return Status::OK();
     }
+    virtual Status validate_file_mapping(const TableColumnMapper&) const { return Status::OK(); }
 
     // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {
@@ -453,6 +454,7 @@ protected:
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
+        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This

@@ -70,6 +70,10 @@ public:
     // predicate column before every logical Variant value is available for materialization.
     virtual std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter& filter,
                                                          ssize_t result_size_hint) const = 0;
+    virtual std::shared_ptr<VariantShreddedState> select_range(size_t start,
+                                                               size_t length) const = 0;
+    virtual std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const = 0;
     virtual std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const = 0;
 

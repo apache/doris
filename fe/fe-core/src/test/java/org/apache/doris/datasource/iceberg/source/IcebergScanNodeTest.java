@@ -29,6 +29,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -152,10 +154,15 @@ public class IcebergScanNodeTest {
             return Collections.emptyList();
         }
 
-        void addSlot(int slotId, Column column) {
+        SlotDescriptor addSlot(int slotId, Column column) {
             SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
             slot.setColumn(column);
             desc.addSlot(slot);
+            return slot;
+        }
+
+        boolean projectsVariant() {
+            return IcebergScanNode.projectsVariant(desc);
         }
 
         @Override
@@ -1088,5 +1095,22 @@ public class IcebergScanNodeTest {
             Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
             Assert.assertTrue(e.getMessage().contains("Variant"));
         }
+    }
+
+    @Test
+    public void testVariantUpgradeGateUsesEffectiveProjectedSlotType() {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        StructType fullType = new StructType(
+                new StructField("label", Type.STRING),
+                new StructField("payload", Type.VARIANT));
+        SlotDescriptor slot = node.addSlot(1, new Column("info", fullType));
+
+        // Nested-column pruning keeps the original Column for identity but replaces the slot type
+        // with the actual payload serialized to BE.
+        slot.setType(new StructType(new StructField("label", Type.STRING)));
+        Assert.assertFalse(node.projectsVariant());
+
+        slot.setType(fullType);
+        Assert.assertTrue(node.projectsVariant());
     }
 }

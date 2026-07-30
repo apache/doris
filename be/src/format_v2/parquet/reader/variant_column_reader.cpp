@@ -592,6 +592,20 @@ public:
                 clone_schema(*_schema), _physical->filter(filter, result_size_hint), _complete);
     }
 
+    std::shared_ptr<VariantShreddedState> select_range(size_t start,
+                                                       size_t length) const override {
+        return std::make_shared<ParquetVariantShreddedState>(
+                clone_schema(*_schema), _physical->cut(start, length), _complete);
+    }
+
+    std::shared_ptr<VariantShreddedState> select_indices(
+            const uint32_t* indices_begin, const uint32_t* indices_end) const override {
+        MutableColumnPtr selected = _physical->clone_empty();
+        selected->insert_indices_from(*_physical, indices_begin, indices_end);
+        return std::make_shared<ParquetVariantShreddedState>(
+                clone_schema(*_schema), std::move(selected), _complete);
+    }
+
     std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const override {
         if (path.empty()) {

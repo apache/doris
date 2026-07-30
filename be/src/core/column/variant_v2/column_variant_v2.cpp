@@ -541,9 +541,9 @@ void ColumnVariantV2::sanity_check() const {
 
 void ColumnVariantV2::for_each_subcolumn(ColumnCallback callback) {
     if (_shredded) {
-        // The 4.1 callback may mutate wrapped columns, so detach from the shared physical tree
-        // before exposing subcolumns through the legacy mutable traversal API.
-        ensure_encoded();
+        // The legacy mutable traversal is used for COW detachment. Shredded state is immutable and
+        // reference-counted, so keep a partial leaf projection intact until canonical bytes are needed.
+        return;
     }
     if (_typed) {
         callback(_typed);
@@ -780,9 +780,12 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         return;
     }
 
-    if (!_shredded && !_typed && empty() && _metadatas->empty() && source._shredded && start == 0 &&
-        length == source.size()) {
-        _shredded = source._shredded;
+    if (!_shredded && !_typed && empty() && _metadatas->empty() && source._shredded) {
+        // IColumn::cut() inserts into an empty clone. Select the physical tree directly because an
+        // incomplete leaf projection cannot be reconstructed merely to copy a row range.
+        _shredded = start == 0 && length == source.size()
+                             ? source._shredded
+                             : source._shredded->select_range(start, length);
         _check_invariants();
         return;
     }
@@ -880,6 +883,13 @@ void ColumnVariantV2::insert_indices_from( // NOLINT(readability-function-size)
 
     if (_shredded) {
         ensure_encoded();
+    }
+    if (!_typed && empty() && _metadatas->empty() && source._shredded) {
+        // Gather into the native shredded representation for the same reason as range selection:
+        // row selection does not require, and may not have, a complete logical Variant value.
+        _shredded = source._shredded->select_indices(indices_begin, indices_end);
+        _check_invariants();
+        return;
     }
     if (source._shredded) {
         insert_indices_from(source._shredded->materialized_column(), indices_begin, indices_end);

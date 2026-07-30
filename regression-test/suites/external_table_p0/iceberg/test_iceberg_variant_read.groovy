@@ -448,14 +448,15 @@ suite("test_iceberg_variant_read",
         exception "payload"
     }
 
-    test {
-        sql """SELECT CAST(v AS STRING) FROM variant_orc"""
-        exception "Iceberg Variant is supported only for Parquet files"
-    }
-    test {
-        sql """SELECT CAST(v AS STRING) FROM variant_mixed_format ORDER BY id"""
-        exception "Iceberg Variant is supported only for Parquet files"
-    }
+    // Files written before the Variant field existed have no physical Variant payload. Schema
+    // evolution must synthesize NULL instead of rejecting their non-Parquet file format.
+    order_qt_variant_orc_missing_column """
+        SELECT id, CAST(v AS STRING) FROM variant_orc ORDER BY id
+    """
+    qt_variant_orc_count_star "SELECT COUNT(*) FROM variant_orc"
+    order_qt_variant_mixed_format """
+        SELECT id, CAST(v AS STRING) FROM variant_mixed_format ORDER BY id
+    """
 
     sql """set enable_file_scanner_v2=false"""
     try {

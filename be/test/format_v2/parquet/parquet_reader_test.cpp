@@ -1712,6 +1712,42 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     auto mutable_filtered = variants.clone_resized(variants.size());
     EXPECT_EQ(mutable_filtered->filter(keep), 1);
     EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(*mutable_filtered).is_shredded());
+
+    // TableReader detaches mapped output columns before upper expressions run. Detachment must
+    // preserve an incomplete leaf projection because it has no canonical Variant to materialize.
+    auto detached = IColumn::mutate(block.get_by_position(0).column);
+    const auto& detached_variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*detached).get_nested_column());
+    ASSERT_TRUE(detached_variants.is_shredded());
+    ASSERT_TRUE(detached_variants.find_shredded_typed_value(path).has_value());
+
+    // Adaptive predicate probing cuts retained output columns into proper subsets. Keep that row
+    // selection in the physical shredded state as well.
+    const ColumnPtr sliced = variants.cut(1, 2);
+    const auto& sliced_variants = assert_cast<const ColumnVariantV2&>(*sliced);
+    ASSERT_TRUE(sliced_variants.is_shredded());
+    const auto sliced_match = sliced_variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(sliced_match.has_value());
+    ASSERT_EQ(sliced_match->column->size(), 2);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(
+                      assert_cast<const ColumnNullable&>(*sliced_match->column)
+                              .get_nested_column())
+                      .get_data()[0],
+              first_value + 1);
+
+    const std::array<uint32_t, 2> indices {2, 0};
+    MutableColumnPtr gathered = variants.clone_empty();
+    gathered->insert_indices_from(variants, indices.data(), indices.data() + indices.size());
+    const auto& gathered_variants = assert_cast<const ColumnVariantV2&>(*gathered);
+    ASSERT_TRUE(gathered_variants.is_shredded());
+    const auto gathered_match = gathered_variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(gathered_match.has_value());
+    ASSERT_EQ(gathered_match->column->size(), indices.size());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(
+                      assert_cast<const ColumnNullable&>(*gathered_match->column)
+                              .get_nested_column())
+                      .get_data()[0],
+              first_value + 2);
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {

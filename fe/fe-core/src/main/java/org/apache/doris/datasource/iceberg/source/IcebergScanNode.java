@@ -1235,9 +1235,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return doGetSystemTableSplits();
         }
 
-        boolean projectsVariant = !isTableLevelCountStarPushdown()
-                && desc.getSlots().stream()
-                        .anyMatch(slot -> IcebergUtils.containsVariant(slot.getColumn().getType()));
+        boolean projectsVariant = !isTableLevelCountStarPushdown() && projectsVariant(desc);
         checkVariantBackendCompatibility(projectsVariant, backendPolicy.getBackends());
 
         List<Split> splits = new ArrayList<>();
@@ -1376,6 +1374,14 @@ public class IcebergScanNode extends FileQueryScanNode {
                         + backend.getId() + " is a smooth upgrade source");
             }
         }
+    }
+
+    @VisibleForTesting
+    static boolean projectsVariant(TupleDescriptor tuple) {
+        // SlotTypeReplacer updates the effective pruned slot type but intentionally retains the
+        // original Column metadata; compatibility must follow what this scan actually projects.
+        return tuple.getSlots().stream()
+                .anyMatch(slot -> IcebergUtils.containsVariant(slot.getType()));
     }
 
     @VisibleForTesting

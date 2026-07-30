@@ -69,9 +69,6 @@ public:
                   std::unique_ptr<format::TableReader> table_reader);
     static Status TEST_validate_scan_range(const TFileScanRangeParams& params,
                                            const TFileRangeDesc& range);
-    static Status TEST_validate_iceberg_variant_file_format(const TFileRangeDesc& range,
-                                                            TFileFormatType::type format_type,
-                                                            bool projects_variant);
     static Status TEST_to_file_format(TFileFormatType::type format_type,
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,

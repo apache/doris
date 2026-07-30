@@ -143,6 +143,44 @@ std::vector<tparquet::SchemaElement> shredded_time_variant_schema(bool adjusted_
     return schema;
 }
 
+std::vector<tparquet::SchemaElement> shredded_array_variant_schema(bool include_value,
+                                                                   bool include_typed_value) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    tparquet::SchemaElement typed_array;
+    typed_array.__set_name("typed_value");
+    typed_array.__set_num_children(1);
+    typed_array.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_array.__set_converted_type(tparquet::ConvertedType::LIST);
+    tparquet::SchemaElement list;
+    list.__set_name("list");
+    list.__set_num_children(1);
+    list.__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+    tparquet::SchemaElement element;
+    element.__set_name("element");
+    element.__set_num_children(static_cast<int32_t>(include_value) +
+                               static_cast<int32_t>(include_typed_value));
+    element.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    schema.insert(schema.end(), {typed_array, list, element});
+    if (include_value) {
+        tparquet::SchemaElement value;
+        value.__set_name("value");
+        value.__set_type(tparquet::Type::BYTE_ARRAY);
+        value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.push_back(std::move(value));
+    }
+    if (include_typed_value) {
+        tparquet::SchemaElement typed_value;
+        typed_value.__set_name("typed_value");
+        typed_value.__set_type(tparquet::Type::INT32);
+        typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+        schema.push_back(std::move(typed_value));
+    }
+    return schema;
+}
+
 } // namespace
 
 TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
@@ -244,6 +282,18 @@ TEST(ParquetSchemaTest, NativeVariantValidatesEveryShreddedWrapperAndScalar) {
             descriptor.parse_from_thrift(shredded_object_variant_schema(true, false));
     EXPECT_TRUE(optional_wrapper_status.is<ErrorCode::CORRUPTION>()) << optional_wrapper_status;
     EXPECT_NE(optional_wrapper_status.to_string().find("wrapper"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantAcceptsOmittedShreddedWrapperChildren) {
+    NativeFieldDescriptor descriptor;
+
+    auto value_only_object = shredded_object_variant_schema();
+    value_only_object[5].__set_num_children(1);
+    value_only_object.pop_back();
+    ASSERT_TRUE(descriptor.parse_from_thrift(value_only_object).ok());
+
+    ASSERT_TRUE(descriptor.parse_from_thrift(shredded_array_variant_schema(true, false)).ok());
+    ASSERT_TRUE(descriptor.parse_from_thrift(shredded_array_variant_schema(false, true)).ok());
 }
 
 TEST(ParquetSchemaTest, NativeVariantRejectsNanosBeforeProjectionChoice) {
