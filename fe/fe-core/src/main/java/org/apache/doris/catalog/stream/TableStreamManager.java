@@ -349,27 +349,17 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                             trow.addToColumnValue(new TCell().setStringVal(stream.getScanTypeString()));
                             // STREAM_COMMENT
                             trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
+                            List<String> baseTableQualifiers = stream.getBaseTableFullQualifiers();
+                            // BASE_TABLE_NAME
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
+                            // BASE_TABLE_DB
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
+                            // BASE_TABLE_CTL
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
+                            // BASE_TABLE_TYPE
                             TableIf baseTable = stream.getBaseTableNullable();
-                            if (baseTable == null) {
-                                // BASE_TABLE_NAME
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                                // BASE_TABLE_DB
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                                // BASE_TABLE_CTL
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                                // BASE_TABLE_TYPE
-                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                            } else {
-                                List<String> baseTableQualifiers = baseTable.getFullQualifiers();
-                                // BASE_TABLE_NAME
-                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
-                                // BASE_TABLE_DB
-                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
-                                // BASE_TABLE_CTL
-                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
-                                // BASE_TABLE_TYPE
-                                trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
-                            }
+                            trow.addToColumnValue(new TCell().setStringVal(
+                                    baseTable == null ? "N/A" : baseTable.getType().name()));
                             // ENABLED
                             trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
                             // IS_STALE

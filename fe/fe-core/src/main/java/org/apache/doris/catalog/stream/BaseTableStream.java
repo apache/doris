@@ -37,6 +37,8 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class BaseTableStream extends Table {
+    private static final String BASE_TABLE_NOT_FOUND_STALE_REASON = "Base table does not exist";
+
     public enum StreamScanType {
         APPEND_ONLY,
         MIN_DELTA,
@@ -113,6 +115,9 @@ public abstract class BaseTableStream extends Table {
     }
 
     public TableIf getBaseTableNullable() {
+        if (baseTable instanceof Table && ((Table) baseTable).isDropped) {
+            baseTable = null;
+        }
         if (baseTable == null) {
             baseTable = baseTableInfo.getTableNullable();
         }
@@ -139,7 +144,7 @@ public abstract class BaseTableStream extends Table {
     }
 
     public boolean isDisabled() {
-        return disabled;
+        return disabled || getBaseTableNullable() == null;
     }
 
     public void setDisabled(boolean disabled) {
@@ -147,7 +152,7 @@ public abstract class BaseTableStream extends Table {
     }
 
     public boolean isStale() {
-        return stale;
+        return stale || getBaseTableNullable() == null;
     }
 
     public void setStale(boolean stale) {
@@ -155,7 +160,7 @@ public abstract class BaseTableStream extends Table {
     }
 
     public String getStaleReason() {
-        return staleReason;
+        return getBaseTableNullable() == null ? BASE_TABLE_NOT_FOUND_STALE_REASON : staleReason;
     }
 
     public void setStaleReason(String staleReason) {
