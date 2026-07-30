@@ -125,8 +125,10 @@ TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) 
                        std::make_shared<DataTypeString>()},
             Strings {"hash#name", "region,code", "colon:name"});
 
+    // Keep standard Base64 padding in the wire-contract expectation; Java decodes these tokens
+    // verbatim, and field names whose length is not divisible by three require trailing '=' bytes.
     EXPECT_EQ(JniDataBridge::get_jni_type_with_encoded_struct_fields(type),
-              "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU:string,$Y29sb246bmFtZQ:string>");
+              "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU=:string,$Y29sb246bmFtZQ==:string>");
 }
 
 TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
