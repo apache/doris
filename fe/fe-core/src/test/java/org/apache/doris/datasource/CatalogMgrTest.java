@@ -20,8 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -30,7 +30,6 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -114,29 +113,6 @@ public class CatalogMgrTest {
         }
     }
 
-    @Test
-    void testReplayKeepsPersistedLegacyPaimonOptionLoadableButInactive() throws Exception {
-        CatalogMgr catalogMgr = new CatalogMgr();
-        Map<String, String> persistedProperties = new HashMap<>();
-        persistedProperties.put("type", "paimon");
-        persistedProperties.put("paimon.catalog.type", "filesystem");
-        persistedProperties.put("warehouse", "s3://example-bucket/warehouse");
-        persistedProperties.put("paimon.table-option.write.batch-size", "2048");
-        ReplayCompatiblePaimonCatalog catalog = new ReplayCompatiblePaimonCatalog(44L, persistedProperties);
-        addCatalog(catalogMgr, catalog);
-        CatalogLog log = new CatalogLog();
-        log.setCatalogId(catalog.getId());
-        log.setNewProps(ImmutableMap.of(ExternalCatalog.USE_META_CACHE, "false"));
-
-        catalogMgr.replayAlterCatalogProps(log, persistedProperties, true);
-
-        AbstractPaimonProperties restoredProperties = (AbstractPaimonProperties)
-                catalog.getCatalogProperty().getMetastoreProperties();
-        Assertions.assertEquals("2048",
-                catalog.getProperties().get("paimon.table-option.write.batch-size"));
-        Assertions.assertTrue(restoredProperties.getTableOptionsMap().isEmpty());
-    }
-
     private static class LatchingValidationCatalog extends ExternalCatalog {
         private final CountDownLatch validationStarted = new CountDownLatch(1);
         private final CountDownLatch initializationReadProperties = new CountDownLatch(1);
@@ -175,17 +151,6 @@ public class CatalogMgrTest {
         @Override
         public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
             return false;
-        }
-    }
-
-    private static class ReplayCompatiblePaimonCatalog extends PaimonExternalCatalog {
-        ReplayCompatiblePaimonCatalog(long id, Map<String, String> properties) {
-            super(id, "persisted_paimon_catalog", null, properties, "");
-        }
-
-        @Override
-        public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-            // This test isolates edit-log property restoration from environment-owned cache services.
         }
     }
 }

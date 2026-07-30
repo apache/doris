@@ -21,8 +21,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.privilege.PrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
@@ -35,8 +35,8 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
+import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.Map;
 
@@ -55,11 +55,11 @@ public class PaimonReaderOptionsTest {
                 PaimonReaderOptions.supportedOptions());
 
         Assertions.assertDoesNotThrow(() -> PaimonReaderOptions.validateCatalogProperties(ImmutableMap.of(
-                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "file-index.read.enabled", "false",
-                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "source.split.target-size", "64 MB",
-                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "source.split.open-file-cost", "1 MB",
-                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "scan.manifest.parallelism", "1",
-                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "scan.plan-sort-partition", "true")));
+                PaimonReaderOptions.TABLE_OPTION_PREFIX + "file-index.read.enabled", "false",
+                PaimonReaderOptions.TABLE_OPTION_PREFIX + "source.split.target-size", "64 MB",
+                PaimonReaderOptions.TABLE_OPTION_PREFIX + "source.split.open-file-cost", "1 MB",
+                PaimonReaderOptions.TABLE_OPTION_PREFIX + "scan.manifest.parallelism", "1",
+                PaimonReaderOptions.TABLE_OPTION_PREFIX + "scan.plan-sort-partition", "true")));
     }
 
     @Test
@@ -104,10 +104,10 @@ public class PaimonReaderOptionsTest {
 
     @Test
     void testRejectUnsafeOptionOnlyAfterFinalTableCopy() {
-        Table physicalTable = Mockito.mock(Table.class);
-        Table finalTable = Mockito.mock(Table.class);
-        Mockito.when(physicalTable.copy(Collections.emptyMap())).thenReturn(finalTable);
-        Mockito.when(finalTable.options()).thenReturn(ImmutableMap.of("read.batch-size", "0"));
+        FakePaimonTable physicalTable = fakeTable("physical", Collections.emptyMap());
+        FakePaimonTable finalTable = fakeTable(
+                "final", ImmutableMap.of("read.batch-size", "0"));
+        physicalTable.copyResult = finalTable;
 
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> PaimonScanParams.applyOptions(physicalTable, Collections.emptyMap()));
@@ -115,12 +115,11 @@ public class PaimonReaderOptionsTest {
 
     @Test
     void testSafeRelationOptionOverridesUnsafePhysicalOption() {
-        Table physicalTable = Mockito.mock(Table.class);
-        Table finalTable = Mockito.mock(Table.class);
         Map<String, String> relationOptions = ImmutableMap.of("read.batch-size", "4096");
-        Mockito.when(physicalTable.options()).thenReturn(ImmutableMap.of("read.batch-size", "0"));
-        Mockito.when(physicalTable.copy(relationOptions)).thenReturn(finalTable);
-        Mockito.when(finalTable.options()).thenReturn(relationOptions);
+        FakePaimonTable physicalTable = fakeTable(
+                "physical", ImmutableMap.of("read.batch-size", "0"));
+        FakePaimonTable finalTable = fakeTable("final", relationOptions);
+        physicalTable.copyResult = finalTable;
 
         Assertions.assertSame(finalTable, PaimonScanParams.applyOptions(physicalTable, relationOptions));
     }
@@ -153,9 +152,13 @@ public class PaimonReaderOptionsTest {
         FileStoreTable fallback = newFileStoreTable(
                 "privileged_fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
         FileStoreTable fallbackReadTable = new FallbackReadFileStoreTable(main, fallback);
+        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(),
+                new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> null);
         FileStoreTable privilegedTable = PrivilegedFileStoreTable.wrap(
                 fallbackReadTable,
-                Mockito.mock(PrivilegeChecker.class),
+                checker,
                 Identifier.create("db", "table"));
 
         Assertions.assertThrows(IllegalArgumentException.class,
@@ -172,6 +175,14 @@ public class PaimonReaderOptionsTest {
                 options,
                 null);
         return new AppendOnlyFileStoreTable(
-                Mockito.mock(FileIO.class), new Path("memory://" + name), schema, CatalogEnvironment.empty());
+                LocalFileIO.create(), new Path("memory://" + name), schema, CatalogEnvironment.empty());
+    }
+
+    private FakePaimonTable fakeTable(String name, Map<String, String> options) {
+        FakePaimonTable table = new FakePaimonTable(
+                name, org.apache.paimon.types.RowType.builder().field("id", new IntType()).build(),
+                Collections.emptyList(), Collections.emptyList());
+        table.setOptions(options);
+        return table;
     }
 }
