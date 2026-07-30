@@ -30,7 +30,8 @@ ObjectStorageResponse rate_limited_response(S3RateLimitType type, S3RateLimitRej
     return {.status = convert_to_obj_response(Status::Error<ErrorCode::EXCEEDED_LIMIT, false>(
                     "s3 {} request exceeds {} limit, rejected by BE rate limiter", to_string(type),
                     limit_type)),
-            .http_code = 429};
+            // The BE rate limiter rejected the request before it reached the provider.
+            .http_code = 0};
 }
 
 } // namespace

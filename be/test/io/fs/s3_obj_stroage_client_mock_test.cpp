@@ -143,8 +143,8 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_pagination_charges_one_get_qps) 
     // The first logical list used one GET token despite issuing three provider requests.
     // A second logical list is rejected before it reaches the provider.
     response = rate_limited_client.list_objects(opts, &files);
-    EXPECT_NE(response.status.code, ErrorCode::OK);
-    EXPECT_EQ(response.http_code, 429);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, response.status.code);
+    EXPECT_EQ(0, response.http_code);
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

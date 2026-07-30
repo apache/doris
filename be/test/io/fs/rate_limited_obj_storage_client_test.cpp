@@ -163,8 +163,8 @@ TEST(RateLimitedObjStorageClientTest, get_rejected_by_count_limit_does_not_reach
     EXPECT_EQ(1, fake->calls);
 
     auto resp = client.head_object(opts);
-    EXPECT_NE(0, resp.resp.status.code);
-    EXPECT_EQ(429, resp.resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, resp.resp.status.code);
+    EXPECT_EQ(0, resp.resp.http_code);
     EXPECT_NE(std::string::npos, resp.resp.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(1, fake->calls); // rejected before reaching the provider
 
@@ -190,8 +190,8 @@ TEST(RateLimitedObjStorageClientTest, put_rejected_by_count_limit_does_not_reach
     EXPECT_EQ(1, fake->calls);
 
     auto resp = client.put_object(opts, "data");
-    EXPECT_NE(0, resp.status.code);
-    EXPECT_EQ(429, resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, resp.status.code);
+    EXPECT_EQ(0, resp.http_code);
     EXPECT_NE(std::string::npos, resp.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(1, fake->calls); // rejected before reaching the provider
 
@@ -218,8 +218,8 @@ TEST(RateLimitedObjStorageClientTest, head_and_list_map_to_get_qps_without_bytes
     EXPECT_EQ(0, client.list_objects(opts, &files).status.code);
 
     auto rejected = client.head_object(opts);
-    EXPECT_NE(0, rejected.resp.status.code);
-    EXPECT_EQ(429, rejected.resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.resp.status.code);
+    EXPECT_EQ(0, rejected.resp.http_code);
     EXPECT_NE(std::string::npos, rejected.resp.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(2, fake->calls);
 
@@ -247,8 +247,8 @@ TEST(RateLimitedObjStorageClientTest, get_object_maps_to_get_qps_and_get_bytes) 
     EXPECT_EQ(4, size_return);
 
     auto rejected = client.get_object(opts, nullptr, 0, 4, &size_return);
-    EXPECT_NE(0, rejected.status.code);
-    EXPECT_EQ(429, rejected.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.status.code);
+    EXPECT_EQ(0, rejected.http_code);
     EXPECT_NE(std::string::npos, rejected.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(1, fake->calls);
 
@@ -311,8 +311,8 @@ TEST(RateLimitedObjStorageClientTest, put_object_maps_to_put_qps_and_put_bytes) 
 
     EXPECT_EQ(0, client.put_object(opts, "data").status.code);
     auto rejected = client.put_object(opts, "data");
-    EXPECT_NE(0, rejected.status.code);
-    EXPECT_EQ(429, rejected.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.status.code);
+    EXPECT_EQ(0, rejected.http_code);
     EXPECT_NE(std::string::npos, rejected.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(1, fake->calls);
 
@@ -334,8 +334,8 @@ TEST(RateLimitedObjStorageClientTest, upload_part_maps_to_put_qps_and_put_bytes)
 
     EXPECT_EQ(0, client.upload_part(opts, "data", 1).resp.status.code);
     auto rejected = client.upload_part(opts, "data", 2);
-    EXPECT_NE(0, rejected.resp.status.code);
-    EXPECT_EQ(429, rejected.resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.resp.status.code);
+    EXPECT_EQ(0, rejected.resp.http_code);
     EXPECT_NE(std::string::npos, rejected.resp.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(1, fake->calls);
 
@@ -359,8 +359,8 @@ TEST(RateLimitedObjStorageClientTest, multipart_control_apis_map_to_put_qps_with
     EXPECT_EQ(0, client.complete_multipart_upload(opts, {}).status.code);
 
     auto rejected = client.create_multipart_upload(opts);
-    EXPECT_NE(0, rejected.resp.status.code);
-    EXPECT_EQ(429, rejected.resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.resp.status.code);
+    EXPECT_EQ(0, rejected.resp.http_code);
     EXPECT_NE(std::string::npos, rejected.resp.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(2, fake->calls);
 
@@ -386,8 +386,8 @@ TEST(RateLimitedObjStorageClientTest, delete_apis_map_to_put_qps_without_bytes) 
     EXPECT_EQ(0, client.delete_objects_recursively(opts).status.code);
 
     auto rejected = client.delete_object(opts);
-    EXPECT_NE(0, rejected.status.code);
-    EXPECT_EQ(429, rejected.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, rejected.status.code);
+    EXPECT_EQ(0, rejected.http_code);
     EXPECT_NE(std::string::npos, rejected.status.msg.find("exceeds QPS limit"));
     EXPECT_EQ(3, fake->calls);
 
@@ -415,14 +415,14 @@ TEST(RateLimitedObjStorageClientTest, bytes_rejections_have_distinct_text_and_me
 
     size_t size_return = 0;
     auto get_resp = client.get_object(opts, nullptr, 0, 2, &size_return);
-    EXPECT_NE(0, get_resp.status.code);
-    EXPECT_EQ(429, get_resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, get_resp.status.code);
+    EXPECT_EQ(0, get_resp.http_code);
     EXPECT_NE(std::string::npos, get_resp.status.msg.find("exceeds bytes limit"));
     EXPECT_EQ(get_rejected_before + 1, s3_get_bytes_rate_limit_rejected_count.get_value());
 
     auto put_resp = client.put_object(opts, "xx");
-    EXPECT_NE(0, put_resp.status.code);
-    EXPECT_EQ(429, put_resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, put_resp.status.code);
+    EXPECT_EQ(0, put_resp.http_code);
     EXPECT_NE(std::string::npos, put_resp.status.msg.find("exceeds bytes limit"));
     EXPECT_EQ(put_rejected_before + 1, s3_put_bytes_rate_limit_rejected_count.get_value());
 
@@ -449,8 +449,8 @@ TEST(RateLimitedObjStorageClientTest, recursive_delete_charges_one_put_qps) {
     EXPECT_EQ(4, fake->delete_objects_recursively_provider_calls);
 
     auto resp = client.delete_objects_recursively(opts);
-    EXPECT_NE(0, resp.status.code);
-    EXPECT_EQ(429, resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, resp.status.code);
+    EXPECT_EQ(0, resp.http_code);
     EXPECT_EQ(1, fake->delete_objects_recursively_calls);
     EXPECT_EQ(4, fake->delete_objects_recursively_provider_calls);
 }
@@ -473,8 +473,8 @@ TEST(RateLimitedObjStorageClientTest, azure_noop_multipart_create_charges_one_pu
     EXPECT_EQ(0, fake->create_multipart_upload_provider_calls);
 
     auto resp = client.create_multipart_upload(opts);
-    EXPECT_NE(0, resp.resp.status.code);
-    EXPECT_EQ(429, resp.resp.http_code);
+    EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, resp.resp.status.code);
+    EXPECT_EQ(0, resp.resp.http_code);
     EXPECT_EQ(1, fake->create_multipart_upload_calls);
     EXPECT_EQ(0, fake->create_multipart_upload_provider_calls);
 }
