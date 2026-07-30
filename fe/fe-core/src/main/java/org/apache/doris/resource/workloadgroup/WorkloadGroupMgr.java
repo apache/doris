@@ -363,6 +363,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             WorkloadGroup workloadGroup = keyToWorkloadGroup.get(wgKey);
             keyToWorkloadGroup.remove(wgKey);
             idToWorkloadGroup.remove(workloadGroup.getId());
+            Env.getCurrentEnv().getAuth().onDropWorkloadGroup(workloadGroupName, false);
             Env.getCurrentEnv().getEditLog()
                     .logDropWorkloadGroup(new DropWorkloadGroupOperationLog(workloadGroup.getId()));
         } finally {
@@ -404,6 +405,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             WorkloadGroup workloadGroup = idToWorkloadGroup.get(id);
             keyToWorkloadGroup.remove(workloadGroup.getWorkloadGroupKey());
             idToWorkloadGroup.remove(id);
+            Env.getCurrentEnv().getAuth().onDropWorkloadGroup(workloadGroup.getName(), true);
         } finally {
             writeUnlock();
         }

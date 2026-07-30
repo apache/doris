@@ -30,6 +30,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -147,6 +149,59 @@ public class RoleManager implements Writable {
         }
         existingRole.revokePrivs(workloadGroupPattern, privs, errOnNonExist);
         return existingRole;
+    }
+
+    public List<PrivInfo> removeCatalogPrivs(String ctl) {
+        List<PrivInfo> removedPrivInfos = Lists.newArrayList();
+        for (Role role : roles.values()) {
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.removeCatalogPrivs(ctl)) {
+                removedPrivInfos.add(new PrivInfo(null, entry.getKey(), entry.getValue(),
+                        null, role.getRoleName(), Collections.emptyMap()));
+            }
+        }
+        return removedPrivInfos;
+    }
+
+    public List<PrivInfo> removeDbPrivs(String ctl, String db) {
+        List<PrivInfo> removedPrivInfos = Lists.newArrayList();
+        for (Role role : roles.values()) {
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.removeDbPrivs(ctl, db)) {
+                removedPrivInfos.add(new PrivInfo(null, entry.getKey(), entry.getValue(),
+                        null, role.getRoleName(), Collections.emptyMap()));
+            }
+        }
+        return removedPrivInfos;
+    }
+
+    public List<PrivInfo> removeTablePrivs(String ctl, String db, String tbl) {
+        List<PrivInfo> removedPrivInfos = Lists.newArrayList();
+        for (Role role : roles.values()) {
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.removeTablePrivs(ctl, db, tbl)) {
+                removedPrivInfos.add(new PrivInfo(null, entry.getKey(), entry.getValue(),
+                        null, role.getRoleName(), Collections.emptyMap()));
+            }
+        }
+        return removedPrivInfos;
+    }
+
+    public List<PrivInfo> removeResourcePrivs(String resourceName) {
+        List<PrivInfo> removedPrivInfos = Lists.newArrayList();
+        for (Role role : roles.values()) {
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.removeResourcePrivs(resourceName)) {
+                removedPrivInfos.add(new PrivInfo(null, entry.getKey(), entry.getValue(), null, role.getRoleName()));
+            }
+        }
+        return removedPrivInfos;
+    }
+
+    public List<PrivInfo> removeWorkloadGroupPrivs(String workloadGroupName) {
+        List<PrivInfo> removedPrivInfos = Lists.newArrayList();
+        for (Role role : roles.values()) {
+            for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.removeWorkloadGroupPrivs(workloadGroupName)) {
+                removedPrivInfos.add(new PrivInfo(null, entry.getKey(), entry.getValue(), null, role.getRoleName()));
+            }
+        }
+        return removedPrivInfos;
     }
 
     public void getRoleInfo(List<List<String>> results) {

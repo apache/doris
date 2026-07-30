@@ -127,6 +127,7 @@ public class ResourceMgr implements Writable {
             throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
         }
         nameToResource.remove(resourceName);
+        Env.getCurrentEnv().getAuth().onDropResource(resourceName, false);
         // log drop
         Env.getCurrentEnv().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));
         LOG.info("Drop resource success. Resource resourceName: {}", resourceName);
@@ -142,6 +143,7 @@ public class ResourceMgr implements Writable {
 
     public void replayDropResource(DropResourceOperationLog operationLog) {
         nameToResource.remove(operationLog.getName());
+        Env.getCurrentEnv().getAuth().onDropResource(operationLog.getName(), true);
     }
 
     public void alterResource(String resourceName, Map<String, String> properties) throws DdlException {

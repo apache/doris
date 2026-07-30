@@ -136,13 +136,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return new RemovedCatalog(catalog, catalogName);
     }
 
-    private void cleanupRemovedCatalog(RemovedCatalog removedCatalog) {
+    private void cleanupRemovedCatalog(RemovedCatalog removedCatalog, boolean isReplay) {
         if (removedCatalog == null) {
             return;
         }
         CatalogIf catalog = removedCatalog.catalog;
         catalog.onClose();
         Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(removedCatalog.catalogName);
+        Env.getCurrentEnv().getAuth().onDropCatalog(removedCatalog.catalogName, isReplay);
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);
@@ -317,7 +318,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
         } finally {
             writeUnlock();
-            cleanupRemovedCatalog(removedCatalog);
+            cleanupRemovedCatalog(removedCatalog, false);
         }
         if (removedCatalog == null) {
             return;
@@ -351,7 +352,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRemovedCatalog(removedCatalog, false);
         if (removedCatalog == null) {
             throw new IllegalStateException("No catalog found with name: " + catalogName);
         }
@@ -585,7 +586,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRemovedCatalog(removedCatalog, true);
     }
 
     /**
@@ -599,7 +600,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        cleanupRemovedCatalog(removedCatalog);
+        cleanupRemovedCatalog(removedCatalog, true);
 
         if (removedCatalog == null) {
             throw new IllegalStateException("No catalog found with id: " + log.getCatalogId());

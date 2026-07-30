@@ -3708,6 +3708,7 @@ public class Env {
             if (externalCatalog != null) {
                 externalCatalog.replayDropDb(info.getDbName());
             }
+            Env.getCurrentEnv().getAuth().onDropDatabase(info.getCtlName(), info.getDbName(), true);
         }
     }
 

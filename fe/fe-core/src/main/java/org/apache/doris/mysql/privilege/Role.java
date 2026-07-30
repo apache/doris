@@ -41,6 +41,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -770,7 +771,7 @@ public class Role implements GsonPostProcessable {
     public void revokePrivs(TablePattern tblPattern, PrivBitSet privs, Map<ColPrivilegeKey, Set<String>> colPrivileges,
             boolean errOnNonExist)
             throws DdlException {
-        if (!colPrivileges.isEmpty()) {
+        if (colPrivileges != null && !colPrivileges.isEmpty()) {
             revokeCols(colPrivileges);
         } else {
             PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
@@ -906,6 +907,82 @@ public class Role implements GsonPostProcessable {
             throw new DdlException(e.getMessage());
         }
         workloadGroupPrivTable.revoke(entry, false, true);
+    }
+
+    public List<Map.Entry<TablePattern, PrivBitSet>> removeCatalogPrivs(String ctl) {
+        List<Map.Entry<TablePattern, PrivBitSet>> removed = new ArrayList<>();
+        tblPatternToPrivs.entrySet().removeIf(entry -> {
+            TablePattern pattern = entry.getKey();
+            if (pattern.getQualifiedCtl().equals(ctl)) {
+                removed.add(entry);
+                return true;
+            }
+            return false;
+        });
+        colPrivMap.keySet().removeIf(key -> key.getCtl().equals(ctl));
+        rebuildPrivTables();
+        return removed;
+    }
+
+    public List<Map.Entry<TablePattern, PrivBitSet>> removeDbPrivs(String ctl, String db) {
+        List<Map.Entry<TablePattern, PrivBitSet>> removed = new ArrayList<>();
+        tblPatternToPrivs.entrySet().removeIf(entry -> {
+            TablePattern pattern = entry.getKey();
+            if ((pattern.getPrivLevel() == PrivLevel.DATABASE || pattern.getPrivLevel() == PrivLevel.TABLE)
+                    && pattern.getQualifiedCtl().equals(ctl) && pattern.getQualifiedDb().equals(db)) {
+                removed.add(entry);
+                return true;
+            }
+            return false;
+        });
+        colPrivMap.keySet().removeIf(key -> key.getCtl().equals(ctl) && key.getDb().equals(db));
+        rebuildPrivTables();
+        return removed;
+    }
+
+    public List<Map.Entry<TablePattern, PrivBitSet>> removeTablePrivs(String ctl, String db, String tbl) {
+        List<Map.Entry<TablePattern, PrivBitSet>> removed = new ArrayList<>();
+        tblPatternToPrivs.entrySet().removeIf(entry -> {
+            TablePattern pattern = entry.getKey();
+            if (pattern.getPrivLevel() == PrivLevel.TABLE
+                    && pattern.getQualifiedCtl().equals(ctl)
+                    && pattern.getQualifiedDb().equals(db)
+                    && pattern.getTbl().equals(tbl)) {
+                removed.add(entry);
+                return true;
+            }
+            return false;
+        });
+        colPrivMap.keySet().removeIf(key ->
+                key.getCtl().equals(ctl) && key.getDb().equals(db) && key.getTbl().equals(tbl));
+        rebuildPrivTables();
+        return removed;
+    }
+
+    public List<Map.Entry<ResourcePattern, PrivBitSet>> removeResourcePrivs(String resourceName) {
+        List<Map.Entry<ResourcePattern, PrivBitSet>> removed = new ArrayList<>();
+        resourcePatternToPrivs.entrySet().removeIf(entry -> {
+            if (entry.getKey().getResourceName().equals(resourceName)) {
+                removed.add(entry);
+                return true;
+            }
+            return false;
+        });
+        rebuildPrivTables();
+        return removed;
+    }
+
+    public List<Map.Entry<WorkloadGroupPattern, PrivBitSet>> removeWorkloadGroupPrivs(String workloadGroupName) {
+        List<Map.Entry<WorkloadGroupPattern, PrivBitSet>> removed = new ArrayList<>();
+        workloadGroupPatternToPrivs.entrySet().removeIf(entry -> {
+            if (entry.getKey().getworkloadGroupName().equals(workloadGroupName)) {
+                removed.add(entry);
+                return true;
+            }
+            return false;
+        });
+        rebuildPrivTables();
+        return removed;
     }
 
     private void revokePrivs(TablePattern tblPattern, PrivBitSet privs) throws DdlException {
