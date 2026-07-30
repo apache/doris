@@ -21,16 +21,24 @@
 // Does nothing if LeakSanitizer is not enabled.
 #define ANNOTATE_LEAKING_OBJECT_PTR(p)
 
+// Check if LeakSanitizer is enabled
 #if defined(__has_feature)
-#if __has_feature(address_sanitizer)
-#if defined(__linux__)
+#if __has_feature(address_sanitizer) || __has_feature(leak_sanitizer)
+#define DORIS_LSAN_ENABLED 1
+#endif
+#endif
+
+#if !defined(DORIS_LSAN_ENABLED) && (defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER))
+#define DORIS_LSAN_ENABLED 1
+#endif
+
+// DORIS_LSAN_ENABLED && __linux__
+#if defined(DORIS_LSAN_ENABLED) && defined(__linux__)
 
 #undef ANNOTATE_LEAKING_OBJECT_PTR
 #define ANNOTATE_LEAKING_OBJECT_PTR(p) __lsan_ignore_object(p);
 
-#endif
-#endif
-#endif
+#endif // DORIS_LSAN_ENABLED && __linux__
 
 // API definitions from LLVM lsan_interface.h
 
