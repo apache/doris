@@ -134,30 +134,29 @@ private:
 
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128V2>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                result_raw_data[i] =
-                        Op<TYPE_DECIMALV2>::apply(column_raw_data[index_check_const(i, ArgConst)],
-                                                  result_raw_data[i])
-                                ? column_raw_data[index_check_const(i, ArgConst)]
-                                : result_raw_data[i];
+                if (Op<TYPE_DECIMALV2>::apply(column_raw_data[index_check_const(i, ArgConst)],
+                                              result_raw_data[i])) {
+                    result_raw_data[i] = column_raw_data[index_check_const(i, ArgConst)];
+                }
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
                              std::is_same_v<ColumnType, ColumnDecimal64> ||
                              std::is_same_v<ColumnType, ColumnDecimal128V3> ||
                              std::is_same_v<ColumnType, ColumnDecimal256>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                result_raw_data[i] =
-                        Op<PType>::apply(column_raw_data[index_check_const(i, ArgConst)].value,
-                                         result_raw_data[i].value)
-                                ? column_raw_data[index_check_const(i, ArgConst)]
-                                : result_raw_data[i];
+                if (Op<PType>::apply(column_raw_data[index_check_const(i, ArgConst)].value,
+                                     result_raw_data[i].value)) {
+                    result_raw_data[i] = column_raw_data[index_check_const(i, ArgConst)];
+                }
             }
         } else {
+            // A ternary self-assignment triggers a false UnsafeDep in Clang's loop vectorizer.
+            // See https://github.com/llvm/llvm-project/issues/212787.
             for (size_t i = 0; i < input_rows_count; ++i) {
-                result_raw_data[i] =
-                        Op<PType>::apply(column_raw_data[index_check_const(i, ArgConst)],
-                                         result_raw_data[i])
-                                ? column_raw_data[index_check_const(i, ArgConst)]
-                                : result_raw_data[i];
+                if (Op<PType>::apply(column_raw_data[index_check_const(i, ArgConst)],
+                                     result_raw_data[i])) {
+                    result_raw_data[i] = column_raw_data[index_check_const(i, ArgConst)];
+                }
             }
         }
     }
