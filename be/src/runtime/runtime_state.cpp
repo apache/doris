@@ -349,6 +349,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
     // If file haven't been opened, open it here
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
@@ -363,6 +364,9 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         _first_error_msg = error_msg() + ". Src line: " + line();
         LOG(INFO) << "The first error message: " << _first_error_msg;
     }
+    DBUG_EXECUTE_IF("RuntimeState::append_error_msg_to_file.sleep_before_write", {
+        std::this_thread::sleep_for(std::chrono::milliseconds(dp->param<int64_t>("sleep_ms", 0)));
+    });
     // If num of printed error row exceeds the limit, don't add error messages to error log file any more
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
         // if _load_zero_tolerance, return Error to stop the load process immediately.
@@ -394,13 +398,18 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     return Status::OK();
 }
 
+std::string RuntimeState::get_first_error_msg() const {
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
+    return _first_error_msg;
+}
+
 std::string RuntimeState::get_error_log_file_path() {
+    std::lock_guard<std::mutex> l(_load_error_log_lock);
     DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
         if (!_error_log_file_path.empty()) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     });
-    std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
         _error_log_file->close();
