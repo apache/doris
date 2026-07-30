@@ -204,7 +204,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         rewriteResult.setPlanSignature(planSignature);
         IvmRewriteContext.Mode mode = statementContext.getIvmRewriteContext().get().getMode();
         if (mode == IvmRewriteContext.Mode.CREATE) {
-            LOG.info("IVM normalized plan, mtmvName={}, mode={}, inputRoot={}, plan={}, canonicalString={}, signature={}",
+            LOG.info("IVM normalized plan, mtmvName={}, mode={}, inputRoot={}, plan={}, canonicalString={}, "
+                            + "signature={}",
                     statementContext.getIvmRewriteContext().get().getMtmvName(), mode,
                     plan.getClass().getSimpleName(), result.treeString(), planSignature.getCanonicalString(),
                     planSignature.getSha256());
