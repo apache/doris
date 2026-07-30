@@ -157,6 +157,31 @@ MutableColumnPtr shredded_int64_physical(const std::vector<int64_t>& values) {
     return ColumnNullable::create(std::move(structure), std::move(root_nulls));
 }
 
+MutableColumnPtr projected_shredded_object_physical(const std::vector<int64_t>& values,
+                                                    const IColumn** decoded_leaf = nullptr) {
+    auto integers = ColumnInt64::create();
+    integers->get_data().assign(values.begin(), values.end());
+    auto integer_nulls = ColumnUInt8::create();
+    integer_nulls->get_data().resize_fill(values.size(), 0);
+    MutableColumnPtr leaf = ColumnNullable::create(std::move(integers), std::move(integer_nulls));
+    if (decoded_leaf != nullptr) {
+        *decoded_leaf = leaf.get();
+    }
+
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(std::move(leaf));
+    auto wrapper = ColumnStruct::create(std::move(wrapper_fields));
+    MutableColumns object_fields;
+    object_fields.push_back(
+            ColumnNullable::create(std::move(wrapper), ColumnUInt8::create(values.size(), 0)));
+    auto object = ColumnStruct::create(std::move(object_fields));
+    MutableColumns root_fields;
+    root_fields.push_back(
+            ColumnNullable::create(std::move(object), ColumnUInt8::create(values.size(), 0)));
+    auto root = ColumnStruct::create(std::move(root_fields));
+    return ColumnNullable::create(std::move(root), ColumnUInt8::create(values.size(), 0));
+}
+
 } // namespace
 
 TEST(VariantColumnReaderTest, UnshreddedRowsPreserveSqlNullAndVariantNull) {
@@ -382,6 +407,51 @@ TEST(VariantColumnReaderTest, ShreddedTypedPathReusesDecodedLeafColumn) {
     EXPECT_EQ(assert_cast<const ColumnInt64&>(extracted_typed.get_nested_column()).get_data()[0],
               9);
     EXPECT_TRUE(variants.is_shredded());
+}
+
+TEST(VariantColumnReaderTest, AppendsProjectedShreddedBatchesWithoutMaterializing) {
+    auto schema = shredded_object_schema();
+    schema.local_id = 0;
+    schema.children[0]->local_id = 0;
+    schema.children[1]->local_id = 1;
+    schema.children[2]->local_id = 2;
+    schema.children[2]->children[0]->local_id = 0;
+    schema.children[2]->children[0]->children[0]->local_id = 0;
+
+    auto projection = format::LocalColumnIndex::partial_local(schema.local_id);
+    projection.children.push_back(
+            format::LocalColumnIndex::partial_local(schema.children[2]->local_id));
+    projection.children.back().children.push_back(
+            format::LocalColumnIndex::partial_local(schema.children[2]->children[0]->local_id));
+    projection.children.back().children.back().children.push_back(format::LocalColumnIndex::local(
+            schema.children[2]->children[0]->children[0]->local_id));
+    VariantMaterializationNode plan;
+    plan.schema = &schema;
+    plan.contains_variant = true;
+    plan.variant_projection = std::move(projection);
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const IColumn* first_decoded_leaf = nullptr;
+    ASSERT_TRUE(
+            materialize_variant_columns(
+                    plan, projected_shredded_object_physical({10, 20}, &first_decoded_leaf), output)
+                    .ok());
+    const auto append_status =
+            materialize_variant_columns(plan, projected_shredded_object_physical({30}), output);
+    ASSERT_TRUE(append_status.ok()) << append_status;
+
+    const auto& variants = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*output).get_nested_column());
+    ASSERT_TRUE(variants.is_shredded());
+    ASSERT_EQ(variants.size(), 3);
+    const std::array path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
+    const auto match = variants.find_shredded_typed_value(path);
+    ASSERT_TRUE(match.has_value());
+    EXPECT_EQ(match->column.get(), first_decoded_leaf);
+    const auto& values = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(*match->column).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt64::Container({10, 20, 30}));
 }
 
 TEST(VariantColumnReaderTest, AmbiguousTypedIdentityRequiresCanonicalMaterialization) {

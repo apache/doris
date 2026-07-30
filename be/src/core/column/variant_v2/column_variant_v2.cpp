@@ -789,6 +789,20 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         _check_invariants();
         return;
     }
+    if (_shredded && source._shredded) {
+        auto selected_source = start == 0 && length == source.size()
+                                       ? source._shredded
+                                       : source._shredded->select_range(start, length);
+        if (!_shredded.unique()) {
+            _shredded = _shredded->select_range(0, size());
+        }
+        // A partial physical projection has no metadata/value pair to encode. Preserve that
+        // invariant by merging compatible scanner batches before the canonical fallback below.
+        if (_shredded->try_append(*selected_source)) {
+            _check_invariants();
+            return;
+        }
+    }
     if (_shredded) {
         ensure_encoded();
     }

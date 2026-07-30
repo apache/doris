@@ -1642,6 +1642,7 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
 
     RuntimeProfile profile("variant_typed_leaf_projection");
     auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1024);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
     std::vector<format::ColumnDefinition> schema;
@@ -1680,7 +1681,11 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     block.insert({schema[1].type->create_column(), schema[1].type, "v"});
     size_t rows = 0;
     bool eof = false;
-    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    while (!eof) {
+        size_t batch_rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &batch_rows, &eof).ok());
+        rows += batch_rows;
+    }
     ASSERT_EQ(rows, 4096);
     const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());

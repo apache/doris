@@ -74,6 +74,9 @@ public:
                                                                size_t length) const = 0;
     virtual std::shared_ptr<VariantShreddedState> select_indices(
             const uint32_t* indices_begin, const uint32_t* indices_end) const = 0;
+    // Appends another state only when both format-owned physical layouts have identical semantics.
+    // An incompatible source must leave this state unchanged and return false.
+    virtual bool try_append(const VariantShreddedState& source) = 0;
     virtual std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const = 0;
 
