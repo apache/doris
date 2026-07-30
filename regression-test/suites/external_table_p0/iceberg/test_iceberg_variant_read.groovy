@@ -41,10 +41,6 @@ suite("test_iceberg_variant_read",
     }
     String catalogName = "test_iceberg_variant_read"
     String dbName = "iceberg_variant_read_db"
-    String mixedOrcSource = "variant_mixed_orc_source_" +
-            UUID.randomUUID().toString().replace("-", "")
-    String mixedOrcLocation =
-            "s3a://warehouse/wh/${dbName}/${mixedOrcSource}/data"
     String fixtureKey = "doris-regression/iceberg-variant/iceberg_variant_shredded.parquet"
     File shreddedFixture = new File(context.dataPath, "iceberg_variant_shredded.parquet")
     File shreddedTableFixture = new File(context.dataPath, "iceberg_variant_shredded_table")
@@ -252,29 +248,24 @@ suite("test_iceberg_variant_read",
             VALUES (5, 'v5', parse_json('{"side":500}'),
                     parse_json('{"stage":"readded","metric":50}'));
 
+        -- Write ORC before evolving the logical schema to Variant. This retains valid ORC files
+        -- in the snapshots while using Iceberg FileIO instead of Spark native ORC, whose optional
+        -- S3A implementation may not be installed.
         DROP TABLE IF EXISTS demo.${dbName}.variant_orc;
-        CREATE TABLE demo.${dbName}.variant_orc (id INT, v VARIANT) USING iceberg
+        CREATE TABLE demo.${dbName}.variant_orc (id INT) USING iceberg
         TBLPROPERTIES ('format-version'='3', 'write.format.default'='orc');
-        DROP TABLE IF EXISTS spark_catalog.default.variant_orc_source;
-        CREATE TABLE spark_catalog.default.variant_orc_source USING orc AS SELECT 1 AS id;
-        CALL demo.system.add_files(
-            table => '${dbName}.variant_orc',
-            source_table => 'default.variant_orc_source');
+        INSERT INTO demo.${dbName}.variant_orc VALUES (1);
+        ALTER TABLE demo.${dbName}.variant_orc ADD COLUMN v VARIANT;
 
         DROP TABLE IF EXISTS demo.${dbName}.variant_mixed_format;
-        CREATE TABLE demo.${dbName}.variant_mixed_format (id INT, v VARIANT) USING iceberg
-        TBLPROPERTIES ('format-version'='3', 'write.format.default'='parquet');
+        CREATE TABLE demo.${dbName}.variant_mixed_format (id INT) USING iceberg
+        TBLPROPERTIES ('format-version'='3', 'write.format.default'='orc');
+        INSERT INTO demo.${dbName}.variant_mixed_format VALUES (2);
+        ALTER TABLE demo.${dbName}.variant_mixed_format ADD COLUMN v VARIANT;
+        ALTER TABLE demo.${dbName}.variant_mixed_format SET TBLPROPERTIES
+            ('write.format.default'='parquet');
         INSERT INTO demo.${dbName}.variant_mixed_format
             VALUES (1, parse_json('{"format":"parquet"}'));
-        -- Keep the source file under the shared object-store warehouse. The Spark session
-        -- catalog otherwise writes a local file: URI that Doris workers cannot open, masking the
-        -- intended mixed-format Variant rejection with an unrelated filesystem error.
-        DROP TABLE IF EXISTS spark_catalog.default.${mixedOrcSource};
-        CREATE TABLE spark_catalog.default.${mixedOrcSource} USING orc
-        LOCATION '${mixedOrcLocation}' AS SELECT 2 AS id;
-        CALL demo.system.add_files(
-            table => '${dbName}.variant_mixed_format',
-            source_table => 'default.${mixedOrcSource}');
     """
     String evolutionReadded = latestSnapshotId("variant_evolution")
 
