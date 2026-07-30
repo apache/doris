@@ -123,6 +123,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -690,11 +691,44 @@ public class BindSink implements AnalysisRuleFactory {
                     + "(input format: " + inputFormat + "). LZO tables are read-only in Doris.");
         }
 
+        // Get static partition columns if present:
+        // INSERT [OVERWRITE] TABLE t PARTITION(col='val', ...) SELECT ...
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+        // Hive column/partition names are case-insensitive (stored lowercase in HMS), so
+        // e.g. PARTITION(dt='21', DT='22') refers to the same column twice. Detect such
+        // case-insensitive duplicates here and fail fast, instead of silently letting a
+        // later value overwrite an earlier one in the case-insensitive columnToOutput map.
+        // Use Locale.ROOT to keep the folding locale-independent (matching how the Hive
+        // schema is loaded), otherwise e.g. the Turkish locale would fold 'I' to 'ı' and
+        // fail to match a metadata column named 'id'.
+        Set<String> lowerStaticPartitionColNames = Sets.newHashSet();
+        for (String name : staticPartitionColNames) {
+            if (!lowerStaticPartitionColNames.add(name.toLowerCase(Locale.ROOT))) {
+                throw new AnalysisException("Duplicate partition column: " + name);
+            }
+        }
+
+        // Validate static partition columns against the hive table's partition columns
+        if (sink.hasStaticPartition()) {
+            validateHiveStaticPartition(staticPartitions, table);
+        }
+
+        // Build bindColumns: exclude static partition columns from the columns that
+        // need to come from SELECT, because their values come from the PARTITION clause.
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
-            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+            bindColumns = table.getBaseSchema(true).stream()
+                    .filter(col -> !lowerStaticPartitionColNames.contains(col.getName().toLowerCase(Locale.ROOT)))
+                    .collect(ImmutableList.toImmutableList());
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
+                if (lowerStaticPartitionColNames.contains(cn.toLowerCase(Locale.ROOT))) {
+                    throw new AnalysisException(String.format(
+                            "column %s is a static partition column, should not be in the insert column list", cn));
+                }
                 Column column = table.getColumn(cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
@@ -715,13 +749,69 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 child);
         // we need to insert all the columns of the target table
+        // (except the static partition columns which are supplied by the PARTITION clause)
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child);
+
+        // For static partition columns, add constant expressions from the PARTITION clause.
+        // This ensures every written row carries the static partition value, so all rows
+        // land in the specified partition (and INSERT OVERWRITE only overwrites that partition).
+        if (!staticPartitionColNames.isEmpty()) {
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                Expression valueExpr = entry.getValue();
+                Column column = table.getColumn(entry.getKey());
+                if (column != null) {
+                    Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                            valueExpr, DataType.fromCatalogType(column.getType()));
+                    // Use the canonical (lowercase) column name from the table schema as both the
+                    // map key and the alias name, so it aligns with getOutputProjectByCoercion which
+                    // looks up columnToOutput by table.getFullSchema() column names.
+                    columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                }
+            }
+        }
+
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
+    /**
+     * Validate static partition specification for Hive table.
+     * The specified columns must be partition columns of the target hive table,
+     * and each partition value must be a literal.
+     */
+    private void validateHiveStaticPartition(Map<String, Expression> staticPartitions, HMSExternalTable table) {
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return;
+        }
+        Set<String> partitionColNames = table.getPartitionColumnNames();
+        if (partitionColNames.isEmpty()) {
+            throw new AnalysisException(
+                    String.format("Table %s is not a partitioned table, cannot use static partition syntax",
+                            table.getName()));
+        }
+        // build a case-insensitive view of partition column names
+        Set<String> lowerPartitionColNames = Sets.newHashSet();
+        for (String name : partitionColNames) {
+            lowerPartitionColNames.add(name.toLowerCase());
+        }
+        for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+            String partitionColName = entry.getKey();
+            Expression partitionValue = entry.getValue();
+            if (!lowerPartitionColNames.contains(partitionColName.toLowerCase())) {
+                throw new AnalysisException(
+                        String.format("Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                                partitionColName, table.getName(), partitionColNames));
+            }
+            if (!(partitionValue instanceof Literal)) {
+                throw new AnalysisException(
+                        String.format("Partition value for column '%s' must be a literal, but got: %s",
+                                partitionColName, partitionValue));
+            }
+        }
     }
 
     private Plan bindIcebergTableSink(MatchingContext<UnboundIcebergTableSink<Plan>> ctx) {
@@ -990,9 +1080,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
         UnboundDictionarySink<?> sink = ctx.root;
-        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
-        Dictionary dictionary = pair.second;
+        Database database = sink.getDatabase();
+        Dictionary dictionary = sink.getDictionary();
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // 1. bind target columns: from sink's column names to target tables' Columns
@@ -1116,19 +1205,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((ExternalDatabase) pair.first), (PluginDrivenExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not a plugin-driven connector table");
-    }
-
-    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
-            UnboundDictionarySink<? extends Plan> sink) {
-        Dictionary dictionary = sink.getDictionary();
-        Database db;
-        try {
-            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return Pair.of(db, dictionary);
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

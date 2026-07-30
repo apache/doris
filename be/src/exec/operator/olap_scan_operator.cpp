@@ -512,6 +512,13 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     return res != p._olap_scan_node.key_column_name.end();
 }
 
+bool OlapScanLocalState::can_push_down_column_predicate(const SlotDescriptor* slot) {
+    // The Operator-level method handles static column capabilities. The LocalState-level
+    // condition additionally handles the current scan range's binlog merge mode.
+    return Base::can_push_down_column_predicate(slot) &&
+           (!_is_binlog_merge_scan() || _is_key_column(slot->col_name()));
+}
+
 Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                              VExprContext* expr_ctx,
                                                              StringRef* constant_str,

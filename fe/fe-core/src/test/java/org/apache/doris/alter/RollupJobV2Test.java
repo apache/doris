@@ -45,6 +45,7 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentBatchTask;
@@ -450,6 +451,42 @@ public class RollupJobV2Test {
         Column resultColumn1 = resultColumns.get(0);
         Assert.assertEquals(mvColumnName,
                 resultColumn1.getName());
+    }
+
+    @Test
+    public void testDeserializeOldRollupJobWithoutOrigStmt() {
+        String oldJson = "{"
+                + "\"clazz\":\"RollupJobV2\","
+                + "\"type\":\"ROLLUP\","
+                + "\"jobId\":1,"
+                + "\"jobState\":\"FINISHED\","
+                + "\"dbId\":1,"
+                + "\"tableId\":1,"
+                + "\"tableName\":\"test\","
+                + "\"errMsg\":\"\","
+                + "\"createTimeMs\":1,"
+                + "\"finishedTimeMs\":2,"
+                + "\"timeoutMs\":3,"
+                + "\"rawSql\":\"\","
+                + "\"watershedTxnId\":4,"
+                + "\"failedTabletBackends\":{},"
+                + "\"partitionIdToBaseRollupTabletIdMap\":{},"
+                + "\"partitionIdToRollupIndex\":{},"
+                + "\"baseIndexId\":1,"
+                + "\"rollupIndexId\":2,"
+                + "\"baseIndexName\":\"base\","
+                + "\"rollupIndexName\":\"rollup\","
+                + "\"rollupSchema\":[],"
+                + "\"baseSchemaHash\":1,"
+                + "\"rollupSchemaHash\":2,"
+                + "\"rollupKeysType\":\"AGG_KEYS\","
+                + "\"rollupShortKeyColumnCount\":1,"
+                + "\"storageFormat\":\"V2\","
+                + "\"sv\":{}"
+                + "}";
+
+        RollupJobV2 result = (RollupJobV2) GsonUtils.GSON.fromJson(oldJson, AlterJobV2.class);
+        Assert.assertEquals(JobState.FINISHED, Deencapsulation.getField(result, "showJobState"));
     }
 
     @Test

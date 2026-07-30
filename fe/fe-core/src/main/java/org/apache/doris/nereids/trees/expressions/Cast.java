@@ -212,8 +212,8 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
             return true;
-        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
-            // Variant to Json is always nullable
+        } else if (childDataType.isVariantType() && !targetType.isVariantType()) {
+            // Variant values can have a shape that is incompatible with the target type.
             return true;
         }
         return false;
@@ -223,6 +223,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Cast(children, targetType, isExplicitType);
+    }
+
+    /** Return this cast with a different immutable target type. */
+    public Cast withTargetType(DataType targetType) {
+        return this.targetType.equals(targetType)
+                ? this : new Cast(children, targetType, isExplicitType);
     }
 
     @Override

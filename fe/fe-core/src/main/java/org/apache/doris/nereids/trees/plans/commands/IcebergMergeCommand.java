@@ -465,6 +465,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                 icebergTable.getBaseSchema(true),
                 outputExprs,
                 deleteCtx,
+                true,
                 Optional.empty(),
                 Optional.empty(),
                 projectPlan);

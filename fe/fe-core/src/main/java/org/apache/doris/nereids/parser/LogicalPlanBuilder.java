@@ -539,7 +539,6 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -4739,7 +4738,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         }
                         List<Expression> conjuncts = ExpressionUtils.extractConjunction(condition.get());
                         for (Expression expression : conjuncts) {
-                            if (!(expression instanceof EqualPredicate)) {
+                            if (!(expression instanceof EqualTo)) {
                                 throw new ParseException("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts",
                                         join);
                             }

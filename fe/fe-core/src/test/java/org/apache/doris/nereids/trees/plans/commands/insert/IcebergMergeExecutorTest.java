@@ -99,7 +99,8 @@ public class IcebergMergeExecutorTest {
         ctx.setThreadLocalInfo();
 
         IcebergMergeExecutor executor = new IcebergMergeExecutor(ctx, table, "label", planner, false, -1L);
-        IcebergMergeSink sink = new IcebergMergeSink(table, new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext());
+        IcebergMergeSink sink = new IcebergMergeSink(table,
+                new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext(), true);
 
         executor.finalizeSinkForMerge(null, sink, null);
         TDataSink tDataSink = getTDataSink(sink);
