@@ -151,8 +151,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
 
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
         List<List<Expression>> newGroupingSets = new ArrayList<>();
-        List<Long> originalGroupingIdValues = repeat.getGroupingIdValues()
-                .orElseGet(() -> repeat.toShapes().computeGroupingIdValue());
+        List<List<Long>> groupingFunctionsValues = repeat.computeGroupingFunctionsValues();
+        List<Long> originalGroupingIdValues = groupingFunctionsValues.get(0);
         List<Long> remainingGroupingIdValues = new ArrayList<>();
         for (int i = 0; i < repeat.getGroupingSets().size(); ++i) {
             if (i == maxGroupIndex) {
@@ -170,28 +170,26 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
                 aggFuncToSlot);
         LogicalProject<Plan> project = constructProject(aggregate, originToConsumerMap, needRemovedExprSet,
                 groupingFunctionSlots, newRepeat.getGroupingId().get(), topAgg, aggFuncToSlot);
-        LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionSlots,
-                originalGroupingIdValues.get(maxGroupIndex));
+        LogicalPlan directChild = getDirectChild(directConsumer, groupingFunctionsValues, maxGroupIndex);
         return constructUnion(project, directChild, aggregate);
     }
 
     /**
      * Get the direct child plan for the union operation.
      * If the output contains internal grouping id or grouping function slots, wrap the consumer with a project
-     * that adds the original grouping id and zero literals for the grouping function slots.
+     * that adds the values of the internal grouping id and grouping scalar functions for the maximum grouping set.
      *
      * @param directConsumer the CTE consumer for the direct path
-     * @param groupingFunctionSlots the list of grouping function slots to handle
-     * @param groupingIdValue original internal grouping id for the maximum grouping set
+     * @param groupingFunctionsValues internal grouping id and grouping scalar function values for all grouping sets
+     * @param maxGroupIndex index of the maximum grouping set
      * @return the direct child plan, possibly wrapped with a project
      */
-    private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer, List<NamedExpression> groupingFunctionSlots,
-            long groupingIdValue) {
+    private LogicalPlan getDirectChild(LogicalCTEConsumer directConsumer,
+            List<List<Long>> groupingFunctionsValues, int maxGroupIndex) {
         ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
         builder.addAll(directConsumer.getOutput());
-        builder.add(new Alias(new BigIntLiteral(groupingIdValue)));
-        for (int i = 0; i < groupingFunctionSlots.size(); ++i) {
-            builder.add(new Alias(new BigIntLiteral(0)));
+        for (List<Long> values : groupingFunctionsValues) {
+            builder.add(new Alias(new BigIntLiteral(values.get(maxGroupIndex))));
         }
         return new LogicalProject<Plan>(builder.build(), directConsumer);
     }

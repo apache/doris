@@ -27,6 +27,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -495,6 +498,47 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         Assertions.assertTrue(groupingFunctionSlots.isEmpty());
         Assertions.assertEquals(ImmutableList.of(1L, 3L), result.getGroupingIdValues().get());
         Assertions.assertFalse(result.getGroupingId().get().nullable());
+    }
+
+    @Test
+    public void testDirectChildUsesGroupingScalarValuesFromResidualRepeat() throws Exception {
+        Method method = rule.getClass().getDeclaredMethod("getDirectChild",
+                LogicalCTEConsumer.class, List.class, int.class);
+        method.setAccessible(true);
+
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        SlotReference d = new SlotReference("d", IntegerType.INSTANCE);
+        SlotReference e = new SlotReference("e", IntegerType.INSTANCE);
+        Alias groupingE = new Alias(new Grouping(e), "grouping_e");
+        Alias groupingId = new Alias(new GroupingId(a, b, c, d, e), "grouping_id_abcde");
+        List<List<Expression>> groupingSets = ImmutableList.of(
+                ImmutableList.of(a, b, c, d),
+                ImmutableList.of(a, b, c),
+                ImmutableList.of(a, b),
+                ImmutableList.of(a),
+                ImmutableList.of()
+        );
+        LogicalEmptyRelation emptyRelation = new LogicalEmptyRelation(
+                org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator.newRelationId(),
+                ImmutableList.of());
+        LogicalRepeat<Plan> repeat = new LogicalRepeat<>(groupingSets,
+                ImmutableList.of(a, b, c, d, e, groupingE, groupingId),
+                new SlotReference("internal_grouping_id", IntegerType.INSTANCE, false),
+                ImmutableList.of(1L, 3L, 7L, 15L, 31L), RepeatType.ROLLUP, emptyRelation);
+
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator.newRelationId(),
+                new CTEId(1), "", new LogicalCTEProducer<>(new CTEId(1), emptyRelation));
+        LogicalProject<Plan> directChild = (LogicalProject<Plan>) method.invoke(rule,
+                consumer, repeat.computeGroupingFunctionsValues(), 0);
+
+        List<NamedExpression> projects = directChild.getProjects();
+        Assertions.assertEquals(3, projects.size());
+        Assertions.assertEquals(1L, ((BigIntLiteral) projects.get(0).child(0)).getValue());
+        Assertions.assertEquals(1L, ((BigIntLiteral) projects.get(1).child(0)).getValue());
+        Assertions.assertEquals(1L, ((BigIntLiteral) projects.get(2).child(0)).getValue());
     }
 
     @Test
