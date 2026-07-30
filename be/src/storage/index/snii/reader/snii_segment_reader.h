@@ -47,6 +47,49 @@
 // of a given (index_id, suffix); query functions operate on that reader.
 namespace doris::snii::reader {
 
+// Identifies one logical index inside a container.
+struct LogicalIndexKey {
+    uint64_t index_id = 0;
+    std::string index_suffix;
+};
+
+// One logical index a rewrite inherits unchanged from its source container.
+struct InheritedLogicalIndex {
+    uint64_t index_id = 0;
+    std::string index_suffix;
+    // Section references as recorded on disk. They stay valid in the rewritten
+    // container because the physical prefix is copied to the SAME offsets.
+    format::SectionRefs section_refs;
+    uint64_t doc_count = 0;
+    // The on-disk [Core][STI][DBD] run, verbatim. A rewrite re-emits these bytes
+    // without decoding or re-encoding any postings.
+    std::vector<uint8_t> metadata_group;
+    size_t core_length = 0;
+    size_t sampled_term_index_length = 0;
+    size_t dict_block_directory_length = 0;
+};
+
+// Immutable, fully validated view of one container as an inheritance source for a
+// rewrite (BUILD INDEX on SNII). It exposes only what the writer needs: how many
+// leading bytes to copy, and the metadata of the logical indexes carried over.
+// Encoding details stay inside the reader and the writer.
+class SniiRewriteSnapshot {
+public:
+    SniiRewriteSnapshot() = default;
+
+    // Copying [0, physical_prefix_end) reproduces the bootstrap header and every
+    // physical section the inherited indexes reference. It never covers a metadata
+    // group, the directory, padding or the tail.
+    uint64_t physical_prefix_end() const { return physical_prefix_end_; }
+    const std::vector<InheritedLogicalIndex>& inherited() const { return inherited_; }
+
+private:
+    friend class SniiSegmentReader;
+
+    uint64_t physical_prefix_end_ = 0;
+    std::vector<InheritedLogicalIndex> inherited_;
+};
+
 class SniiSegmentReader {
 public:
     SniiSegmentReader() = default;
@@ -69,10 +112,22 @@ public:
     Status section_refs_for_index(uint64_t index_id, std::string_view suffix,
                                   format::SectionRefs* const out) const;
 
+    // Builds a rewrite snapshot describing exactly the logical indexes in `keep`.
+    // `segment_doc_count` is the segment's row count: every kept logical index must
+    // agree with it. Fails -- never silently drops an index -- on a missing or
+    // duplicated key, a corrupt bootstrap header or metadata blob, a section
+    // reference outside the physical area, or a doc-count disagreement.
+    Status prepare_rewrite_snapshot(const std::vector<LogicalIndexKey>& keep,
+                                    uint64_t segment_doc_count,
+                                    SniiRewriteSnapshot* const out) const;
+
     io::FileReader* reader() const { return reader_; }
 
 private:
     io::FileReader* reader_ = nullptr;
+    // Start of the raw metadata directory. Together with the directory entries it
+    // bounds the metadata area, which is where the physical section area ends.
+    uint64_t directory_offset_ = 0;
     format::MetadataDirectory directory_;
 };
 

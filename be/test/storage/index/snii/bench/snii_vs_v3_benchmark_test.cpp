@@ -109,6 +109,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/compaction/util/index_compaction_utils.cpp"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"

@@ -119,6 +119,13 @@ public:
             doris::snii::writer::SniiStreamedIndexSession** session);
     void retain_snii_memory_reporter(
             std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
+    // SNII only, BUILD INDEX rewrite: copies the source container's valid
+    // physical prefix and registers the inherited metadata groups so begin_close
+    // re-emits them without decoding a posting. Must precede every
+    // add_snii_index on this writer (the copied prefix owns the container
+    // front).
+    Status inherit_snii(const doris::snii::reader::SniiRewriteSnapshot& snapshot,
+                        doris::snii::io::FileReader* source);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();

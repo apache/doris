@@ -75,6 +75,15 @@ public:
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr,
             doris::snii::reader::LogicalIndexOpenMode open_mode =
                     doris::snii::reader::LogicalIndexOpenMode::kQuery) const;
+    // SNII only: builds the fully validated inheritance view of this container
+    // for a BUILD INDEX rewrite. `segment_doc_count` is the segment's row count;
+    // every kept logical index must agree with it.
+    Status prepare_snii_rewrite_snapshot(
+            const std::vector<doris::snii::reader::LogicalIndexKey>& keep,
+            uint64_t segment_doc_count, doris::snii::reader::SniiRewriteSnapshot* out) const;
+    // SNII only: the raw byte source backing this container, handed to
+    // SniiCompoundWriter::inherit for the sequential prefix copy.
+    doris::snii::io::FileReader* snii_io_reader() const { return _snii_file_reader.get(); }
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;

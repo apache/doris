@@ -19,6 +19,7 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_storage_format_snii"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_array"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_add_index"
+    sql "DROP TABLE IF EXISTS test_storage_format_snii_build_index"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_bkd"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_array_bkd"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_ann"
@@ -195,14 +196,165 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
         ORDER BY id
     """
 
-    test {
-        if (isCloudMode()) {
-            sql "BUILD INDEX ON test_storage_format_snii"
-        } else {
-            sql "BUILD INDEX idx_body ON test_storage_format_snii"
+    def wait_for_latest_schema_change_finish = { table_name, timeout_ms ->
+        def delta_time = 1000
+        def used_time = 0
+        for (int t = delta_time; t <= timeout_ms; t += delta_time) {
+            def jobs = sql """
+                SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}"
+                ORDER BY CreateTime DESC LIMIT 1;
+            """
+            if (jobs.isEmpty() || jobs[0].toString().contains("FINISHED")) {
+                return
+            }
+            used_time = t
+            sleep(delta_time)
         }
-        exception "BUILD INDEX is not supported for SNII inverted index storage format yet"
+        assertTrue(used_time <= timeout_ms, "wait_for_latest_schema_change_finish timeout")
     }
+
+    def wait_for_build_index_finish = { table_name, timeout_ms ->
+        def delta_time = 1000
+        def used_time = 0
+        for (int t = delta_time; t <= timeout_ms; t += delta_time) {
+            def jobs = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            def finished = 0
+            for (int i = 0; i < jobs.size(); i++) {
+                logger.info(table_name + " build index job state: " + jobs[i][7])
+                assertNotEquals("CANCELLED", jobs[i][7], "build index job failed: " + jobs[i])
+                if (jobs[i][7] == "FINISHED") {
+                    ++finished
+                }
+            }
+            if (finished == jobs.size()) {
+                break
+            }
+            used_time = t
+            sleep(delta_time)
+        }
+        assertTrue(used_time <= timeout_ms, "wait_for_build_index_finish timeout")
+    }
+
+    def build_index_on = { table_name, index_name ->
+        // Cloud mode builds every index of the table and takes no index name.
+        if (isCloudMode()) {
+            sql "BUILD INDEX ON ${table_name}"
+        } else {
+            sql "BUILD INDEX ${index_name} ON ${table_name}"
+        }
+        wait_for_build_index_finish(table_name, 300000)
+    }
+
+    // Every rowset already carries idx_body, so this build has nothing left to do
+    // and must still succeed and leave the index queryable.
+    build_index_on("test_storage_format_snii", "idx_body")
+    order_qt_build_index_already_complete """
+        SELECT id FROM test_storage_format_snii
+        WHERE body MATCH_PHRASE 'quick brown'
+        ORDER BY id
+    """
+
+    sql """
+        CREATE TABLE test_storage_format_snii_build_index (
+          id INT NOT NULL,
+          body TEXT NULL,
+          note TEXT NULL,
+          INDEX idx_bi_body (`body`) USING INVERTED PROPERTIES(
+            "parser" = "english",
+            "support_phrase" = "true",
+            "lower_case" = "true"
+          ) COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        PARTITION BY RANGE(`id`) (
+          PARTITION p1 VALUES LESS THAN ("100"),
+          PARTITION p2 VALUES LESS THAN ("200")
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "disable_auto_compaction" = "true",
+          "inverted_index_storage_format" = "SNII"
+        );
+    """
+
+    // Historical data, written before the new indexes exist.
+    sql """
+        INSERT INTO test_storage_format_snii_build_index VALUES
+          (1, 'quick brown fox', 'alpha'),
+          (2, 'quick fox', 'beta'),
+          (101, 'lazy brown dog', 'alpha'),
+          (102, 'lazy dog', 'gamma');
+    """
+    sql "sync"
+
+    // Light index add: only new data carries the indexes, so the historical rowsets
+    // above are exactly what BUILD INDEX has to backfill. Two indexes land on the
+    // same column, which the build must satisfy from a single column read.
+    sql "SET enable_add_index_for_new_data = true"
+    sql """
+        ALTER TABLE test_storage_format_snii_build_index
+        ADD INDEX idx_bi_note (`note`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
+    """
+    wait_for_latest_schema_change_finish("test_storage_format_snii_build_index", 300000)
+    sql """
+        ALTER TABLE test_storage_format_snii_build_index
+        ADD INDEX idx_bi_note_tokenized (`note`) USING INVERTED PROPERTIES(
+          "parser" = "english"
+        ) COMMENT ''
+    """
+    wait_for_latest_schema_change_finish("test_storage_format_snii_build_index", 300000)
+    sql "sync"
+
+    if (isCloudMode()) {
+        sql "BUILD INDEX ON test_storage_format_snii_build_index"
+    } else {
+        sql "BUILD INDEX idx_bi_note ON test_storage_format_snii_build_index"
+        sql """
+            BUILD INDEX idx_bi_note_tokenized ON test_storage_format_snii_build_index
+            PARTITIONS(p1, p2)
+        """
+    }
+    wait_for_build_index_finish("test_storage_format_snii_build_index", 300000)
+
+    // The newly built index now answers over the historical rowsets ...
+    order_qt_build_index_history """
+        SELECT id FROM test_storage_format_snii_build_index
+        WHERE note MATCH_ANY 'alpha'
+        ORDER BY id
+    """
+    // ... and the index that was already there keeps answering phrase queries.
+    order_qt_build_index_untouched_phrase """
+        SELECT id FROM test_storage_format_snii_build_index
+        WHERE body MATCH_PHRASE 'quick brown'
+        ORDER BY id
+    """
+
+    // Data written after the build carries every index without a further build.
+    sql """
+        INSERT INTO test_storage_format_snii_build_index VALUES
+          (3, 'quick lazy fox', 'alpha'),
+          (103, 'brown dog', 'delta');
+    """
+    sql "sync"
+    order_qt_build_index_new_data """
+        SELECT id FROM test_storage_format_snii_build_index
+        WHERE note MATCH_ANY 'alpha'
+        ORDER BY id
+    """
+    order_qt_build_index_new_data_phrase """
+        SELECT id FROM test_storage_format_snii_build_index
+        WHERE body MATCH_PHRASE 'brown dog'
+        ORDER BY id
+    """
+
+    // Rebuilding is idempotent: finished rowsets are skipped, results do not move.
+    build_index_on("test_storage_format_snii_build_index", "idx_bi_note")
+    order_qt_build_index_rerun """
+        SELECT id FROM test_storage_format_snii_build_index
+        WHERE note MATCH_ANY 'alpha'
+        ORDER BY id
+    """
 
     sql """
         CREATE TABLE test_storage_format_snii_add_index (

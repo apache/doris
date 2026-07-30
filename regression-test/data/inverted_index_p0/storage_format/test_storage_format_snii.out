@@ -38,3 +38,27 @@
 
 -- !array_char_contains --
 1
+
+-- !build_index_already_complete --
+5
+
+-- !build_index_history --
+1
+101
+
+-- !build_index_untouched_phrase --
+1
+
+-- !build_index_new_data --
+1
+101
+3
+
+-- !build_index_new_data_phrase --
+101
+103
+
+-- !build_index_rerun --
+1
+101
+3

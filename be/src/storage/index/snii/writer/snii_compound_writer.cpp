@@ -17,6 +17,7 @@
 
 #include "storage/index/snii/writer/snii_compound_writer.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "storage/index/snii/common/slice.h"
@@ -26,6 +27,7 @@
 #include "storage/index/snii/format/core_metadata.h"
 #include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/format/tail_pointer.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
 
 namespace doris::snii::writer {
 
@@ -61,6 +63,73 @@ Status SniiCompoundWriter::ensure_bootstrap() {
     return Status::OK();
 }
 
+Status SniiCompoundWriter::inherit(const reader::SniiRewriteSnapshot& snapshot,
+                                   io::FileReader* source) {
+    if (out_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
+    }
+    if (source == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null inherit source");
+    }
+    if (!failed_.ok()) {
+        return failed_;
+    }
+    // Every rejection below poisons the writer. The caller asked for a container
+    // holding the inherited indexes; sealing one without them would silently drop
+    // logical indexes the target schema requires.
+    if (finished_) {
+        return poison(
+                Status::Error<ErrorCode::INTERNAL_ERROR, false>("compound: inherit after finish"));
+    }
+    if (inherited_prefix_) {
+        return poison(Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "compound: inherit called twice; one source prefix is copied at most once"));
+    }
+    if (bootstrap_written_ || out_->bytes_written() != 0) {
+        return poison(Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "compound: inherit must be the first data operation; the copied prefix owns the "
+                "front of the container"));
+    }
+
+    // Sequential copy through a fixed-size buffer: peak memory is one chunk no
+    // matter how large the source container is.
+    const uint64_t prefix_end = snapshot.physical_prefix_end();
+    std::vector<uint8_t> chunk;
+    while (out_->bytes_written() < prefix_end) {
+        const auto chunk_size = static_cast<size_t>(
+                std::min<uint64_t>(kInheritCopyChunkBytes, prefix_end - out_->bytes_written()));
+        Status status = source->read_at(out_->bytes_written(), chunk_size, &chunk);
+        if (!status.ok()) {
+            return poison(status);
+        }
+        DORIS_CHECK_EQ(chunk.size(), chunk_size);
+        status = append(chunk);
+        if (!status.ok()) {
+            return poison(status);
+        }
+    }
+    // The copied prefix starts with the source's bootstrap header, which the
+    // snapshot validated, so the container must not get a second one.
+    bootstrap_written_ = true;
+    inherited_prefix_ = true;
+
+    inherited_.reserve(snapshot.inherited().size());
+    for (const reader::InheritedLogicalIndex& index : snapshot.inherited()) {
+        InheritedGroup group;
+        group.index_id = index.index_id;
+        group.index_suffix = index.index_suffix;
+        group.metadata_group = index.metadata_group;
+        group.core_length = index.core_length;
+        group.sampled_term_index_length = index.sampled_term_index_length;
+        group.dict_block_directory_length = index.dict_block_directory_length;
+        DORIS_CHECK_EQ(group.metadata_group.size(), group.core_length +
+                                                            group.sampled_term_index_length +
+                                                            group.dict_block_directory_length);
+        inherited_.push_back(std::move(group));
+    }
+    return Status::OK();
+}
+
 Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
     if (out_ == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
@@ -72,6 +141,13 @@ Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
                 "compound: add_logical_index while a streamed index session is active (its "
                 "posting region streams straight into the output; interleaving would corrupt "
                 "both indexes)");
+    for (const InheritedGroup& group : inherited_) {
+        if (group.index_id == in.index_id && group.index_suffix == in.index_suffix) {
+            return poison(Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "compound: new logical index reuses an inherited key; the final directory "
+                    "must hold each key exactly once"));
+        }
+    }
     RETURN_IF_ERROR(ensure_bootstrap());
     auto liw = std::make_unique<LogicalIndexWriter>(in);
     Placement p;
@@ -311,7 +387,25 @@ Status SniiCompoundWriter::write_norms() {
 
 Status SniiCompoundWriter::write_tail() {
     std::vector<LogicalIndexMetadataRef> directory_entries;
-    directory_entries.reserve(indexes_.size());
+    directory_entries.reserve(inherited_.size() + indexes_.size());
+    // Inherited metadata groups are re-emitted verbatim: their section references
+    // already point into the copied prefix, which landed at identical offsets, so
+    // no posting is decoded or re-encoded. Only the group's own position moves.
+    for (const InheritedGroup& group : inherited_) {
+        LogicalIndexMetadataRef entry;
+        entry.index_id = group.index_id;
+        entry.index_suffix = group.index_suffix;
+        const uint64_t core_offset = out_->bytes_written();
+        entry.core_metadata = {.offset = core_offset, .length = group.core_length};
+        entry.sampled_term_index = {.offset = core_offset + group.core_length,
+                                    .length = group.sampled_term_index_length};
+        entry.dict_block_directory = {
+                .offset = core_offset + group.core_length + group.sampled_term_index_length,
+                .length = group.dict_block_directory_length};
+        RETURN_IF_ERROR(append(group.metadata_group));
+        DORIS_CHECK_EQ(out_->bytes_written(), core_offset + group.metadata_group.size());
+        directory_entries.push_back(std::move(entry));
+    }
     for (size_t i = 0; i < indexes_.size(); ++i) {
         const LogicalIndexWriter& w = *indexes_[i];
         const Placement& p = placements_[i];

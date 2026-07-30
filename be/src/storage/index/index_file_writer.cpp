@@ -263,6 +263,21 @@ void IndexFileWriter::retain_snii_memory_reporter(
     _snii_memory_reporters.emplace_back(std::move(mem_reporter));
 }
 
+Status IndexFileWriter::inherit_snii(const doris::snii::reader::SniiRewriteSnapshot& snapshot,
+                                     doris::snii::io::FileReader* source) {
+    DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
+    if (_idx_v2_writer == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                "SNII index file writer is null for {}", _index_path_prefix);
+    }
+    if (_snii_file_writer == nullptr) {
+        _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
+        _snii_compound_writer =
+                std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+    }
+    return _snii_compound_writer->inherit(snapshot, source);
+}
+
 Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {
     DBUG_EXECUTE_IF("IndexFileWriter::delete_index_index_meta_nullptr", { index_meta = nullptr; });
     if (!index_meta) {

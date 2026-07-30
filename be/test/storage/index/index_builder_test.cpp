@@ -246,7 +246,18 @@ protected:
         return builder.do_build_inverted_index();
     }
 
-    static TabletSchemaSPtr create_snii_drop_schema() {
+    // One SNII inverted index for the schema/plan helpers below.
+    struct SniiIndexSpec {
+        int64_t index_id;
+        std::string_view index_name;
+        int32_t column_unique_id;
+        std::map<std::string, std::string> properties = {
+                {"parser", "english"}, {"lower_case", "true"}, {"support_phrase", "true"}};
+    };
+
+    // SNII schema with k1(uid 1, key) + body_a(uid 2) + body_b(uid 3) and the
+    // given inverted indexes.
+    static TabletSchemaSPtr create_snii_schema(const std::vector<SniiIndexSpec>& indexes) {
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(DUP_KEYS);
         schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
@@ -274,20 +285,24 @@ protected:
             tablet_schema->append_column(column);
         }
 
-        for (const auto& [index_id, index_name, column_unique_id] :
-             {std::tuple<int64_t, std::string_view, int32_t> {1, "idx_a", 2},
-              std::tuple<int64_t, std::string_view, int32_t> {2, "idx_b", 3}}) {
+        for (const auto& spec : indexes) {
             TabletIndex index;
-            index._index_id = index_id;
-            index._index_name = index_name;
+            index._index_id = spec.index_id;
+            index._index_name = spec.index_name;
             index._index_type = IndexType::INVERTED;
-            index._col_unique_ids.push_back(column_unique_id);
-            index._properties["parser"] = "english";
-            index._properties["lower_case"] = "true";
-            index._properties["support_phrase"] = "true";
+            index._col_unique_ids.push_back(spec.column_unique_id);
+            for (const auto& [key, value] : spec.properties) {
+                index._properties[key] = value;
+            }
             tablet_schema->append_index(std::move(index));
         }
         return tablet_schema;
+    }
+
+    static TabletSchemaSPtr create_snii_drop_schema() {
+        return create_snii_schema(
+                {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2},
+                 SniiIndexSpec {.index_id = 2, .index_name = "idx_b", .column_unique_id = 3}});
     }
 
     Status create_snii_drop_tablet(const TabletSchemaSPtr& tablet_schema,
@@ -355,6 +370,102 @@ protected:
         DORIS_CHECK_EQ(builder._output_rowsets.size(), 1);
         *output_rowset = builder._output_rowsets.front();
         return Status::OK();
+    }
+
+    static TOlapTableIndex create_build_index(int64_t index_id, std::string index_name,
+                                              std::string column_name, int32_t column_unique_id,
+                                              std::map<std::string, std::string> properties) {
+        TOlapTableIndex index = create_drop_index(index_id, std::move(index_name),
+                                                  std::move(column_name), column_unique_id);
+        index.__set_properties(properties);
+        return index;
+    }
+
+    // Runs a BUILD INDEX task; rowsets whose schema already carries every
+    // requested index are skipped upstream (pick_candidate_rowsets), so the
+    // output may legitimately be empty.
+    Status build_snii_index(const TabletSharedPtr& tablet, std::vector<TOlapTableIndex> indexes,
+                            std::vector<RowsetSharedPtr>* output_rowsets) const {
+        IndexBuilder builder(*_engine_ref, tablet, _columns, indexes, false);
+        RETURN_IF_ERROR(builder.init());
+        RETURN_IF_ERROR(builder.do_build_inverted_index());
+        *output_rowsets = builder._output_rowsets;
+        return Status::OK();
+    }
+
+    static std::string snii_index_path_of(const RowsetSharedPtr& rowset) {
+        auto segment_path = rowset->segment_path(0);
+        EXPECT_TRUE(segment_path.has_value()) << segment_path.error();
+        return segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value()));
+    }
+
+    static std::unique_ptr<segment_v2::IndexFileReader> open_snii_reader(
+            const RowsetSharedPtr& rowset, int64_t tablet_id) {
+        auto segment_path = rowset->segment_path(0);
+        EXPECT_TRUE(segment_path.has_value()) << segment_path.error();
+        const std::string index_path_prefix {
+                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(
+                        segment_path.value())};
+        auto reader = std::make_unique<segment_v2::IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix,
+                InvertedIndexStorageFormatPB::SNII, InvertedIndexFileInfo(), tablet_id);
+        EXPECT_TRUE(reader->init().ok());
+        return reader;
+    }
+
+    // Asserts term -> docids through the logical index (index_id) of rowset.
+    static void assert_snii_term(const RowsetSharedPtr& rowset, int64_t tablet_id,
+                                 int32_t column_unique_id, int64_t index_id,
+                                 const std::string& term,
+                                 const std::vector<uint32_t>& expected_docids) {
+        auto reader = open_snii_reader(rowset, tablet_id);
+        const auto index_metas = rowset->tablet_schema()->inverted_indexs(column_unique_id);
+        const TabletIndex* index_meta = nullptr;
+        for (const auto* candidate : index_metas) {
+            if (candidate->index_id() == index_id) {
+                index_meta = candidate;
+            }
+        }
+        ASSERT_NE(index_meta, nullptr) << "index " << index_id << " missing from output schema";
+        auto logical_index = reader->open_snii_index(index_meta);
+        ASSERT_TRUE(logical_index.has_value()) << logical_index.error();
+        std::vector<uint32_t> docids;
+        ASSERT_TRUE(snii::query::term_query(*logical_index.value(), term, &docids).ok());
+        EXPECT_EQ(docids, expected_docids) << "term=" << term << " index_id=" << index_id;
+    }
+
+    // Asserts the output container carries the source's valid physical prefix
+    // byte for byte (which also pins that the prefix was copied exactly once:
+    // a second copy would displace every inherited section reference).
+    static void assert_snii_inherited_prefix(
+            const RowsetSharedPtr& source_rowset, const RowsetSharedPtr& output_rowset,
+            int64_t tablet_id, const std::vector<snii::reader::LogicalIndexKey>& inherit_keys,
+            uint32_t doc_count) {
+        auto source_reader = open_snii_reader(source_rowset, tablet_id);
+        snii::reader::SniiRewriteSnapshot snapshot;
+        ASSERT_TRUE(source_reader->prepare_snii_rewrite_snapshot(inherit_keys, doc_count, &snapshot)
+                            .ok());
+        ASSERT_GT(snapshot.physical_prefix_end(), 0U);
+
+        const auto read_all = [](const std::string& path) {
+            io::FileReaderSPtr file_reader;
+            EXPECT_TRUE(io::global_local_filesystem()->open_file(path, &file_reader).ok());
+            std::string content(file_reader->size(), '\0');
+            size_t bytes_read = 0;
+            Slice slice(content);
+            EXPECT_TRUE(file_reader->read_at(0, slice, &bytes_read).ok());
+            EXPECT_EQ(bytes_read, content.size());
+            return content;
+        };
+        const std::string source_bytes = read_all(snii_index_path_of(source_rowset));
+        const std::string output_bytes = read_all(snii_index_path_of(output_rowset));
+        ASSERT_GE(source_bytes.size(), snapshot.physical_prefix_end());
+        ASSERT_GE(output_bytes.size(), snapshot.physical_prefix_end());
+        EXPECT_EQ(source_bytes.substr(0, snapshot.physical_prefix_end()),
+                  output_bytes.substr(0, snapshot.physical_prefix_end()))
+                << "inherited physical prefix must be byte-identical";
     }
 
     static void assert_snii_surviving_index(const RowsetSharedPtr& source_rowset,
@@ -3412,6 +3523,194 @@ TEST_F(IndexBuilderTest, DropOneSniiIndexPreservesSurvivingPhysicalIndex) {
     ASSERT_TRUE(drop_snii_index(tablet, create_drop_index(2, "idx_b", "body_b", 3), &final_rowset)
                         .ok());
     assert_last_snii_index_dropped(source_rowset, final_rowset);
+}
+
+// Classification only: unchanged-and-present -> inherit; requested-and-absent ->
+// build; same key with a changed definition -> rebuild, never inherit; a container
+// key the target schema no longer holds is not inherited; two build indexes on one
+// column share one column group (the "scan the column once" pin).
+TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesInheritBuildReplaceAndDrop) {
+    const auto input_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    auto output_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2},
+             SniiIndexSpec {.index_id = 2, .index_name = "idx_b", .column_unique_id = 3},
+             SniiIndexSpec {.index_id = 3,
+                            .index_name = "idx_c",
+                            .column_unique_id = 3,
+                            .properties = {{"parser", "none"}}}});
+    // The container carries idx_a plus a stale key (9) the target schema dropped.
+    const auto container_has = [](const TabletIndex& index, bool* exists) {
+        *exists = index.index_id() == 1;
+        return Status::OK();
+    };
+
+    IndexBuilder::SniiIndexRewritePlan plan;
+    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {2, 3},
+                                                      container_has, &plan)
+                        .ok());
+    ASSERT_EQ(plan.inherit_keys.size(), 1U);
+    EXPECT_EQ(plan.inherit_keys.front().index_id, 1U);
+    // idx_b and idx_c both target column 3: exactly ONE column group with both.
+    ASSERT_EQ(plan.build_columns.size(), 1U);
+    EXPECT_EQ(plan.build_columns.front().first, 3);
+    ASSERT_EQ(plan.build_columns.front().second.size(), 2U);
+}
+
+TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesReplaceAndRetry) {
+    const auto input_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    const auto container_has = [](const TabletIndex& index, bool* exists) {
+        *exists = index.index_id() == 1;
+        return Status::OK();
+    };
+
+    // Same key, changed definition: the request replaces idx_a's parser, so the
+    // old metadata must NOT be inherited -- the index is rebuilt.
+    auto replaced_schema = create_snii_schema({SniiIndexSpec {.index_id = 1,
+                                                              .index_name = "idx_a",
+                                                              .column_unique_id = 2,
+                                                              .properties = {{"parser", "none"}}}});
+    IndexBuilder::SniiIndexRewritePlan replace_plan;
+    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *replaced_schema, {1},
+                                                      container_has, &replace_plan)
+                        .ok());
+    EXPECT_TRUE(replace_plan.inherit_keys.empty());
+    ASSERT_EQ(replace_plan.build_columns.size(), 1U);
+    EXPECT_EQ(replace_plan.build_columns.front().first, 2);
+
+    // Retry: the requested index already exists in schema and container with the
+    // same definition -> inherit, no build work at all.
+    IndexBuilder::SniiIndexRewritePlan retry_plan;
+    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *input_schema, {1},
+                                                      container_has, &retry_plan)
+                        .ok());
+    ASSERT_EQ(retry_plan.inherit_keys.size(), 1U);
+    EXPECT_TRUE(retry_plan.build_columns.empty());
+}
+
+TEST_F(IndexBuilderTest, SniiBuildAddsSecondIndexAndInheritsFirst) {
+    const auto tablet_path = _absolute_dir + "/15691";
+    auto tablet_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(create_snii_source_rowset(tablet, tablet_schema, tablet_path, &source_rowset).ok());
+
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet,
+                                 {create_build_index(2, "idx_b", "body_b", 3,
+                                                     {{"parser", "english"},
+                                                      {"lower_case", "true"},
+                                                      {"support_phrase", "true"}})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const RowsetSharedPtr& output_rowset = output_rowsets.front();
+
+    ASSERT_TRUE(output_rowset->tablet_schema()->has_inverted_index_with_index_id(1));
+    ASSERT_TRUE(output_rowset->tablet_schema()->has_inverted_index_with_index_id(2));
+    // The inherited index answers as before; the built index answers over the
+    // historical rows.
+    assert_snii_term(output_rowset, tablet->tablet_id(), 2, 1, "drop", {0, 1});
+    assert_snii_term(output_rowset, tablet->tablet_id(), 3, 2, "keep", {0, 1});
+    assert_snii_inherited_prefix(source_rowset, output_rowset, tablet->tablet_id(),
+                                 {{.index_id = 1, .index_suffix = ""}}, /*doc_count=*/2);
+}
+
+TEST_F(IndexBuilderTest, SniiBuildAllSharesOneColumnScanAndOnePrefixCopy) {
+    const auto tablet_path = _absolute_dir + "/15691";
+    auto tablet_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(create_snii_source_rowset(tablet, tablet_schema, tablet_path, &source_rowset).ok());
+
+    // BUILD ALL: two new indexes on the SAME column plus the untouched idx_a.
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(
+            build_snii_index(tablet,
+                             {create_build_index(2, "idx_b", "body_b", 3,
+                                                 {{"parser", "english"},
+                                                  {"lower_case", "true"},
+                                                  {"support_phrase", "true"}}),
+                              create_build_index(3, "idx_c", "body_b", 3, {{"parser", "none"}})},
+                             &output_rowsets)
+                    .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    const RowsetSharedPtr& output_rowset = output_rowsets.front();
+
+    assert_snii_term(output_rowset, tablet->tablet_id(), 2, 1, "drop", {0, 1});
+    assert_snii_term(output_rowset, tablet->tablet_id(), 3, 2, "keep", {0, 1});
+    // idx_c is untokenized: the whole cell value is one term.
+    assert_snii_term(output_rowset, tablet->tablet_id(), 3, 3, "keep alpha", {0});
+    assert_snii_inherited_prefix(source_rowset, output_rowset, tablet->tablet_id(),
+                                 {{.index_id = 1, .index_suffix = ""}}, /*doc_count=*/2);
+}
+
+// A retried build names an index the rowset schema already carries: the rowset
+// is skipped upstream (pick_candidate_rowsets_to_build_inverted_index), so no
+// analyzer, decode or encode runs and nothing is rewritten. The same-key-with-
+// changed-definition case is unreachable here for the same reason; its
+// classification is pinned by SniiBuildPlanClassifiesReplaceAndRetry.
+TEST_F(IndexBuilderTest, SniiBuildRetrySkipsRowsetsAlreadyCoveringTheIndex) {
+    const auto tablet_path = _absolute_dir + "/15691";
+    auto tablet_schema = create_snii_drop_schema(); // idx_a and idx_b both present
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(create_snii_source_rowset(tablet, tablet_schema, tablet_path, &source_rowset).ok());
+
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet,
+                                 {create_build_index(2, "idx_b", "body_b", 3,
+                                                     {{"parser", "english"},
+                                                      {"lower_case", "true"},
+                                                      {"support_phrase", "true"}})},
+                                 &output_rowsets)
+                        .ok());
+    // Skipped, not rewritten: no output rowset, the tablet still serves the
+    // original one, and the container remains fully queryable.
+    EXPECT_TRUE(output_rowsets.empty());
+    auto rowset = tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(rowset, nullptr);
+    EXPECT_EQ(rowset->rowset_id(), source_rowset->rowset_id());
+    assert_snii_term(source_rowset, tablet->tablet_id(), 2, 1, "drop", {0, 1});
+    assert_snii_term(source_rowset, tablet->tablet_id(), 3, 2, "keep", {0, 1});
+}
+
+TEST_F(IndexBuilderTest, SniiBuildFailureCommitsNoRowset) {
+    const auto tablet_path = _absolute_dir + "/15691";
+    auto tablet_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(create_snii_source_rowset(tablet, tablet_schema, tablet_path, &source_rowset).ok());
+
+    ScopedIndexBuilderDebugPoints debug_points;
+    debug_points.enable("IndexBuilder::handle_single_rowset_snii_index_build_finish_error");
+    std::vector<RowsetSharedPtr> output_rowsets;
+    const Status status = build_snii_index(
+            tablet,
+            {create_build_index(
+                    2, "idx_b", "body_b", 3,
+                    {{"parser", "english"}, {"lower_case", "true"}, {"support_phrase", "true"}})},
+            &output_rowsets);
+    // Specifically the INJECTED failure: the SNII build path must run far enough
+    // to hit the debug point and then fail the whole task.
+    ASSERT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>())
+            << "expected the injected index build failure, got: " << status;
+
+    // The source rowset is untouched and still fully queryable ...
+    assert_snii_term(source_rowset, tablet->tablet_id(), 2, 1, "drop", {0, 1});
+    // ... and the tablet still serves the ORIGINAL rowset for that version: the
+    // failed build committed nothing.
+    auto rowset = tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(rowset, nullptr);
+    EXPECT_EQ(rowset->rowset_id(), source_rowset->rowset_id());
 }
 
 } // namespace doris

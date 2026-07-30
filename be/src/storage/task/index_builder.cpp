@@ -19,6 +19,7 @@
 
 #include <mutex>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "storage/index/index_file_reader.h"
@@ -58,6 +59,62 @@ Status IndexBuilder::init() {
     for (auto inverted_index : _alter_inverted_indexes) {
         _alter_index_ids.insert(inverted_index.index_id);
     }
+    return Status::OK();
+}
+
+Status IndexBuilder::plan_snii_index_rewrite(
+        const TabletSchema& input_schema, const TabletSchema& output_schema,
+        const std::set<int64_t>& alter_index_ids,
+        const std::function<Status(const TabletIndex&, bool*)>& container_has,
+        SniiIndexRewritePlan* plan) {
+    DORIS_CHECK(plan != nullptr);
+    plan->inherit_keys.clear();
+    plan->build_columns.clear();
+    // Keyed and ordered by column unique id, so one raw column read feeds every
+    // index on that column and the output layout is deterministic.
+    std::map<int32_t, std::vector<const TabletIndex*>> build_by_column;
+    std::set<std::pair<uint64_t, std::string>> seen_keys;
+    for (const TabletIndex* index : output_schema.inverted_indexes()) {
+        const auto key =
+                std::make_pair(cast_set<uint64_t>(index->index_id()), index->get_index_suffix());
+        // The target schema holds each logical index exactly once; the final
+        // directory could not hold a duplicate key anyway.
+        DORIS_CHECK(seen_keys.insert(key).second);
+        if (index->col_unique_ids().empty()) {
+            LOG(WARNING) << "SNII index " << index->index_id()
+                         << " has no column unique id; it stays absent from the rewrite";
+            continue;
+        }
+        bool in_container = false;
+        RETURN_IF_ERROR(container_has(*index, &in_container));
+        const TabletIndex* input_index = nullptr;
+        for (const TabletIndex* candidate : input_schema.inverted_indexes()) {
+            if (candidate->index_id() == index->index_id() &&
+                candidate->get_index_suffix() == index->get_index_suffix()) {
+                input_index = candidate;
+                break;
+            }
+        }
+        const bool definition_unchanged =
+                input_index != nullptr && input_index->properties() == index->properties();
+        if (in_container && definition_unchanged) {
+            plan->inherit_keys.push_back({.index_id = key.first, .index_suffix = key.second});
+            continue;
+        }
+        if (!in_container && !alter_index_ids.contains(index->index_id())) {
+            // Not requested and nothing to inherit: the index stays absent for
+            // this rowset, exactly as the V2 path leaves it.
+            LOG(INFO) << "SNII index " << index->index_id()
+                      << " is absent from the source container and was not requested; "
+                         "it stays absent from the rewritten rowset";
+            continue;
+        }
+        // Requested and buildable, or present under the same key with a CHANGED
+        // definition: the final directory must match the target schema, so the
+        // old metadata is dropped and the index is rebuilt from the raw column.
+        build_by_column[index->col_unique_ids()[0]].push_back(index);
+    }
+    plan->build_columns.assign(build_by_column.begin(), build_by_column.end());
     return Status::OK();
 }
 
@@ -245,6 +302,14 @@ Status IndexBuilder::update_inverted_index_info() {
         context.newest_write_timestamp = input_rs_reader->newest_write_timestamp();
         auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
         _pending_rs_guards.push_back(_engine.add_pending_rowset(context));
+        if (!_is_drop_op && output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                                    InvertedIndexStorageFormatPB::SNII) {
+            // The rewrite plan compares index definitions between the input and
+            // output schema (inherit vs rebuild); keep the input schema reachable
+            // from the output rowset id.
+            _input_rowset_schemas.emplace(output_rs_writer->rowset_id().to_string(),
+                                          input_rs_tablet_schema);
+        }
 
         // if without_index_uids is not empty, copy _alter_index_ids to it
         // else just use _alter_index_ids to avoid copy
@@ -442,6 +507,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         // create inverted or ann index writer
         const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        if (output_rowset_schema->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::SNII) {
+            return _handle_single_rowset_snii(output_rowset_meta, segments);
+        }
         size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string index_path_prefix {
@@ -453,11 +522,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
 
             std::unique_ptr<IndexFileWriter> index_file_writer = nullptr;
-            if (output_rowset_schema->get_inverted_index_storage_format() ==
-                InvertedIndexStorageFormatPB::SNII) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                        "BUILD INDEX is not supported for SNII inverted index storage format yet");
-            }
             if (output_rowset_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
                 auto idx_file_reader_iter = _index_file_readers.find(
@@ -702,6 +766,205 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
     }
 
+    return Status::OK();
+}
+
+Status IndexBuilder::_handle_single_rowset_snii(
+        RowsetMetaSharedPtr output_rowset_meta,
+        std::vector<segment_v2::SegmentSharedPtr>& segments) {
+    const std::string rowset_id = output_rowset_meta->rowset_id().to_string();
+    auto input_schema_it = _input_rowset_schemas.find(rowset_id);
+    DORIS_CHECK(input_schema_it != _input_rowset_schemas.end());
+
+    for (auto& seg_ptr : segments) {
+        RETURN_IF_ERROR(_rewrite_single_segment_snii(output_rowset_meta->fs(),
+                                                     output_rowset_meta->tablet_schema(),
+                                                     *input_schema_it->second, rowset_id, seg_ptr));
+    }
+    size_t inverted_index_size = 0;
+    for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
+        RETURN_IF_ERROR(index_file_writer->begin_close());
+        inverted_index_size += index_file_writer->get_index_file_total_size();
+    }
+    for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
+        RETURN_IF_ERROR(index_file_writer->finish_close());
+    }
+    _index_column_writers.clear();
+    _index_file_writers.clear();
+    output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
+    output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                            inverted_index_size);
+    output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                            inverted_index_size);
+    LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
+    return Status::OK();
+}
+
+Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
+                                                  const TabletSchemaSPtr& output_rowset_schema,
+                                                  const TabletSchema& input_schema,
+                                                  const std::string& rowset_id,
+                                                  const segment_v2::SegmentSharedPtr& seg_ptr) {
+    // The source reader was registered in update_inverted_index_info. A rowset
+    // written before any index existed has no container file at all; everything
+    // requested is then built fresh.
+    auto reader_it = _index_file_readers.find(std::make_pair(rowset_id, seg_ptr->id()));
+    DORIS_CHECK(reader_it != _index_file_readers.end());
+    IndexFileReader* source_reader = reader_it->second.get();
+    bool has_container = true;
+    {
+        Status init_status = source_reader->init();
+        if (init_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+            has_container = false;
+        } else if (!init_status.ok()) {
+            return init_status;
+        }
+    }
+    const auto container_has = [source_reader, has_container](const TabletIndex& index,
+                                                              bool* exists) -> Status {
+        if (!has_container) {
+            *exists = false;
+            return Status::OK();
+        }
+        return source_reader->index_file_exist(&index, exists);
+    };
+    SniiIndexRewritePlan plan;
+    RETURN_IF_ERROR(plan_snii_index_rewrite(input_schema, *output_rowset_schema, _alter_index_ids,
+                                            container_has, &plan));
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(_tablet->tablet_path(), rowset_id, seg_ptr->id()))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    RETURN_IF_ERROR(fs->create_file(index_path, &file_writer));
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            fs, index_path_prefix, rowset_id, seg_ptr->id(), InvertedIndexStorageFormatPB::SNII,
+            std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
+
+    // ONE inheritance of the source's physical prefix per segment container:
+    // unchanged indexes cost no analyzer, no postings decode and no encode.
+    if (!plan.inherit_keys.empty()) {
+        DORIS_CHECK(has_container);
+        snii::reader::SniiRewriteSnapshot snapshot;
+        RETURN_IF_ERROR(source_reader->prepare_snii_rewrite_snapshot(
+                plan.inherit_keys, seg_ptr->num_rows(), &snapshot));
+        RETURN_IF_ERROR(index_file_writer->inherit_snii(snapshot, source_reader->snii_io_reader()));
+    }
+    if (!plan.build_columns.empty()) {
+        RETURN_IF_ERROR(_build_snii_indexes_for_segment(output_rowset_schema, plan,
+                                                        index_file_writer.get(), seg_ptr));
+    }
+    auto [file_writer_it, inserted] =
+            _index_file_writers.emplace(seg_ptr->id(), std::move(index_file_writer));
+    DORIS_CHECK(inserted);
+    DORIS_CHECK(file_writer_it->second != nullptr);
+    return Status::OK();
+}
+
+Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& output_rowset_schema,
+                                                     const SniiIndexRewritePlan& plan,
+                                                     IndexFileWriter* index_file_writer,
+                                                     const segment_v2::SegmentSharedPtr& seg_ptr) {
+    // One raw column read per column group; every writer on the column is fed
+    // from the same converted data.
+    std::vector<std::vector<std::pair<int64_t, int64_t>>> group_writer_signs;
+    std::vector<ColumnId> return_columns;
+    _olap_data_convertor->reserve(plan.build_columns.size());
+    for (const auto& [col_unique_id, index_metas] : plan.build_columns) {
+        const int32_t column_idx = output_rowset_schema->field_index(col_unique_id);
+        DORIS_CHECK_GE(column_idx, 0);
+        const TabletColumn& column = output_rowset_schema->column(column_idx);
+        DORIS_CHECK(segment_v2::IndexColumnWriter::check_support_inverted_index(column));
+        _olap_data_convertor->add_column_data_convertor(column);
+        return_columns.emplace_back(column_idx);
+        std::vector<std::pair<int64_t, int64_t>> signs;
+        for (const TabletIndex* index_meta : index_metas) {
+            std::unique_ptr<segment_v2::IndexColumnWriter> index_column_writer;
+            try {
+                RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
+                        &column, &index_column_writer, index_file_writer, index_meta));
+            } catch (const std::exception& e) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "CLuceneError occurred: {}", e.what());
+            }
+            auto writer_sign =
+                    std::make_pair<int64_t, int64_t>(seg_ptr->id(), index_meta->index_id());
+            auto [writer_it, inserted] = _index_column_writers.insert(
+                    std::make_pair(writer_sign, std::move(index_column_writer)));
+            DORIS_CHECK(inserted);
+            DORIS_CHECK(writer_it->second != nullptr);
+            signs.push_back(writer_sign);
+        }
+        group_writer_signs.push_back(std::move(signs));
+    }
+
+    StorageReadOptions read_options;
+    OlapReaderStatistics stats;
+    read_options.stats = &stats;
+    read_options.tablet_schema = output_rowset_schema;
+    std::shared_ptr<Schema> schema =
+            std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
+    std::unique_ptr<RowwiseIterator> iter;
+    RETURN_IF_ERROR(seg_ptr->new_iterator(schema, read_options, &iter));
+
+    auto block = Block::create_unique(output_rowset_schema->create_block(return_columns));
+    while (true) {
+        Status status = iter->next_batch(block.get());
+        if (!status.ok()) {
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            LOG(WARNING) << "failed to read next block when building SNII index."
+                         << ", err=" << status.to_string();
+            return status;
+        }
+        RETURN_IF_ERROR(_write_snii_index_data(output_rowset_schema, block.get(), plan,
+                                               group_writer_signs));
+        block->clear_column_data();
+    }
+    for (const auto& signs : group_writer_signs) {
+        for (const auto& writer_sign : signs) {
+            auto writer_it = _index_column_writers.find(writer_sign);
+            DORIS_CHECK(writer_it != _index_column_writers.end());
+            RETURN_IF_ERROR(writer_it->second->finish());
+            DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_snii_index_build_finish_error", {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "debug point: handle_single_rowset_snii_index_build_finish_error");
+            })
+        }
+    }
+    _olap_data_convertor->reset();
+    return Status::OK();
+}
+
+Status IndexBuilder::_write_snii_index_data(
+        const TabletSchemaSPtr& tablet_schema, Block* block, const SniiIndexRewritePlan& plan,
+        const std::vector<std::vector<std::pair<int64_t, int64_t>>>& group_writer_signs) {
+    _olap_data_convertor->set_source_content(block, 0, block->rows());
+    for (size_t group = 0; group < group_writer_signs.size(); ++group) {
+        auto converted_result = _olap_data_convertor->convert_column_data(group);
+        if (!converted_result.first.ok()) {
+            LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
+            return converted_result.first;
+        }
+        const TabletColumn& column = tablet_schema->column_by_uid(plan.build_columns[group].first);
+        const auto* base_ptr = (const uint8_t*)converted_result.second->get_data();
+        const auto* null_map = converted_result.second->get_nullmap();
+        for (const auto& writer_sign : group_writer_signs[group]) {
+            // _add_nullable/_add_data advance the value pointer as they consume
+            // rows; every writer on the column starts from the SAME converted
+            // data, which is exactly the shared-column-read guarantee.
+            const uint8_t* ptr = base_ptr;
+            if (null_map) {
+                RETURN_IF_ERROR(_add_nullable(column.name(), writer_sign, &column, null_map, &ptr,
+                                              block->rows()));
+            } else {
+                RETURN_IF_ERROR(
+                        _add_data(column.name(), writer_sign, &column, &ptr, block->rows()));
+            }
+        }
+    }
+    _olap_data_convertor->clear_source_content();
     return Status::OK();
 }
 

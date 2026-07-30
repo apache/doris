@@ -17,12 +17,15 @@
 
 #include "storage/index/snii/reader/snii_segment_reader.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/format/bootstrap_header.h"
 #include "storage/index/snii/format/core_metadata.h"
 #include "storage/index/snii/format/tail_pointer.h"
 
@@ -128,6 +131,7 @@ Status SniiSegmentReader::open(io::FileReader* const reader, SniiSegmentReader* 
     }
 
     out->reader_ = reader;
+    out->directory_offset_ = tail.directory_offset;
     out->directory_ = std::move(directory);
     return Status::OK();
 }
@@ -169,6 +173,90 @@ Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
     return LogicalIndexReader::open(
             reader_, bytes.subslice(0, core_length), bytes.subslice(core_length, sti_length),
             bytes.subslice(core_length + sti_length, dbd_length), out, open_mode);
+}
+
+Status SniiSegmentReader::prepare_rewrite_snapshot(const std::vector<LogicalIndexKey>& keep,
+                                                   uint64_t segment_doc_count,
+                                                   SniiRewriteSnapshot* const out) const {
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: null snapshot out");
+    }
+    *out = {};
+    if (reader_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
+    }
+
+    // The query path skips the bootstrap header because the tail already gates the
+    // container version. A rewrite copies those bytes into the new container, so it
+    // must not carry a header it never checked.
+    std::vector<uint8_t> bootstrap_bytes;
+    RETURN_IF_ERROR(reader_->read_at(0, format::kBootstrapHeaderSize, &bootstrap_bytes));
+    format::BootstrapHeader bootstrap;
+    RETURN_IF_ERROR(format::decode_bootstrap_header(Slice(bootstrap_bytes), &bootstrap));
+
+    // Metadata groups follow every physical section, so the first one marks the end
+    // of the physical area. Sections must live strictly before it.
+    uint64_t metadata_area_begin = directory_offset_;
+    for (const auto& entry : directory_.entries()) {
+        metadata_area_begin = std::min(metadata_area_begin, entry.core_metadata.offset);
+    }
+
+    // The bootstrap header is part of every inherited prefix, even when the kept
+    // indexes reference no section at all.
+    uint64_t physical_prefix_end = format::kBootstrapHeaderSize;
+    std::vector<InheritedLogicalIndex> inherited;
+    inherited.reserve(keep.size());
+    for (const LogicalIndexKey& key : keep) {
+        for (const InheritedLogicalIndex& seen : inherited) {
+            if (seen.index_id == key.index_id && seen.index_suffix == key.index_suffix) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                        "segment: logical index requested twice in one rewrite snapshot");
+            }
+        }
+        const format::LogicalIndexMetadataRef* entry = nullptr;
+        RETURN_IF_ERROR(find_metadata_ref(directory_, key.index_id, key.index_suffix, &entry));
+
+        // Safe to sum and narrow: open() ran validate_metadata_group on every entry.
+        InheritedLogicalIndex kept;
+        kept.index_id = entry->index_id;
+        kept.index_suffix = entry->index_suffix;
+        kept.core_length = static_cast<size_t>(entry->core_metadata.length);
+        kept.sampled_term_index_length = static_cast<size_t>(entry->sampled_term_index.length);
+        kept.dict_block_directory_length = static_cast<size_t>(entry->dict_block_directory.length);
+        const size_t group_length = kept.core_length + kept.sampled_term_index_length +
+                                    kept.dict_block_directory_length;
+        RETURN_IF_ERROR(
+                reader_->read_at(entry->core_metadata.offset, group_length, &kept.metadata_group));
+        DORIS_CHECK_EQ(kept.metadata_group.size(), group_length);
+
+        // Decoding validates the frame crc, so a damaged live index fails the whole
+        // rewrite instead of being silently carried over or dropped.
+        format::CoreMetadata core;
+        RETURN_IF_ERROR(format::decode_core_metadata(
+                Slice(kept.metadata_group.data(), kept.core_length), &core));
+        if (core.stats.doc_count != segment_doc_count) {
+            return corrupted("segment: inherited logical index doc count disagrees with segment");
+        }
+        kept.section_refs = core.section_refs;
+        kept.doc_count = core.stats.doc_count;
+
+        for (const format::RegionRef& region :
+             {core.section_refs.dict_region, core.section_refs.posting_region,
+              core.section_refs.norms, core.section_refs.null_bitmap, core.section_refs.bsbf}) {
+            if (region.offset > metadata_area_begin ||
+                region.length > metadata_area_begin - region.offset) {
+                return corrupted(
+                        "segment: inherited section reference is outside the physical "
+                        "area");
+            }
+            physical_prefix_end = std::max(physical_prefix_end, region.offset + region.length);
+        }
+        inherited.push_back(std::move(kept));
+    }
+
+    out->physical_prefix_end_ = physical_prefix_end;
+    out->inherited_ = std::move(inherited);
+    return Status::OK();
 }
 
 Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_view suffix,

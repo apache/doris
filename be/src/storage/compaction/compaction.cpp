@@ -294,9 +294,10 @@ Status Compaction::merge_input_rowsets() {
 
     // write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
-    // if ctx.columns_to_do_index_compaction.size() > 0, it means we need to do inverted index compaction.
-    // the row ID conversion matrix needs to be used for inverted index compaction.
-    if (!ctx.columns_to_do_index_compaction.empty() ||
+    // A non-empty index compaction set (per-column for V2/V3, per-index for
+    // SNII) means inverted index compaction runs and needs the row ID
+    // conversion matrix.
+    if (!ctx.columns_to_do_index_compaction.empty() || !ctx.snii_indexes_to_do_compaction.empty() ||
         (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
          _tablet->enable_unique_key_merge_on_write())) {
         _stats.rowid_conversion = _rowid_conversion.get();
@@ -810,10 +811,36 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
+// Iteration domain of inverted index compaction: V2/V3 merge EVERY index of
+// each column in columns_to_do_index_compaction (their per-column CLucene
+// directories move as a unit); SNII merges exactly the (column, index) pairs
+// the preflight proved eligible -- the segment writer already raw-built the
+// rest.
+static std::map<int32_t, std::vector<const TabletIndex*>> collect_index_compaction_domain(
+        const TabletSchema& schema, const RowsetWriterContext& ctx) {
+    std::map<int32_t, std::vector<const TabletIndex*>> column_index_metas;
+    if (schema.get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::SNII) {
+        for (const auto& [column_uniq_id, index_id] : ctx.snii_indexes_to_do_compaction) {
+            const auto& col = schema.column_by_uid(column_uniq_id);
+            for (const TabletIndex* index_meta : schema.inverted_indexs(col)) {
+                if (index_meta->index_id() == index_id) {
+                    column_index_metas[column_uniq_id].push_back(index_meta);
+                }
+            }
+        }
+        return column_index_metas;
+    }
+    for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
+        const auto& col = schema.column_by_uid(column_uniq_id);
+        column_index_metas.emplace(column_uniq_id, schema.inverted_indexs(col));
+    }
+    return column_index_metas;
+}
+
 Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!_enable_inverted_index_compaction || _input_row_num <= 0 ||
-        ctx.columns_to_do_index_compaction.empty()) {
+        (ctx.columns_to_do_index_compaction.empty() && ctx.snii_indexes_to_do_compaction.empty())) {
         return Status::OK();
     }
 
@@ -1040,9 +1067,9 @@ Status Compaction::do_inverted_index_compaction() {
         snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
                 nullptr, spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
     }
-    for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
+    for (auto&& [column_uniq_id, index_metas] :
+         collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
-        auto index_metas = _cur_tablet_schema->inverted_indexs(col);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_can_not_find_index_meta",
                         { index_metas.clear(); })
         if (index_metas.empty()) {
@@ -1273,6 +1300,9 @@ Status Compaction::do_inverted_index_compaction() {
 void Compaction::mark_skip_index_compaction(
         const RowsetWriterContext& context,
         const std::function<void(int64_t, int64_t)>& error_handler) {
+    for (const auto& [column_uniq_id, index_id] : context.snii_indexes_to_do_compaction) {
+        error_handler(index_id, column_uniq_id);
+    }
     for (auto&& column_uniq_id : context.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
         auto index_metas = _cur_tablet_schema->inverted_indexs(col);
@@ -1405,7 +1435,6 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
 void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
     if (_cur_tablet_schema->get_inverted_index_storage_format() ==
         InvertedIndexStorageFormatPB::SNII) {
-        std::map<int32_t, bool> column_eligibility;
         std::map<std::string, std::unique_ptr<IndexFileReader>> source_file_readers;
         for (const auto& destination_index : _cur_tablet_schema->inverted_indexes()) {
             const auto& col_unique_ids = destination_index->col_unique_ids();
@@ -1535,21 +1564,19 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 eligibility_status = Status::Error<INVERTED_INDEX_NOT_SUPPORTED>(
                         "source SNII index file or metadata is unavailable");
             }
-            auto [column_it, inserted] = column_eligibility.emplace(col_unique_id, eligible);
-            if (!inserted) {
-                column_it->second = column_it->second && eligible;
-            }
-            if (!eligible) {
+            // Per-(column, index) granularity: an eligible index merges natively
+            // even when a sibling on the SAME column must be rebuilt from the
+            // raw column -- eligibility is a property of the logical index, not
+            // of the column.
+            if (eligible) {
+                ctx.snii_indexes_to_do_compaction.emplace(col_unique_id,
+                                                          destination_index->index_id());
+            } else {
                 LOG(INFO) << "tablet[" << _tablet->tablet_id() << "] index["
                           << destination_index->index_id()
                           << "] is not eligible for SNII postings compaction; rebuild from raw "
                              "column. reason="
                           << eligibility_status;
-            }
-        }
-        for (const auto& [col_unique_id, eligible] : column_eligibility) {
-            if (eligible) {
-                ctx.columns_to_do_index_compaction.insert(col_unique_id);
             }
         }
         return;

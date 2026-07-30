@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <functional>
+
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
@@ -56,7 +59,53 @@ public:
     virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     virtual void gc_output_rowset();
 
+    // How one SNII segment rewrite treats the target schema's logical indexes:
+    // inherit_keys are carried over from the source container without decoding a
+    // posting; build_columns are built from raw column data, grouped by column
+    // unique id so every index on a column is fed from the SAME column read.
+    struct SniiIndexRewritePlan {
+        std::vector<snii::reader::LogicalIndexKey> inherit_keys;
+        std::vector<std::pair<int32_t, std::vector<const TabletIndex*>>> build_columns;
+    };
+
+    // Classifies the output schema's inverted indexes for one SNII segment
+    // rewrite (design: same key and definition -> inherit; requested or
+    // definition-changed -> build; keys the target schema dropped are simply not
+    // inherited). `container_has` reports whether the SOURCE container holds a
+    // given logical index; static and callback-based so the classification is
+    // directly unit-testable without files.
+    static Status plan_snii_index_rewrite(
+            const TabletSchema& input_schema, const TabletSchema& output_schema,
+            const std::set<int64_t>& alter_index_ids,
+            const std::function<Status(const TabletIndex&, bool*)>& container_has,
+            SniiIndexRewritePlan* plan);
+
 private:
+    // SNII counterpart of the V1/V2 build branch in handle_single_rowset: plans
+    // the rewrite per segment, inherits the source container's physical prefix
+    // once, and builds only the missing indexes -- one raw column read per
+    // column, shared by every writer on it.
+    Status _handle_single_rowset_snii(RowsetMetaSharedPtr output_rowset_meta,
+                                      std::vector<segment_v2::SegmentSharedPtr>& segments);
+    // One segment of the above: plan, inherit the prefix, build what is missing,
+    // and register the container writer for the shared close pass.
+    Status _rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
+                                        const TabletSchemaSPtr& output_rowset_schema,
+                                        const TabletSchema& input_schema,
+                                        const std::string& rowset_id,
+                                        const segment_v2::SegmentSharedPtr& seg_ptr);
+    // The build half of one segment rewrite: creates the writers of every column
+    // group, scans each column once and feeds all of its writers.
+    Status _build_snii_indexes_for_segment(const TabletSchemaSPtr& output_rowset_schema,
+                                           const SniiIndexRewritePlan& plan,
+                                           IndexFileWriter* index_file_writer,
+                                           const segment_v2::SegmentSharedPtr& seg_ptr);
+    // Feeds one converted block into the SNII build writers. group_writer_signs
+    // parallels plan.build_columns: entry g holds the writer signs fed from
+    // convertor ordinal g.
+    Status _write_snii_index_data(
+            const TabletSchemaSPtr& tablet_schema, Block* block, const SniiIndexRewritePlan& plan,
+            const std::vector<std::vector<std::pair<int64_t, int64_t>>>& group_writer_signs);
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                       Block* block);
     Status _add_data(const std::string& column_name,
@@ -87,6 +136,10 @@ private:
     // <rowset_id, segment_id>
     std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<IndexFileReader>>
             _index_file_readers;
+    // SNII only: output rowset id -> the INPUT rowset's schema. The rewrite plan
+    // compares an index's definition between input and output schema to decide
+    // inherit vs rebuild; the output rowset meta no longer carries the input's.
+    std::unordered_map<std::string, TabletSchemaSPtr> _input_rowset_schemas;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;

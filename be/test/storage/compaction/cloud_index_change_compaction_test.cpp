@@ -512,6 +512,58 @@ TEST_F(CloudIndexChangeCompactionTest, snii_drop_index_enables_native_index_comp
     verify_index_compaction_gate(InvertedIndexStorageFormatPB::V3, true, false);
 }
 
+// Cloud index change whose sources cannot be read (the mock rowsets have no
+// files behind them): the SNII preflight classifies every target index -- the
+// pre-existing 11002 and the newly added 11003 alike -- as raw build BEFORE any
+// write starts. Both compaction sets stay empty, so no index can silently
+// switch paths mid-write; the raw build path covers everything.
+TEST_F(CloudIndexChangeCompactionTest, snii_preflight_unreadable_source_classifies_raw_build) {
+    CloudTabletSPtr tablet =
+            create_tablet_for_index_compaction_gate(InvertedIndexStorageFormatPB::SNII);
+
+    TColumn body_column;
+    body_column.__set_column_name("body");
+    body_column.__set_col_unique_id(1);
+    TColumnType body_type;
+    body_type.__set_type(TPrimitiveType::STRING);
+    body_column.__set_column_type(body_type);
+    std::vector<TColumn> columns {body_column};
+
+    const auto make_index = [](int64_t index_id, std::string_view name) {
+        TOlapTableIndex index;
+        index.__set_index_id(index_id);
+        index.__set_index_name(std::string(name));
+        index.__set_index_type(TIndexType::INVERTED);
+        index.__set_columns({"body"});
+        index.__set_column_unique_ids({1});
+        index.__set_properties({{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE}});
+        return index;
+    };
+    // The target schema keeps 11002 and ADDS 11003 on the same column.
+    std::vector<TOlapTableIndex> final_indexes {make_index(11002, "idx_to_keep"),
+                                                make_index(11003, "idx_added")};
+
+    CloudIndexChangeCompaction compaction(*_engine, tablet, 2, final_indexes, columns);
+    compaction._enable_inverted_index_compaction = true;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [](auto&& outcome) {
+        auto* result = try_any_cast_ret<Status>(outcome);
+        result->second = true;
+        result->first = Status::OK();
+    });
+    Status prepare_status = compaction.prepare_compact();
+    sync_point->clear_call_back("CloudMetaMgr::sync_tablet_rowsets");
+    ASSERT_TRUE(prepare_status.ok()) << prepare_status;
+    ASSERT_EQ(compaction._input_rowsets.size(), 1);
+    ASSERT_TRUE(compaction.rebuild_tablet_schema().ok());
+    ASSERT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 2);
+
+    RowsetWriterContext ctx;
+    compaction.construct_index_compaction_columns(ctx);
+    EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
+    EXPECT_TRUE(ctx.snii_indexes_to_do_compaction.empty());
+}
+
 TEST_F(CloudIndexChangeCompactionTest, test_cloud_tablet) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);

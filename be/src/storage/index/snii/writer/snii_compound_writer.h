@@ -19,11 +19,21 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/file_writer.h"
 #include "storage/index/snii/writer/logical_index_writer.h"
+
+namespace doris::snii::reader {
+// Only ever named by reference below, so a declaration is enough. Including
+// snii_segment_reader.h here would instead splice the whole reader into this
+// header's dependents -- and this header sits upstream of runtime/exec_env.h,
+// so that is most of the backend.
+class SniiRewriteSnapshot;
+} // namespace doris::snii::reader
 
 // SniiCompoundWriter -- orchestrates a single-segment SNII container for one or
 // more logical indexes, written front-to-back through an append-only
@@ -134,8 +144,29 @@ public:
     SniiCompoundWriter(SniiCompoundWriter&&) = delete;
     SniiCompoundWriter& operator=(SniiCompoundWriter&&) = delete;
 
+    // Size of the buffer the inherit copy streams through. Fixed, so peak memory
+    // of an inherit does not grow with the source container. Sized for sequential
+    // local reads -- generous next to inverted_index_read_buffer_size (4 KiB), and
+    // small enough that even a multi-GiB container costs a negligible number of
+    // reads.
+    static constexpr size_t kInheritCopyChunkBytes = 64U << 10;
+
+    // Carries a source container's unchanged logical indexes into this one
+    // (BUILD INDEX on SNII). It copies the source's validated physical prefix --
+    // bootstrap header plus every section the inherited indexes reference --
+    // verbatim, then registers their metadata groups so finish() re-emits them
+    // without decoding or re-encoding a single posting. Because the prefix lands
+    // at the SAME offsets, the inherited section references stay valid unchanged.
+    //
+    // MUST be the writer's first data operation: the copy owns the front of the
+    // file, so anything already written would be overwritten in meaning. A read
+    // or write failure poisons the writer, so finish() can never seal a container
+    // holding a partial prefix.
+    Status inherit(const reader::SniiRewriteSnapshot& snapshot, io::FileReader* source);
+
     // Buffers one logical index: builds its section bytes and meta sub-sections.
     // The actual file writing happens in finish() (single front-to-back pass).
+    // The key (index_id, suffix) must not collide with an inherited one.
     Status add_logical_index(const SniiIndexInput& in);
 
     // T2.2: begins a STREAMED logical-index session (the compaction merge fast
@@ -172,6 +203,18 @@ private:
         uint64_t bsbf_len = 0;
     };
 
+    // One logical index carried over from a source container: its raw
+    // [Core][STI][DBD] bytes plus the three lengths needed to rebuild the
+    // directory entry once the group's new position is known.
+    struct InheritedGroup {
+        uint64_t index_id = 0;
+        std::string index_suffix;
+        std::vector<uint8_t> metadata_group;
+        size_t core_length = 0;
+        size_t sampled_term_index_length = 0;
+        size_t dict_block_directory_length = 0;
+    };
+
     friend class SniiStreamedIndexSession;
 
     Status ensure_bootstrap();
@@ -198,6 +241,12 @@ private:
     // streams in during add_logical_index, the rest during finish(). The absolute write
     // offset is out_->bytes_written() (the single source of truth -- no separate cursor).
     std::vector<Placement> placements_;
+    // Logical indexes carried over by inherit(), in source directory order. They
+    // own no LogicalIndexWriter: their sections are already in the copied prefix.
+    std::vector<InheritedGroup> inherited_;
+    // inherit() ran successfully. Distinct from inherited_ being non-empty: a
+    // rewrite may drop every old index and still copy the bootstrap header.
+    bool inherited_prefix_ = false;
     bool bootstrap_written_ = false;
     bool finished_ = false;
     Status failed_ = Status::OK();
