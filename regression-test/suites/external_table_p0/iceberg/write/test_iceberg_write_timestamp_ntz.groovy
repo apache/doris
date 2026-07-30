@@ -48,20 +48,25 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external") {
         logger.info("switched to catalog " + catalog_name)
         sql """ use test_db;""" 
 
+        sql "set time_zone = 'Asia/Shanghai'"
         sql """INSERT INTO t_ntz_doris VALUES ('2025-02-07 20:12:00');"""
         sql """INSERT INTO t_tz_doris VALUES ('2025-02-07 20:12:01');"""
 
-     
-        sql "set time_zone = 'Asia/Shanghai'"
         qt_timestamp_ntz """select * from t_ntz_doris;"""
-        qt_timestamp_tz  """select * from t_tz_doris;"""
+        order_qt_timestamp_tz  """select * from t_tz_doris;"""
         // test Extra column in desc result
         qt_desc01 """desc t_ntz_doris"""
         qt_desc02 """desc t_tz_doris"""
 
         sql "set time_zone = 'Europe/Tirane'"
         qt_timestamp_ntz2 """select * from t_ntz_doris;"""
-        qt_timestamp_tz2  """select * from t_tz_doris;"""
+        order_qt_timestamp_tz2  """select * from t_tz_doris;"""
+
+        sql "set time_zone = 'Asia/Shanghai'"
+        sql """
+            INSERT INTO t_tz_doris
+            SELECT CAST('2025-02-07 20:12:02' AS DATETIMEV2(6));
+        """
       
         // sql """drop catalog if exists ${catalog_name}"""
 

@@ -1096,6 +1096,48 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals("t1", sink.getTbName());
     }
 
+    @Test
+    public void writeSchemaUsesNativeTimestampSemantics() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "timestamp", Types.TimestampType.withoutZone()),
+                Types.NestedField.required(2, "timestamptz", Types.TimestampType.withZone()),
+                Types.NestedField.required(3, "nested_timestamptz",
+                        Types.ListType.ofOptional(4, Types.TimestampType.withZone())));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "write_schema"), schema,
+                PartitionSpec.unpartitioned(), Collections.emptyMap());
+        IcebergWritePlanProvider provider = providerFor(table, contextWithStorage());
+        ConnectorTableHandle handle = new IcebergTableHandle("db1", "write_schema");
+
+        List<ConnectorColumn> exposedSchema = IcebergConnectorMetadata.parseSchema(schema, false, false);
+        List<ConnectorColumn> writeSchema = provider.getWriteSchema(
+                sessionFor(table, contextWithStorage()), handle, false).orElseThrow(AssertionError::new);
+
+        Assertions.assertEquals("DATETIMEV2", exposedSchema.get(1).getType().getTypeName());
+        Assertions.assertEquals("DATETIMEV2", writeSchema.get(0).getType().getTypeName());
+        Assertions.assertEquals("TIMESTAMPTZ", writeSchema.get(1).getType().getTypeName());
+        Assertions.assertEquals(2, writeSchema.get(1).getUniqueId());
+        Assertions.assertEquals("TIMESTAMPTZ",
+                writeSchema.get(2).getType().getChildren().get(0).getTypeName());
+    }
+
+    @Test
+    public void rewriteWriteSchemaAddsV3RowLineageColumns() {
+        Table table = formatVersionThreeTable(freshCatalog());
+        IcebergWritePlanProvider provider = providerFor(table, contextWithStorage());
+        List<ConnectorColumn> insertSchema = provider.getWriteSchema(
+                sessionFor(table, contextWithStorage()), new IcebergTableHandle("db1", "tv3"), false)
+                .orElseThrow(AssertionError::new);
+        List<ConnectorColumn> rewriteSchema = provider.getWriteSchema(
+                sessionFor(table, contextWithStorage()), new IcebergTableHandle("db1", "tv3"), true)
+                .orElseThrow(AssertionError::new);
+
+        Assertions.assertEquals(2, insertSchema.size());
+        Assertions.assertEquals(4, rewriteSchema.size());
+        Assertions.assertEquals("_row_id", rewriteSchema.get(2).getName());
+        Assertions.assertEquals("_last_updated_sequence_number", rewriteSchema.get(3).getName());
+    }
+
     // ───────────────────────────── write capability declarations (single-source-of-truth) ─────────────────────────────
     //
     // WHY: the write plan provider is now the single source of truth for a connector's write capabilities
