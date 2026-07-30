@@ -116,6 +116,83 @@ suite("bucket_shuffle_set_operation") {
         intersect
         select id from bucket_shuffle_set_operation2)""")
 
+    // A window function above a bucket-shuffle UNION ALL is a shuffle-for-correctness consumer:
+    // the analytic sink needs every row of a window partition inside one pipeline task. The union
+    // branches are aligned by the basic child's storage bucket function, so the union must require
+    // a bucket-hash local exchange from every branch. Requiring the generic hash instead let the
+    // branch arriving through a bucket-shuffle exchange keep its bucket placement while the branch
+    // scanning its own buckets (serial under a pooling scan, so it claims no distribution) was
+    // re-partitioned by execution hash: one window partition ended up split across two pipeline
+    // tasks and row_number() restarted at 1 in each.
+    // force_to_local_shuffle pins the pooling scan so the shape does not depend on the backend
+    // count of the environment running this suite.
+    // The variants below were not guessed: LocalExchangePlacementAuditTest walks finished plans and
+    // flags any set operation whose branches end up on different hash placements, and these are
+    // every shape it flagged — partition-by with and without ORDER BY, unequal bucket counts,
+    // three branches, and a nested union.
+    sql "set force_to_local_shuffle=true"
+
+    // every window partition must contain each row_number() exactly once; a partition split across
+    // pipeline tasks shows up as the same rn twice inside one id
+    def assertRowNumbersUnique = { String tag, int expectedRows, String sqlStr ->
+        def rows = sql(sqlStr)
+        org.junit.Assert.assertEquals("${tag}: unexpected row count".toString(), expectedRows, rows.size())
+        def seen = [] as Set
+        rows.each { row ->
+            org.junit.Assert.assertTrue(
+                    "${tag}: duplicated row_number ${row[2]} in window partition ${row[0]}: ${rows}".toString(),
+                    seen.add("${row[0]}/${row[2]}".toString()))
+        }
+    }
+
+    assertRowNumbersUnique("union_under_window", 6, """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+        ) u""")
+
+    assertRowNumbersUnique("union_under_window_no_order_by", 6, """
+        select id, value, row_number() over (partition by id) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+        ) u""")
+
+    // the branches have different bucket counts, so one must be re-shuffled onto the other's
+    // buckets rather than keeping its own
+    assertRowNumbersUnique("union_unequal_buckets_under_window", 6, """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation3
+        ) u""")
+
+    assertRowNumbersUnique("three_way_union_under_window", 9, """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            select id, value from bucket_shuffle_set_operation2
+            union all
+            select id, value from bucket_shuffle_set_operation3
+        ) u""")
+
+    assertRowNumbersUnique("nested_union_under_window", 9, """
+        select id, value, row_number() over (partition by id order by value) rn
+        from (
+            select id, value from bucket_shuffle_set_operation1
+            union all
+            (select id, value from bucket_shuffle_set_operation2
+             union all
+             select id, value from bucket_shuffle_set_operation3)
+        ) u""")
+
+    sql "set force_to_local_shuffle=false"
+
     // when local shuffle is disabled entirely, every pipeline runs a single task per
     // instance so the bucket alignment holds naturally and bucket shuffle is still allowed
     sql "set enable_local_shuffle=false"
