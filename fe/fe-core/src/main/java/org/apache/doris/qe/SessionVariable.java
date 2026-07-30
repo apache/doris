@@ -2534,17 +2534,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceEagerAggHintMap;
     }
 
-    @VarAttrDef.VarAttr(name = "eager_aggregation_on_join", needForward = true)
-    public boolean eagerAggregationOnJoin = false;
-
-    public static boolean isEagerAggregationOnJoin() {
-        if (ConnectContext.get() != null) {
-            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
-        } else {
-            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
-        }
-    }
-
     @VarAttrDef.VarAttr(
             name = ENABLE_PAGE_CACHE,
             description = {"控制是否启用 page cache。默认为 true。",

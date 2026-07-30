@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -105,24 +106,20 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return join;
         }
-        Pair<Boolean, Boolean> pushSide = decideJoinPushSide(join, context);
-        boolean toLeft = pushSide.first;
-        boolean toRight = pushSide.second;
-        if (!toLeft && !toRight) {
-            if (SessionVariable.isEagerAggregationOnJoin()) {
-                return genAggregate(join, context);
-            } else {
-                return join;
-            }
-        }
         ConnectContext connectContext = context.getCascadesContext().getConnectContext();
         boolean isSmallBroadcastBottomJoin = isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join);
-        if (context.isPassThroughJoinOrUnion() && connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
-                && isSmallBroadcastBottomJoin && !outputStringType(join.right())) {
+        if (connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
+                && isSmallBroadcastBottomJoin && !outputStringOrComplexType(join.right())) {
             Plan aggOnJoin = genAggregate(join, context);
             if (aggOnJoin != join) {
                 return aggOnJoin;
             }
+        }
+        Pair<Boolean, Boolean> pushSide = decideJoinPushSide(join, context);
+        boolean toLeft = pushSide.first;
+        boolean toRight = pushSide.second;
+        if (!toLeft && !toRight) {
+            return join;
         }
 
         // construct left and right group by keys
@@ -200,19 +197,23 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean isPassThroughHeavyJoin(Plan joinChild, PushDownAggContext context) {
-        if (context.isPassThroughBigJoin() || SessionVariable.getEagerAggregationMode() > 0) {
+        if (context.isPassThroughHeavyJoin() || SessionVariable.getEagerAggregationMode() > 0) {
             return true;
         } else {
             Statistics stats = joinChild.getStats();
             if (stats == null) {
                 stats = joinChild.accept(derive, new StatsDerive.DeriveContext());
             }
-            return stats.getRowCount() > BIG_JOIN_BUILD_SIZE || outputStringType(joinChild);
+            // String or complex outputs make join-row materialization expensive.
+            // Eager aggregation reduces joined rows and thus lowers
+            // ProbeWhenProbeSideOutputTime and ProbeWhenBuildSideOutputTime.
+            return stats.getRowCount() > BIG_JOIN_BUILD_SIZE || outputStringOrComplexType(joinChild);
         }
     }
 
-    private boolean outputStringType(Plan plan) {
-        return plan.getOutput().stream().anyMatch(slot -> slot.getDataType() instanceof CharacterType);
+    private boolean outputStringOrComplexType(Plan plan) {
+        return plan.getOutput().stream().anyMatch(slot ->
+                slot.getDataType() instanceof CharacterType || slot.getDataType() instanceof ComplexDataType);
     }
 
     private Pair<Boolean, Boolean> decideJoinPushSide(
@@ -442,7 +443,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
         PushDownAggContext newContext = new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                context.getCascadesContext(), context.isPassThroughBigJoin(),
+                context.getCascadesContext(), context.isPassThroughHeavyJoin(),
                 context.hasDecomposedAggIf, newContainsNullToNonNull,
                 context.getBilateralState(), context.needOutputCount(), context.isPassThroughJoinOrUnion(),
                 context.isSmallBroadcastBottomJoin());
@@ -575,7 +576,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     .collect(Collectors.toList());
             PushDownAggContext contextForChild = new PushDownAggContext(aggFunctionsForChild, groupKeysForChild,
                     aliasMapForChild, context.getCascadesContext(),
-                    context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.containsNullToNonNull,
+                    context.isPassThroughHeavyJoin(), context.hasDecomposedAggIf, context.containsNullToNonNull,
                     context.getBilateralState(), context.needOutputCount(), true, false);
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
@@ -818,6 +819,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private Plan genAggregate(Plan child, PushDownAggContext context) {
+        if (!context.isPassThroughJoinOrUnion()) {
+            return child;
+        }
         if (isPushDisabledByVariable(context)) {
             return child;
         }
@@ -1302,10 +1306,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (mode > 0) {
             // when mode=1, any join is regarded as big join in order to
             // push down aggregation through at least one join
-            return context.isPassThroughBigJoin();
+            return context.isPassThroughHeavyJoin();
         }
 
-        if (!context.isPassThroughBigJoin() && !context.hasDecomposedAggIf) {
+        if (!context.isPassThroughHeavyJoin() && !context.hasDecomposedAggIf) {
             return false;
         }
 
@@ -1342,6 +1346,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return false;
         }
 
+        // Pushing aggregation below a small broadcast join may introduce an extra
+        // shuffle on the large probe side. Only do so when the aggregation can
+        // significantly reduce the input rows.
         if (context.isSmallBroadcastBottomJoin()) {
             for (ColumnStatistic colStats : groupKeysStats) {
                 if (colStats.isUnKnown) {
