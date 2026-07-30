@@ -1230,6 +1230,12 @@ public:
                     std::shared_ptr<FakeFileReaderState> state)
             : _file_schema(std::move(file_schema)), _state(std::move(state)) {}
 
+    VExprContextSPtr TEST_mapping_projection(size_t index) const {
+        DORIS_CHECK(_data_reader.column_mapper != nullptr);
+        DORIS_CHECK_LT(index, _data_reader.column_mapper->mappings().size());
+        return _data_reader.column_mapper->mappings()[index].projection;
+    }
+
 protected:
     Status create_file_reader(std::unique_ptr<FileReader>* reader) override {
         DORIS_CHECK(reader != nullptr);
@@ -1666,6 +1672,49 @@ TEST(TableReaderTest, ActiveReaderQueuesRefreshedRuntimeFilterRequest) {
               std::vector<int32_t>({1}));
     ASSERT_EQ(fake_state->pending_request->conjuncts.size(), 1);
     EXPECT_TRUE(fake_state->pending_request->conjuncts.front()->root()->is_rf_wrapper());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, RefreshKeepsActiveMappingProjectionSnapshot) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->eof_with_first_batch = false;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto active_projection = reader.TEST_mapping_projection(0);
+    ASSERT_NE(active_projection, nullptr);
+    ASSERT_TRUE(active_projection->root()->ready_status().ok());
+    VExprContextSPtrs refreshed {VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 1)))};
+    ASSERT_TRUE(reader.refresh_conjuncts(std::move(refreshed)).ok());
+
+    EXPECT_EQ(reader.TEST_mapping_projection(0), active_projection);
+    EXPECT_TRUE(reader.TEST_mapping_projection(0)->root()->ready_status().ok());
     ASSERT_TRUE(reader.close().ok());
 }
 
