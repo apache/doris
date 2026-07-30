@@ -1589,7 +1589,6 @@ DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
 DEFINE_Validator(s3_rate_limiter_cpu_cores_override,
                  [](int32_t config) -> bool { return config >= 0; });
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 // The dir TrinoConnectorPluginLoader loads Trino's own plugins from, used verbatim. Keep the default
 // in sync with FE Config.trino_connector_plugin_dir: FE and BE load the same plugins and an operator
 // who leaves both untouched expects both to find them.
