@@ -272,6 +272,10 @@ struct TFileScanSlotInfo {
     // Populated by FE from Column.getDefaultValue() or NULL literal.
     // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
     4: optional Exprs.TExpr default_value_expr;
+    // Whether an operator above the scan consumes this slot after scan predicates are evaluated.
+    // This is only liveness metadata; BE still decides per split whether every referencing
+    // predicate was localized exactly before it can discard the column payload.
+    5: optional bool value_required_after_filter;
 }
 
 // descirbe how to read file

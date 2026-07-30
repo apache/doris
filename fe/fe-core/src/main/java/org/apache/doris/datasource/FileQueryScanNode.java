@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -110,6 +111,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected FileSplitter fileSplitter;
     protected SummaryProfile summaryProfile;
 
+    // Null means the planner did not provide post-filter liveness, so all slots remain required.
+    private Set<SlotId> slotsRequiredAfterFilter;
+
     // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
     private static final Set<String> CACHEABLE_CATALOGS = new HashSet<>(
@@ -190,6 +194,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
             slotInfo.setIsFileSlot(isFileSlot(category));
+            slotInfo.setValueRequiredAfterFilter(isValueRequiredAfterFilter(slot));
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -219,10 +224,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TColumnCategory category = classifyColumn(slot, partitionKeys);
             slotInfo.setCategory(category);
             slotInfo.setIsFileSlot(isFileSlot(category));
+            slotInfo.setValueRequiredAfterFilter(isValueRequiredAfterFilter(slot));
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
+    }
+
+    public void setSlotsRequiredAfterFilter(Set<SlotId> slotIds) {
+        slotsRequiredAfterFilter = new HashSet<>(slotIds);
+    }
+
+    private boolean isValueRequiredAfterFilter(SlotDescriptor slot) {
+        return slotsRequiredAfterFilter == null || slotsRequiredAfterFilter.contains(slot.getId());
     }
 
     /**

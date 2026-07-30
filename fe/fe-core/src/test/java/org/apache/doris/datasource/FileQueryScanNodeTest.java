@@ -44,6 +44,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class FileQueryScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -160,6 +161,33 @@ public class FileQueryScanNodeTest {
         Assert.assertSame(slotInfo, updatedSlotInfo);
         Assert.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assert.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+        Assert.assertTrue(updatedSlotInfo.isValueRequiredAfterFilter());
+    }
+
+    @Test
+    public void testUpdateRequiredSlotsMarksPostFilterValueLiveness() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
+        node.setTargetTable(table);
+
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor filterSlot = new SlotDescriptor(new SlotId(1), desc);
+        filterSlot.setColumn(new Column("filter_key", Type.INT));
+        desc.addSlot(filterSlot);
+        SlotDescriptor outputSlot = new SlotDescriptor(new SlotId(2), desc);
+        outputSlot.setColumn(new Column("measure", Type.INT));
+        desc.addSlot(outputSlot);
+        Mockito.when(table.getFullSchema()).thenReturn(Arrays.asList(
+                filterSlot.getColumn(), outputSlot.getColumn()));
+
+        node.setSlotsRequiredAfterFilter(Collections.singleton(outputSlot.getId()));
+        node.params = new TFileScanRangeParams();
+
+        UPDATE_REQUIRED_SLOTS_METHOD.invoke(node);
+
+        Assert.assertFalse(node.params.getRequiredSlots().get(0).isValueRequiredAfterFilter());
+        Assert.assertTrue(node.params.getRequiredSlots().get(1).isValueRequiredAfterFilter());
     }
 
 }

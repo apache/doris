@@ -439,7 +439,8 @@ std::string ColumnDefinition::debug_string() const {
         << join_debug_strings(identity_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", has_default_expr=" << (default_expr != nullptr)
-        << ", is_partition_key=" << is_partition_key << "}";
+        << ", is_partition_key=" << is_partition_key
+        << ", value_required_after_filter=" << value_required_after_filter << "}";
     return out.str();
 }
 
@@ -480,6 +481,7 @@ std::string ColumnMapping::debug_string() const {
                               [](const ColumnMapping& child) { return child.debug_string(); })
         << ", is_trivial=" << is_trivial << ", is_constant=" << constant_index.has_value()
         << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
+        << ", value_required_after_filter=" << value_required_after_filter
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
         << ", has_default_expr=" << (default_expr != nullptr) << "}";
     return out.str();
@@ -2031,6 +2033,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
+    mapping->value_required_after_filter = table_column.value_required_after_filter;
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
@@ -2237,39 +2240,39 @@ Status TableColumnMapper::create_scan_request(
             localization_result == nullptr ? &local_localization_result : localization_result;
     RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state,
                                      exact_localization_result));
-    for (const auto& mapping : _hidden_mappings) {
-        if (!mapping.file_local_id.has_value()) {
-            continue;
-        }
-        const auto local_id = LocalColumnId(*mapping.file_local_id);
-        const bool is_visible_output =
+    for (const auto& predicate_column : file_request->predicate_columns) {
+        const auto local_id = predicate_column.column_id();
+        const bool value_required_after_filter =
                 std::ranges::any_of(_mappings, [local_id](const ColumnMapping& visible_mapping) {
                     return visible_mapping.file_local_id.has_value() &&
-                           LocalColumnId(*visible_mapping.file_local_id) == local_id;
+                           LocalColumnId(*visible_mapping.file_local_id) == local_id &&
+                           visible_mapping.value_required_after_filter;
                 });
-        if (is_visible_output) {
+        if (value_required_after_filter) {
             continue;
         }
         bool referenced_by_filter = false;
         bool referenced_only_by_localized_filters = true;
         for (size_t filter_index = 0; filter_index < table_filters.size(); ++filter_index) {
-            if (std::ranges::find(table_filters[filter_index].global_indices,
-                                  mapping.global_index) ==
-                table_filters[filter_index].global_indices.end()) {
+            const bool references_local_column = std::ranges::any_of(
+                    table_filters[filter_index].global_indices, [&](GlobalIndex global_index) {
+                        const auto* mapping = _find_filter_mapping(global_index);
+                        return mapping != nullptr && mapping->file_local_id.has_value() &&
+                               LocalColumnId(*mapping->file_local_id) == local_id;
+                    });
+            if (!references_local_column) {
                 continue;
             }
             referenced_by_filter = true;
             referenced_only_by_localized_filters &=
                     exact_localization_result->localized_filters[filter_index];
         }
-        // A localized predicate is enforced exactly before TableReader materializes output. Only
-        // hidden columns used exclusively by exact FileReader predicates may discard their payload.
-        // A TableReader residual still needs its value after table-schema materialization.
+        // A scan tuple can contain a filter slot that its upstream projection does not consume.
+        // For example, `SELECT SUM(measure) FROM t WHERE filter_key BETWEEN 1 AND 20` needs
+        // `filter_key` while evaluating the predicate, but not afterwards. Discard its payload
+        // only when every predicate referencing the physical column was localized exactly for this
+        // split; schema evolution or a TableReader residual must retain the value.
         if (referenced_by_filter && referenced_only_by_localized_filters &&
-            std::ranges::any_of(file_request->predicate_columns,
-                                [local_id](const LocalColumnIndex& projection) {
-                                    return projection.column_id() == local_id;
-                                }) &&
             !file_request->is_predicate_only(local_id)) {
             file_request->predicate_only_columns.push_back(local_id);
         }

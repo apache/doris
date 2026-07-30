@@ -3074,6 +3074,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             Set<SlotId> requiredSlotIdSet, Set<SlotId> requiredByProjectSlotIdSet,
             PlanTranslatorContext context) {
         Set<SlotId> requiredWithVirtualColumns = Sets.newHashSet(requiredSlotIdSet);
+        Set<SlotId> requiredAfterFilterWithVirtualColumns = Sets.newHashSet(requiredByProjectSlotIdSet);
         for (SlotDescriptor virtualSlot : scanNode.getTupleDesc().getSlots()) {
             Expr virtualColumn = virtualSlot.getVirtualColumn();
             if (virtualColumn == null) {
@@ -3087,6 +3088,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(SlotRef::getSlotId)
                     .collect(Collectors.toSet());
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
+            requiredAfterFilterWithVirtualColumns.addAll(virtualColumnInputSlotIds);
+        }
+        if (scanNode instanceof FileQueryScanNode) {
+            // FE reports only projection liveness. Schema evolution and exact predicate
+            // localization remain split-local decisions made by BE's column mapper.
+            ((FileQueryScanNode) scanNode).setSlotsRequiredAfterFilter(
+                    requiredAfterFilterWithVirtualColumns);
         }
         // Find the smallest column, for count(*) or other situation that slot is empty after prune
         SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());

@@ -223,9 +223,9 @@ struct GlobalRowIdContext {
 };
 
 // Column schema definition shared by table/global projection and file-local schema matching.
-//
-// ColumnDefinition intentionally carries schema identity only. FE column unique ids are translated
-// to GlobalIndex at the FileScannerV2 boundary and must not appear in table/file reader APIs.
+// It also carries scan-projection metadata whose meaning is independent of FE descriptor ids.
+// FE column unique ids are translated to GlobalIndex at the FileScannerV2 boundary and must not
+// appear in table/file reader APIs.
 struct ColumnDefinition {
     // Typed identifier value used to match a column against another schema.
     //
@@ -273,6 +273,8 @@ struct ColumnDefinition {
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
+    // True when the table-level value is consumed after scan predicates have been evaluated.
+    bool value_required_after_filter = true;
     // File-local column kind. For table/global columns this remains DATA_COLUMN.
     ColumnType column_type = ColumnType::DATA_COLUMN;
 
