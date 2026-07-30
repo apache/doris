@@ -223,6 +223,10 @@ public:
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
 
+    // Refresh row-level predicates for an already prepared split. Physical readers that support
+    // this operation decide the safe boundary at which the new immutable request becomes active.
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts);
+
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
         return _current_split_uses_metadata_count;
@@ -465,6 +469,7 @@ protected:
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
+        _file_scan_request.reset();
         _data_reader.file_block_layout.resize(file_request->local_positions.size());
 
         // 4. Build file block layout from file schema and column mapping. The layout describes
@@ -517,7 +522,8 @@ protected:
             SCOPED_TIMER(_profile.file_reader_open_timer);
             RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         }
-        RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
+        _file_scan_request = std::move(file_request);
+        RETURN_IF_ERROR(_init_reader_condition_cache(*_file_scan_request));
         return Status::OK();
     }
 
@@ -763,6 +769,7 @@ protected:
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
+        _file_scan_request.reset();
         _current_task.reset();
         _current_file_description.reset();
         _current_reader_reached_eof = false;
@@ -1877,6 +1884,9 @@ protected:
         Block block_template;
     };
     DataReader _data_reader;
+    // Latest immutable request queued to the physical reader. The file-block layout remains fixed
+    // for the split even while predicates are refreshed at a reader-defined granule boundary.
+    std::shared_ptr<FileScanRequest> _file_scan_request;
     std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
     std::optional<io::FileDescription> _current_file_description;

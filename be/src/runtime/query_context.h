@@ -50,6 +50,7 @@ class PipelineTask;
 class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
+class QueryDictionaryFilterCache;
 
 struct ReportStatusRequest {
     const Status status;
@@ -151,6 +152,8 @@ public:
         DCHECK(has_runtime_predicate(source_node_id));
         return _runtime_predicates.find(source_node_id)->second;
     }
+
+    QueryDictionaryFilterCache& query_dictionary_filter_cache();
 
     void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
         for (auto desc : topn_filter_descs) {
@@ -325,6 +328,8 @@ private:
     void _init_query_mem_tracker();
 
     std::unordered_map<int, RuntimePredicate> _runtime_predicates;
+    std::once_flag _query_dictionary_filter_cache_once;
+    std::unique_ptr<QueryDictionaryFilterCache> _query_dictionary_filter_cache;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
