@@ -24,10 +24,14 @@ import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Validation shared by catalog-scoped and relation-scoped Paimon reader tuning. */
 public final class PaimonReaderOptions {
+    public static final String TABLE_OPTION_PREFIX = "paimon.table-option.";
     public static final int MIN_READ_BATCH_SIZE = 1;
     public static final int MAX_READ_BATCH_SIZE = 65536;
     public static final long MIN_ASYNC_THRESHOLD_BYTES = 1024L * 1024L;
@@ -64,6 +68,62 @@ public final class PaimonReaderOptions {
             requireRange(key, threshold.getBytes(),
                     MIN_ASYNC_THRESHOLD_BYTES, MAX_ASYNC_THRESHOLD_BYTES);
         }
+    }
+
+    public static void validateCatalogProperties(Map<String, String> properties) {
+        properties.forEach((key, value) -> {
+            if (!key.toLowerCase(Locale.ROOT).startsWith(TABLE_OPTION_PREFIX)) {
+                return;
+            }
+            String optionKey = key.substring(TABLE_OPTION_PREFIX.length());
+            if (optionKey.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Paimon table option name must not be empty after prefix " + TABLE_OPTION_PREFIX);
+            }
+            validate(optionKey, value);
+        });
+    }
+
+    public static Map<String, String> compatibleCatalogOptions(Map<String, String> properties) {
+        Map<String, String> compatibleOptions = new LinkedHashMap<>();
+        properties.forEach((key, value) -> {
+            if (!key.toLowerCase(Locale.ROOT).startsWith(TABLE_OPTION_PREFIX)) {
+                return;
+            }
+            String optionKey = key.substring(TABLE_OPTION_PREFIX.length());
+            try {
+                validate(optionKey, value);
+                compatibleOptions.put(optionKey, value);
+            } catch (IllegalArgumentException ignored) {
+                // Images written before the reader-only allowlist may contain arbitrary Paimon
+                // options. Keep the catalog loadable, but never apply an unsafe legacy option.
+            }
+        });
+        return Collections.unmodifiableMap(compatibleOptions);
+    }
+
+    public static void validateEffectiveTableOptions(Map<String, String> options) {
+        SUPPORTED_OPTIONS.stream()
+                .filter(options::containsKey)
+                .forEach(key -> validate(key, options.get(key)));
+        validateManifestParallelism(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    private static void validateManifestParallelism(String value) {
+        if (value == null) {
+            return;
+        }
+        int parallelism;
+        try {
+            parallelism = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid value for Paimon option '"
+                    + CoreOptions.SCAN_MANIFEST_PARALLELISM.key() + "': " + value, e);
+        }
+        int maximum = Runtime.getRuntime().availableProcessors();
+        // Paimon replaces a JVM-static manifest executor above its CPU-sized default, so every
+        // option source must stay within that capacity to avoid cross-query thread-pool mutation.
+        requireRange(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), parallelism, 1, maximum);
     }
 
     private static <T> T parse(String key, String value, ConfigOption<T> option) {

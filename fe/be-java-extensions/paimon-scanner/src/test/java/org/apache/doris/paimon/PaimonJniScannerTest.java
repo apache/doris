@@ -17,6 +17,8 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.common.jni.vec.ColumnType;
+
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -80,6 +82,7 @@ public class PaimonJniScannerTest {
         params.put("required_fields_base64", encodeFields(
                 "region,code", "hash#name", "地区 名"));
         params.put("columns_types", "string#string#string");
+        params.put("columns_types_base64", encodeFields("string", "string", "string"));
 
         PaimonJniScanner scanner = new PaimonJniScanner(128, params);
 
@@ -88,6 +91,23 @@ public class PaimonJniScannerTest {
         Assert.assertEquals("3", scanner.getStatistics().get("gauge:PaimonJniRequiredFieldCount"));
         Assert.assertEquals(0, PaimonJniScanner.getFieldIndex(
                 Arrays.asList("region,code", "hash#name", "地区 名"), "REGION,CODE"));
+    }
+
+    @Test
+    public void testConstructorDecodesDelimiterSafeNestedFieldNamesAndTypes() {
+        Map<String, String> params = createBaseParams();
+        params.put("required_fields_base64", encodeFields("nested#value"));
+        params.put("columns_types", "legacy#type#framing");
+        params.put("columns_types_base64", encodeFields(
+                "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU:string,$Y29sb246bmFtZQ:string>"));
+
+        InspectablePaimonJniScanner scanner = new InspectablePaimonJniScanner(128, params);
+
+        Assert.assertEquals(1, scanner.requiredTypes().length);
+        ColumnType structType = scanner.requiredTypes()[0];
+        Assert.assertTrue(structType.isStruct());
+        Assert.assertEquals(Arrays.asList("hash#name", "region,code", "colon:name"),
+                structType.getChildNames());
     }
 
     @Test
@@ -438,6 +458,16 @@ public class PaimonJniScannerTest {
         @Override
         public void append(LogEvent event) {
             messages.add(event.getMessage().getFormattedMessage());
+        }
+    }
+
+    private static class InspectablePaimonJniScanner extends PaimonJniScanner {
+        InspectablePaimonJniScanner(int batchSize, Map<String, String> params) {
+            super(batchSize, params);
+        }
+
+        ColumnType[] requiredTypes() {
+            return types;
         }
     }
 

@@ -79,6 +79,11 @@ public final class PaimonTableOptions {
         return Collections.unmodifiableMap(tableOptions);
     }
 
+    /** Returns only safe legacy values so old catalog images remain loadable. */
+    public static Map<String, String> extractCompatible(Map<String, String> props) {
+        return PaimonReaderOptions.compatibleCatalogOptions(props);
+    }
+
     /**
      * Returns catalog-scoped dynamic reader options to copy onto a Paimon table.
      * Catalog options intentionally override physical table values, while a subsequent

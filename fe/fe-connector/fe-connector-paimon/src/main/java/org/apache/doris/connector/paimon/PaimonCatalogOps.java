@@ -273,11 +273,12 @@ public interface PaimonCatalogOps {
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             Table table = catalog.getTable(identifier);
-            if (tableOptions.isEmpty()) {
-                return table;
-            }
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
-            return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
+            Table effectiveTable = optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
+            // Physical table options bypass catalog-property validation, so check the final view
+            // before Paimon can allocate batches or replace its manifest executor.
+            PaimonReaderOptions.validateEffectiveTableOptions(effectiveTable.options());
+            return effectiveTable;
         }
 
         @Override

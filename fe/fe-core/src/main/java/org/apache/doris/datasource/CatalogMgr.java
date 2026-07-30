@@ -647,14 +647,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             if (catalog instanceof ExternalCatalog) {
                 Map<String, String> newProps = log.getNewProps();
-                ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 if (!isReplay) {
+                    boolean tentativelyMutated = false;
                     try {
-                        ((ExternalCatalog) catalog).checkProperties();
+                        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                        boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
+                                oldProperties, newProps);
+                        if (!validatedWithoutMutation) {
+                            externalCatalog.tryModifyCatalogProps(newProps);
+                            tentativelyMutated = true;
+                            externalCatalog.checkProperties();
+                        }
                     } catch (Exception validationException) {
-                        // Connector-specific validators may throw unchecked exceptions after the
-                        // tentative mutation; every validation failure must preserve atomic ALTER.
-                        if (oldProperties != null) {
+                        // Only legacy validators publish a tentative candidate. Detached validators
+                        // leave the live CatalogProperty untouched while concurrent initialization runs.
+                        if (oldProperties != null && tentativelyMutated) {
                             ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
                         }
                         if (validationException instanceof DdlException) {
@@ -663,6 +670,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         throw new DdlException("Invalid catalog properties: "
                                 + validationException.getMessage(), validationException);
                     }
+                } else {
+                    ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 }
                 if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                     long catalogId = catalog.getId();

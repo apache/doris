@@ -82,6 +82,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -225,6 +226,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
+    }
+
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        CatalogProperty candidateProperty = new CatalogProperty(null, candidate);
+        super.checkProperties(candidateProperty);
+        try {
+            // Connector validation must observe the complete candidate without making it visible
+            // to concurrent catalog initialization; the provider handles legacy-value compatibility.
+            ConnectorFactory.validatePropertiesForUpdate(getType(), currentProperties, updatedProperties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
+        return true;
     }
 
     @Override

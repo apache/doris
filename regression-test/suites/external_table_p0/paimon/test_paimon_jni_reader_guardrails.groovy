@@ -25,7 +25,10 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalogName = "test_paimon_jni_reader_guardrails"
+    String physicalCatalogName = "test_paimon_jni_reader_physical_guardrails"
     String dbName = "paimon_jni_guardrails_db"
+    def scannerV2Rows = sql "show variables like 'enable_file_scanner_v2'"
+    String originalScannerV2 = scannerV2Rows[0][1]
 
     def catalogDdl = { String name, String extraProperty ->
         return """
@@ -72,12 +75,23 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
                 `region,code` string,
                 `hash#name` string,
                 `display name` string,
-                `地区 名` string
+                `地区 名` string,
+                `nested#value` struct<`hash#name`:string,`region,code`:string,`colon:name`:string>
             ) using paimon
             tblproperties ('file.format'='parquet', 'read.batch-size'='512');
             insert into paimon.${dbName}.quoted_reader_options values
-                (1, 'east,01', 'hash-one', 'first row', '华东'),
-                (2, 'west,02', 'hash-two', 'second row', '华西');
+                (1, 'east,01', 'hash-one', 'first row', '华东',
+                    named_struct('hash#name', 'nested-one', 'region,code', 'east,01', 'colon:name', 'a:1')),
+                (2, 'west,02', 'hash-two', 'second row', '华西',
+                    named_struct('hash#name', 'nested-two', 'region,code', 'west,02', 'colon:name', 'b:2'));
+            drop table if exists paimon.${dbName}.unsafe_physical_batch;
+            create table paimon.${dbName}.unsafe_physical_batch (id int) using paimon
+            tblproperties ('read.batch-size'='0');
+            insert into paimon.${dbName}.unsafe_physical_batch values (1);
+            drop table if exists paimon.${dbName}.unsafe_physical_manifest;
+            create table paimon.${dbName}.unsafe_physical_manifest (id int) using paimon
+            tblproperties ('scan.manifest.parallelism'='0');
+            insert into paimon.${dbName}.unsafe_physical_manifest values (1);
         """
 
         sql "switch ${catalogName}"
@@ -86,9 +100,26 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
 
         test {
             sql """
-                select `region,code`, `hash#name`, `display name`, `地区 名`
+                select `region,code`, `hash#name`, `display name`, `地区 名`, `nested#value`
                 from quoted_reader_options
                 where `region,code` in ('east,01', 'west,02')
+                order by id
+            """
+        }
+
+        sql "set enable_file_scanner_v2=false"
+        test {
+            sql """
+                select `region,code`, `nested#value`
+                from quoted_reader_options
+                order by id
+            """
+        }
+        sql "set enable_file_scanner_v2=true"
+        test {
+            sql """
+                select `region,code`, `nested#value`
+                from quoted_reader_options
                 order by id
             """
         }
@@ -140,8 +171,23 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
         test {
             sql "select count(*) from quoted_reader_options"
         }
+
+        sql "drop catalog if exists ${physicalCatalogName}"
+        sql(catalogDdl(physicalCatalogName, ""))
+        sql "switch ${physicalCatalogName}"
+        sql "use ${dbName}"
+        test {
+            sql "select * from unsafe_physical_batch"
+            exception "read.batch-size"
+        }
+        test {
+            sql "select * from unsafe_physical_manifest"
+            exception "scan.manifest.parallelism"
+        }
     } finally {
         sql "set force_jni_scanner=false"
+        sql "set enable_file_scanner_v2=${originalScannerV2}"
+        sql "drop catalog if exists ${physicalCatalogName}"
         sql "drop catalog if exists ${catalogName}"
     }
 }

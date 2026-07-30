@@ -134,10 +134,7 @@ public final class PaimonScanParams {
             throw new DorisConnectorException("Unsupported Paimon query option(s): " + unsupported);
         }
 
-        PaimonReaderOptions.supportedOptions().stream()
-                .filter(options::containsKey)
-                .forEach(key -> PaimonReaderOptions.validate(key, options.get(key)));
-        validateManifestParallelism(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        PaimonReaderOptions.validateEffectiveTableOptions(options);
 
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
@@ -164,27 +161,6 @@ public final class PaimonScanParams {
                 throw new DorisConnectorException("Paimon scan mode '" + mode
                         + "' is incompatible with startup position '" + position + "'.");
             }
-        }
-    }
-
-    private static void validateManifestParallelism(String value) {
-        if (value == null) {
-            return;
-        }
-        int parallelism;
-        try {
-            parallelism = Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid value for Paimon query option '"
-                    + CoreOptions.SCAN_MANIFEST_PARALLELISM.key() + "': " + value, e);
-        }
-        int maximum = Runtime.getRuntime().availableProcessors();
-        // Paimon replaces a JVM-static manifest executor when this value exceeds its CPU-sized
-        // default. Keeping the query value within that capacity prevents cross-query mutation.
-        if (parallelism < 1 || parallelism > maximum) {
-            throw new IllegalArgumentException("Paimon query option '"
-                    + CoreOptions.SCAN_MANIFEST_PARALLELISM.key() + "' must be between 1 and "
-                    + maximum + ", but was " + parallelism);
         }
     }
 

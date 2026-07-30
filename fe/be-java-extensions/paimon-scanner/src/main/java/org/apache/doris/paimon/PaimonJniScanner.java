@@ -104,14 +104,17 @@ public class PaimonJniScanner extends JniScanner {
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
         this.params = params;
+        boolean encodedSchema = usesEncodedSchema(params);
         String[] requiredFields = requiredFields(params);
-        String[] requiredTypes = splitParam(params.get("columns_types"), "#");
+        String[] requiredTypes = requiredTypes(params);
         Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
                 "required_fields size %s does not match columns_types size %s",
                 requiredFields.length, requiredTypes.length);
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+            columnTypes[i] = encodedSchema
+                    ? ColumnType.parseTypeWithEncodedStructFields(requiredFields[i], requiredTypes[i])
+                    : ColumnType.parseType(requiredFields[i], requiredTypes[i]);
         }
         if (LOG.isDebugEnabled()) {
             // The raw map may carry storage or JDBC credentials; diagnostics must only use
@@ -520,7 +523,31 @@ public class PaimonJniScanner extends JniScanner {
         }
         // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
         // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
-        return Arrays.stream(encodedFields.split(",", -1))
+        return decodeSchemaValues(encodedFields);
+    }
+
+    static String[] requiredTypes(Map<String, String> params) {
+        String encodedTypes = params.get("columns_types_base64");
+        return encodedTypes == null
+                ? splitParam(params.get("columns_types"), "#")
+                : decodeSchemaValues(encodedTypes);
+    }
+
+    private static boolean usesEncodedSchema(Map<String, String> params) {
+        boolean hasFields = params.containsKey("required_fields_base64");
+        boolean hasTypes = params.containsKey("columns_types_base64");
+        // Both halves describe one schema version; accepting a mixed pair would reintroduce the
+        // cardinality and nested-name ambiguity this protocol is intended to remove.
+        Preconditions.checkArgument(hasFields == hasTypes,
+                "required_fields_base64 and columns_types_base64 must be provided together");
+        return hasFields;
+    }
+
+    private static String[] decodeSchemaValues(String encodedValues) {
+        if (encodedValues.isEmpty()) {
+            return new String[0];
+        }
+        return Arrays.stream(encodedValues.split(",", -1))
                 .map(encoded -> new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8))
                 .toArray(String[]::new);
     }

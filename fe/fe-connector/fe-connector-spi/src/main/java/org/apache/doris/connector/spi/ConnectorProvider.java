@@ -22,6 +22,7 @@ import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -103,6 +104,18 @@ public interface ConnectorProvider extends PluginFactory {
      */
     default void validateProperties(Map<String, String> properties) {
         // no-op by default
+    }
+
+    /**
+     * Validates an ALTER CATALOG candidate without publishing it to the live catalog.
+     * Connectors with legacy-property compatibility rules may override this method.
+     */
+    default void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        validateProperties(candidate);
     }
 
     /**

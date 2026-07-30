@@ -41,6 +41,7 @@ org.apache.doris.connector.spi.ConnectorProvider#name():java.lang.String
 org.apache.doris.connector.spi.ConnectorProvider#providesEventSource():boolean
 org.apache.doris.connector.spi.ConnectorProvider#supports(java.lang.String,java.util.Map):boolean
 org.apache.doris.connector.spi.ConnectorProvider#validateProperties(java.util.Map):void
+org.apache.doris.connector.spi.ConnectorProvider#validatePropertiesForUpdate(java.util.Map,java.util.Map):void
 org.apache.doris.extension.spi.Plugin#close():void
 org.apache.doris.extension.spi.Plugin#initialize(org.apache.doris.extension.spi.PluginContext):void
 org.apache.doris.extension.spi.PluginContext#getProperties():java.util.Map

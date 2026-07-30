@@ -433,6 +433,19 @@ public class ConnectorPluginManager {
         }
     }
 
+    /** Validates an ALTER candidate through the matching provider without mutating catalog state. */
+    public void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        for (ConnectorProvider provider : providers) {
+            Map<String, String> matchProperties = currentProperties == null
+                    ? Collections.emptyMap() : currentProperties;
+            if (provider.supports(catalogType, matchProperties)) {
+                provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
+                return;
+            }
+        }
+    }
+
     /**
      * Registers a provider at highest priority (index 0). For testing overrides.
      *

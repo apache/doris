@@ -189,6 +189,33 @@ public class PaimonTableOptionsTest {
     }
 
     @Test
+    public void compatibleExtractionKeepsCatalogLoadableWithoutApplyingUnsafeLegacyOptions() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.table-option.write.batch-size", "2048");
+        props.put("paimon.table-option.read.batch-size", "4096");
+
+        Map<String, String> compatible = PaimonTableOptions.extractCompatible(props);
+
+        Assertions.assertEquals(Collections.singletonMap("read.batch-size", "4096"), compatible);
+    }
+
+    @Test
+    public void alterValidatesOnlyTouchedTableOptionsWhileCheckingTheWholeCandidate() {
+        Map<String, String> current = new HashMap<>();
+        current.put("type", "paimon");
+        current.put("paimon.catalog.type", "filesystem");
+        current.put("warehouse", "s3://tmp/warehouse");
+        current.put("paimon.table-option.write.batch-size", "2048");
+        PaimonConnectorProvider provider = new PaimonConnectorProvider();
+
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("paimon.client-pool-size", "7")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validatePropertiesForUpdate(current,
+                        Collections.singletonMap("paimon.table-option.write.batch-size", "4096")));
+    }
+
+    @Test
     public void rejectEmptyTableOptionName() {
         Map<String, String> props = Collections.singletonMap("paimon.table-option.", "value");
 
@@ -243,6 +270,23 @@ public class PaimonTableOptionsTest {
             // changes for it.
             Assertions.assertSame(catalog.getTable(id).getClass(), table.getClass());
             Assertions.assertFalse(table.options().containsKey("file-reader-async-threshold"));
+        }
+    }
+
+    @Test
+    public void catalogOpsRejectsUnsafeEffectivePhysicalReaderOptions(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("read.batch-size", "0")
+                    .build(), false);
+
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog).getTable(id));
+            Assertions.assertTrue(e.getMessage().contains("read.batch-size"));
         }
     }
 
