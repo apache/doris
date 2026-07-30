@@ -391,11 +391,13 @@ under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
-        <!-- Runtime-only: hadoop-huaweicloud's OBSFileSystem (reflection-loaded, so no compile-time
-             reference reveals this) calls org.apache.commons.lang.StringUtils while declaring no
-             commons-lang of its own. This declaration is its only source on the FE classpath;
-             dropping it compiles green and then NoClassDefFoundErrors on OBS access.
-             scope=runtime keeps it off the compile classpath, so fe source stays commons-lang(2.x)-free. -->
+        <!-- Runtime-only, and still LOAD-BEARING after hadoop-huaweicloud moved out of this module:
+             OBSFileSystem calls org.apache.commons.lang.StringUtils while declaring no commons-lang of its
+             own, and the plugins that now carry hadoop-huaweicloud (fe-filesystem-obs, fe-connector-paimon)
+             do not declare commons-lang either — their child-first loaders miss it and fall through to
+             fe/lib, i.e. to this declaration. Dropping it compiles green and then NoClassDefFoundErrors on
+             OBS access. scope=runtime keeps it off the compile classpath, so fe source stays
+             commons-lang(2.x)-free. -->
         <dependency>
             <groupId>commons-lang</groupId>
             <artifactId>commons-lang</artifactId>
@@ -554,13 +556,6 @@ under the License.
         <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
-        </dependency>
-        <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
-             with graceful S3A fallback — runtime only, not needed at compile time -->
-        <dependency>
-            <groupId>com.huaweicloud</groupId>
-            <artifactId>hadoop-huaweicloud</artifactId>
-            <scope>runtime</scope>
         </dependency>
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
@@ -864,13 +859,6 @@ under the License.
             <artifactId>fastutil-core</artifactId>
         </dependency>
     </dependencies>
-    <repositories>
-        <!-- for huawei obs sdk -->
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
-    </repositories>
     <build>
         <finalName>doris-fe</finalName>
         <directory>${project.basedir}/target/</directory>
