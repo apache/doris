@@ -420,7 +420,7 @@ public class StageUtil {
 
     private static List<String> getPathComponents(String path) {
         ArrayList<String> ret = new ArrayList<>();
-        for (String component : path.split(org.apache.hadoop.fs.Path.SEPARATOR)) {
+        for (String component : path.split("/")) {
             if (!component.isEmpty()) {
                 ret.add(component);
             }

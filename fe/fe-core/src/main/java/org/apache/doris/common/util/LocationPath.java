@@ -37,7 +37,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * LocationPath is a utility class for parsing, validating, and normalizing storage location URIs.
@@ -365,13 +364,6 @@ public class LocationPath {
         }
         LocationPath locationPath = LocationPath.of(location);
         return locationPath.getTFileTypeForBE();
-    }
-
-    public static String getTempWritePath(String loc, String prefix) {
-        // If prefix is relative, it is resolved under loc; if absolute, it is used as the base path.
-        Path tempRoot = new Path(loc, prefix);
-        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
-        return tempPath.toString();
     }
 
     public TFileType getTFileTypeForBE() {
