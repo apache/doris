@@ -163,9 +163,10 @@ public class MetaCache<T> {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate all in metacache {}", name, new Exception());
         }
-        // Clear the reverse mapping first. A concurrent name-based load may then rebuild it, and its new mapping
-        // must not be erased after the corresponding object has already been inserted into metaObjCache.
         idToName.clear();
+        // Clear idToName before invalidating metaObjCache. While metaObjCache is being invalidated,
+        // a concurrent getMetaObj(name, id) may reload the object and repopulate idToName.
+        // Do not clear idToName afterward, or the reloaded object can no longer be found by ID.
         metaObjCache.invalidateAll();
     }
 
