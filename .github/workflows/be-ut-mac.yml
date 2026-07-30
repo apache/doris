@@ -153,9 +153,10 @@ jobs:
 
           export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
 
-          # llvm@16 is intentionally installed for this branch, but it is keg-only.
-          # Pin Doris to it instead of the macOS 15 image's AppleClang 17 toolchain.
-          export DORIS_CLANG_HOME="$(brew --prefix llvm@16)"
+          # Keep the branch on the oldest Xcode supported by macos-15-intel.
+          # The default Xcode 16.4 exposes AppleClang 17/libc++ behavior that
+          # branch-4.1 does not compile with.
+          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
 
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
