@@ -193,4 +193,88 @@ Status ColumnSelectVector::init(const std::vector<uint16_t>& run_length_null_map
     return Status::OK();
 }
 
+void ColumnSelectVector::reset(bool has_filter) {
+    _data_map.clear();
+    _run_length_null_map = nullptr;
+    _has_filter = has_filter;
+    _num_values = 0;
+    _num_nulls = 0;
+    _num_filtered = 0;
+    _read_index = 0;
+}
+
+Status ColumnSelectVector::init_nested(std::vector<level_t>* repetition_levels,
+                                       std::vector<level_t>* definition_levels,
+                                       size_t level_start_index, level_t repeated_parent_def_level,
+                                       level_t definition_level, NullMap* null_map,
+                                       FilterMap* parent_filter, size_t filter_map_index,
+                                       size_t* ancestor_null_count) {
+    if (repetition_levels == nullptr || definition_levels == nullptr || parent_filter == nullptr ||
+        ancestor_null_count == nullptr) {
+        return Status::InvalidArgument("Nested selection requires non-null input state");
+    }
+    if (repetition_levels->size() != definition_levels->size() ||
+        level_start_index > repetition_levels->size()) {
+        return Status::InvalidArgument(
+                "Nested selection has invalid level bounds: repetition={}, definition={}, start={}",
+                repetition_levels->size(), definition_levels->size(), level_start_index);
+    }
+    if (!parent_filter->has_filter() || parent_filter->filter_all()) {
+        return Status::InvalidArgument("Nested selection requires a partial parent filter");
+    }
+    if (level_start_index == repetition_levels->size()) {
+        reset(true);
+        *ancestor_null_count = 0;
+        return Status::OK();
+    }
+    if (filter_map_index >= parent_filter->filter_map_size()) {
+        return Status::InvalidArgument("Nested filter row {} exceeds filter map size {}",
+                                       filter_map_index, parent_filter->filter_map_size());
+    }
+    reset(true);
+    _data_map.reserve(repetition_levels->size() - level_start_index);
+    *ancestor_null_count = 0;
+    size_t current_parent = filter_map_index;
+    size_t output_level = level_start_index;
+    for (size_t input_level = level_start_index; input_level < repetition_levels->size();
+         ++input_level) {
+        if (input_level != level_start_index && (*repetition_levels)[input_level] == 0) {
+            ++current_parent;
+            if (current_parent >= parent_filter->filter_map_size()) {
+                return Status::InvalidArgument("Nested filter row {} exceeds filter map size {}",
+                                               current_parent, parent_filter->filter_map_size());
+            }
+        }
+        const bool selected = parent_filter->filter_map_data()[current_parent] != 0;
+        if (selected) {
+            (*repetition_levels)[output_level] = (*repetition_levels)[input_level];
+            (*definition_levels)[output_level] = (*definition_levels)[input_level];
+            ++output_level;
+        }
+        // An ancestor-null placeholder belongs to the surviving parent's level shape, but it must
+        // never consume a leaf selection entry because no physical leaf value exists for it.
+        const level_t def_level = (*definition_levels)[input_level];
+        if (def_level < repeated_parent_def_level) {
+            ++*ancestor_null_count;
+            continue;
+        }
+        const bool is_null = def_level < definition_level;
+        ++_num_values;
+        _num_nulls += is_null;
+        if (!selected) {
+            ++_num_filtered;
+        } else if (null_map != nullptr) {
+            null_map->push_back(static_cast<UInt8>(is_null));
+        }
+        DataReadType read_type = is_null ? FILTERED_NULL : FILTERED_CONTENT;
+        if (selected) {
+            read_type = is_null ? NULL_DATA : CONTENT;
+        }
+        _data_map.push_back(read_type);
+    }
+    repetition_levels->resize(output_level);
+    definition_levels->resize(output_level);
+    return Status::OK();
+}
+
 } // namespace doris::format::parquet::native
