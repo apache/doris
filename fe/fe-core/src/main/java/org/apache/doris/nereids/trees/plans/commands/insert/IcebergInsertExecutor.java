@@ -68,4 +68,24 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
         return TransactionType.ICEBERG;
     }
 
+    @Override
+    public boolean shouldExecuteEmptyInsert() {
+        return shouldExecuteEmptyInsert(emptyInsert, insertCtx,
+                ((IcebergExternalTable) table).isPartitionedTable());
+    }
+
+    static boolean shouldExecuteEmptyInsert(boolean emptyInsert, Optional<InsertCommandContext> insertCtx,
+            boolean partitionedTable) {
+        if (!emptyInsert) {
+            return false;
+        }
+        Optional<IcebergInsertCommandContext> icebergInsertCtx = insertCtx
+                .filter(IcebergInsertCommandContext.class::isInstance)
+                .map(IcebergInsertCommandContext.class::cast);
+        return icebergInsertCtx
+                .filter(IcebergInsertCommandContext::isOverwrite)
+                .map(ctx -> ctx.isStaticPartitionOverwrite() || !partitionedTable)
+                .orElse(false);
+    }
+
 }
