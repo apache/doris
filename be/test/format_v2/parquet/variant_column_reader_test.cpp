@@ -220,8 +220,8 @@ MutableColumnPtr projected_wide_object_physical(size_t field_count, int64_t valu
                 ColumnStruct::create(std::move(wrapper_fields)), ColumnUInt8::create(1, 0)));
     }
     MutableColumns root_fields;
-    root_fields.push_back(ColumnNullable::create(
-            ColumnStruct::create(std::move(object_fields)), ColumnUInt8::create(1, 0)));
+    root_fields.push_back(ColumnNullable::create(ColumnStruct::create(std::move(object_fields)),
+                                                 ColumnUInt8::create(1, 0)));
     return ColumnNullable::create(ColumnStruct::create(std::move(root_fields)),
                                   ColumnUInt8::create(1, 0));
 }
@@ -534,8 +534,7 @@ TEST(VariantColumnReaderTest, WideProjectionSharesSchemaAcrossBatchesAndSelectio
         wrapper->children.push_back(std::move(leaf));
         typed->children.push_back(std::move(wrapper));
 
-        auto wrapper_projection =
-                format::LocalColumnIndex::partial_local(static_cast<int>(field));
+        auto wrapper_projection = format::LocalColumnIndex::partial_local(static_cast<int>(field));
         wrapper_projection.children.push_back(format::LocalColumnIndex::local(0));
         projection.children.back().children.push_back(std::move(wrapper_projection));
     }
