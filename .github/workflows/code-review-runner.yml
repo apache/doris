@@ -55,7 +55,10 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # Every pre-finalization step has its own timeout. Their worst-case budget,
+    # including review/failure/status handling and best-effort cleanup, is 153
+    # minutes, leaving 12 minutes for runner setup and post-job cleanup.
+    timeout-minutes: 165
     if: >-
       inputs.pr_number != '' ||
       (
@@ -71,6 +74,7 @@ jobs:
     steps:
       - name: Resolve review inputs
         id: review_inputs
+        timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
@@ -131,6 +135,7 @@ jobs:
 
       - name: Mark Code Review status as pending
         if: ${{ steps.review_inputs.outputs.manage_status == 'true' }}
+        timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
@@ -144,17 +149,20 @@ jobs:
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Checkout repository
+        timeout-minutes: 10
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.review_inputs.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Install ripgrep
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
       - name: Install Codex
+        timeout-minutes: 5
         run: |
           for attempt in 1 2 3; do
             if npm install -g @openai/codex; then
@@ -168,6 +176,7 @@ jobs:
           exit 1
 
       - name: Install ossutil
+        timeout-minutes: 5
         run: |
           tmp_dir="$(mktemp -d)"
           trap 'rm -rf "$tmp_dir"' EXIT
@@ -176,6 +185,7 @@ jobs:
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
       - name: Install Codex goal binary
+        timeout-minutes: 10
         run: |
           codex_cmd="$(command -v codex)"
           codex_target="$(readlink -f "$codex_cmd")"
@@ -202,6 +212,7 @@ jobs:
           OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
 
       - name: Configure Codex auth
+        timeout-minutes: 5
         run: |
           install -m 700 -d "$RUNNER_TEMP/codex-home"
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
@@ -249,6 +260,7 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
 
       - name: Sync Codex memories from OSS
+        timeout-minutes: 5
         run: |
           install -m 700 -d "$CODEX_HOME/memories"
           archive="$RUNNER_TEMP/codex-memories.tar.gz"
@@ -282,6 +294,7 @@ jobs:
           OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/memories.tar.gz
 
       - name: Prepare review context directory
+        timeout-minutes: 2
         run: |
           review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.code-review.XXXXXX")"
           review_context_rel="$(basename "$review_context_dir")"
@@ -289,6 +302,7 @@ jobs:
           printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
 
       - name: Fetch existing PR review threads
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -349,6 +363,7 @@ jobs:
           fi
 
       - name: Prepare user review focus
+        timeout-minutes: 2
         env:
           REVIEW_FOCUS: ${{ steps.review_inputs.outputs.review_focus }}
         run: |
@@ -360,6 +375,7 @@ jobs:
 
       - name: Prepare authoritative PR context and required AGENTS guides
         id: review_context
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -419,6 +435,7 @@ jobs:
           sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
 
       - name: Prepare review prompt
+        timeout-minutes: 5
         run: |
           cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
           You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
@@ -591,7 +608,7 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 100
+        timeout-minutes: 60
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -697,6 +714,7 @@ jobs:
 
       - name: Fail workflow if review failed
         if: ${{ always() && (steps.review_context.outcome != 'success' || steps.review.outcome != 'success') }}
+        timeout-minutes: 1
         env:
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
