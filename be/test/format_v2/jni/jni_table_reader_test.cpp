@@ -129,6 +129,19 @@ TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) 
               "struct<$aGFzaCNuYW1l:string,$cmVnaW9uLGNvZGU:string,$Y29sb246bmFtZQ:string>");
 }
 
+TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
+    FakeJniTableReader reader;
+    reader._jni_columns = {JniTableReader::JniColumn {
+            .java_name = "region,code",
+            .transfer_type = std::make_shared<DataTypeString>(),
+    }};
+
+    reader._prepare_jni_scanner_schema();
+
+    EXPECT_FALSE(reader._scanner_params.contains("required_fields_base64"));
+    EXPECT_FALSE(reader._scanner_params.contains("columns_types_base64"));
+}
+
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {
     auto io_ctx = std::make_shared<io::IOContext>();
     FakeJniTableReader reader;

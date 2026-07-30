@@ -1317,7 +1317,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (optionsPin) {
             table = PaimonScanParams.applyOptions(resolvedTable, paimonHandle.getScanOptions());
         } else {
-            PaimonReaderOptions.validateEffectiveTable(resolvedTable);
+            // Partition projection never opens a data reader, so reader-only settings must not
+            // invalidate metadata that a later relation-scoped override can make safe.
+            PaimonReaderOptions.validateEffectivePlanningTable(resolvedTable);
             table = resolvedTable;
         }
         Identifier identifier = Identifier.create(
