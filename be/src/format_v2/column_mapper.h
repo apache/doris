@@ -155,6 +155,7 @@ struct ColumnMapping {
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
+    bool value_required_after_filter = true;
     TableVirtualColumnType virtual_column_type = TableVirtualColumnType::INVALID;
     VExprContextSPtr default_expr;
     // One-row constant owns variable-width payloads; Field<TYPE_VARBINARY> is only a borrowed

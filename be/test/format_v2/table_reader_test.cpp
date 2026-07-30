@@ -1457,7 +1457,7 @@ TEST(TableReaderTest, PrepareSplitPrunesFileBackedIdentityPartitionRuntimeFilter
     EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 1);
 }
 
-TEST(TableReaderTest, PrepareSplitSkipsNonDeterministicAndChecksLaterSafePredicate) {
+TEST(TableReaderTest, PrepareSplitStopsPruningAtNonDeterministicPredicate) {
     std::vector<ColumnDefinition> projected_columns;
     auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
     partition_column.is_partition_key = true;
@@ -1491,12 +1491,12 @@ TEST(TableReaderTest, PrepareSplitSkipsNonDeterministicAndChecksLaterSafePredica
 
     ASSERT_TRUE(reader.prepare_split(split).ok());
     EXPECT_FALSE(predicate_executed);
-    EXPECT_TRUE(reader.current_split_pruned());
+    EXPECT_FALSE(reader.current_split_pruned());
     ASSERT_NE(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum"), nullptr);
-    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("RuntimeFilterPartitionPrunedRangeNum")->value(), 0);
 }
 
-TEST(TableReaderTest, ConstantPruningSkipsUnsafeAndChecksLaterSafePredicate) {
+TEST(TableReaderTest, ConstantPruningStopsAtUnsafePredicate) {
     std::vector<ColumnDefinition> projected_columns;
     auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
     partition_column.is_partition_key = true;
@@ -1535,15 +1535,17 @@ TEST(TableReaderTest, ConstantPruningSkipsUnsafeAndChecksLaterSafePredicate) {
     Block block = build_table_block(projected_columns);
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-    EXPECT_FALSE(predicate_executed);
+    EXPECT_TRUE(predicate_executed);
+    EXPECT_FALSE(eos);
+    // The file was still opened, proving constant pruning did not jump over the unsafe predicate;
+    // the predicate is evaluated only after the resulting table row is materialized.
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
-    // An unsafe expression is not evaluated speculatively, but it is no longer an ordering
-    // barrier for an independent safe predicate that can prove the split is empty.
-    EXPECT_EQ(fake_state->open_count, 0);
     ASSERT_TRUE(reader.close().ok());
 }
 
-TEST(TableReaderTest, MixedPredicatesKeepOnlyUnsafePredicateAtTableLayer) {
+TEST(TableReaderTest, MixedPredicatesStayAtTableLayerAfterUnsafePredicate) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
     std::vector<ColumnDefinition> projected_columns;
@@ -1581,8 +1583,7 @@ TEST(TableReaderTest, MixedPredicatesKeepOnlyUnsafePredicateAtTableLayer) {
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_NE(fake_state->last_request, nullptr);
-    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
-    EXPECT_TRUE(fake_state->last_request->conjuncts.front()->root()->is_deterministic());
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
     EXPECT_TRUE(predicate_executed);
     EXPECT_EQ(block.rows(), 0);
     ASSERT_TRUE(reader.close().ok());
@@ -1845,7 +1846,7 @@ TEST(TableReaderTest, ResidualFilteringHasDedicatedProfileTimer) {
     ASSERT_TRUE(reader.close().ok());
 }
 
-TEST(TableReaderTest, ConstantPruningSkipsUnsafeSlotlessPredicate) {
+TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
     std::vector<ColumnDefinition> projected_columns;
     auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
     partition_column.is_partition_key = true;
@@ -1875,22 +1876,27 @@ TEST(TableReaderTest, ConstantPruningSkipsUnsafeSlotlessPredicate) {
                             .scanner_profile = nullptr,
                     })
                     .ok());
-    // Opening a slotless VExpr caches its constant result. Reset the observation so the assertions
-    // below distinguish split pruning from normal expression-context initialization.
-    predicate_executed = false;
-
     SplitReadOptions split;
     split.current_range.__set_path("fake-table-reader-input");
     split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
     ASSERT_TRUE(reader.prepare_split(split).ok());
-    EXPECT_FALSE(predicate_executed);
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-    EXPECT_FALSE(predicate_executed);
+    EXPECT_TRUE(predicate_executed);
+    EXPECT_FALSE(eos);
+    // The later partition predicate is false for part=7. Opening the file proves constant pruning
+    // stopped at the earlier unsafe expression even though that expression had no slot and thus no
+    // entry in `_table_filters`.
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_NE(fake_state->last_request, nullptr);
+    // A slotless unsafe conjunct is an ordering barrier even though it has no TableFilter entry.
+    // The later predicate must stay on the post-materialization path instead of running inside the
+    // file reader before the unsafe conjunct.
+    EXPECT_TRUE(fake_state->last_request->conjuncts.empty());
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
-    EXPECT_EQ(fake_state->open_count, 0);
     ASSERT_TRUE(reader.close().ok());
 }
 
@@ -5539,6 +5545,66 @@ TEST(TableReaderTest, CreateScanRequestPromotesProjectedColumnToPredicateColumn)
     ASSERT_EQ(file_request.local_positions.size(), 2);
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(0)).value(), 1);
     EXPECT_EQ(file_request.local_positions.at(LocalColumnId(1)).value(), 0);
+}
+
+TEST(TableReaderTest, CreateScanRequestDiscardsVisiblePredicatePayloadNotNeededAfterFilter) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<ColumnDefinition> projected_columns = {
+            make_table_column(0, "filter_key", int_type),
+            make_table_column(1, "measure", int_type),
+    };
+    projected_columns[0].value_required_after_filter = false;
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "filter_key", int_type),
+            make_file_column(1, "measure", int_type),
+    };
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter table_filter {
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request).ok());
+
+    EXPECT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
+    EXPECT_EQ(file_request.predicate_only_columns, std::vector<LocalColumnId>({LocalColumnId(0)}));
+}
+
+TEST(TableReaderTest, CreateScanRequestKeepsPayloadWhenAnyReferencingFilterIsResidual) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<ColumnDefinition> projected_columns = {
+            make_table_column(0, "filter_key", int_type),
+            make_table_column(1, "measure", int_type),
+    };
+    projected_columns[0].value_required_after_filter = false;
+    const std::vector<ColumnDefinition> file_schema = {
+            make_file_column(0, "filter_key", int_type),
+            make_file_column(1, "measure", int_type),
+    };
+
+    TableColumnMapper mapper;
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+
+    TableFilter localized_filter {
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 1)),
+            .global_indices = {GlobalIndex(0)},
+    };
+    TableFilter residual_filter {
+            .conjunct = VExprContext::create_shared(table_int32_greater_than_expr(0, 0, 2)),
+            .global_indices = {GlobalIndex(0)},
+            .can_localize = false,
+    };
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({localized_filter, residual_filter}, projected_columns,
+                                           &file_request)
+                        .ok());
+
+    EXPECT_TRUE(file_request.predicate_only_columns.empty());
 }
 
 TEST(TableReaderTest, CreateScanRequestUsesColumnNameForByNamePredicateMapping) {

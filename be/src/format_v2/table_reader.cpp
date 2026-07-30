@@ -822,21 +822,27 @@ Status TableReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
 
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
+    _constant_pruning_safe_filter_count = 0;
+    bool in_safe_prefix = true;
     for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
         const auto& conjunct = _conjuncts[conjunct_index];
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
-        const bool can_localize = is_safe_to_pre_execute(conjunct);
+        // Do not move a later predicate ahead of an unsafe, stateful, or error-preserving
+        // conjunct. Even a slotless conjunct remains an execution-order barrier.
+        if (in_safe_prefix && !is_safe_to_pre_execute(conjunct)) {
+            in_safe_prefix = false;
+        }
         const size_t filters_before = _table_filters.size();
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
         for (size_t filter_index = filters_before; filter_index < _table_filters.size();
              ++filter_index) {
             _table_filters[filter_index].source_conjunct_index = conjunct_index;
-            // Each predicate owns its execution layer independently. An unsafe predicate remains
-            // at TableReader, but it must not prevent a later safe predicate from becoming an
-            // exact FileReader predicate.
-            _table_filters[filter_index].can_localize = can_localize;
+            _table_filters[filter_index].can_localize = in_safe_prefix;
+        }
+        if (in_safe_prefix) {
+            _constant_pruning_safe_filter_count = _table_filters.size();
         }
     }
     return Status::OK();
@@ -1324,10 +1330,10 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     for (const auto& conjunct : conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
-        // Unsafe or non-deterministic predicates remain at TableReader. Safe predicates are
-        // independent pruning candidates even when an earlier predicate cannot be pre-executed.
+        // Keep the safe prefix of the original order. Pruning with a later predicate must not skip
+        // evaluation of an earlier stateful, non-deterministic, or error-preserving conjunct.
         if (!is_safe_to_pre_execute(conjunct)) {
-            continue;
+            break;
         }
         std::set<GlobalIndex> global_indices;
         collect_global_indices(conjunct->root(), &global_indices);

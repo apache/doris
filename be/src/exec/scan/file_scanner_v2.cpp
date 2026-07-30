@@ -789,6 +789,11 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        // An old FE does not send post-filter liveness, so preserve the historical behavior and
+        // materialize the value. A new FE may mark it dead, but ColumnMapper still requires exact
+        // localization for the current split before making it predicate-only.
+        column.value_required_after_filter = !slot_info.__isset.value_required_after_filter ||
+                                             slot_info.value_required_after_filter;
         build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;
