@@ -94,20 +94,23 @@ public class MetaCache<T> {
 
     public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        if (val == null || !val.isPresent()) {
-            synchronized (metaObjCache) {
-                val = metaObjCache.getIfPresent(name);
-                if (val != null && val.isPresent()) {
-                    return val;
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
-                            this.name, name, id, new Exception());
-                }
-                metaObjCache.invalidate(name);
-                val = metaObjCache.get(name);
+        if (val != null && val.isPresent()) {
+            idToName.put(id, name);
+            return val;
+        }
+        synchronized (metaObjCache) {
+            val = metaObjCache.getIfPresent(name);
+            if (val != null && val.isPresent()) {
                 idToName.put(id, name);
+                return val;
             }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                        this.name, name, id, new Exception());
+            }
+            metaObjCache.invalidate(name);
+            val = metaObjCache.get(name);
+            idToName.put(id, name);
         }
         return val;
     }
@@ -160,8 +163,10 @@ public class MetaCache<T> {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate all in metacache {}", name, new Exception());
         }
-        metaObjCache.invalidateAll();
+        // Clear the reverse mapping first. A concurrent name-based load may then rebuild it, and its new mapping
+        // must not be erased after the corresponding object has already been inserted into metaObjCache.
         idToName.clear();
+        metaObjCache.invalidateAll();
     }
 
     @VisibleForTesting

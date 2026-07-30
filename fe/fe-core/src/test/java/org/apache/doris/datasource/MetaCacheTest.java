@@ -34,7 +34,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MetaCacheTest {
 
@@ -103,6 +105,42 @@ public class MetaCacheTest {
         Assert.assertEquals("meta3", metaObj.get());
 
         Assert.assertFalse(metaCache.getMetaObjById(99L).isPresent());
+    }
+
+    @Test
+    public void testGetMetaObjRepairsIdMappingOnNameCacheHit() {
+        metaCache.getMetaObjCache().put("local1", Optional.of("meta1"));
+        Assert.assertFalse(metaCache.getMetaObjById(1L).isPresent());
+
+        Assert.assertEquals("meta1", metaCache.getMetaObj("local1", 1L).get());
+        Assert.assertEquals("meta1", metaCache.getMetaObjById(1L).get());
+    }
+
+    @Test
+    public void testInvalidateAllKeepsMappingReloadedByRemovalListener() {
+        AtomicReference<MetaCache<String>> cacheRef = new AtomicReference<>();
+        AtomicBoolean reloadOnRemoval = new AtomicBoolean(false);
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                Executors.newCachedThreadPool(),
+                OptionalLong.of(1),
+                OptionalLong.of(1),
+                100,
+                key -> Lists.newArrayList(),
+                key -> Optional.of("reloaded_" + key),
+                (key, value, cause) -> {
+                    if (reloadOnRemoval.get()) {
+                        cacheRef.get().getMetaObj(key, 1L);
+                    }
+                }
+        );
+        cacheRef.set(testCache);
+        testCache.updateCache("remote1", "local1", "meta1", 1L);
+
+        reloadOnRemoval.set(true);
+        testCache.invalidateAll();
+
+        Assert.assertEquals("reloaded_local1", testCache.getMetaObjById(1L).get());
     }
 
     @Test
