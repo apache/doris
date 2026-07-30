@@ -172,6 +172,8 @@ public class SessionVariable implements Serializable, Writable {
             "enable_distinct_streaming_agg_force_passthrough";
     public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
     public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_AGG = "enable_local_exchange_before_agg";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
+            "enable_local_exchange_before_streaming_agg";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
@@ -1377,6 +1379,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
@@ -3711,6 +3716,7 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
+        this.enableLocalExchangeBeforeStreamingAgg = random.nextBoolean();
         this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
         this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
@@ -5519,6 +5525,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
         tResult.setEnableLocalExchangeBeforeAgg(enableLocalExchangeBeforeAgg);
+        tResult.setEnableLocalExchangeBeforeStreamingAgg(enableLocalExchangeBeforeStreamingAgg);
         tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
         tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
