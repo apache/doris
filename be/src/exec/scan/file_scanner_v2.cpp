@@ -92,6 +92,26 @@ TFileFormatType::type get_range_format_type(const TFileScanRangeParams& params,
     return range.__isset.format_type ? range.format_type : params.format_type;
 }
 
+bool contains_variant_type(const DataTypePtr& input) {
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
+
 bool is_supported_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
     if (table_format == "hudi" && range.__isset.table_format_params &&
@@ -498,6 +518,13 @@ Status FileScannerV2::_filter_output_block(Block* block) {
                                                _get_current_format_type());
 }
 
+bool FileScannerV2::_can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
+    // A Variant access expression is evaluated above the file reader. Keep each file-local
+    // shredded schema intact until that projection turns complete and leaf-only states into a
+    // common logical result column.
+    return !_has_variant_projection;
+}
+
 Status FileScannerV2::_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
     if (!status.ok() && format_type == TFileFormatType::FORMAT_ORC) {
@@ -775,6 +802,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
     _projected_columns.clear();
     _projected_columns.reserve(_params->required_slots.size());
     _need_global_rowid_column = false;
+    _has_variant_projection = false;
     format::ProjectedColumnBuildContext build_context {
             .scan_params = _params,
             .range = &_current_range,
@@ -792,6 +820,7 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                                          slot_info.slot_id);
         }
         auto column = _build_table_column(it->second);
+        _has_variant_projection = _has_variant_projection || contains_variant_type(column.type);
         build_context.slot_desc = it->second;
         if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _need_global_rowid_column = true;

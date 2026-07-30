@@ -115,6 +115,10 @@ protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 
+    virtual bool _can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const {
+        return true;
+    }
+
     Status _merge_padding_block() {
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);

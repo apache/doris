@@ -104,6 +104,25 @@ public class VariantPruningLogicTest extends TestWithFeService {
     }
 
     @Test
+    public void testWholeVariantOutputDominatesPredicateLeafProjection() throws Exception {
+        String rootOutputSql = "select v from variant_tbl where v['n'] > 1";
+        assertAllAccessPathsContain(
+                rootOutputSql,
+                ImmutableList.of(path("v")),
+                ImmutableList.of()
+        );
+        assertPredicateAccessPathsEqual(rootOutputSql, ImmutableList.of(path("v", "n")));
+
+        String predicateOnlySql = "select count(*) from variant_tbl where v['n'] > 1";
+        assertAllAccessPathsContain(
+                predicateOnlySql,
+                ImmutableList.of(path("v", "n")),
+                ImmutableList.of(path("v"))
+        );
+        assertPredicateAccessPathsEqual(predicateOnlySql, ImmutableList.of(path("v", "n")));
+    }
+
+    @Test
     public void testVariantIfExpressionPaths() throws Exception {
         assertVariantSubColumnSlots(
                 "select if(v['a'] is null, v['b']['c'], v['d']) from variant_tbl",
