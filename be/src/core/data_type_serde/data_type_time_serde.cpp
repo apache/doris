@@ -18,6 +18,8 @@
 #include "core/data_type_serde/data_type_time_serde.h"
 
 #include <limits>
+#include <arrow/array.h>
+#include <arrow/type.h>
 
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
@@ -279,6 +281,86 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
 
     col_data.insert_value(res);
     return Status::OK();
+}
+
+Status DataTypeTimeV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone&) const {
+    auto& data = assert_cast<ColumnTimeV2&>(column).get_data();
+    if (arrow_array->type_id() == arrow::Type::TIME32) {
+        const auto* time_array = dynamic_cast<const arrow::Time32Array*>(arrow_array);
+        if (time_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Time32Array, got {}",
+                                           arrow_array->type()->name());
+        }
+        const auto type = std::static_pointer_cast<arrow::Time32Type>(arrow_array->type());
+        int64_t micros_per_unit = 0;
+        int64_t units_per_day = 0;
+        switch (type->unit()) {
+        case arrow::TimeUnit::SECOND:
+            micros_per_unit = TimeValue::ONE_SECOND_MICROSECONDS;
+            units_per_day = 24 * 60 * 60;
+            break;
+        case arrow::TimeUnit::MILLI:
+            micros_per_unit = 1000;
+            units_per_day = 24 * 60 * 60 * 1000;
+            break;
+        default:
+            return Status::InvalidArgument("Unsupported Arrow Time32 unit: {}", type->unit());
+        }
+        for (int64_t row = start; row < end; ++row) {
+            if (time_array->IsNull(row)) {
+                data.emplace_back(0);
+                continue;
+            }
+            const int64_t value = time_array->Value(row);
+            if (value < 0 || value >= units_per_day) {
+                return Status::InvalidArgument(
+                        "Arrow Time32 value is outside the time-of-day range: row={}, value={}",
+                        row, value);
+            }
+            data.emplace_back(static_cast<TimeValue::TimeType>(value * micros_per_unit));
+        }
+        return Status::OK();
+    }
+
+    if (arrow_array->type_id() == arrow::Type::TIME64) {
+        const auto* time_array = dynamic_cast<const arrow::Time64Array*>(arrow_array);
+        if (time_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow Time64Array, got {}",
+                                           arrow_array->type()->name());
+        }
+        const auto type = std::static_pointer_cast<arrow::Time64Type>(arrow_array->type());
+        int64_t units_per_day = 0;
+        switch (type->unit()) {
+        case arrow::TimeUnit::MICRO:
+            units_per_day = 24LL * 60 * 60 * TimeValue::ONE_SECOND_MICROSECONDS;
+            break;
+        case arrow::TimeUnit::NANO:
+            units_per_day = 24LL * 60 * 60 * 1000 * TimeValue::ONE_SECOND_MICROSECONDS;
+            break;
+        default:
+            return Status::InvalidArgument("Unsupported Arrow Time64 unit: {}", type->unit());
+        }
+        for (int64_t row = start; row < end; ++row) {
+            if (time_array->IsNull(row)) {
+                data.emplace_back(0);
+                continue;
+            }
+            const int64_t value = time_array->Value(row);
+            if (value < 0 || value >= units_per_day) {
+                return Status::InvalidArgument(
+                        "Arrow Time64 value is outside the time-of-day range: row={}, value={}",
+                        row, value);
+            }
+            const int64_t micros = type->unit() == arrow::TimeUnit::NANO ? value / 1000 : value;
+            data.emplace_back(static_cast<TimeValue::TimeType>(micros));
+        }
+        return Status::OK();
+    }
+
+    return Status::InvalidArgument("Expected Arrow Time32Array or Time64Array, got {}",
+                                   arrow_array->type()->name());
 }
 
 Status DataTypeTimeV2SerDe::read_column_from_decoded_values(IColumn& column,
