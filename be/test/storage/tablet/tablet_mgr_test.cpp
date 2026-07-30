@@ -679,6 +679,7 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksClearsMissingPolicyScoreOnCheck) {
     ASSERT_TRUE(tablet != nullptr);
     auto* metrics = DorisMetrics::instance();
     metrics->tablet_cumulative_max_compaction_score->set_value(101);
+    metrics->tablet_size_based_max_compaction_score->set_value(102);
     metrics->tablet_time_series_max_compaction_score->set_value(200);
 
     std::vector<DataDir*> data_dirs {_data_dir};
@@ -688,6 +689,7 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksClearsMissingPolicyScoreOnCheck) {
     ASSERT_EQ(tasks.size(), 1);
     ASSERT_EQ(tasks[0]->tablet_id(), 51001);
     ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 8);
+    ASSERT_EQ(metrics->tablet_size_based_max_compaction_score->value(), 8);
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 0);
 }
 
@@ -696,6 +698,7 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksKeepsMissingPolicyScoreWithoutCheck
     ASSERT_TRUE(tablet != nullptr);
     auto* metrics = DorisMetrics::instance();
     metrics->tablet_cumulative_max_compaction_score->set_value(101);
+    metrics->tablet_size_based_max_compaction_score->set_value(102);
     metrics->tablet_time_series_max_compaction_score->set_value(200);
 
     std::vector<DataDir*> data_dirs {_data_dir};
@@ -705,12 +708,14 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksKeepsMissingPolicyScoreWithoutCheck
     ASSERT_EQ(tasks.size(), 1);
     ASSERT_EQ(tasks[0]->tablet_id(), 52001);
     ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 8);
+    ASSERT_EQ(metrics->tablet_size_based_max_compaction_score->value(), 8);
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 200);
 }
 
 TEST_F(TabletMgrTest, GenerateCompactionTasksDoesNotUpdateMetricWhenNoDirScanned) {
     auto* metrics = DorisMetrics::instance();
     metrics->tablet_cumulative_max_compaction_score->set_value(101);
+    metrics->tablet_size_based_max_compaction_score->set_value(102);
     metrics->tablet_time_series_max_compaction_score->set_value(200);
 
     std::vector<DataDir*> data_dirs;
@@ -719,6 +724,7 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksDoesNotUpdateMetricWhenNoDirScanned
 
     ASSERT_TRUE(tasks.empty());
     ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 101);
+    ASSERT_EQ(metrics->tablet_size_based_max_compaction_score->value(), 102);
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 200);
 }
 
@@ -749,13 +755,15 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksAggregatesScoreWhenNoSlot) {
 
     auto* metrics = DorisMetrics::instance();
     metrics->tablet_cumulative_max_compaction_score->set_value(0);
+    metrics->tablet_size_based_max_compaction_score->set_value(0);
     metrics->tablet_time_series_max_compaction_score->set_value(0);
 
     auto tasks = k_engine->generate_compaction_tasks_for_test(CompactionType::CUMULATIVE_COMPACTION,
                                                               data_dirs, true);
 
     ASSERT_TRUE(tasks.empty());
-    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 8);
+    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 12);
+    ASSERT_EQ(metrics->tablet_size_based_max_compaction_score->value(), 8);
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 12);
 }
 
@@ -780,7 +788,8 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksDoesNotLowerPolicyScoreWhenDirFull)
     full_data_dir->set_capacity_for_test(100, 0);
 
     auto* metrics = DorisMetrics::instance();
-    metrics->tablet_cumulative_max_compaction_score->set_value(0);
+    metrics->tablet_cumulative_max_compaction_score->set_value(200);
+    metrics->tablet_size_based_max_compaction_score->set_value(0);
     metrics->tablet_time_series_max_compaction_score->set_value(200);
 
     std::vector<DataDir*> data_dirs {_data_dir, full_data_dir.get()};
@@ -789,7 +798,8 @@ TEST_F(TabletMgrTest, GenerateCompactionTasksDoesNotLowerPolicyScoreWhenDirFull)
 
     ASSERT_EQ(tasks.size(), 1);
     ASSERT_EQ(tasks[0]->tablet_id(), 54002);
-    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 8);
+    ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 200);
+    ASSERT_EQ(metrics->tablet_size_based_max_compaction_score->value(), 8);
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 200);
 }
 

@@ -967,6 +967,8 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
                 }
             };
             update_policy_score(DorisMetrics::instance()->tablet_cumulative_max_compaction_score,
+                                max_score_stats.max_score);
+            update_policy_score(DorisMetrics::instance()->tablet_size_based_max_compaction_score,
                                 max_score_stats.size_based_max_score);
             update_policy_score(DorisMetrics::instance()->tablet_time_series_max_compaction_score,
                                 max_score_stats.time_series_max_score);
