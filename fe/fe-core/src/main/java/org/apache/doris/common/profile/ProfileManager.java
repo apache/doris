@@ -56,6 +56,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -126,6 +127,8 @@ public class ProfileManager extends MasterDaemon {
     // no further write operation, so no data race
     private final ReentrantReadWriteLock isProfileLoadedLock = new ReentrantReadWriteLock();
     volatile boolean isProfileLoaded = false;
+    // Guard against spawning multiple profile-loader threads while loading is in progress.
+    private final AtomicBoolean isProfileLoading = new AtomicBoolean(false);
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
     private ReentrantReadWriteLock lock;
@@ -602,78 +605,104 @@ public class ProfileManager extends MasterDaemon {
         if (checkIfProfileLoaded()) {
             return;
         }
+        if (!isProfileLoading.compareAndSet(false, true)) {
+            if (sync) {
+                waitForProfileLoadFinish();
+            }
+            return;
+        }
 
-        // Create a new thread to load profiles
-        Thread loadThread = new Thread(() -> {
+        Runnable loadTask = () -> {
             long startTime = System.currentTimeMillis();
-
+            boolean loadSucceeded = false;
             try {
-                List<String> profileDirAbsPaths = getOnStorageProfileInfos();
-                LOG.info("Reading {} profiles from {}", profileDirAbsPaths.size(),
-                        PROFILE_STORAGE_PATH);
-                // Newest profile first
-                profileDirAbsPaths.sort(Collections.reverseOrder());
-
-                // Process profiles in batches
-                for (int i = 0; i < profileDirAbsPaths.size(); i += BATCH_SIZE) {
-                    // Thread safe list
-                    List<Profile> profiles = Collections.synchronizedList(new ArrayList<>());
-                    int end = Math.min(i + BATCH_SIZE, profileDirAbsPaths.size());
-                    List<String> batch = profileDirAbsPaths.subList(i, end);
-
-                    // List of profile io futures for current batch
-                    List<Future<?>> profileIOFutures = Lists.newArrayList();
-
-                    // Create and add tasks for current batch to executor
-                    for (String profileDirAbsPath : batch) {
-                        Thread thread = new Thread(() -> {
-                            Profile profile = Profile.read(profileDirAbsPath);
-                            if (profile != null) {
-                                profiles.add(profile);
-                            }
-                        });
-                        profileIOFutures.add(profileIOExecutor.submit(thread));
-                    }
-
-                    // Wait for all futures in current batch to complete
-                    for (Future<?> future : profileIOFutures) {
-                        try {
-                            future.get();
-                        } catch (Exception e) {
-                            LOG.warn("Failed to read profile from storage", e);
-                        }
-                    }
-
-                    for (Profile profile : profiles) {
-                        pushProfile(profile);
-                    }
-
-                    LOG.info("Processed batch {} - {} of {} profiles", i, end, profileDirAbsPaths.size());
-                }
-
-                LOG.info("Load profiles into memory finished, costs {}ms", System.currentTimeMillis() - startTime);
-
-                // Set isProfileLoaded to true with write lock
-                isProfileLoadedLock.writeLock().lock();
-                try {
-                    this.isProfileLoaded = true;
-                } finally {
-                    isProfileLoadedLock.writeLock().unlock();
-                }
+                loadProfilesFromStorage();
+                loadSucceeded = true;
+                LOG.info("Load profiles into memory finished, costs {}ms",
+                        System.currentTimeMillis() - startTime);
             } catch (Exception e) {
                 LOG.error("Failed to load query profile from storage", e);
+            } finally {
+                // Mark loaded even on failure to avoid spawning a new profile-loader every second.
+                markProfileLoaded();
+                isProfileLoading.set(false);
+                if (!loadSucceeded) {
+                    LOG.warn("Profile loading did not complete successfully, "
+                            + "will not retry until FE restarts. Loaded profile count in memory: {}",
+                            queryIdToProfileMap.size());
+                }
             }
-        });
+        };
 
-        loadThread.setName("profile-loader");
-        loadThread.start();
-
-        // Wait for the thread to finish if sync is true
         if (sync) {
+            loadTask.run();
+        } else {
+            Thread loadThread = new Thread(loadTask, "profile-loader");
+            loadThread.setDaemon(true);
+            loadThread.start();
+        }
+    }
+
+    private void loadProfilesFromStorage() throws Exception {
+        List<String> profileDirAbsPaths = getOnStorageProfileInfos();
+        LOG.info("Reading {} profiles from {}", profileDirAbsPaths.size(), PROFILE_STORAGE_PATH);
+        // Newest profile first
+        profileDirAbsPaths.sort(Collections.reverseOrder());
+
+        // Process profiles in batches
+        for (int i = 0; i < profileDirAbsPaths.size(); i += BATCH_SIZE) {
+            // Thread safe list
+            List<Profile> profiles = Collections.synchronizedList(new ArrayList<>());
+            int end = Math.min(i + BATCH_SIZE, profileDirAbsPaths.size());
+            List<String> batch = profileDirAbsPaths.subList(i, end);
+
+            // List of profile io futures for current batch
+            List<Future<?>> profileIOFutures = Lists.newArrayList();
+
+            // Create and add tasks for current batch to executor
+            for (String profileDirAbsPath : batch) {
+                profileIOFutures.add(profileIOExecutor.submit(() -> {
+                    Profile profile = Profile.read(profileDirAbsPath);
+                    if (profile != null) {
+                        profiles.add(profile);
+                    }
+                }));
+            }
+
+            // Wait for all futures in current batch to complete
+            for (Future<?> future : profileIOFutures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    LOG.warn("Failed to read profile from storage", e);
+                }
+            }
+
+            for (Profile profile : profiles) {
+                pushProfile(profile);
+            }
+
+            LOG.info("Processed batch {} - {} of {} profiles", i, end, profileDirAbsPaths.size());
+        }
+    }
+
+    private void markProfileLoaded() {
+        isProfileLoadedLock.writeLock().lock();
+        try {
+            this.isProfileLoaded = true;
+        } finally {
+            isProfileLoadedLock.writeLock().unlock();
+        }
+    }
+
+    private void waitForProfileLoadFinish() {
+        while (isProfileLoading.get() && !checkIfProfileLoaded()) {
             try {
-                loadThread.join();
+                Thread.sleep(100);
             } catch (InterruptedException e) {
-                LOG.error("Failed to wait for profile loader thread", e);
+                Thread.currentThread().interrupt();
+                LOG.warn("Interrupted while waiting for profile loading to finish", e);
+                return;
             }
         }
     }

@@ -54,7 +54,10 @@ import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @ResourceLock("global")
 class ProfileManagerTest {
@@ -1206,5 +1209,176 @@ class ProfileManagerTest {
             Config.profile_archive_pending_timeout_seconds = originalTimeout;
             Config.profile_archive_batch_size = originalBatchSize;
         }
+    }
+
+    @Test
+    public void testOnlyOneProfileLoaderWhenTriggeredConcurrently() throws Exception {
+        int numProfiles = 30;
+        for (int i = 0; i < numProfiles; i++) {
+            UUID taskId = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            String profileId = DebugUtil.printId(queryId);
+            Profile profile = constructProfile(profileId);
+            profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+        }
+
+        profileManager.isProfileLoaded = false;
+
+        AtomicInteger maxProfileLoaderThreads = new AtomicInteger(0);
+        Thread monitorThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                long loaderCount = Thread.getAllStackTraces().keySet().stream()
+                        .filter(thread -> "profile-loader".equals(thread.getName()))
+                        .count();
+                maxProfileLoaderThreads.updateAndGet(cur -> Math.max(cur, (int) loaderCount));
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        });
+        monitorThread.start();
+
+        int concurrentTriggers = 20;
+        CountDownLatch startLatch = new CountDownLatch(1);
+        Thread[] triggerThreads = new Thread[concurrentTriggers];
+        for (int i = 0; i < concurrentTriggers; i++) {
+            triggerThreads[i] = new Thread(() -> {
+                try {
+                    startLatch.await();
+                    profileManager.loadProfilesFromStorageIfFirstTime(false);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            triggerThreads[i].start();
+        }
+        startLatch.countDown();
+
+        for (Thread triggerThread : triggerThreads) {
+            triggerThread.join(30000);
+        }
+
+        long waitStart = System.currentTimeMillis();
+        while (!profileManager.isProfileLoaded && System.currentTimeMillis() - waitStart < 30000) {
+            Thread.sleep(100);
+        }
+
+        monitorThread.interrupt();
+        monitorThread.join();
+
+        Assertions.assertTrue(profileManager.isProfileLoaded);
+        Assertions.assertEquals(1, maxProfileLoaderThreads.get(),
+                "Only one profile-loader thread should be active at a time");
+        Assertions.assertEquals(numProfiles, profileManager.queryIdToProfileMap.size());
+    }
+
+    @Test
+    void testSyncLoadWaitsWhenAsyncLoadInProgress() throws Exception {
+        CountDownLatch loadingEntered = new CountDownLatch(1);
+        CountDownLatch allowComplete = new CountDownLatch(1);
+        ProfileManager pm = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                loadingEntered.countDown();
+                try {
+                    if (!allowComplete.await(30, TimeUnit.SECONDS)) {
+                        throw new RuntimeException("timed out waiting to complete profile load");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return super.getOnStorageProfileInfos();
+            }
+        };
+        pm.isProfileLoaded = false;
+
+        Thread asyncLoader = new Thread(() -> pm.loadProfilesFromStorageIfFirstTime(false));
+        asyncLoader.start();
+        Assertions.assertTrue(loadingEntered.await(10, TimeUnit.SECONDS));
+
+        long waitStart = System.currentTimeMillis();
+        pm.loadProfilesFromStorageIfFirstTime(true);
+        long waitedMs = System.currentTimeMillis() - waitStart;
+
+        allowComplete.countDown();
+        asyncLoader.join(10000);
+
+        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertTrue(waitedMs >= 50,
+                "sync load should wait for in-progress async load to finish");
+    }
+
+    @Test
+    void testLoadProfilesFromStorageFailure() throws Exception {
+        Profile profile = constructProfile("fail-load");
+        profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+
+        ProfileManager pm = new ProfileManager() {
+            @Override
+            public void pushProfile(Profile profile) {
+                throw new RuntimeException("simulated load failure");
+            }
+        };
+        pm.isProfileLoaded = false;
+
+        pm.loadProfilesFromStorageIfFirstTime(true);
+
+        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertTrue(pm.queryIdToProfileMap.isEmpty());
+    }
+
+    @Test
+    void testReadProfileIOExceptionInBatch() throws Exception {
+        ProfileManager pm = new ProfileManager();
+        pm.isProfileLoaded = false;
+
+        // Malformed (non-zip) profile files: real Profile.read tolerates them and returns null,
+        // so the batch load must still finish and mark isProfileLoaded=true without loading any.
+        for (int i = 0; i < 3; i++) {
+            File profileFile = new File(tempDir, System.currentTimeMillis() + "_badprofile" + i);
+            profileFile.createNewFile();
+        }
+
+        pm.loadProfilesFromStorageIfFirstTime(true);
+
+        Assertions.assertTrue(pm.isProfileLoaded);
+        Assertions.assertEquals(0, pm.queryIdToProfileMap.size());
+    }
+
+    @Test
+    void testWaitForProfileLoadInterrupted() throws Exception {
+        CountDownLatch loadingEntered = new CountDownLatch(1);
+        CountDownLatch holdLoad = new CountDownLatch(1);
+        ProfileManager pm = new ProfileManager() {
+            @Override
+            protected List<String> getOnStorageProfileInfos() {
+                loadingEntered.countDown();
+                try {
+                    holdLoad.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return super.getOnStorageProfileInfos();
+            }
+        };
+        pm.isProfileLoaded = false;
+
+        Thread asyncLoader = new Thread(() -> pm.loadProfilesFromStorageIfFirstTime(false));
+        asyncLoader.start();
+        Assertions.assertTrue(loadingEntered.await(10, TimeUnit.SECONDS));
+
+        Thread waiterThread = new Thread(() -> pm.loadProfilesFromStorageIfFirstTime(true));
+        waiterThread.start();
+        Thread.sleep(200);
+        waiterThread.interrupt();
+        waiterThread.join(5000);
+
+        Assertions.assertFalse(waiterThread.isAlive());
+
+        holdLoad.countDown();
+        asyncLoader.join(10000);
     }
 }
