@@ -18,7 +18,8 @@
 # under the License.
 #
 # Forbidden-import gate for fe-connector modules.
-# See plan-doc/01-spi-extensions-rfc.md §15.4.
+# See fe/fe-connector/README.md (architecture and invariants) and
+# fe/fe-connector/AGENTS.md (gate obligations).
 #
 # Connector modules MUST NOT import fe-core internals (catalog / common /
 # datasource / qe / analysis / nereids / planner / persist / transaction / fs /
@@ -108,6 +109,6 @@ if [ -n "${RESULT}" ]; then
     echo "" >&2
     echo "fe-connector modules MUST NOT depend on fe-core internals." >&2
     echo "Expose what you need through the connector SPI instead." >&2
-    echo "See plan-doc/01-spi-extensions-rfc.md §15.4." >&2
+    echo "See fe/fe-connector/AGENTS.md (Machine-Checked Obligations) and fe/fe-connector/README.md." >&2
     exit 1
 fi
