@@ -225,7 +225,7 @@ public:
 
     // Refresh row-level predicates for an already prepared split. Physical readers that support
     // this operation decide the safe boundary at which the new immutable request becomes active.
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts);
+    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
