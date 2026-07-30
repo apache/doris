@@ -42,7 +42,6 @@ class time_zone;
 
 namespace doris {
 class Block;
-class QueryDictionaryFilterCache;
 class RuntimeState;
 
 namespace format {
@@ -188,7 +187,7 @@ public:
     void set_enable_strict_mode(bool enable_strict_mode) {
         _enable_strict_mode = enable_strict_mode;
     }
-    void set_runtime_state(RuntimeState* runtime_state);
+    void set_runtime_state(RuntimeState* runtime_state) { _runtime_state = runtime_state; }
     void set_scan_request(std::shared_ptr<format::FileScanRequest> request);
     void queue_scan_request(std::shared_ptr<format::FileScanRequest> request);
     // Release row-group readers before the owning RuntimeProfile is reported. Native readers
@@ -307,7 +306,6 @@ private:
     bool _enable_strict_mode = false;
     bool _enable_bloom_filter = false;
     RuntimeState* _runtime_state = nullptr;
-    QueryDictionaryFilterCache* _query_dictionary_filter_cache = nullptr;
     int64_t _batch_size = DEFAULT_READ_BATCH_SIZE;
     // Batch control scratch is scheduler-owned so adaptive row caps change logical sizes without
     // reallocating selection indices, dense filter bytes, or compacted-column positions.

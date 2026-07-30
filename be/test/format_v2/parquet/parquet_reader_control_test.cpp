@@ -34,7 +34,6 @@
 #include "format_v2/parquet/reader/native/common.h"
 #include "format_v2/parquet/reader/row_position_column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
-#include "runtime/query_dictionary_filter_cache.h"
 #include "storage/utils.h"
 
 namespace doris::format::parquet {
@@ -274,24 +273,6 @@ TEST(SelectionVectorTest, BulkCompactionSupportsBothFilterCoordinates) {
     EXPECT_EQ(selection.get_index(0), 1);
     EXPECT_EQ(selection.get_index(1), 4);
     EXPECT_TRUE(selection.verify(2, 6).ok());
-}
-
-TEST(QueryDictionaryFilterCacheTest, ReusesBitmapWithinMemoryLimit) {
-    QueryDictionaryFilterCache cache(128);
-    QueryDictionaryFilterCacheKey key {.expression_digest = 11,
-                                       .dictionary_hash_low = 22,
-                                       .dictionary_hash_high = 33,
-                                       .dictionary_entries = 4,
-                                       .primitive_type = TYPE_INT};
-    std::vector<uint8_t> result;
-    EXPECT_FALSE(cache.lookup(key, &result));
-    EXPECT_TRUE(cache.insert(key, {1, 0, 1, 0}));
-    ASSERT_TRUE(cache.lookup(key, &result));
-    EXPECT_EQ(result, std::vector<uint8_t>({1, 0, 1, 0}));
-
-    QueryDictionaryFilterCache tiny_cache(2);
-    EXPECT_FALSE(tiny_cache.insert(key, {1, 0, 1, 0}));
-    EXPECT_FALSE(tiny_cache.lookup(key, &result));
 }
 
 TEST(ParquetColumnReaderControlTest, BaseSelectUsesSkipReadRanges) {
