@@ -99,8 +99,7 @@ Status append_timestamptz_from_arrow_timestamp(ColumnTimeStampTz::Container& dat
     timestamp_tz.from_unixtime(epoch_seconds, UTC);
     timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
     if (!timestamp_tz.is_valid_date()) {
-        return Status::DataQualityError(
-                "Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range");
+        return Status::DataQualityError("Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range");
     }
     data.push_back(timestamp_tz);
     return Status::OK();
