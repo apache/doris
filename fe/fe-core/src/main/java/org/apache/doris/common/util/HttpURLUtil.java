@@ -19,8 +19,11 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import java.io.IOException;
@@ -40,6 +43,10 @@ public class HttpURLUtil {
             HostInfo selfNode = Env.getServingEnv().getSelfNode();
             conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
             conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+            String token = Config.fe_meta_auth_token;
+            if (!Strings.isNullOrEmpty(token)) {
+                conn.setRequestProperty(MetaBaseAction.TOKEN, token);
+            }
             return conn;
         } catch (Exception e) {
             throw new IOException(e);
@@ -55,7 +62,15 @@ public class HttpURLUtil {
         HostInfo selfNode = Env.getServingEnv().getSelfNode();
         headers.put(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
         headers.put(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+        String token = Config.fe_meta_auth_token;
+        if (!Strings.isNullOrEmpty(token)) {
+            headers.put(MetaBaseAction.TOKEN, token);
+        }
         return headers;
+    }
+
+    public static int getHttpPort() {
+        return Config.enable_https ? Config.https_port : Config.http_port;
     }
 
 }
