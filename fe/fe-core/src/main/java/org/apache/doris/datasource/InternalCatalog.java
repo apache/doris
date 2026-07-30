@@ -3771,9 +3771,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.dropPartitionForTruncate(olapTable.getDatabase().getId(), isforceDrop, pair.getValue());
         }
 
-        // Reset table-level visibleVersion to TABLE_INIT_VERSION so it stays consistent
-        // with the newly created partitions (which also start at PARTITION_INIT_VERSION).
-        olapTable.resetVisibleVersion();
+        // Truncate changes visible data without changing the table ID. Keep the table version
+        // monotonic so snapshot consumers cannot mistake new data for an old version.
+        if (Config.isNotCloudMode()) {
+            olapTable.updateVisibleVersionAndTime(olapTable.getNextVersion(), System.currentTimeMillis());
+        }
 
         return oldPartitions;
     }

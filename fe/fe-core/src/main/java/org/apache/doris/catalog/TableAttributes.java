@@ -71,9 +71,4 @@ public class TableAttributes {
     public long getNextVersion() {
         return visibleVersion + 1;
     }
-
-    public void resetVisibleVersion() {
-        this.visibleVersion = TABLE_INIT_VERSION;
-        this.visibleVersionTime = System.currentTimeMillis();
-    }
 }
