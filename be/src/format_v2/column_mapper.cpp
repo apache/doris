@@ -2232,8 +2232,11 @@ Status TableColumnMapper::create_scan_request(
     // 2. Build referenced predicate columns
     // Hidden filter mappings must be built before localizing filters, so that they can be localized together with visible mappings and referenced by localized filter expressions.
     RETURN_IF_ERROR(_build_hidden_filter_mappings(table_filters));
-    RETURN_IF_ERROR(
-            localize_filters(table_filters, file_request, runtime_state, localization_result));
+    FilterLocalizationResult local_localization_result;
+    auto* exact_localization_result =
+            localization_result == nullptr ? &local_localization_result : localization_result;
+    RETURN_IF_ERROR(localize_filters(table_filters, file_request, runtime_state,
+                                     exact_localization_result));
     for (const auto& mapping : _hidden_mappings) {
         if (!mapping.file_local_id.has_value()) {
             continue;
@@ -2247,10 +2250,23 @@ Status TableColumnMapper::create_scan_request(
         if (is_visible_output) {
             continue;
         }
+        bool referenced_by_filter = false;
+        bool referenced_only_by_localized_filters = true;
+        for (size_t filter_index = 0; filter_index < table_filters.size(); ++filter_index) {
+            if (std::ranges::find(table_filters[filter_index].global_indices,
+                                  mapping.global_index) ==
+                table_filters[filter_index].global_indices.end()) {
+                continue;
+            }
+            referenced_by_filter = true;
+            referenced_only_by_localized_filters &=
+                    exact_localization_result->localized_filters[filter_index];
+        }
         // A localized predicate is enforced exactly before TableReader materializes output. Only
-        // truly hidden mappings are absent from the final table block and may discard their
-        // payload after that file-local evaluation.
-        if (std::ranges::any_of(file_request->predicate_columns,
+        // hidden columns used exclusively by exact FileReader predicates may discard their payload.
+        // A TableReader residual still needs its value after table-schema materialization.
+        if (referenced_by_filter && referenced_only_by_localized_filters &&
+            std::ranges::any_of(file_request->predicate_columns,
                                 [local_id](const LocalColumnIndex& projection) {
                                     return projection.column_id() == local_id;
                                 }) &&

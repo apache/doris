@@ -812,41 +812,31 @@ Status TableReader::append_conjuncts(const VExprContextSPtrs& conjuncts) {
             ++_table_reader_owned_conjunct_count;
         }
         if (_current_task != nullptr && conjunct_index < owned_count) {
-            // The active reader has already fixed its localized predicate set. Appended runtime
-            // filters must remain residual until the next split rebuilds its FileScanRequest.
+            // Keep late predicates residual for this split even after a refreshed request is
+            // queued: the physical reader may not activate it until the next row-group boundary.
             _remaining_conjuncts.push_back(std::move(conjunct));
         }
     }
-    return Status::OK();
+    return _queue_refreshed_scan_request();
 }
 
 Status TableReader::_build_table_filters_from_conjuncts() {
     _table_filters.clear();
-    _constant_pruning_safe_filter_count = 0;
-    bool in_safe_prefix = true;
     for (size_t conjunct_index = 0; conjunct_index < _conjuncts.size(); ++conjunct_index) {
         const auto& conjunct = _conjuncts[conjunct_index];
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
-        // `_table_filters` omits expressions without slot references, but such an expression still
-        // occupies a position in the row-level conjunct order. Record how many localized filters
-        // precede the first unsafe original conjunct so constant pruning cannot jump over a
-        // slotless non-deterministic/error-preserving barrier. An unsafe predicate is either kept
-        // on TableReader's post-materialization path by a standalone caller or carried only for
-        // analysis when FileScannerV2 owns the ordered suffix.
-        if (in_safe_prefix && !is_safe_to_pre_execute(conjunct)) {
-            in_safe_prefix = false;
-        }
+        const bool can_localize = is_safe_to_pre_execute(conjunct);
         const size_t filters_before = _table_filters.size();
         RETURN_IF_ERROR(
                 build_table_filters_from_conjunct(conjunct, _runtime_state, &_table_filters));
         for (size_t filter_index = filters_before; filter_index < _table_filters.size();
              ++filter_index) {
             _table_filters[filter_index].source_conjunct_index = conjunct_index;
-            _table_filters[filter_index].can_localize = in_safe_prefix;
-        }
-        if (in_safe_prefix) {
-            _constant_pruning_safe_filter_count = _table_filters.size();
+            // Each predicate owns its execution layer independently. An unsafe predicate remains
+            // at TableReader, but it must not prevent a later safe predicate from becoming an
+            // exact FileReader predicate.
+            _table_filters[filter_index].can_localize = can_localize;
         }
     }
     return Status::OK();
@@ -900,7 +890,13 @@ bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest
 } // namespace
 
 Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
-    _conjuncts = std::move(conjuncts);
+    _table_reader_owned_conjunct_count = conjuncts.size();
+    RETURN_IF_ERROR(_replace_conjuncts(conjuncts));
+    RETURN_IF_ERROR(_prepare_all_conjuncts_as_remaining());
+    return _queue_refreshed_scan_request();
+}
+
+Status TableReader::_queue_refreshed_scan_request() {
     if (_data_reader.reader == nullptr) {
         // The split is prepared but its physical reader has not opened yet. open_reader() will use
         // this newest snapshot directly, so no pending request is needed.
@@ -919,9 +915,11 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(refreshed_mapper->create_mapping(_projected_columns, _partition_values,
                                                      _data_reader.file_schema));
     auto refreshed_request = std::make_shared<FileScanRequest>();
+    FilterLocalizationResult localization_result;
     RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
-            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+            _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions,
+            &localization_result));
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
         _push_down_count_columns->empty()) {
         for (const auto& column : refreshed_request->non_predicate_columns) {
@@ -932,8 +930,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
-        // Keep scanner-level filtering as the correctness fallback for hidden slots or nested
-        // projections instead of switching an incompatible physical shape mid-file.
+        // Keep TableReader residual filtering as the correctness fallback for hidden slots or
+        // nested projections instead of switching an incompatible physical shape mid-file.
         return Status::OK();
     }
     RETURN_IF_ERROR(_open_local_filter_exprs(*refreshed_request));
@@ -1326,11 +1324,10 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     for (const auto& conjunct : conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         DORIS_CHECK(conjunct->root() != nullptr);
-        // Keep only the safe prefix of the original conjunct order. If an unsafe conjunct is
-        // skipped, a later predicate could prune the split before the unsafe one reaches its
-        // normal row-level evaluation point.
+        // Unsafe or non-deterministic predicates remain at TableReader. Safe predicates are
+        // independent pruning candidates even when an earlier predicate cannot be pre-executed.
         if (!is_safe_to_pre_execute(conjunct)) {
-            break;
+            continue;
         }
         std::set<GlobalIndex> global_indices;
         collect_global_indices(conjunct->root(), &global_indices);

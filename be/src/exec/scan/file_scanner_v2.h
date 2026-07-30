@@ -96,15 +96,13 @@ public:
     }
     void TEST_set_scanner_conjuncts(VExprContextSPtrs conjuncts) {
         _conjuncts = std::move(conjuncts);
-        _initialize_scanner_residual_conjuncts();
+        _transfer_conjuncts_to_table_reader();
     }
     Status TEST_filter_output_block(Block* block) { return _filter_output_block(block); }
     size_t TEST_table_reader_owned_conjunct_count() const {
         return _table_reader_owned_conjunct_count;
     }
-    size_t TEST_scanner_residual_conjunct_count() const {
-        return _scanner_residual_conjuncts.size();
-    }
+    size_t TEST_scanner_residual_conjunct_count() const { return _conjuncts.size(); }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -123,6 +121,7 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
     Status _filter_output_block(Block* block) override;
+    bool _retains_output_conjuncts() const override { return false; }
     size_t _last_block_rows_read(const Block& block) const override;
     size_t _last_block_bytes_read(const Block& block) const override;
     void _collect_profile_before_close() override;
@@ -157,9 +156,8 @@ private:
     Status _build_table_conjuncts(const VExprContextSPtrs& source,
                                   VExprContextSPtrs* conjuncts) const;
     Status _sync_table_reader_conjuncts();
-    static size_t _safe_conjunct_prefix_size(const VExprContextSPtrs& conjuncts);
-    void _initialize_scanner_residual_conjuncts();
-    void _refresh_scanner_residual_profile();
+    void _transfer_conjuncts_to_table_reader();
+    uint64_t _current_table_condition_cache_digest() const;
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
     void _reset_adaptive_batch_size_state();
@@ -191,18 +189,14 @@ private:
     std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
     bool _has_prepared_split = false;
-    int _table_reader_rf_num = 0;
     TFileRangeDesc _current_range;
     std::string _current_range_path;
 
     std::unique_ptr<format::TableReader> _table_reader;
     size_t _table_reader_owned_conjunct_count = 0;
-    // Cost sorting must not let a late runtime filter cross an older unsafe ordering barrier
-    // when the next split rebuilds its partition-pruning conjuncts.
+    // Preserve append order for partition pruning and split-local condition-cache digests even
+    // though Scanner no longer owns an executable predicate list.
     VExprContextSPtrs _append_ordered_conjuncts;
-    // Scanner owns one persistent context vector for the first unsafe conjunct and every later
-    // conjunct. Hybrid child readers may be recreated or switched, but this state must not be.
-    VExprContextSPtrs _scanner_residual_conjuncts;
     std::vector<format::ColumnDefinition> _projected_columns;
     // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
     // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
@@ -236,9 +230,6 @@ private:
     RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_actual_bytes_counter = nullptr;
     RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
-    RuntimeProfile::Counter* _scanner_residual_filter_timer = nullptr;
-    RuntimeProfile::Counter* _scanner_residual_rows_filtered_counter = nullptr;
-    RuntimeProfile* _scanner_profile = nullptr;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;

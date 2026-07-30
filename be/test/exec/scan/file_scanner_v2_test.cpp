@@ -146,10 +146,13 @@ class CapturingAppendTableReader final : public format::TableReader {
 public:
     Status append_conjuncts(const VExprContextSPtrs& conjuncts) override {
         appended_conjuncts = conjuncts;
+        appended_owned_conjunct_count =
+                _appended_table_reader_owned_conjunct_count.value_or(conjuncts.size());
         return Status::OK();
     }
 
     VExprContextSPtrs appended_conjuncts;
+    size_t appended_owned_conjunct_count = 0;
 };
 
 VExprSPtr slot_ref(int slot_id, int column_id, DataTypePtr type, const std::string& name) {
@@ -810,7 +813,7 @@ TEST(FileScannerTest, PartitionPruningStopsAtUnsafePredicate) {
     EXPECT_EQ(partition_conjuncts[0], conjuncts[0]);
 }
 
-TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
+TEST(FileScannerV2Test, TransfersAllConjunctsToTableReader) {
     const auto bool_type = std::make_shared<DataTypeUInt8>();
     auto unsafe_predicate = std::make_shared<UnsafePartitionPredicate>();
     unsafe_predicate->add_child(slot_ref(1, 0, bool_type, "part"));
@@ -825,12 +828,9 @@ TEST(FileScannerV2Test, ScannerOwnsUnsafeConjunctAndOrderedSuffixInProfile) {
     FileScannerV2 scanner(&state, &profile, nullptr);
     scanner.TEST_set_scanner_conjuncts(std::move(conjuncts));
 
-    EXPECT_EQ(scanner.TEST_table_reader_owned_conjunct_count(), 1);
-    EXPECT_EQ(scanner.TEST_scanner_residual_conjunct_count(), 2);
-    const auto* residual_predicates = profile.get_info_string("ScannerResidualPredicates");
-    ASSERT_NE(residual_predicates, nullptr);
-    EXPECT_FALSE(residual_predicates->empty());
-    EXPECT_NE(residual_predicates->find("SlotRef"), std::string::npos) << *residual_predicates;
+    EXPECT_EQ(scanner.TEST_table_reader_owned_conjunct_count(), 3);
+    EXPECT_EQ(scanner.TEST_scanner_residual_conjunct_count(), 0);
+    EXPECT_EQ(profile.get_info_string("ScannerResidualPredicates"), nullptr);
 }
 
 TEST(FileScannerV2Test, NextSplitPartitionPruningPreservesLateRuntimeFilterAppendOrder) {
@@ -858,6 +858,8 @@ TEST(FileScannerV2Test, NextSplitPartitionPruningPreservesLateRuntimeFilterAppen
 
     ASSERT_TRUE(scanner._sync_table_reader_conjuncts().ok());
     ASSERT_EQ(capturing_reader->appended_conjuncts.size(), 1);
+    EXPECT_EQ(capturing_reader->appended_owned_conjunct_count, 1);
+    EXPECT_TRUE(scanner._conjuncts.empty());
     VExprContextSPtrs partition_prune_conjuncts;
     ASSERT_TRUE(scanner._build_table_conjuncts(&partition_prune_conjuncts).ok());
 
