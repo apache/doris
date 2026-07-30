@@ -95,6 +95,11 @@ public class AbstractPaimonPropertiesTest {
         input.put("paimon.jni.enable_jni_io_manager", "true");
         input.put("paimon.table-option.read.batch-size", "4096");
         input.put("paimon.table-option.file-reader-async-threshold", "16 MB");
+        input.put("paimon.table-option.file-index.read.enabled", "false");
+        input.put("paimon.table-option.source.split.target-size", "64 MB");
+        input.put("paimon.table-option.source.split.open-file-cost", "1 MB");
+        input.put("paimon.table-option.scan.manifest.parallelism", "1");
+        input.put("paimon.table-option.scan.plan-sort-partition", "true");
         TestPaimonProperties testProps = new TestPaimonProperties(input);
 
         testProps.initNormalizeAndCheckProps();
@@ -103,6 +108,11 @@ public class AbstractPaimonPropertiesTest {
         Assertions.assertEquals("4096", testProps.getTableOptionsMap().get("read.batch-size"));
         Assertions.assertEquals("16 MB",
                 testProps.getTableOptionsMap().get("file-reader-async-threshold"));
+        Assertions.assertEquals("false", testProps.getTableOptionsMap().get("file-index.read.enabled"));
+        Assertions.assertEquals("64 MB", testProps.getTableOptionsMap().get("source.split.target-size"));
+        Assertions.assertEquals("1 MB", testProps.getTableOptionsMap().get("source.split.open-file-cost"));
+        Assertions.assertEquals("1", testProps.getTableOptionsMap().get("scan.manifest.parallelism"));
+        Assertions.assertEquals("true", testProps.getTableOptionsMap().get("scan.plan-sort-partition"));
         Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("table-option.read.batch-size"));
         Assertions.assertFalse(testProps.getCatalogOptionsMap().containsKey("jni.enable_jni_io_manager"));
     }

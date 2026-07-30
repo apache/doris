@@ -40,17 +40,35 @@ public final class PaimonReaderOptions {
     public static final long MIN_ASYNC_THRESHOLD_BYTES = 1024L * 1024L;
     public static final long MAX_ASYNC_THRESHOLD_BYTES = 1024L * 1024L * 1024L;
 
-    // Only options which cannot select another table context or mutate write behavior are safe to
-    // apply with Table.copy after Doris has bound the table schema.
+    // Keep this list to batch-read controls consumed by Doris' Paimon scan path. Context selectors,
+    // streaming-source settings, storage layout, and write options are unsafe after schema binding.
     private static final Set<String> SUPPORTED_OPTIONS = ImmutableSet.of(
             CoreOptions.READ_BATCH_SIZE.key(),
-            CoreOptions.FILE_READER_ASYNC_THRESHOLD.key());
+            CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(),
+            CoreOptions.FILE_INDEX_READ_ENABLED.key(),
+            CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(),
+            CoreOptions.SOURCE_SPLIT_OPEN_FILE_COST.key(),
+            CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
+            CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
+
+    // These settings do not alter the selected snapshot or manifest projection, so relation-local
+    // copies can reuse the memoized partition projection while still planning splits from the copy.
+    private static final Set<String> METADATA_NEUTRAL_OPTIONS = ImmutableSet.of(
+            CoreOptions.READ_BATCH_SIZE.key(),
+            CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(),
+            CoreOptions.FILE_INDEX_READ_ENABLED.key(),
+            CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(),
+            CoreOptions.SOURCE_SPLIT_OPEN_FILE_COST.key());
 
     private PaimonReaderOptions() {
     }
 
     public static Set<String> supportedOptions() {
         return SUPPORTED_OPTIONS;
+    }
+
+    public static Set<String> metadataNeutralOptions() {
+        return METADATA_NEUTRAL_OPTIONS;
     }
 
     public static void validate(String key, String value) {
@@ -64,12 +82,25 @@ public final class PaimonReaderOptions {
             // A zero batch can make Paimon's vectorized reader report success without
             // advancing input; the upper bound also prevents one relation from over-allocating.
             requireRange(key, batchSize, MIN_READ_BATCH_SIZE, MAX_READ_BATCH_SIZE);
-        } else {
+        } else if (CoreOptions.FILE_READER_ASYNC_THRESHOLD.key().equals(key)) {
             MemorySize threshold = parse(key, value, CoreOptions.FILE_READER_ASYNC_THRESHOLD);
             // Bound the trigger on both sides so a query cannot fan out tiny async reads or
             // silently disable asynchronous reading with an effectively infinite threshold.
             requireRange(key, threshold.getBytes(),
                     MIN_ASYNC_THRESHOLD_BYTES, MAX_ASYNC_THRESHOLD_BYTES);
+        } else if (CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key().equals(key)) {
+            MemorySize targetSize = parse(key, value, CoreOptions.SOURCE_SPLIT_TARGET_SIZE);
+            // A split-size option represents byte capacity; non-positive values silently defeat
+            // Paimon's bin packing and turn every data file into a separate Doris scan range.
+            requireRange(key, targetSize.getBytes(), 1, Long.MAX_VALUE);
+        } else if (CoreOptions.SOURCE_SPLIT_OPEN_FILE_COST.key().equals(key)) {
+            parse(key, value, CoreOptions.SOURCE_SPLIT_OPEN_FILE_COST);
+        } else if (CoreOptions.SCAN_MANIFEST_PARALLELISM.key().equals(key)) {
+            validateManifestParallelism(value);
+        } else if (CoreOptions.FILE_INDEX_READ_ENABLED.key().equals(key)) {
+            parse(key, value, CoreOptions.FILE_INDEX_READ_ENABLED);
+        } else {
+            parse(key, value, CoreOptions.SCAN_PLAN_SORT_PARTITION);
         }
     }
 
@@ -109,7 +140,6 @@ public final class PaimonReaderOptions {
         SUPPORTED_OPTIONS.stream()
                 .filter(options::containsKey)
                 .forEach(key -> validate(key, options.get(key)));
-        validateManifestParallelism(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
     }
 
     public static void validateEffectiveTable(Table table) {
@@ -129,12 +159,19 @@ public final class PaimonReaderOptions {
     public static void validateEffectivePlanningTable(Table table) {
         // Partition projection never opens a data reader. Revalidating batch/async values here
         // would reject a raw handle even when the final relation copy safely overrides them.
-        validateManifestParallelism(table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        validateIfPresent(table.options(), CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+        validateIfPresent(table.options(), CoreOptions.SCAN_PLAN_SORT_PARTITION.key());
         if (table instanceof FallbackReadFileStoreTable) {
             validateEffectivePlanningTable(((FallbackReadFileStoreTable) table).fallback());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateEffectivePlanningTable(((DelegatedFileStoreTable) table).wrapped());
+        }
+    }
+
+    private static void validateIfPresent(Map<String, String> options, String key) {
+        if (options.containsKey(key)) {
+            validate(key, options.get(key));
         }
     }
 

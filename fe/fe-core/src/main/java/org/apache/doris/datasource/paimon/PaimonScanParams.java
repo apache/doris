@@ -188,7 +188,7 @@ public final class PaimonScanParams {
     public static boolean hasOnlyReaderOptions(Map<String, String> options) {
         Map<String, String> tableOptions = userOptions(options);
         return !tableOptions.isEmpty()
-                && PaimonReaderOptions.supportedOptions().containsAll(tableOptions.keySet());
+                && PaimonReaderOptions.metadataNeutralOptions().containsAll(tableOptions.keySet());
     }
 
     public static boolean usesStatementSnapshot(Map<String, String> options) {

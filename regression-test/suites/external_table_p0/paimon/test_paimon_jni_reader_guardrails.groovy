@@ -64,6 +64,11 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
     sql(catalogDdl(catalogName, """
         , 'paimon.table-option.read.batch-size'='1024'
         , 'paimon.table-option.file-reader-async-threshold'='16 MB'
+        , 'paimon.table-option.file-index.read.enabled'='false'
+        , 'paimon.table-option.source.split.target-size'='64 MB'
+        , 'paimon.table-option.source.split.open-file-cost'='1 MB'
+        , 'paimon.table-option.scan.manifest.parallelism'='1'
+        , 'paimon.table-option.scan.plan-sort-partition'='true'
     """))
 
     try {
@@ -140,7 +145,12 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
         order_qt_relation_reader_options """
                 select id from quoted_reader_options@options(
                     'read.batch-size'='4096',
-                    'file-reader-async-threshold'='32 MB')
+                    'file-reader-async-threshold'='32 MB',
+                    'file-index.read.enabled'='true',
+                    'source.split.target-size'='32 MB',
+                    'source.split.open-file-cost'='2 MB',
+                    'scan.manifest.parallelism'='1',
+                    'scan.plan-sort-partition'='false')
                 order by id
         """
         order_qt_relation_option_isolation """

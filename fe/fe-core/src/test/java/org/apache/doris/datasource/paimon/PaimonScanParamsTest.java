@@ -48,7 +48,12 @@ public class PaimonScanParamsTest {
     public void testValidateRelationScopedReaderOptions() {
         PaimonScanParams.validateOptions(ImmutableMap.of(
                 "read.batch-size", "4096",
-                "file-reader-async-threshold", "16 MB"));
+                "file-reader-async-threshold", "16 MB",
+                "file-index.read.enabled", "false",
+                "source.split.target-size", "64 MB",
+                "source.split.open-file-cost", "1 MB",
+                "scan.manifest.parallelism", "1",
+                "scan.plan-sort-partition", "true"));
 
         for (Map<String, String> options : new Map[] {
                 ImmutableMap.of("read.batch-size", "0"),
@@ -60,6 +65,17 @@ public class PaimonScanParamsTest {
             Assert.assertThrows(IllegalArgumentException.class,
                     () -> PaimonScanParams.validateOptions(options));
         }
+    }
+
+    @Test
+    public void testPlanningOptionsDoNotReuseMetadataProjection() {
+        Assert.assertTrue(PaimonScanParams.hasOnlyReaderOptions(ImmutableMap.of(
+                "file-index.read.enabled", "false",
+                "source.split.target-size", "64 MB")));
+        Assert.assertFalse(PaimonScanParams.hasOnlyReaderOptions(
+                ImmutableMap.of("scan.manifest.parallelism", "1")));
+        Assert.assertFalse(PaimonScanParams.hasOnlyReaderOptions(
+                ImmutableMap.of("scan.plan-sort-partition", "true")));
     }
 
     @Test
