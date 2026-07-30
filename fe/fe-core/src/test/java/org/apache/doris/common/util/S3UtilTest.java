@@ -73,11 +73,11 @@ public class S3UtilTest {
     public void testBuildS3ClientAppliesDefaultSchemeAtClientCreation() {
         Config.s3_client_http_scheme = "https";
         try (S3Client client = S3Util.buildS3Client(
-                URI.create("minio.local:9000"),
+                "127.0.0.1:9000",
                 "us-east-1",
                 true,
                 StaticCredentialsProvider.create(AwsBasicCredentials.create("ak", "sk")))) {
-            Assert.assertEquals(URI.create("https://minio.local:9000"),
+            Assert.assertEquals(URI.create("https://127.0.0.1:9000"),
                     client.serviceClientConfiguration().endpointOverride().orElseThrow());
         }
     }
