@@ -53,9 +53,9 @@ public class S3ResourcePersistParityTest {
         resource.setProperties(ImmutableMap.copyOf(input));
 
         Map<String, String> golden = new HashMap<>();
-        // Dual-namespace write: the endpoint gets the default https:// prefix under BOTH keys.
-        golden.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
-        golden.put("AWS_ENDPOINT", "https://s3.us-east-1.amazonaws.com");
+        // Dual-namespace write preserves the user-provided endpoint under BOTH keys.
+        golden.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        golden.put("AWS_ENDPOINT", "s3.us-east-1.amazonaws.com");
         // Region derived from the endpoint host (second dot-segment).
         golden.put("s3.region", "us-east-1");
         golden.put("s3.access_key", "myAk");
@@ -85,10 +85,9 @@ public class S3ResourcePersistParityTest {
         resource.setProperties(ImmutableMap.copyOf(input));
 
         Map<String, String> golden = new HashMap<>();
-        // convertToStdProperties mirrors legacy AWS_* keys into the s3.* namespace first;
-        // the endpoint then gets the default https:// prefix under both keys.
-        golden.put("AWS_ENDPOINT", "https://s3.us-east-1.amazonaws.com");
-        golden.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        // convertToStdProperties mirrors the original legacy endpoint into the s3.* namespace.
+        golden.put("AWS_ENDPOINT", "s3.us-east-1.amazonaws.com");
+        golden.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
         golden.put("s3.region", "us-east-1");
         golden.put("AWS_ACCESS_KEY", "myAk");
         golden.put("s3.access_key", "myAk");

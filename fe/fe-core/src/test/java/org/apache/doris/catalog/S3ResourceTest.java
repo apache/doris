@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -196,9 +195,8 @@ public class S3ResourceTest {
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());
 
-        String expectedEndpoint = Config.s3_client_http_scheme + "://aaa";
-        Assert.assertEquals(expectedEndpoint, rS3Resource2.getProperty(S3ResourceCompat.ENDPOINT));
-        Assert.assertEquals(expectedEndpoint,
+        Assert.assertEquals("aaa", rS3Resource2.getProperty(S3ResourceCompat.ENDPOINT));
+        Assert.assertEquals("aaa",
                 CloudObjectStoreAdapter.getObjStoreInfoPB(rS3Resource2.getCopiedProperties()).getEndpoint());
         Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.REGION), "bbb");
         Assert.assertEquals(rS3Resource2.getProperty(S3ResourceCompat.ROOT_PATH), "/path/to/root");
@@ -235,10 +233,9 @@ public class S3ResourceTest {
         modify.clear();
         modify.put(S3ResourceCompat.ENDPOINT, "new-endpoint");
         s3Resource.modifyProperties(modify);
-        String expectedEndpoint = Config.s3_client_http_scheme + "://new-endpoint";
-        Assert.assertEquals(expectedEndpoint, s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
-        Assert.assertEquals(expectedEndpoint, s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
-        Assert.assertEquals(expectedEndpoint,
+        Assert.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.ENDPOINT));
+        Assert.assertEquals("new-endpoint", s3Resource.getProperty(S3ResourceCompat.Env.ENDPOINT));
+        Assert.assertEquals("new-endpoint",
                 CloudObjectStoreAdapter.getObjStoreInfoPB(s3Resource.getCopiedProperties()).getEndpoint());
 
         modify.clear();

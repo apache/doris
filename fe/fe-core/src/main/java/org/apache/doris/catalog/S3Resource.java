@@ -103,8 +103,7 @@ public class S3Resource extends Resource {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
 
-        String endpoint = S3Util.buildEndpointUrl(properties.get(S3ResourceCompat.ENDPOINT));
-        properties.put(S3ResourceCompat.ENDPOINT, endpoint);
+        String endpoint = properties.get(S3ResourceCompat.ENDPOINT);
         properties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
         String region = S3ResourceCompat.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3ResourceCompat.REGION, region);
@@ -120,6 +119,11 @@ public class S3Resource extends Resource {
 
     protected static void pingS3(String bucketName, String rootPath, Map<String, String> newProperties)
             throws DdlException {
+        Map<String, String> pingProperties = new HashMap<>(newProperties);
+        String endpoint = S3Util.buildEndpointUrl(pingProperties.get(S3ResourceCompat.ENDPOINT));
+        pingProperties.put(S3ResourceCompat.ENDPOINT, endpoint);
+        pingProperties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
+
         // Normalize rootPath: strip leading slashes to avoid "s3://bucket//path" double-slash
         if (rootPath != null) {
             rootPath = rootPath.replaceAll("^/+", "");
@@ -136,7 +140,7 @@ public class S3Resource extends Resource {
 
         try {
             org.apache.doris.filesystem.FileSystem fileSystem =
-                    FileSystemFactory.getFileSystem(newProperties);
+                    FileSystemFactory.getFileSystem(pingProperties);
             Preconditions.checkState(fileSystem instanceof ObjFileSystem,
                     "Expected object-storage filesystem for S3 resource");
             ObjStorage<?> objStorage = ((ObjFileSystem) fileSystem).getObjStorage();
@@ -231,9 +235,7 @@ public class S3Resource extends Resource {
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3ResourceCompat.convertToStdProperties(properties);
         if (!Strings.isNullOrEmpty(properties.get(S3ResourceCompat.ENDPOINT))) {
-            String endpoint = S3Util.buildEndpointUrl(properties.get(S3ResourceCompat.ENDPOINT));
-            properties.put(S3ResourceCompat.ENDPOINT, endpoint);
-            properties.put(S3ResourceCompat.Env.ENDPOINT, endpoint);
+            properties.put(S3ResourceCompat.Env.ENDPOINT, properties.get(S3ResourceCompat.ENDPOINT));
         }
         boolean needCheck = isNeedCheck(properties);
         if (LOG.isDebugEnabled()) {
@@ -334,4 +336,3 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
-
