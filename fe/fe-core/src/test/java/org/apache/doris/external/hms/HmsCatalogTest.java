@@ -17,6 +17,8 @@
 
 package org.apache.doris.external.hms;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -34,6 +36,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -47,7 +50,6 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
@@ -399,8 +401,17 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private void mockSnapshotAwareSchema(HMSExternalTable table, List<Column> schema) {
         // Binding pins both the snapshot and schema per relation, so HMS mocks must implement
         // the same snapshot-aware contract as real tables instead of only the legacy overload.
-        Mockito.when(table.loadSnapshot(Mockito.any(), Mockito.any())).thenReturn(new EmptyMvccSnapshot());
-        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(schema);
+        new Expectations(table) {
+            {
+                table.loadSnapshot((Optional<TableSnapshot>) any, (Optional<TableScanParams>) any);
+                minTimes = 0;
+                result = new EmptyMvccSnapshot();
+
+                table.getFullSchema((Optional<MvccSnapshot>) any);
+                minTimes = 0;
+                result = schema;
+            }
+        };
     }
 
     @Test
