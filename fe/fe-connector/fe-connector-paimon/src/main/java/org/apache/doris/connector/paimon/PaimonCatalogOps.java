@@ -274,11 +274,9 @@ public interface PaimonCatalogOps {
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
-            Table effectiveTable = optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
-            // Physical table options bypass catalog-property validation, so check the final view
-            // before Paimon can allocate batches or replace its manifest executor.
-            PaimonReaderOptions.validateEffectiveTableOptions(effectiveTable.options());
-            return effectiveTable;
+            // Relation options are applied after this cached handle is returned. Defer final
+            // validation so a safe relation value can override an unsafe physical value.
+            return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 
         @Override

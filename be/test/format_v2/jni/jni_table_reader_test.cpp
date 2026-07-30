@@ -114,7 +114,9 @@ Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOConte
 
 TEST(JniTableReaderTest, RequiredFieldEncodingPreservesQuotedIdentifiers) {
     EXPECT_EQ(JniDataBridge::encode_schema_values({"region,code", "hash#name", "地区 名"}),
-              "cmVnaW9uLGNvZGU=,aGFzaCNuYW1l,5Zyw5Yy6IOWQjQ==");
+              "$cmVnaW9uLGNvZGU=,$aGFzaCNuYW1l,$5Zyw5Yy6IOWQjQ==");
+    EXPECT_EQ(JniDataBridge::encode_schema_values({}), "");
+    EXPECT_EQ(JniDataBridge::encode_schema_values({""}), "$");
 }
 
 TEST(JniTableReaderTest, EncodedTypeDescriptorsPreserveNestedQuotedIdentifiers) {

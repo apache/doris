@@ -274,23 +274,6 @@ public class PaimonTableOptionsTest {
     }
 
     @Test
-    public void catalogOpsRejectsUnsafeEffectivePhysicalReaderOptions(@TempDir Path warehouse) throws Exception {
-        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
-                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
-            catalog.createDatabase("db", false);
-            Identifier id = Identifier.create("db", "t");
-            catalog.createTable(id, Schema.newBuilder()
-                    .column("id", DataTypes.INT())
-                    .option("read.batch-size", "0")
-                    .build(), false);
-
-            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog).getTable(id));
-            Assertions.assertTrue(e.getMessage().contains("read.batch-size"));
-        }
-    }
-
-    @Test
     public void createCatalogRejectsBadTableOption() {
         Map<String, String> props = new HashMap<>();
         props.put("type", "paimon");

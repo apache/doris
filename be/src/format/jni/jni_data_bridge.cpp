@@ -498,7 +498,8 @@ std::string JniDataBridge::encode_schema_values(const std::vector<std::string>& 
     for (const auto& value : values) {
         std::string encoded;
         base64_encode(value, &encoded);
-        encoded_values.emplace_back(std::move(encoded));
+        // Prefix every element so an empty Base64 token remains distinct from an empty list.
+        encoded_values.emplace_back("$" + encoded);
     }
     return join(encoded_values, ",");
 }

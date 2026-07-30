@@ -92,6 +92,9 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
             create table paimon.${dbName}.unsafe_physical_manifest (id int) using paimon
             tblproperties ('scan.manifest.parallelism'='0');
             insert into paimon.${dbName}.unsafe_physical_manifest values (1);
+            drop table if exists paimon.${dbName}.empty_identifier;
+            create table paimon.${dbName}.empty_identifier (`` string) using paimon;
+            insert into paimon.${dbName}.empty_identifier values ('empty-name');
         """
 
         sql "switch ${catalogName}"
@@ -115,6 +118,9 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
                 order by id
             """
         }
+        test {
+            sql "select * from empty_identifier"
+        }
         sql "set enable_file_scanner_v2=true"
         test {
             sql """
@@ -122,6 +128,14 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
                 from quoted_reader_options
                 order by id
             """
+        }
+        test {
+            sql "select * from empty_identifier"
+        }
+
+        // The safe catalog value must override the physical read.batch-size=0 value.
+        test {
+            sql "select * from unsafe_physical_batch order by id"
         }
 
         test {
@@ -181,8 +195,14 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
             exception "read.batch-size"
         }
         test {
+            sql "select * from unsafe_physical_batch@options('read.batch-size'='4096') order by id"
+        }
+        test {
             sql "select * from unsafe_physical_manifest"
             exception "scan.manifest.parallelism"
+        }
+        test {
+            sql "select * from unsafe_physical_manifest@options('scan.manifest.parallelism'='1') order by id"
         }
     } finally {
         sql "set force_jni_scanner=false"

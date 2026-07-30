@@ -316,20 +316,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        Table finalTable = table;
         if (scanOptions != null && !scanOptions.isEmpty()) {
             if (PaimonScanParams.isOptionsPin(scanOptions)) {
                 // An @options pin owns the whole scan-startup state: applyOptions strips the internal
                 // markers and nulls out the absent members of paimon's inherited read-state family, so a
                 // scan.mode / tag persisted on the base table cannot leak into this relation's read.
-                return PaimonScanParams.applyOptions(table, scanOptions);
+                finalTable = PaimonScanParams.applyOptions(table, scanOptions);
+            } else {
+                // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
+                // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
+                // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
+                // base table cannot hijack incremental-between. Non-incremental pins pass through unchanged.
+                finalTable = table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
             }
-            // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
-            // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
-            // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
-            // base table cannot hijack incremental-between. Non-incremental pins pass through unchanged.
-            return table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
         }
-        return table;
+        // This is the last common boundary before planning and serialization. Validate only after
+        // relation and incremental copies establish relation > catalog > physical precedence.
+        PaimonReaderOptions.validateEffectiveTableOptions(finalTable.options());
+        return finalTable;
     }
 
     @Override

@@ -470,6 +470,44 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveScanTableRejectsUnsafePhysicalOptionsAtFinalBoundary() {
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.setOptions(Collections.singletonMap("read.batch-size", "0"));
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                Collections.emptyMap(), new RecordingPaimonCatalogOps());
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("read.batch-size"));
+    }
+
+    @Test
+    public void resolveScanTableAllowsSafeRelationOptionToOverrideUnsafePhysicalOption() {
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.setOptions(Collections.singletonMap("read.batch-size", "0"));
+        FakePaimonTable copied = new FakePaimonTable(
+                "t1@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        copied.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        base.copyResult = copied;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("read.batch-size", "4096")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                Collections.emptyMap(), new RecordingPaimonCatalogOps());
+
+        Assertions.assertSame(copied, provider.resolveScanTable(optionsHandle));
+    }
+
+    @Test
     public void resolveScanTableResetsStalePinForIncrementalRead(@TempDir Path warehouse) throws Exception {
         // A REAL paimon table (not FakePaimonTable, whose copy() is a no-op recorder that cannot
         // reproduce paimon's merge/remove/immutability) that PERSISTS a stale scan.snapshot-id/scan.mode
