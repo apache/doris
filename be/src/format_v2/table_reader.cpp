@@ -765,6 +765,53 @@ Status TableReader::_build_table_filters_from_conjuncts() {
     return Status::OK();
 }
 
+namespace {
+
+bool same_scan_projection(const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
+    if (lhs.index != rhs.index || lhs.project_all_children != rhs.project_all_children ||
+        lhs.children.size() != rhs.children.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < lhs.children.size(); ++index) {
+        if (!same_scan_projection(lhs.children[index], rhs.children[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const LocalColumnIndex* find_scan_projection(const FileScanRequest& request,
+                                             LocalColumnId column_id) {
+    const auto find_by_id = [column_id](const std::vector<LocalColumnIndex>& projections) {
+        return std::ranges::find_if(projections, [column_id](const LocalColumnIndex& projection) {
+            return projection.column_id() == column_id;
+        });
+    };
+    auto it = find_by_id(request.predicate_columns);
+    if (it != request.predicate_columns.end()) {
+        return &*it;
+    }
+    it = find_by_id(request.non_predicate_columns);
+    return it == request.non_predicate_columns.end() ? nullptr : &*it;
+}
+
+bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest& rhs) {
+    if (lhs.local_positions != rhs.local_positions) {
+        return false;
+    }
+    for (const auto& [column_id, _] : lhs.local_positions) {
+        const auto* lhs_projection = find_scan_projection(lhs, column_id);
+        const auto* rhs_projection = find_scan_projection(rhs, column_id);
+        if (lhs_projection == nullptr || rhs_projection == nullptr ||
+            !same_scan_projection(*lhs_projection, *rhs_projection)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     _conjuncts = std::move(conjuncts);
     if (_data_reader.reader == nullptr) {
@@ -777,8 +824,15 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     }
 
     RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
+    // create_scan_request() rebuilds mapping projections in place. Build late predicates with an
+    // isolated mapper so the active row group cannot observe an unprepared or incompatible mapper
+    // before its physical request reaches the reader's safe activation boundary.
+    auto refreshed_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+    DORIS_CHECK(refreshed_mapper != nullptr);
+    RETURN_IF_ERROR(refreshed_mapper->create_mapping(_projected_columns, _partition_values,
+                                                     _data_reader.file_schema));
     auto refreshed_request = std::make_shared<FileScanRequest>();
-    RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
+    RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -788,14 +842,14 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
-    RETURN_IF_ERROR(_open_local_filter_exprs(*refreshed_request));
     if (_file_scan_request == nullptr ||
-        refreshed_request->local_positions != _file_scan_request->local_positions) {
+        !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
-        // Keep scanner-level filtering as the correctness fallback for this uncommon hidden-slot
-        // shape instead of switching an incompatible request mid-file.
+        // Keep scanner-level filtering as the correctness fallback for hidden slots or nested
+        // projections instead of switching an incompatible physical shape mid-file.
         return Status::OK();
     }
+    RETURN_IF_ERROR(_open_local_filter_exprs(*refreshed_request));
 
     if (_condition_cache_ctx != nullptr && !_condition_cache_ctx->is_hit) {
         // Rows before and after a late RF were evaluated by different predicate snapshots. Such a
