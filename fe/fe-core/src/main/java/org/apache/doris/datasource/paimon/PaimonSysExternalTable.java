@@ -329,7 +329,9 @@ public class PaimonSysExternalTable extends ExternalTable {
             synchronized (this) {
                 if (schemaCacheValue == null) {
                     if (fullSchema == null) {
-                        Table sysTable = getSysPaimonTable();
+                        // Schema serialization never plans manifests, so keep a safe relation
+                        // override from being replaced by validation of the physical data handle.
+                        Table sysTable = getRawSysPaimonTable();
                         fullSchema = buildFullSchema(sysTable.rowType().getFields(),
                                 getCatalog().getEnableMappingVarbinary(),
                                 getCatalog().getEnableMappingTimestampTz());
