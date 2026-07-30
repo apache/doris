@@ -529,21 +529,40 @@ public class HiveMetaStoreCache {
     }
 
     public void invalidatePartitionCache(ExternalTable dorisTable, String partitionName) {
-        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        invalidatePartitionCache(dorisTable.getOrBuildNameMapping(), partitionName);
+    }
+
+    public void invalidatePartitionCache(NameMapping nameMapping, String partitionName) {
         long id = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
-        PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, null);
-        HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
-        if (partitionValues != null) {
-            Long partitionId = partitionValues.partitionNameToIdMap.get(partitionName);
-            List<String> values = partitionValues.partitionValuesMap.get(partitionId);
-            PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
-            HivePartition partition = partitionCache.getIfPresent(partKey);
-            if (partition != null) {
-                fileCacheRef.get().invalidate(new FileCacheKey(id, partition.getPath(),
-                        null, partition.getPartitionValues()));
-                partitionCache.invalidate(partKey);
-            }
+        // Derive the partition values directly from the partition name (the partition-values cache is
+        // populated the same way, via HiveUtil.toPartitionValues) instead of reading them from that
+        // cache, so file cache invalidation still runs when the table's partition-values cache entry has
+        // been evicted while its file listings are still cached.
+        List<String> values = HiveUtil.toPartitionValues(partitionName);
+
+        PartitionCacheKey partKey = new PartitionCacheKey(nameMapping, values);
+        HivePartition partition = partitionCache.getIfPresent(partKey);
+        LoadingCache<FileCacheKey, FileCacheValue> fileCache = fileCacheRef.get();
+        if (partition == null) {
+            // Partition metadata cache miss: the exact FileCacheKey cannot be rebuilt here because it
+            // needs the partition path and input format carried by HivePartition. Invalidate this
+            // table's cached file listings for the partition by (table id + partition values). Scoping
+            // by table id is intentional: matching partition values alone would also drop other tables'
+            // listings that merely share the same partition value names (e.g. dt=...) at a different
+            // location, forcing needless re-listing. The exact-key path below (taken when the partition
+            // is cached) already clears a listing regardless of which table id populated it.
+            fileCache.asMap().keySet().forEach(k -> {
+                if (k.isSameTable(id) && Objects.equals(k.getPartitionValues(), values)) {
+                    fileCache.invalidate(k);
+                }
+            });
+            partitionCache.invalidate(partKey);
+            return;
         }
+
+        fileCache.invalidate(new FileCacheKey(id, partition.getPath(),
+                null, partition.getPartitionValues()));
+        partitionCache.invalidate(partKey);
     }
 
     /**
@@ -593,7 +612,7 @@ public class HiveMetaStoreCache {
 
         // Invalidate cache for modified partitions (both partition cache and file cache)
         for (String partitionName : modifiedPartNames) {
-            invalidatePartitionCache(table, partitionName);
+            invalidatePartitionCache(table.getOrBuildNameMapping(), partitionName);
         }
         // Merge modifiedPartNames and newPartNames
         // Case:
@@ -700,7 +719,7 @@ public class HiveMetaStoreCache {
             partitionValuesMap.remove(partitionId);
 
             if (invalidPartitionCache) {
-                invalidatePartitionCache(dorisTable, partitionName);
+                invalidatePartitionCache(nameMapping, partitionName);
             }
         }
         // Rebuild sorted partition ranges after dropping partitions

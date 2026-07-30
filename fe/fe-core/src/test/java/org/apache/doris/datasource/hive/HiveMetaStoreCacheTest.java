@@ -26,7 +26,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveMetaStoreCacheTest {
@@ -68,6 +70,64 @@ public class HiveMetaStoreCacheTest {
         Assertions.assertEquals(0, fileCache.asMap().size());
         Assertions.assertEquals(0, partitionCache.asMap().size());
         Assertions.assertEquals(0, partitionValuesCache.asMap().size());
+    }
+
+    @Test
+    public void testInvalidatePartitionCacheClearsStaleFileCacheOnPartitionMiss() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveMetaStoreCache cache = new HiveMetaStoreCache(
+                    new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
+            LoadingCache<HiveMetaStoreCache.FileCacheKey, HiveMetaStoreCache.FileCacheValue> fileCache =
+                    cache.getFileCacheRef().get();
+
+            String dbName = "db";
+            String tbName = "tb";
+            NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
+            long tableId = Util.genIdByName(dbName, tbName);
+            long otherTableId = Util.genIdByName(dbName, "tb2");
+
+            String targetPartName = "dt=2024-01-01";
+            List<String> targetValues = Collections.singletonList("2024-01-01");
+            String otherPartName = "dt=2024-01-02";
+            List<String> otherValues = Collections.singletonList("2024-01-02");
+
+            // Neither the `partition` cache nor the `partition_values` cache is populated for this table,
+            // simulating entries that were evicted or never loaded. invalidatePartitionCache must still
+            // clear the stale file listing: it derives the partition values from the partition name and
+            // cannot rebuild the exact FileCacheKey (which needs the partition path / input format).
+            HiveMetaStoreCache.FileCacheKey targetFileKey = new HiveMetaStoreCache.FileCacheKey(
+                    tableId, "/wh/db/tb/" + targetPartName, "orc", targetValues);
+            // Same table, a different partition -> must be kept.
+            HiveMetaStoreCache.FileCacheKey otherPartFileKey = new HiveMetaStoreCache.FileCacheKey(
+                    tableId, "/wh/db/tb/" + otherPartName, "orc", otherValues);
+            // A different table that merely shares the same partition value names at a different location
+            // -> must be kept (the fallback is intentionally scoped by table id, not by values alone).
+            HiveMetaStoreCache.FileCacheKey otherTableFileKey = new HiveMetaStoreCache.FileCacheKey(
+                    otherTableId, "/wh/db/tb2/" + targetPartName, "orc", targetValues);
+            fileCache.put(targetFileKey, new HiveMetaStoreCache.FileCacheValue());
+            fileCache.put(otherPartFileKey, new HiveMetaStoreCache.FileCacheValue());
+            fileCache.put(otherTableFileKey, new HiveMetaStoreCache.FileCacheValue());
+            Assertions.assertEquals(3, fileCache.asMap().size());
+
+            // Partition-level refresh for the target partition. Even though its `partition` cache entry
+            // is missing, the stale file listing for that partition must still be invalidated.
+            cache.invalidatePartitionCache(nameMapping, targetPartName);
+
+            Assertions.assertNull(fileCache.getIfPresent(targetFileKey),
+                    "stale file cache for the refreshed partition must be cleared even on partition cache miss");
+            Assertions.assertNotNull(fileCache.getIfPresent(otherPartFileKey),
+                    "file cache for other partitions of the same table must NOT be affected");
+            Assertions.assertNotNull(fileCache.getIfPresent(otherTableFileKey),
+                    "file cache for other tables sharing the same partition values must NOT be affected");
+            Assertions.assertEquals(2, fileCache.asMap().size());
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
     }
 
     private void putCache(
