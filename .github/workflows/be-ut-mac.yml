@@ -158,9 +158,8 @@ jobs:
           export JAVA_HOME
           JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 
-          # Match the retired macos-13 image's Xcode generation while branch-4.1
-          # is made compatible with the newer macOS 15 libc++ toolchain.
-          sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+          # branch-4.1 requires Clang 16 or newer.
+          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
 
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           export CPPFLAGS="-I${LIBOMP_PREFIX}/include ${CPPFLAGS:-}"
