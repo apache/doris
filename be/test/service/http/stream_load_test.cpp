@@ -145,8 +145,8 @@ TEST_F(StreamLoadTest, JsonBodySizeLimitErrorUsesMiB) {
 
     EXPECT_TRUE(status.is<ErrorCode::EXCEEDED_LIMIT>());
     EXPECT_EQ(status.to_string_no_stack(),
-              "[E-217]json body size 108.15 MiB exceeds the limit of 100 MiB set by BE config "
-              "`streaming_load_json_max_mb`. Increase it if you are sure this load is reasonable");
+              "[E-217]json body size 108.15 MiB exceeds the limit of 100 MiB set by BE's conf "
+              "streaming_load_json_max_mb. Increase it if you are sure this load is reasonable");
     evhttp_request_free(evhttp_req);
 }
 
@@ -167,8 +167,8 @@ TEST_F(StreamLoadTest, CsvBodySizeLimitErrorUsesMiB) {
 
     EXPECT_TRUE(status.is<ErrorCode::EXCEEDED_LIMIT>());
     EXPECT_EQ(status.to_string_no_stack(),
-              "[E-217]body size 108.15 MiB exceeds the limit of 100 MiB set by BE config "
-              "`streaming_load_max_mb`. Increase it if you are sure this load is reasonable");
+              "[E-217]body size 108.15 MiB exceeds the limit of 100 MiB set by BE's conf "
+              "streaming_load_max_mb. Increase it if you are sure this load is reasonable");
     evhttp_request_free(evhttp_req);
 }
 
