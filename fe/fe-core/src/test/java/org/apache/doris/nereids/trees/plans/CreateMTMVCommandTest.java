@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Config;
@@ -426,6 +427,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("mtmv_increment_flag");
         Assertions.assertTrue(mtmv.isIvm());
         Assertions.assertTrue(mtmv.getIvmInfo().isEnableIvm());
+        Assertions.assertEquals(Type.BIGINT, mtmv.getColumn(Column.SEQUENCE_COL).getType());
     }
 
     @Test

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -91,7 +93,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
             });
             IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
                     new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
-                    new IvmDeltaRewriteState(streams, true, 0));
+                    new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE));
             return visitor.rewritePlan(plan, ctx);
         }
 
@@ -112,6 +114,9 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of(Column.IVM_ROW_ID_COL, "id", "name"));
+        Column sequenceColumn = Mockito.mock(Column.class);
+        Mockito.when(sequenceColumn.getType()).thenReturn(Type.BIGINT);
+        Mockito.when(mtmv.getColumn(Column.SEQUENCE_COL)).thenReturn(sequenceColumn);
         return mtmv;
     }
 

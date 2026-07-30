@@ -462,7 +462,8 @@ public class BindSink implements AnalysisRuleFactory {
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
                 } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
-                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName()), column.getName());
+                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName(),
+                            DataType.fromCatalogType(column.getType())), column.getName());
                     columnToOutput.put(column.getName(), output);
                     columnToReplaced.put(column.getName(), output.toSlot());
                     replaceMap.put(output.toSlot(), output.child());

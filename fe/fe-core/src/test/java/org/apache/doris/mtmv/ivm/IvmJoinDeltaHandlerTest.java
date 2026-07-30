@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -80,7 +81,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
             });
             IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
                     new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
-                    new IvmDeltaRewriteState(streams, true, 0));
+                    new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE));
             return visitor.rewritePlan(plan, ctx);
         }
     }

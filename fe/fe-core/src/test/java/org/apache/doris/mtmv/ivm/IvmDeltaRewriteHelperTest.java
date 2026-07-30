@@ -123,7 +123,7 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
 
         Assertions.assertNotEquals(dmlFactor, guarded.dmlFactorSlot);
         Assertions.assertEquals(sequence, guarded.sequenceSlot);
-        Assertions.assertEquals(3, guarded.maxSeqSuffix);
+        Assertions.assertEquals(3, guarded.maxDeltaIndex);
         Assertions.assertTrue(guarded.plan.toString().contains(
                 IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX));
     }

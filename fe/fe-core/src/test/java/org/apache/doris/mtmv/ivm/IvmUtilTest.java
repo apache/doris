@@ -27,8 +27,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
@@ -47,13 +49,20 @@ class IvmUtilTest {
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.SEQUENCE_COL));
         Assertions.assertTrue(IvmUtil.isCommonHiddenSlot(Column.COMMIT_TSO_COL));
         Assertions.assertFalse(IvmUtil.isCommonHiddenSlot("not_hidden"));
-        TinyIntLiteral deleteSign = (TinyIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.DELETE_SIGN);
-        BigIntLiteral version = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.VERSION_COL);
-        BigIntLiteral sequence = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.SEQUENCE_COL);
-        BigIntLiteral commitTso = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(Column.COMMIT_TSO_COL);
+        TinyIntLiteral deleteSign = (TinyIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
+                Column.DELETE_SIGN, TinyIntType.INSTANCE);
+        BigIntLiteral version = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
+                Column.VERSION_COL, BigIntType.INSTANCE);
+        BigIntLiteral sequence = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
+                Column.SEQUENCE_COL, BigIntType.INSTANCE);
+        LargeIntLiteral largeIntSequence = (LargeIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
+                Column.SEQUENCE_COL, LargeIntType.INSTANCE);
+        BigIntLiteral commitTso = (BigIntLiteral) IvmUtil.getCommonHiddenSlotDefault(
+                Column.COMMIT_TSO_COL, BigIntType.INSTANCE);
         Assertions.assertEquals((byte) 0, deleteSign.getValue());
         Assertions.assertEquals(0L, version.getValue());
         Assertions.assertEquals(0L, sequence.getValue());
+        Assertions.assertEquals(0L, largeIntSequence.getValue().longValue());
         Assertions.assertEquals(0L, commitTso.getValue());
     }
 
