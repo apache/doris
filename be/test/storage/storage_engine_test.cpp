@@ -147,6 +147,11 @@ public:
 };
 
 TEST_F(StorageEngineTest, TestBrokenDisk) {
+    // ConfigTest clears the shared registry. Re-register this field with process-lifetime storage
+    // instead of defining a stack-backed config value.
+    config::Register broken_storage_path_register("std::string", "broken_storage_path",
+                                                  &config::broken_storage_path, "", true);
+    static_cast<void>(broken_storage_path_register);
     const std::string original_broken_storage_path = config::broken_storage_path;
     Defer restore_broken_storage_path {[&] {
         auto status = config::set_config("broken_storage_path", original_broken_storage_path, true);
