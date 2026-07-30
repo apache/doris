@@ -784,8 +784,8 @@ void ColumnVariantV2::insert_range_from( // NOLINT(readability-function-size)
         // IColumn::cut() inserts into an empty clone. Select the physical tree directly because an
         // incomplete leaf projection cannot be reconstructed merely to copy a row range.
         _shredded = start == 0 && length == source.size()
-                             ? source._shredded
-                             : source._shredded->select_range(start, length);
+                            ? source._shredded
+                            : source._shredded->select_range(start, length);
         _check_invariants();
         return;
     }
