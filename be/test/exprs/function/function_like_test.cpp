@@ -252,14 +252,13 @@ TEST(FunctionLikeTest, regexp_extract_all) {
              std::string("['abc','bcd']")},
             {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)2},
              std::string("['td']")},
-            // group index out of range returns an empty result
             {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)3},
-             std::string("")},
+             std::string("['e']")},
+            // non-participating groups contribute empty strings, consistent with Spark
+            {{std::string("a b"), std::string("(a)|(b)"), (int64_t)2}, std::string("['','b']")},
             // group index 0 also works for patterns without capturing groups
             {{std::string("ab1cd22"), std::string("[0-9]+"), (int64_t)0},
              std::string("['1','22']")},
-            // negative group index returns null
-            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)-1}, Null()},
             // null
             {{std::string("abc"), Null(), (int64_t)1}, Null()},
             {{Null(), std::string("i([0-9]+)"), (int64_t)1}, Null()}};
@@ -272,6 +271,21 @@ TEST(FunctionLikeTest, regexp_extract_all) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                                                const_pattern_dataset));
+    }
+
+    // the two-argument form must keep working (old FE on new BE during rolling upgrades)
+    DataSet two_arg_data_set = {
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
+             std::string("['18','17']")},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")}, std::string("['i']")},
+            {{std::string("abc"), Null()}, Null()},
+            {{Null(), std::string("i([0-9]+)")}, Null()}};
+    InputTypeSet two_arg_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                        Consted {PrimitiveType::TYPE_VARCHAR}};
+    for (const auto& line : two_arg_data_set) {
+        DataSet two_arg_dataset = {line};
+        static_cast<void>(check_function<DataTypeString, true>(func_name, two_arg_input_types,
+                                                               two_arg_dataset));
     }
 }
 
@@ -341,10 +355,9 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
              "[\"x=18abc\", \"x=17bcd\"]");
     // other capturing groups
     run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", 2, "[\"abc\", \"bcd\"]");
-    // group index out of range returns an empty array
-    run_case("hitdecisiondlist", "(i)(.*?)(e)", 3, "[]");
-    // negative group index returns null
-    run_case("hitdecisiondlist", "(i)(.*?)(e)", -1, "", true);
+    run_case("hitdecisiondlist", "(i)(.*?)(e)", 3, "[\"e\"]");
+    // non-participating groups contribute empty strings, consistent with Spark
+    run_case("a b", "(a)|(b)", 2, "[\"\", \"b\"]");
 
     // Helper for testing null input propagation
     auto nullable_str_type = make_nullable(str_type);
@@ -450,6 +463,61 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
+}
+
+TEST(FunctionLikeTest, regexp_extract_all_invalid_group_index) {
+    // Same contract as Spark: a group index outside [0, number_of_capturing_groups]
+    // is an error, for both regexp_extract_all and regexp_extract_all_array.
+    auto str_type = std::make_shared<DataTypeString>();
+    auto bigint_type = std::make_shared<DataTypeInt64>();
+
+    auto run_error_case = [&](const std::string& func_name, DataTypePtr return_type, int64_t idx) {
+        auto col_str = ColumnString::create();
+        col_str->insert_data("hitdecisiondlist", 16);
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data("(i)(.*?)(e)", 10);
+        auto col_idx = ColumnInt64::create();
+        col_idx->insert_value(idx);
+
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({ColumnConst::create(std::move(col_idx), 1), bigint_type, "idx"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1),
+                                           block.get_by_position(2)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type, bigint_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
+                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        auto status = func->execute(fn_ctx, block, {0, 1, 2}, 3, 1);
+        EXPECT_FALSE(status.ok()) << "func: " << func_name << ", idx: " << idx;
+        EXPECT_NE(status.to_string().find("invalid"), std::string::npos);
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    auto string_return_type = make_nullable(std::make_shared<DataTypeString>());
+    auto array_return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+    // negative group index
+    run_error_case("regexp_extract_all", string_return_type, -1);
+    run_error_case("regexp_extract_all_array", array_return_type, -1);
+    // group index beyond the number of capturing groups
+    run_error_case("regexp_extract_all", string_return_type, 4);
+    run_error_case("regexp_extract_all_array", array_return_type, 4);
 }
 
 TEST(FunctionLikeTest, regexp_replace) {

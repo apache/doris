@@ -138,6 +138,8 @@ struct RegexpExtractEngine {
 
     // Match all occurrences and extract the capturing group with the given index.
     // index 0 means the whole match, 1 means the first capturing group (the default), and so on.
+    // Groups that did not participate in a match (or matched an empty string) contribute an
+    // empty string to the result, consistent with Spark.
     void match_all_and_extract(const char* data, size_t size, int index,
                                std::vector<std::string>& results) const {
         if (index < 0) {
@@ -164,8 +166,13 @@ struct RegexpExtractEngine {
                     continue;
                 }
                 // Extract the capturing group with the given index
-                if (static_cast<size_t>(index) < matches.size() && !matches[index].empty()) {
-                    results.emplace_back(matches[index].data(), matches[index].size());
+                if (static_cast<size_t>(index) < matches.size()) {
+                    const re2::StringPiece& group = matches[index];
+                    if (group.data() != nullptr) {
+                        results.emplace_back(group.data(), group.size());
+                    } else {
+                        results.emplace_back();
+                    }
                 }
                 // Move position forward
                 auto offset = std::string(str_pos, str_size)
@@ -178,7 +185,7 @@ struct RegexpExtractEngine {
             boost::match_results<const char*> matches;
 
             while (boost::regex_search(search_start, search_end, matches, *boost_regex)) {
-                if (static_cast<size_t>(index) < matches.size() && matches[index].matched) {
+                if (static_cast<size_t>(index) < matches.size()) {
                     results.emplace_back(matches[index].str());
                 }
                 if (matches[0].length() == 0) {
@@ -716,20 +723,40 @@ struct RegexpExtractAllArrayOutput {
     };
 };
 
+// Two-parameter form of regexp_extract_all/regexp_extract_all_array, kept so that an
+// old FE (which knows nothing about the group index) can run on a new BE during
+// rolling upgrades.
+struct RegexpExtractAllTwoParams {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+};
+
+// Three-parameter form with the explicit group index.
+struct RegexpExtractAllThreeParams {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeInt64>()};
+    }
+};
+
 // Handler controls return type & column layout
-template <typename Handler>
+template <typename Handler, typename ParamTypes>
 struct RegexpExtractAllImpl {
     static constexpr auto name = Handler::func_name;
-    static constexpr size_t num_args = 3;
     static constexpr size_t PATTERN_ARG_IDX = 1;
+
+    static DataTypes variadic_argument_types() { return ParamTypes::get_variadic_argument_types(); }
 
     static DataTypePtr return_type() { return Handler::return_type(); }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        bool col_const[3];
+        const bool has_index = arguments.size() == 3;
+
+        bool col_const[3] = {false, false, false};
         ColumnPtr argument_columns[3];
-        for (int i = 0; i < 3; ++i) {
+        for (size_t i = 0; i < arguments.size(); ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
         }
         argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
@@ -737,11 +764,19 @@ struct RegexpExtractAllImpl {
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[0]).column;
 
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+        if (has_index) {
+            default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block,
+                                                 arguments);
+        } else {
+            default_preprocess_parameter_columns(argument_columns, col_const, {1}, block,
+                                                 arguments);
+        }
 
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
+        const auto* index_col = has_index
+                                        ? check_and_get_column<ColumnInt64>(argument_columns[2].get())
+                                        : nullptr;
 
         auto outer_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = outer_null_map->get_data();
@@ -749,6 +784,7 @@ struct RegexpExtractAllImpl {
         typename Handler::State state(input_rows_count);
         auto handler = state.create_handler();
 
+        Status status = Status::OK();
         std::visit(
                 [&](auto is_const) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -756,29 +792,32 @@ struct RegexpExtractAllImpl {
                             handler.push_null(i, null_map_data);
                             continue;
                         }
-                        const auto index_data = index_col->get_int(index_check_const(i, is_const));
-                        regexp_extract_all_inner_loop<is_const>(context, str_col, pattern_col,
-                                                                index_data, handler, null_map_data,
-                                                                i);
+                        const Int64 index_data =
+                                has_index ? index_col->get_int(index_check_const(i, is_const)) : 1;
+                        status = regexp_extract_all_inner_loop<is_const>(
+                                context, str_col, pattern_col, index_data, handler, null_map_data,
+                                i);
+                        if (!status.ok()) {
+                            return;
+                        }
                     }
                 },
-                make_bool_variant(col_const[1] && col_const[2]));
+                make_bool_variant(col_const[1] && (!has_index || col_const[2])));
 
+        if (!status.ok()) {
+            return status;
+        }
         block.get_by_position(result).column = state.finalize(std::move(outer_null_map));
         return Status::OK();
     }
 
 private:
     template <bool is_const>
-    static void regexp_extract_all_inner_loop(FunctionContext* context, const ColumnString* str_col,
-                                              const ColumnString* pattern_col,
-                                              const Int64 index_data, Handler& handler,
-                                              NullMap& null_map, const size_t index_now) {
-        if (index_data < 0) {
-            handler.push_null(index_now, null_map);
-            return;
-        }
-
+    static Status regexp_extract_all_inner_loop(FunctionContext* context,
+                                                const ColumnString* str_col,
+                                                const ColumnString* pattern_col,
+                                                const Int64 index_data, Handler& handler,
+                                                NullMap& null_map, const size_t index_now) {
         auto* engine = reinterpret_cast<RegexpExtractEngine*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<RegexpExtractEngine> scoped_engine;
@@ -792,17 +831,21 @@ private:
             if (!st) {
                 context->add_warning(error_str.c_str());
                 handler.push_null(index_now, null_map);
-                return;
+                return Status::OK();
             }
             engine = scoped_engine.get();
         }
 
-        // index 0 extracts the whole match, so patterns without capturing groups are
-        // only rejected when a positive group index is requested.
-        if (index_data > engine->number_of_capturing_groups()) {
-            handler.push_empty(index_now);
-            return;
+        // Same contract as Spark: the group index must be within
+        // [0, number_of_capturing_groups], anything else is an error.
+        const int num_groups = engine->number_of_capturing_groups();
+        if (index_data < 0 || index_data > num_groups) {
+            return Status::InvalidArgument(
+                    "The value of parameter(s) `idx` in `{}` is invalid: Expects group index "
+                    "between 0 and {}, but got {}.",
+                    name, num_groups, index_data);
         }
+
         const auto& str = str_col->get_data_at(index_now);
         std::vector<std::string> res_matches;
         engine->match_all_and_extract(str.data, str.size, static_cast<int>(index_data),
@@ -810,15 +853,21 @@ private:
 
         if (res_matches.empty()) {
             handler.push_empty(index_now);
-            return;
+            return Status::OK();
         }
         handler.push_matches(index_now, res_matches);
+        return Status::OK();
     }
 };
 
 // template FunctionRegexpFunctionality is used for regexp_xxxx series functions, not for regexp match.
 template <typename Impl>
 class FunctionRegexpFunctionality : public IFunction {
+    // Impls that also expose variadic_argument_types() (e.g. RegexpExtractAllImpl) are
+    // registered once per supported arity with the same function name, mirroring
+    // FunctionRegexpReplace's ThreeParamTypes/FourParamTypes pattern.
+    static constexpr bool kVariadic = requires { Impl::variadic_argument_types(); };
+
 public:
     static constexpr auto name = Impl::name;
 
@@ -826,7 +875,23 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return Impl::num_args; }
+    size_t get_number_of_arguments() const override {
+        if constexpr (kVariadic) {
+            return Impl::variadic_argument_types().size();
+        } else {
+            return Impl::num_args;
+        }
+    }
+
+    bool is_variadic() const override { return kVariadic; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (kVariadic) {
+            return Impl::variadic_argument_types();
+        } else {
+            return {};
+        }
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return Impl::return_type();
@@ -871,10 +936,14 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpReplace<RegexpReplaceImpl<true>, FourParamTypes>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<true>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
-    factory.register_function<
-            FunctionRegexpFunctionality<RegexpExtractAllImpl<RegexpExtractAllStringOutput>>>();
-    factory.register_function<
-            FunctionRegexpFunctionality<RegexpExtractAllImpl<RegexpExtractAllArrayOutput>>>();
+    factory.register_function<FunctionRegexpFunctionality<
+            RegexpExtractAllImpl<RegexpExtractAllStringOutput, RegexpExtractAllTwoParams>>>();
+    factory.register_function<FunctionRegexpFunctionality<
+            RegexpExtractAllImpl<RegexpExtractAllStringOutput, RegexpExtractAllThreeParams>>>();
+    factory.register_function<FunctionRegexpFunctionality<
+            RegexpExtractAllImpl<RegexpExtractAllArrayOutput, RegexpExtractAllTwoParams>>>();
+    factory.register_function<FunctionRegexpFunctionality<
+            RegexpExtractAllImpl<RegexpExtractAllArrayOutput, RegexpExtractAllThreeParams>>>();
     factory.register_function<FunctionRegexpCount>();
 }
 

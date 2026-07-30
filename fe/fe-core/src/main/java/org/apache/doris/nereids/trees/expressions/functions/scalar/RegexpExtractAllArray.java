@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -53,11 +52,11 @@ public class RegexpExtractAllArray extends ScalarFunction
     );
 
     /**
-     * constructor with 2 arguments.
-     * The optional group index follows Spark semantics and defaults to 1 (the first capturing group).
+     * constructor with 2 arguments. The optional group index follows Spark semantics
+     * and defaults to 1 (the first capturing group) in the BE.
      */
     public RegexpExtractAllArray(Expression arg0, Expression arg1) {
-        super("regexp_extract_all_array", arg0, arg1, new BigIntLiteral(1));
+        super("regexp_extract_all_array", arg0, arg1);
     }
 
     /**
@@ -77,7 +76,7 @@ public class RegexpExtractAllArray extends ScalarFunction
      */
     @Override
     public RegexpExtractAllArray withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3);
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
         return new RegexpExtractAllArray(getFunctionParams(children));
     }
 

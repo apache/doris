@@ -258,8 +258,36 @@ suite("test_string_function_regexp") {
 
     qt_sql_regexp_extract_all_group0 "select regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 0);"
     qt_sql_regexp_extract_all_group2 "select regexp_extract_all('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 2);"
-    qt_sql_regexp_extract_all_group_negative "select regexp_extract_all('abc', '(b)', -1);"
+    qt_sql_regexp_extract_all_empty_group "select regexp_extract_all('a b', '(a)|(b)', 2);"
     qt_sql_regexp_extract_all_array_group0 "select regexp_extract_all_array('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 0);"
     qt_sql_regexp_extract_all_array_group2 "select regexp_extract_all_array('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)', 2);"
-    qt_sql_regexp_extract_all_array_group_out_of_range "select regexp_extract_all_array('hitdecisiondlist', '(i)(.*?)(e)', 3);"
+    qt_sql_regexp_extract_all_array_group3 "select regexp_extract_all_array('hitdecisiondlist', '(i)(.*?)(e)', 3);"
+
+    // column input
+    qt_sql_regexp_extract_all_col_group0 "SELECT regexp_extract_all(k, '(ll)(i)', 0) from test_string_function_regexp ORDER BY k;"
+    qt_sql_regexp_extract_all_col_group1 "SELECT regexp_extract_all(k, '(ll)(i)', 1) from test_string_function_regexp ORDER BY k;"
+    qt_sql_regexp_extract_all_col_group2 "SELECT regexp_extract_all(k, '(ll)(i)', 2) from test_string_function_regexp ORDER BY k;"
+
+    // null literal input
+    qt_sql_regexp_extract_all_null_str "SELECT regexp_extract_all(null, '(b)', 1);"
+    qt_sql_regexp_extract_all_null_pattern "SELECT regexp_extract_all('abc', null, 1);"
+    qt_sql_regexp_extract_all_null_idx "SELECT regexp_extract_all('abc', '(b)', null);"
+
+    // illegal group index: negative or beyond the number of capturing groups
+    test {
+        sql "SELECT regexp_extract_all('abc', '(b)', -1);"
+        exception "invalid"
+    }
+    test {
+        sql "SELECT regexp_extract_all('abc', '(b)', 2);"
+        exception "invalid"
+    }
+    test {
+        sql "SELECT regexp_extract_all_array('abc', '(b)', -1);"
+        exception "invalid"
+    }
+    test {
+        sql "SELECT regexp_extract_all_array('abc', '(b)', 2);"
+        exception "invalid"
+    }
 }
