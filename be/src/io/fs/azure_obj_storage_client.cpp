@@ -248,10 +248,8 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
             [](const ObjectCompleteMultiPart& i) { return base64_encode_part_num(i.part_num); });
     return do_azure_client_call(
             [&]() {
-                {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                    client.CommitBlockList(string_block_ids);
-                }
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+                client.CommitBlockList(string_block_ids);
             },
             opts, _tls_debug_context);
 }
@@ -260,10 +258,8 @@ ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStorage
     Models::BlobProperties properties {};
     auto resp = do_azure_client_call(
             [&]() {
-                properties = [&]() {
-                    SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
-                    return _client->GetBlockBlobClient(opts.key).GetProperties().Value;
-                }();
+                SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
+                properties = _client->GetBlockBlobClient(opts.key).GetProperties().Value;
             },
             opts, _tls_debug_context);
     if (resp.http_code == static_cast<int>(Azure::Core::Http::HttpStatusCode::NotFound)) {

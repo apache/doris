@@ -63,7 +63,7 @@ int64_t cap_multiply(int64_t per_core, int64_t cores, int64_t cap) {
 }
 
 size_t index_of(S3RateLimitType type) {
-    CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
+    DCHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
     return static_cast<size_t>(type);
 }
 
