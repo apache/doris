@@ -1403,7 +1403,7 @@ Status CompactionMixin::modify_rowsets() {
 
         {
             std::lock_guard<std::mutex> wrlock_(tablet()->get_rowset_update_lock());
-            std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+            std::lock_guard wrlock(_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
             // Here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
@@ -1459,7 +1459,7 @@ Status CompactionMixin::modify_rowsets() {
             RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
     } else {
-        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+        std::lock_guard wrlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
     }

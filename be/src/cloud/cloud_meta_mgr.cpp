@@ -617,7 +617,7 @@ Status CloudMetaMgr::_log_mow_delete_bitmap(CloudTablet* tablet, GetRowsetRespon
             std::vector<RowsetSharedPtr> old_rowsets;
             RowsetIdUnorderedSet old_rowset_ids;
             {
-                std::lock_guard<std::shared_mutex> rlock(tablet->get_header_lock());
+                std::lock_guard rlock(tablet->get_header_lock());
                 RETURN_IF_ERROR(tablet->get_all_rs_id_unlocked(old_max_version, &old_rowset_ids));
                 old_rowsets = tablet->get_rowset_by_ids(&old_rowset_ids);
             }
@@ -2367,7 +2367,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
 }
 
 Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version,
-                                        std::unique_lock<std::shared_mutex>& wlock) {
+                                        std::unique_lock<BthreadSharedMutex>& wlock) {
     if (max_version <= 0) {
         return Status::OK();
     }
