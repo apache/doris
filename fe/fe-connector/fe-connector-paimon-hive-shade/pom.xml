@@ -170,6 +170,20 @@ under the License.
                javax/servlet package as the jetty-orbit 3.0.0 / javax.servlet-api 3.1.0 copies that already
                arrive here via paimon-hive-connector and hadoop-client-api; adding a third, older one to the
                same package invites a resolution collision. Those pre-existing copies are left alone.
+             - hive-service-rpc: the HiveServer2 thrift-gen RPC stubs, untouched by the metastore-client
+               path — same exclusion fe-connector-hms-hive-shade already makes on its hive-serde. It also
+               drags tomcat:jasper-compiler 5.5.23 (+ ant 1.6.5, commons-el 1.0, tomcat:jasper-runtime),
+               and jasper-compiler carries org/apache/jasper/servlet/JspServlet.class compiled against
+               javax.servlet. Once fe-core took a TEST-scope dependency on fe-connector-paimon, that class
+               became visible on fe-core's flat test classpath, where Spring Boot's
+               AbstractServletWebServerFactory.shouldRegisterJspServlet() probes for exactly that name and
+               registers a JSP servlet into the embedded Jetty 12 — which is jakarta.servlet and rejects
+               it: "Servlet class org.apache.jasper.servlet.JspServlet is not a jakarta.servlet.Servlet"
+               -> "Failed to start bean 'webServerStartStop'" -> every DorisHttpTestCase subclass dies in
+               initHttpServer (TeamCity FE UT 1009526: 8 failures — CopyIntoTest, DebugPointUtilTest,
+               RemoteDoris{,Compatible}RestClientTest, Table{Schema,QueryPlan,RowCount}ActionTest,
+               ForwardToMasterTest). Production never saw it: there the connector is loaded from
+               plugins/connector/ by a child-first loader the Spring Boot classloader cannot probe.
              Net cost of re-adding hive-serde: 99,235,331 -> 102,356,991 bytes (+~2.98MB), which is hive-serde
              itself. The hadoop-*/slf4j/commons-codec transitives are already dropped by the artifactSet
              excludes above, and hive-common/libthrift lose nearest-wins to the explicit pins here. -->
@@ -183,6 +197,7 @@ under the License.
                 <exclusion><groupId>org.apache.parquet</groupId><artifactId>parquet-hadoop-bundle</artifactId></exclusion>
                 <exclusion><groupId>javax.servlet</groupId><artifactId>servlet-api</artifactId></exclusion>
                 <exclusion><groupId>javax.servlet</groupId><artifactId>jsp-api</artifactId></exclusion>
+                <exclusion><groupId>org.apache.hive</groupId><artifactId>hive-service-rpc</artifactId></exclusion>
             </exclusions>
         </dependency>
 

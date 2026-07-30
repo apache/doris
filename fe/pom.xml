@@ -1903,6 +1903,28 @@ under the License.
                         <groupId>com.squareup.okio</groupId>
                         <artifactId>okio</artifactId>
                     </exclusion>
+                    <!-- trino-main is the ONLY source of the Jetty Servlet 5.0 API repackage in this
+                         repository (verified against every module tree: fe-common,
+                         fe-trino-connector-common and fe-connector-trino all reach it through here).
+                         Its jakarta.servlet.http.Cookie predates Servlet 6.1 and has no
+                         getAttributes(), so whenever it wins classpath order over
+                         jakarta:jakarta.servlet-api it shadows the method Jetty 12.0.34 calls while
+                         writing a Set-Cookie header -> NoSuchMethodError, which
+                         RestApiExceptionHandler turns into an error payload, so every cookie-carrying
+                         REST endpoint silently answers with no data (RemoteDorisRestClientTest
+                         #testGetDatabaseNameList / #testGetTablesNameList assert on that data).
+                         Excluding it HERE, on the managed entry, is what makes that structural: the
+                         previous per-dependency exclusion on fe-core's fe-common dep only closed the
+                         fe-common path, and the moment fe-core took a test-scope dep on
+                         fe-connector-trino the same jar walked back in by a second path. fe-core is
+                         the only module in fe/ that imports jakarta.servlet at all, and it declares
+                         jakarta.servlet-api 6.1.0 explicitly, so nothing loses an API it uses. No
+                         production artifact changes either: this jar is already pinned to
+                         <scope>test</scope> repo-wide above. -->
+                    <exclusion>
+                        <groupId>org.eclipse.jetty.toolchain</groupId>
+                        <artifactId>jetty-jakarta-servlet-api</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
