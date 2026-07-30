@@ -338,3 +338,4 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
+
