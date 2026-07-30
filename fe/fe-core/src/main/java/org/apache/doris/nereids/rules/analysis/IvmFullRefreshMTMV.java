@@ -118,7 +118,7 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
             if (streamSlot != null) {
                 child = streamSlot;
             } else if (IvmUtil.isCommonHiddenSlot(oldSlot.getName())) {
-                child = IvmUtil.getCommonHiddenSlotDefault(oldSlot.getName());
+                child = IvmUtil.getCommonHiddenSlotDefault(oldSlot.getName(), oldSlot.getDataType());
             } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
                 child = new NullLiteral(oldSlot.getDataType());
             } else {

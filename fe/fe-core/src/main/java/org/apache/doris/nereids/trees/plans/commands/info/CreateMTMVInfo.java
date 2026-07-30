@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
@@ -63,6 +64,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerF
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -96,6 +100,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private MTMVPartitionInfo mvPartitionInfo;
     private final Map<String, String> sessionVariables;
     private boolean enableIvm;
+    private DataType sequenceDataType = BigIntType.INSTANCE;
     private String ivmPlanSignature;
     private boolean containsOneRowRelation;
 
@@ -323,6 +328,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
         this.properties = mtmvAnalyzeQueryInfo.getProperties();
         if (isEnableIvm()) {
+            sequenceDataType = calculateSequenceDataType(mtmvAnalyzeQueryInfo.getIvmNormalizedPlan());
+            this.properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE, sequenceDataType.toCatalogDataType().toSql());
             IvmPlanSignature planSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
             this.ivmPlanSignature = planSignature.getSha256();
             this.containsOneRowRelation = mtmvAnalyzeQueryInfo.getIvmNormalizedPlan()
@@ -339,6 +347,17 @@ public class CreateMTMVInfo extends CreateTableInfo {
                     "Incremental materialized view does not allow specifying the hidden row-id column. "
                     + "The row-id column is managed by IVM.");
         }
+    }
+
+    private DataType calculateSequenceDataType(Plan normalizedPlan) {
+        if (DebugPointUtil.isEnable("CreateMTMVInfo.forceLargeIntSequence")) {
+            return LargeIntType.INSTANCE;
+        }
+        // Native-table streams use MIN_DELTA, which collapses one key to at most (-, +), so the
+        // sequence does not need a source binlog sequence. When IVM supports external tables,
+        // this method inspects normalizedPlan and returns LARGEINT if an external stream does not
+        // support MIN_DELTA and therefore needs its 64-bit binlog sequence in the IVM sequence.
+        return BigIntType.INSTANCE;
     }
 
     private List<Column> getPartitionColumn(String partitionColumnName) {

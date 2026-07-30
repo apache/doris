@@ -269,6 +269,8 @@ abstract class IvmDeltaTestBase {
         List<Column> schema = output.stream().map(this::toColumn).collect(Collectors.toList());
         schema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
                 AggregateType.NONE, false, "", false, -1));
+        schema.add(new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
+                AggregateType.NONE, false, "", false, -1));
 
         MTMV mtmv = (MTMV) new OlapTableFactory().init(TableType.MATERIALIZED_VIEW, false)
                 .withTableId(1L)

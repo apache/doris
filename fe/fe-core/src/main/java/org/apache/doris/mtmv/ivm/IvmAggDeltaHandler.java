@@ -146,11 +146,11 @@ class IvmAggDeltaHandler {
         }
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult.get(), aggMeta);
         LogicalProject<?> applyProject = buildApplyPlan(
-                agg, delta, aggMeta, context, visitor.getRewriteState(), childResult.get().maxSeqSuffix);
+                agg, delta, aggMeta, context, visitor.getRewriteState(), childResult.get().maxDeltaIndex);
         Slot dmlFactorSlot = helper.findSlotByName(applyProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = helper.findSlotByName(applyProject.getOutput(), Column.SEQUENCE_COL);
         return Optional.of(new IvmDeltaRewriteResult(applyProject, dmlFactorSlot, sequenceSlot,
-                childResult.get().maxSeqSuffix));
+                childResult.get().maxDeltaIndex));
     }
 
     /**
@@ -275,7 +275,7 @@ class IvmAggDeltaHandler {
      */
     LogicalProject<?> buildApplyPlan(LogicalAggregate<?> normalizedAgg,
             DeltaPlanParts delta, IvmAggMeta aggMeta, IvmIncrRefreshContext ctx,
-            IvmDeltaRewriteState rewriteState, long maxSeqSuffix) {
+            IvmDeltaRewriteState rewriteState, int maxDeltaIndex) {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(
                 rawMvScan, ctx.getConnectContext(), ctx.getMtmv());
@@ -323,7 +323,7 @@ class IvmAggDeltaHandler {
             finalOutputs.add(new Alias(target.getExprId(), expr, target.getName()));
         }
         finalOutputs.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
-        finalOutputs.add(new Alias(new BigIntLiteral(rewriteState.toSequence(maxSeqSuffix)), Column.SEQUENCE_COL));
+        finalOutputs.add(new Alias(rewriteState.toSequence(maxDeltaIndex), Column.SEQUENCE_COL));
         return new LogicalProject<>(ImmutableList.copyOf(finalOutputs), joinInput);
     }
 

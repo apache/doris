@@ -25,19 +25,19 @@ import java.util.Objects;
 /**
  * Result of one delta rewrite visitor step.
  *
- * <p>{@code maxSeqSuffix} is rewrite metadata used to allocate outer-join
- * synthetic-row sequences. It is the unencoded low-bit suffix and is not an output slot.
+ * <p>{@code maxDeltaIndex} is rewrite metadata used to allocate outer-join synthetic-row
+ * sequences. It is the maximum delta index among all child delta scans and is not an output slot.
  */
 public class IvmDeltaRewriteResult {
     final Plan plan;
     final Slot dmlFactorSlot;
     final Slot sequenceSlot;
-    final long maxSeqSuffix;
+    final int maxDeltaIndex;
 
-    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot sequenceSlot, long maxSeqSuffix) {
+    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot sequenceSlot, int maxDeltaIndex) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null");
         this.dmlFactorSlot = Objects.requireNonNull(dmlFactorSlot, "dml factor slot can not be null");
         this.sequenceSlot = Objects.requireNonNull(sequenceSlot, "sequence slot can not be null");
-        this.maxSeqSuffix = maxSeqSuffix;
+        this.maxDeltaIndex = maxDeltaIndex;
     }
 }

@@ -20,10 +20,14 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.types.DataType;
 
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -38,18 +42,14 @@ import java.util.Optional;
 class IvmDeltaRewriteState {
     private final Map<OlapTable, OlapTableStream> streams;
     private final boolean includeExhaustedStreams;
-    private final long refreshVersion;
+    private final IvmSequenceCalculator sequenceCalculator;
     private int nextDeltaScanIndex;
 
     IvmDeltaRewriteState(Map<OlapTable, OlapTableStream> streams,
-            boolean includeExhaustedStreams, long refreshVersion) {
+            boolean includeExhaustedStreams, long refreshVersion, DataType sequenceType) {
         this.streams = new HashMap<>(streams);
         this.includeExhaustedStreams = includeExhaustedStreams;
-        if (refreshVersion < 0 || refreshVersion > (Long.MAX_VALUE >>> 11)) {
-            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "IVM refresh version exceeds the sequence encoding range: " + refreshVersion);
-        }
-        this.refreshVersion = refreshVersion;
+        this.sequenceCalculator = IvmSequenceCalculator.create(refreshVersion, sequenceType);
     }
 
     Optional<LogicalOlapTableStreamScan> createDeltaScan(LogicalOlapScan scan) {
@@ -91,21 +91,21 @@ class IvmDeltaRewriteState {
         return stream;
     }
 
-    long nextSubSeqPrefix() {
+    int nextDeltaIndex() {
         int index = nextDeltaScanIndex++;
         if (index >= 1024) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                     "IVM: too many delta scans for sequence encoding: " + index);
         }
-        return (long) index << 1;
+        return index;
     }
 
-    long toSequence(long subSeq) {
-        return (refreshVersion << 11) | subSeq;
+    Literal toSequence(int deltaIndex) {
+        return sequenceCalculator.encode(deltaIndex, BigInteger.ZERO, true);
     }
 
-    long maxSeqSuffix(long subSeqPrefix) {
-        return subSeqPrefix | 1;
+    Expression toSequenceByDmlFactor(Expression dmlFactor, int deltaIndex) {
+        return sequenceCalculator.encodeByDmlFactor(dmlFactor, deltaIndex);
     }
 
     private boolean hasPendingData(OlapTableStream stream, LogicalOlapScan scan) {

@@ -76,13 +76,14 @@ public class IvmUtil {
         return COMMON_HIDDEN_SLOTS.containsKey(columnName);
     }
 
-    public static Literal getCommonHiddenSlotDefault(String columnName) {
+    public static Literal getCommonHiddenSlotDefault(String columnName, DataType targetType) {
         Literal defaultValue = COMMON_HIDDEN_SLOTS.get(columnName);
         if (defaultValue == null) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                     "not an IVM common hidden slot: " + columnName);
         }
-        return defaultValue;
+        return defaultValue.getDataType().equals(targetType)
+                ? defaultValue : (Literal) defaultValue.castTo(targetType);
     }
 
     /**
