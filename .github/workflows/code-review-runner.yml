@@ -1,6 +1,8 @@
 name: Code Review Runner
 
 on:
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -33,6 +35,7 @@ on:
         default: ''
 
 permissions:
+  statuses: write
   pull-requests: write
   contents: read
   issues: write
@@ -41,11 +44,75 @@ jobs:
   code-review:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/review') &&
+        (
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      )
     steps:
+      - name: Resolve review inputs
+        id: review_inputs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_BASE_SHA: ${{ inputs.base_sha }}
+          INPUT_REVIEW_FOCUS: ${{ inputs.review_focus }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            PR_NUMBER="$ISSUE_NUMBER"
+            PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+            HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
+            BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
+            REVIEW_FOCUS="$(printf '%s' "${COMMENT_BODY#'/review'}" | sed 's/^[[:space:]]*//')"
+          else
+            PR_NUMBER="$INPUT_PR_NUMBER"
+            HEAD_SHA="$INPUT_HEAD_SHA"
+            BASE_SHA="$INPUT_BASE_SHA"
+            REVIEW_FOCUS="$INPUT_REVIEW_FOCUS"
+          fi
+
+          test -n "$PR_NUMBER"
+          test -n "$HEAD_SHA"
+          test -n "$BASE_SHA"
+
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          focus_delimiter="review_focus_${RANDOM}_${RANDOM}"
+          {
+            echo "review_focus<<${focus_delimiter}"
+            printf '%s\n' "$REVIEW_FOCUS"
+            echo "${focus_delimiter}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mark Code Review status as pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state='pending' \
+            -f context='code-review' \
+            -f description="Automated review is running for ${HEAD_SHA}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.head_sha }}
+          ref: ${{ steps.review_inputs.outputs.head_sha }}
           fetch-depth: 0
 
       - name: Install ripgrep
@@ -191,7 +258,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
         run: |
           MAX_THREADS=30
           MAX_BODY_CHARS=1200
@@ -249,7 +316,7 @@ jobs:
 
       - name: Prepare user review focus
         env:
-          REVIEW_FOCUS: ${{ inputs.review_focus }}
+          REVIEW_FOCUS: ${{ steps.review_inputs.outputs.review_focus }}
         run: |
           if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
             printf '%s\n' "$REVIEW_FOCUS" > "$REVIEW_CONTEXT_DIR/review_focus.txt"
@@ -262,9 +329,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_SHA: ${{ inputs.base_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
           checkout_head_sha="$(git rev-parse HEAD)"
@@ -484,9 +551,9 @@ jobs:
           EOF
         env:
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_SHA: ${{ inputs.base_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
 
       - name: Run automated code review
         id: review
@@ -495,8 +562,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
         run: |
           GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -576,9 +643,9 @@ jobs:
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
           REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          HEAD_SHA: ${{ inputs.head_sha }}
-          BASE_SHA: ${{ inputs.base_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
           if [ ! -s "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
@@ -677,6 +744,7 @@ jobs:
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$REVIEW_CONTEXT_OUTCOME" != "success" ]; then
@@ -684,7 +752,7 @@ jobs:
           else
             error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           fi
-          gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
+          gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
           Codex automated review failed and did not complete.
 
           Error: ${error_msg}
@@ -708,3 +776,30 @@ jobs:
           fi
           echo "Codex automated review failed: ${error_msg}"
           exit 1
+
+      - name: Sync Code Review check for current head
+        if: ${{ always() && steps.review_inputs.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          JOB_STATUS: ${{ job.status }}
+          REPO: ${{ github.repository }}
+          REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          state="pending"
+          summary="Trigger /review to start automated review for ${HEAD_SHA}."
+
+          if [ "$JOB_STATUS" = "success" ] && \
+             [ "$REVIEW_CONTEXT_OUTCOME" = "success" ] && \
+             [ "$REVIEW_OUTCOME" = "success" ]; then
+            state="success"
+            summary="Automated review was triggered for ${HEAD_SHA}."
+          fi
+
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state="${state}" \
+            -f context='code-review' \
+            -f description="${summary}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
