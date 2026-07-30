@@ -80,6 +80,25 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
         Assertions.assertTrue(helper.isIncrementalDeltaScan(scan));
     }
 
+    @Test
+    void testDetachAdaptProjectChainOnlyDetachesCommonHiddenPlaceholder() {
+        LogicalEmptyRelation child = new LogicalEmptyRelation(new RelationId(101), ImmutableList.of());
+        LogicalProject<?> commonHiddenProject = new LogicalProject<>(
+                ImmutableList.of(new Alias(new BigIntLiteral(0L), Column.SEQUENCE_COL)), child);
+        Assertions.assertEquals(1, helper.detachAdaptProjectChain(commonHiddenProject).second.size());
+
+        LogicalProject<?> ivmHiddenProject = new LogicalProject<>(
+                ImmutableList.of(new Alias(new BigIntLiteral(0L), Column.IVM_ROW_ID_COL)), child);
+        Assertions.assertTrue(helper.detachAdaptProjectChain(ivmHiddenProject).second.isEmpty());
+    }
+
+    @Test
+    void testRebindSinkOutputsMissingColumnThrows() {
+        Slot rowStore = new SlotReference(Column.ROW_STORE_COL, IntegerType.INSTANCE, true);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> helper.rebindSinkOutputs(ImmutableList.of(rowStore), ImmutableList.of(), "sink"));
+    }
+
     // ==================== findSlotByName ====================
 
     @Test
