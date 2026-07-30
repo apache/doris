@@ -120,9 +120,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         boolean decommissioned = be.isDecommissioned();
         if ((decommissioning || decommissioned) && LOG.isDebugEnabled()) {
             LOG.debug("backend {} is filtered by decommission state, decommissioning={}, decommissioned={}, "
-                    + "backend={}", be.getId(), decommissioning, decommissioned, be);
+                            + "replica info {}",
+                    be.getId(), decommissioning, decommissioned, this);
         }
         return decommissioning || decommissioned;
+    }
+
+    private boolean isQueryAvailableAndNotDecommissioning(Backend be) {
+        return be != null && be.isQueryAvailable() && !isDecommissioningOrDecommissioned(be);
     }
 
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
@@ -149,7 +154,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         List<Backend> decommissionAvailBes = new ArrayList<>();
         for (Backend be : bes) {
             if (be.isAlive()) {
-                if (be.isDecommissioned()) {
+                if (isDecommissioningOrDecommissioned(be)) {
                     decommissionAvailBes.add(be);
                 } else {
                     availableBes.add(be);
@@ -358,6 +363,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
 
             List<Long> res = hashReplicaToBes(clusterId, false, Config.cloud_replica_num);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("rehash multi replica backend, clusterId {}, replica info {}, indexRand {}, hashedBes {}",
+                        clusterId, this, indexRand, res);
+            }
             if (res.size() < indexRand + 1) {
                 if (res.isEmpty()) {
                     return -1;
@@ -371,14 +380,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
         // use primaryClusterToBackends, if find be normal
         Backend be = getPrimaryBackend(clusterId, false);
-        if (be != null && be.isQueryAvailable()) {
+        if (isQueryAvailableAndNotDecommissioning(be)) {
             return be.getId();
         }
 
         if (!Config.enable_immediate_be_assign) {
             // use secondaryClusterToBackends, if find be normal
             be = getSecondaryBackend(clusterId);
-            if (be != null && be.isQueryAvailable()) {
+            if (isQueryAvailableAndNotDecommissioning(be)) {
                 return be.getId();
             }
         }
@@ -390,6 +399,12 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
         // be abnormal, rehash it. configure settings to different maps
         long pickBeId = hashReplicaToBe(clusterId, false);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("rehash replica backend, clusterId {}, pickedBeId {}, immediateAssign {}, replica info {}, "
+                            + "primaryBackend {}, secondaryBackend {}",
+                    clusterId, pickBeId, Config.enable_immediate_be_assign, this, getPrimaryBackend(clusterId, false),
+                    getSecondaryBackend(clusterId));
+        }
         if (Config.enable_immediate_be_assign) {
             updateClusterToPrimaryBe(clusterId, pickBeId);
         } else {
@@ -448,7 +463,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         List<Backend> decommissionAvailBes = new ArrayList<>();
         for (Backend be : clusterBes) {
             if (be.isQueryAvailable() && !be.isSmoothUpgradeSrc()) {
-                if (be.isDecommissioned()) {
+                if (isDecommissioningOrDecommissioned(be)) {
                     decommissionAvailBes.add(be);
                 } else {
                     availableBes.add(be);
@@ -514,7 +529,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             // be core or restart must in heartbeat_interval_second
             if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
                     && !be.isSmoothUpgradeSrc()) {
-                if (be.isDecommissioned()) {
+                if (isDecommissioningOrDecommissioned(be)) {
                     decommissionAvailBes.add(be);
                 } else {
                     availableBes.add(be);
