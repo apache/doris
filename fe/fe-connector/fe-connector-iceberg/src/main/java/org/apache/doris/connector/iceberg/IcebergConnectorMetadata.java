@@ -425,7 +425,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // parse ITS schema (e.g. t$snapshots -> committed_at/snapshot_id/...). Mirrors legacy
             // IcebergSysExternalTable.getSysIcebergTable + getOrCreateSchemaCacheValue; the enable.mapping.*
             // flags are threaded by the shared buildTableSchema -> parseSchema (deviation 5).
-            Table sysTable = loadSysTable(iceHandle);
+            Table sysTable = loadSysTable(session, iceHandle);
             return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema());
         }
         // Mirror legacy IcebergMetadataOps.loadTable: wrap the remote load in the auth context. The schema
@@ -651,7 +651,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * remote load). The remote loader's exception propagates verbatim (the cache re-throws it unwrapped), so a
      * caller's own {@code NoSuchTableException} degradation (the partition-view readers) still fires. Callers
      * needing the auth scope wrap the call in {@code executeAuthenticated} (see {@link #loadTable}). NOT used by
-     * the sys-table path ({@link #loadSysTable}), which takes a fresh remote base by design.
+     * the sys-table path ({@link #loadSysTable}), which builds its metadata view from this same scoped base.
      */
     private Table resolveTableForRead(ConnectorSession session, IcebergTableHandle handle) {
         return IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
@@ -671,10 +671,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * already validated by {@code getSysTableHandle}, so {@code MetadataTableType.from} (case-insensitive)
      * never returns null.
      */
-    private Table loadSysTable(IcebergTableHandle handle) {
+    private Table loadSysTable(ConnectorSession session, IcebergTableHandle handle) {
         try {
             return context.executeAuthenticated(() -> {
-                Table base = catalogOps.loadTable(handle.getDbName(), handle.getTableName());
+                // Schema binding, column handles and split planning must all see one base generation; an
+                // independently refreshed session catalog can otherwise pair old tuple slots with new rows.
+                Table base = resolveTableForRead(session, handle);
                 return MetadataTableUtils.createMetadataTableInstance(
                         base, MetadataTableType.from(handle.getSysTableName()));
             });
@@ -699,7 +701,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Mirror getTableSchema: wrap the remote load in the auth context. A sys handle resolves the
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
-        Table table = iceHandle.isSystemTable() ? loadSysTable(iceHandle) : loadTable(session, iceHandle);
+        Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
         List<Types.NestedField> fields = table.schema().columns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (Types.NestedField field : fields) {
