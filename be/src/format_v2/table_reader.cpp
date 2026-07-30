@@ -391,6 +391,23 @@ const schema::external::TField* find_external_root_field(const TFileScanRangePar
     if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
+    if (column.has_identifier_field_id()) {
+        // A rewritten Variant Path Slot has a materialized output name such as "v.metric.x".
+        // Its existing col_unique_id is transported as
+        // ColumnDefinition::identifier and is the authoritative Iceberg root identity.
+        for (const auto& field_ptr : schema->root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr && field->__isset.id &&
+                field->id == column.get_identifier_field_id()) {
+                return field;
+            }
+        }
+        if (!column.column_paths.empty()) {
+            // Schema evolution can drop field id 42 and later reuse the same name for field id 99.
+            // A Path Slot for 42 must remain a missing root instead of silently binding to 99.
+            return nullptr;
+        }
+    }
     if (!supports_iceberg_scan_semantics_v1(params)) {
         // Old BEs used one ordered current-name/alias pass. Preserve that result for old-FE plans
         // until the explicit scan-semantics marker makes exact-name precedence cluster-wide.
@@ -596,6 +613,16 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     context->schema_column.reset();
     const auto* schema_field = find_external_root_field(context->scan_params, *column);
     if (schema_field == nullptr) {
+        if (!column->column_paths.empty() && column->has_identifier_field_id() &&
+            context->scan_params != nullptr && context->scan_params->__isset.history_schema_info &&
+            !context->scan_params->history_schema_info.empty()) {
+            // History metadata was available but the authoritative root field id is absent. Do
+            // not carry FileScannerV2's legacy root-name alias into an entirely idless file: a
+            // later field can reuse that name with a different id. Authoritative empty mapping
+            // makes this Path Slot missing/default/NULL in both BY_FIELD_ID and BY_NAME modes.
+            column->name_mapping.clear();
+            column->has_name_mapping = true;
+        }
         return Status::OK();
     }
     context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
@@ -608,6 +635,18 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     column->identifier = context->schema_column->identifier;
     column->name_mapping = context->schema_column->name_mapping;
     column->has_name_mapping = context->schema_column->has_name_mapping;
+    if (!column->column_paths.empty() && !column->has_name_mapping) {
+        // A Path Slot keeps its materialized output name in `name`, so BY_NAME must use the
+        // current root name through the existing alias channel. An authoritative Iceberg name
+        // mapping, including an explicitly empty one, is kept exact and must not gain this
+        // fallback.
+        const auto& current_root_name = context->schema_column->name;
+        if (std::ranges::none_of(column->name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(current_root_name);
+            })) {
+            column->name_mapping.push_back(current_root_name);
+        }
+    }
     // Projected roots already carry a generic FE default expression, but Iceberg binary defaults
     // need the raw Base64 marker so missing-file materialization can decode rather than copy text.
     column->initial_default_value = context->schema_column->initial_default_value;

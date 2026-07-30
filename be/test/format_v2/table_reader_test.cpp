@@ -29,6 +29,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <typeinfo>
 #include <vector>
 
@@ -43,6 +44,7 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -50,6 +52,10 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "core/value/variant/variant_field.h"
+#include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -63,6 +69,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris::format {
 namespace {
@@ -78,17 +85,23 @@ std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& project
 
 TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {
     LocalColumnIndex target {.index = 10, .project_all_children = false};
+    target.variant_paths = {{"metric", "x"}};
     target.children.push_back({.index = 1});
     target.children.push_back({.index = 2, .project_all_children = false});
     target.children.back().children.push_back({.index = 20});
 
     LocalColumnIndex source {.index = 10, .project_all_children = false};
+    source.variant_paths = {{"metric", "x"}, {"metric", "y"}};
     source.children.push_back({.index = 2, .project_all_children = false});
     source.children.back().children.push_back({.index = 21});
     source.children.push_back({.index = 3});
 
     ASSERT_TRUE(merge_local_column_index(&target, source).ok());
     ASSERT_FALSE(target.project_all_children);
+    EXPECT_EQ(target.variant_paths, (std::vector<std::vector<std::string>> {
+                                            {"metric", "x"},
+                                            {"metric", "y"},
+                                    }));
     ASSERT_EQ(std::vector<int32_t>({1, 2, 3}), projection_ids(target.children));
     ASSERT_FALSE(target.children[1].project_all_children);
     ASSERT_EQ(std::vector<int32_t>({20, 21}), projection_ids(target.children[1].children));
@@ -98,6 +111,7 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
     ASSERT_TRUE(target.project_all_children);
     ASSERT_TRUE(target.children.empty());
+    ASSERT_TRUE(target.variant_paths.empty());
 }
 
 TEST(LocalColumnIndexTest, FindsProjectedChildren) {
@@ -332,6 +346,63 @@ class TableReaderMaterializeTestHelper final : public TableReader {
 public:
     using TableReader::_materialize_mapping_column;
     using TableReader::_materialize_map_mapping_column;
+
+    void set_finalize_state(std::unique_ptr<TableColumnMapper> mapper, Block file_block) {
+        // These materialization tests intentionally bypass TableReader::open(), which normally
+        // initializes the runtime state before finalize_chunk().
+        _runtime_state = nullptr;
+        _data_reader.column_mapper = std::move(mapper);
+        _data_reader.block_template = std::move(file_block);
+    }
+
+    Status open_mapping_exprs(RuntimeState* state) {
+        _runtime_state = state;
+        return _open_mapping_exprs();
+    }
+
+    Status finalize(Block* block, size_t rows) { return finalize_chunk(block, rows); }
+
+    const Block& file_block() const { return _data_reader.block_template; }
+    Block& mutable_file_block() { return _data_reader.block_template; }
+};
+
+VariantField encode_variant_v2_json(std::string_view json) {
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
+    encoder.add_json({json.data(), json.size()});
+    VariantBatchBuilder batch = encoder.finish_batch();
+    return VariantField::from_ref(batch.value_at(0));
+}
+
+void append_variant_v2_json(ColumnVariantV2* column, std::string_view json) {
+    DORIS_CHECK(column != nullptr);
+    insert_encoded_field(*column, encode_variant_v2_json(json));
+}
+
+class VariantV2DefaultExpr final : public VExpr {
+public:
+    VariantV2DefaultExpr(DataTypePtr data_type, std::string json)
+            : _json(std::move(json)), _name("variant_v2_default") {
+        _data_type = std::move(data_type);
+    }
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector* selector, size_t count,
+                               ColumnPtr& result_column) const override {
+        DCHECK(selector == nullptr || selector->size() == count);
+        auto values = ColumnVariantV2::create();
+        for (size_t i = 0; i < count; ++i) {
+            append_variant_v2_json(values.get(), _json);
+        }
+        result_column = ColumnNullable::create(std::move(values), ColumnUInt8::create(count, 0));
+        return Status::OK();
+    }
+
+private:
+    std::string _json;
+    std::string _name;
 };
 
 TEST(TableReaderTest, LastProjectionDetachesNestedMapWithoutCopyingStrings) {
@@ -367,11 +438,425 @@ TEST(TableReaderTest, LastProjectionDetachesNestedMapWithoutCopyingStrings) {
     ASSERT_TRUE(reader._materialize_mapping_column(mapping, &block, 1, &detached,
                                                    /*take_projection_result=*/true)
                         .ok());
-    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 1);
     const auto& detached_nullable = assert_cast<const ColumnNullable&>(*detached);
     const auto& detached_map = assert_cast<const ColumnMap&>(detached_nullable.get_nested_column());
     const auto& detached_values = assert_cast<const ColumnString&>(detached_map.get_values());
     EXPECT_EQ(detached_values.get_chars().data(), original_value_bytes);
+}
+
+TEST(TableReaderTest, FinalizeWithoutVariantPathRetainsDirectTransfer) {
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto table_column = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "s",
+            .type = string_type,
+    };
+    auto file_column = table_column;
+    file_column.local_id = 4;
+
+    auto mapper = std::make_unique<TableColumnMapper>(TableColumnMapperOptions {
+            .mode = TableColumnMappingMode::BY_FIELD_ID,
+    });
+    const std::vector<ColumnDefinition> projected_columns {table_column};
+    ASSERT_TRUE(mapper->create_mapping(projected_columns, {}, {file_column}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper->create_scan_request({}, projected_columns, &request).ok());
+
+    const std::string large_value(1UL << 20, 'x');
+    auto source = ColumnString::create();
+    source->insert_data(large_value.data(), large_value.size());
+    const auto* original_value_bytes = source->get_chars().data();
+    Block file_block;
+    file_block.insert({std::move(source), string_type, "s"});
+
+    Block output;
+    output.insert({string_type->create_column(), string_type, "s"});
+    TableReaderMaterializeTestHelper reader;
+    reader.set_finalize_state(std::move(mapper), std::move(file_block));
+    const auto status = reader.finalize(&output, 1);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto& values = assert_cast<const ColumnString&>(*output.get_by_position(0).column);
+    EXPECT_EQ(values.get_chars().data(), original_value_bytes);
+    EXPECT_EQ(values.get_data_at(0), StringRef(large_value));
+    EXPECT_EQ(reader.file_block().get_by_position(0).column->size(), 0);
+    EXPECT_EQ(reader.last_batch_materialization_input_bytes(), 0);
+}
+
+TEST(TableReaderTest, MaterializesTwoVariantPathSlotsFromSharedEncodedRootCarrier) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto metric_x = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "v.metric.x",
+            .type = variant_type,
+            .column_paths = {"metric", "x"},
+    };
+    auto metric_y = metric_x;
+    metric_y.name = "v.metric.y";
+    metric_y.column_paths = {"metric", "y"};
+    auto file_root = metric_x;
+    file_root.local_id = 4;
+    file_root.name = "v";
+    file_root.column_paths.clear();
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    const std::vector<ColumnDefinition> projected_columns {metric_x, metric_y};
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, {file_root}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, projected_columns, &request).ok());
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    ASSERT_EQ(request.local_positions.size(), 1);
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].variant_paths,
+              (std::vector<std::vector<std::string>> {
+                      {"metric", "x"},
+                      {"metric", "y"},
+              }));
+
+    auto source = ColumnVariantV2::create();
+    append_variant_v2_json(source.get(), R"({"metric":{"x":10,"y":20}})");
+    append_variant_v2_json(source.get(), R"({"metric":{"x":null,"y":21}})");
+    append_variant_v2_json(source.get(), R"({"metric":7})");
+    append_variant_v2_json(source.get(), R"({"metric.x":30})");
+    append_variant_v2_json(source.get(), R"({"metric":{"x":40,"y":41}})");
+    auto source_nulls = ColumnUInt8::create(source->size(), 0);
+    source_nulls->get_data()[4] = 1;
+    Block file_block;
+    file_block.insert({ColumnNullable::create(std::move(source), std::move(source_nulls)),
+                       variant_type, "v"});
+
+    TableReaderMaterializeTestHelper reader;
+    ColumnPtr metric_x_result;
+    const auto metric_x_status = reader._materialize_mapping_column(
+            mapper.mappings()[0], &file_block, file_block.rows(), &metric_x_result);
+    ASSERT_TRUE(metric_x_status.ok()) << metric_x_status;
+    ColumnPtr metric_y_result;
+    const auto metric_y_status = reader._materialize_mapping_column(
+            mapper.mappings()[1], &file_block, file_block.rows(), &metric_y_result,
+            /*take_projection_result=*/true);
+    ASSERT_TRUE(metric_y_status.ok()) << metric_y_status;
+
+    const auto& metric_x_nullable = assert_cast<const ColumnNullable&>(*metric_x_result);
+    const auto& metric_x_values =
+            assert_cast<const ColumnVariantV2&>(metric_x_nullable.get_nested_column());
+    ASSERT_EQ(metric_x_values.size(), 5);
+    EXPECT_EQ(metric_x_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(metric_x_values.get_value_ref(0).get_int(), 10);
+    EXPECT_EQ(metric_x_nullable.get_null_map_data()[1], 0);
+    EXPECT_TRUE(metric_x_values.get_value_ref(1).is_null());
+    EXPECT_EQ(metric_x_nullable.get_null_map_data()[2], 1);
+    EXPECT_EQ(metric_x_nullable.get_null_map_data()[3], 1);
+    EXPECT_EQ(metric_x_nullable.get_null_map_data()[4], 1);
+
+    const auto& metric_y_nullable = assert_cast<const ColumnNullable&>(*metric_y_result);
+    const auto& metric_y_values =
+            assert_cast<const ColumnVariantV2&>(metric_y_nullable.get_nested_column());
+    ASSERT_EQ(metric_y_values.size(), 5);
+    EXPECT_EQ(metric_y_nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(metric_y_values.get_value_ref(0).get_int(), 20);
+    EXPECT_EQ(metric_y_nullable.get_null_map_data()[1], 0);
+    EXPECT_EQ(metric_y_values.get_value_ref(1).get_int(), 21);
+    EXPECT_EQ(metric_y_nullable.get_null_map_data()[2], 1);
+    EXPECT_EQ(metric_y_nullable.get_null_map_data()[3], 1);
+    EXPECT_EQ(metric_y_nullable.get_null_map_data()[4], 1);
+    EXPECT_EQ(file_block.get_by_position(0).column->size(), 5);
+}
+
+TEST(TableReaderTest, VariantPathTracksFullCarrierBytesForAdaptiveBatching) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto table_path = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "v.metric.x",
+            .type = variant_type,
+            .column_paths = {"metric", "x"},
+    };
+    auto file_root = table_path;
+    file_root.local_id = 4;
+    file_root.name = "v";
+    file_root.column_paths.clear();
+
+    auto mapper = std::make_unique<TableColumnMapper>(TableColumnMapperOptions {
+            .mode = TableColumnMappingMode::BY_FIELD_ID,
+    });
+    const std::vector<ColumnDefinition> projected_columns {table_path};
+    ASSERT_TRUE(mapper->create_mapping(projected_columns, {}, {file_root}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper->create_scan_request({}, projected_columns, &request).ok());
+
+    const std::string large_payload(1UL << 20, 'p');
+    auto source = ColumnVariantV2::create();
+    append_variant_v2_json(source.get(),
+                           "{\"metric\":{\"x\":7},\"payload\":\"" + large_payload + "\"}");
+    Block file_block;
+    file_block.insert({ColumnNullable::create(std::move(source), ColumnUInt8::create(1, 0)),
+                       variant_type, "v"});
+    const size_t carrier_bytes = file_block.bytes();
+
+    Block output;
+    output.insert({variant_type->create_column(), variant_type, "v.metric.x"});
+    TableReaderMaterializeTestHelper reader;
+    reader.set_finalize_state(std::move(mapper), std::move(file_block));
+    ASSERT_TRUE(reader.finalize(&output, 1).ok());
+
+    EXPECT_GE(reader.last_batch_materialization_input_bytes(), carrier_bytes);
+    EXPECT_GT(reader.last_batch_materialization_input_bytes(), output.bytes());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    const auto& values = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ASSERT_EQ(values.size(), 1);
+    EXPECT_EQ(values.get_value_ref(0).get_int(), 7);
+}
+
+TEST(TableReaderTest, VariantPathCarrierTransferPreservesRowsForLaterCast) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto nullable_bigint_type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto table_path = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "v.metric.x",
+            .type = variant_type,
+            .column_paths = {"metric", "x"},
+    };
+    auto table_number = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(200),
+            .name = "n",
+            .type = nullable_bigint_type,
+    };
+    auto file_root = table_path;
+    file_root.local_id = 4;
+    file_root.name = "v";
+    file_root.column_paths.clear();
+    auto file_number = table_number;
+    file_number.local_id = 5;
+    file_number.type = nullable_int_type;
+
+    auto mapper = std::make_unique<TableColumnMapper>(TableColumnMapperOptions {
+            .mode = TableColumnMappingMode::BY_FIELD_ID,
+    });
+    const std::vector<ColumnDefinition> projected_columns {table_path, table_number};
+    ASSERT_TRUE(mapper->create_mapping(projected_columns, {}, {file_root, file_number}).ok());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    FileScanRequest request;
+    ASSERT_TRUE(mapper->create_scan_request({}, projected_columns, &request, &state).ok());
+    ASSERT_EQ(request.local_positions.at(LocalColumnId(4)), LocalIndex(0));
+    ASSERT_EQ(request.local_positions.at(LocalColumnId(5)), LocalIndex(1));
+    ASSERT_FALSE(mapper->mappings()[1].is_trivial);
+
+    auto source = ColumnVariantV2::create();
+    append_variant_v2_json(source.get(), R"({"metric":{"x":7}})");
+    append_variant_v2_json(source.get(), R"({"metric":{"x":8}})");
+    auto numbers = ColumnInt32::create();
+    numbers->insert_value(11);
+    numbers->insert_value(22);
+    Block file_block;
+    file_block.insert({ColumnNullable::create(std::move(source), ColumnUInt8::create(2, 0)),
+                       variant_type, "v"});
+    file_block.insert({ColumnNullable::create(std::move(numbers), ColumnUInt8::create(2, 0)),
+                       nullable_int_type, "n"});
+    const IColumn* original_number_column = file_block.get_by_position(1).column.get();
+
+    Block output;
+    output.insert({variant_type->create_column(), variant_type, "v.metric.x"});
+    output.insert({nullable_bigint_type->create_column(), nullable_bigint_type, "n"});
+    TableReaderMaterializeTestHelper reader;
+    reader.set_finalize_state(std::move(mapper), std::move(file_block));
+    ASSERT_TRUE(reader.open_mapping_exprs(&state).ok());
+    const auto status = reader.finalize(&output, 2);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(output.rows(), 2);
+
+    const auto& path_nullable =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    const auto& path_values =
+            assert_cast<const ColumnVariantV2&>(path_nullable.get_nested_column());
+    EXPECT_EQ(path_values.get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(path_values.get_value_ref(1).get_int(), 8);
+    const auto& number_nullable =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(1).column);
+    const auto& number_values =
+            assert_cast<const ColumnInt64&>(number_nullable.get_nested_column()).get_data();
+    ASSERT_EQ(number_values.size(), 2);
+    EXPECT_EQ(number_values[0], 11);
+    EXPECT_EQ(number_values[1], 22);
+
+    // Match get_block() between batches: it clears and reuses the persistent file-block columns.
+    // A transferred carrier must not leave a ColumnConst placeholder that cannot accept the next
+    // physical batch.
+    auto& next_file_block = reader.mutable_file_block();
+    ASSERT_FALSE(is_column_const(*next_file_block.get_by_position(0).column));
+    ASSERT_FALSE(is_column_const(*next_file_block.get_by_position(1).column));
+    EXPECT_EQ(next_file_block.get_by_position(0).column->size(), 0);
+    EXPECT_EQ(next_file_block.get_by_position(1).column.get(), original_number_column);
+    EXPECT_EQ(next_file_block.get_by_position(1).column->size(), 2);
+    next_file_block.clear_column_data(2);
+    ASSERT_FALSE(is_column_const(*next_file_block.get_by_position(0).column));
+    ASSERT_FALSE(is_column_const(*next_file_block.get_by_position(1).column));
+    EXPECT_EQ(next_file_block.get_by_position(0).column->size(), 0);
+    EXPECT_EQ(next_file_block.get_by_position(1).column->size(), 0);
+
+    auto next_source = ColumnVariantV2::create();
+    append_variant_v2_json(next_source.get(), R"({"metric":{"x":70}})");
+    append_variant_v2_json(next_source.get(), R"({"metric":{"x":80}})");
+    ColumnPtr next_root = ColumnNullable::create(std::move(next_source), ColumnUInt8::create(2, 0));
+    auto next_numbers = ColumnInt32::create();
+    next_numbers->insert_value(33);
+    next_numbers->insert_value(44);
+    ColumnPtr next_number_column =
+            ColumnNullable::create(std::move(next_numbers), ColumnUInt8::create(2, 0));
+    auto append_next_batch = [&](size_t position, const ColumnPtr& source_column) {
+        auto& destination = next_file_block.get_by_position(position).column;
+        auto mutable_destination = IColumn::mutate(std::move(destination));
+        mutable_destination->insert_range_from(*source_column, 0, source_column->size());
+        destination = std::move(mutable_destination);
+    };
+    append_next_batch(0, next_root);
+    append_next_batch(1, next_number_column);
+
+    output.clear_column_data(2);
+    ASSERT_TRUE(reader.finalize(&output, 2).ok());
+    const auto& next_path_nullable =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    const auto& next_path_values =
+            assert_cast<const ColumnVariantV2&>(next_path_nullable.get_nested_column());
+    EXPECT_EQ(next_path_values.get_value_ref(0).get_int(), 70);
+    EXPECT_EQ(next_path_values.get_value_ref(1).get_int(), 80);
+    const auto& next_number_nullable =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(1).column);
+    const auto& next_number_values =
+            assert_cast<const ColumnInt64&>(next_number_nullable.get_nested_column()).get_data();
+    ASSERT_EQ(next_number_values.size(), 2);
+    EXPECT_EQ(next_number_values[0], 33);
+    EXPECT_EQ(next_number_values[1], 44);
+}
+
+TEST(TableReaderTest, RootBeforeVariantPathTransfersSharedCarrierWithoutCopy) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto root = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "v",
+            .type = variant_type,
+    };
+    auto path = root;
+    path.name = "v.metric.x";
+    path.column_paths = {"metric", "x"};
+    auto file_root = root;
+    file_root.local_id = 4;
+
+    auto mapper = std::make_unique<TableColumnMapper>(TableColumnMapperOptions {
+            .mode = TableColumnMappingMode::BY_FIELD_ID,
+    });
+    const std::vector<ColumnDefinition> projected_columns {root, path};
+    ASSERT_TRUE(mapper->create_mapping(projected_columns, {}, {file_root}).ok());
+    FileScanRequest request;
+    ASSERT_TRUE(mapper->create_scan_request({}, projected_columns, &request).ok());
+    ASSERT_EQ(mapper->mappings().size(), 2);
+    EXPECT_TRUE(mapper->mappings()[0].column_paths.empty());
+    EXPECT_EQ(mapper->mappings()[1].column_paths, std::vector<std::string>({"metric", "x"}));
+    ASSERT_TRUE(mapper->mappings()[0].file_local_id.has_value());
+    ASSERT_TRUE(mapper->mappings()[1].file_local_id.has_value());
+    EXPECT_EQ(mapper->mappings()[0].file_local_id, mapper->mappings()[1].file_local_id);
+    ASSERT_EQ(request.local_positions.size(), 1);
+
+    const std::string large_value(1UL << 20, 'x');
+    auto source = ColumnVariantV2::create();
+    append_variant_v2_json(source.get(), "{\"metric\":{\"x\":\"" + large_value + "\"}}");
+    const char* original_value_bytes = source->get_value_ref(0).value.data;
+    Block file_block;
+    file_block.insert({ColumnNullable::create(std::move(source), ColumnUInt8::create(1, 0)),
+                       variant_type, "v"});
+
+    Block output;
+    output.insert({variant_type->create_column(), variant_type, "v"});
+    output.insert({variant_type->create_column(), variant_type, "v.metric.x"});
+    TableReaderMaterializeTestHelper reader;
+    reader.set_finalize_state(std::move(mapper), std::move(file_block));
+    const auto status = reader.finalize(&output, 1);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(output.columns(), 2);
+    EXPECT_EQ(output.get_by_position(0).name, "v");
+    EXPECT_EQ(output.get_by_position(1).name, "v.metric.x");
+    const auto& root_nullable =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    const auto& root_values =
+            assert_cast<const ColumnVariantV2&>(root_nullable.get_nested_column());
+    ASSERT_EQ(root_values.size(), 1);
+    // The full root must take the shared file-local carrier after every Path Slot has read it.
+    // A different address means the root was detached while the file block still owned it.
+    EXPECT_EQ(root_values.get_value_ref(0).value.data, original_value_bytes);
+
+    const auto& path_nullable =
+            assert_cast<const ColumnNullable&>(*output.get_by_position(1).column);
+    const auto& path_values =
+            assert_cast<const ColumnVariantV2&>(path_nullable.get_nested_column());
+    ASSERT_EQ(path_values.size(), 1);
+    EXPECT_EQ(path_values.get_value_ref(0).get_string(), StringRef(large_value));
+    EXPECT_EQ(reader.file_block().get_by_position(0).column->size(), 0);
+}
+
+TEST(TableReaderTest, MissingVariantPathRootMaterializesSqlNulls) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto table_path = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "v.metric.missing",
+            .type = variant_type,
+            .column_paths = {"metric", "missing"},
+    };
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_path}, {}, {}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(mapper.mappings()[0].projection, nullptr);
+
+    TableReaderMaterializeTestHelper reader;
+    Block file_block;
+    ColumnPtr result;
+    const auto status =
+            reader._materialize_mapping_column(mapper.mappings()[0], &file_block, 3, &result);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto materialized = result->convert_to_full_column_if_const();
+    const auto& nullable = assert_cast<const ColumnNullable&>(*materialized);
+    EXPECT_EQ(nullable.size(), 3);
+    EXPECT_EQ(nullable.get_null_map_data(), NullMap({1, 1, 1}));
+}
+
+TEST(TableReaderTest, MissingVariantPathRootExtractsFromDefaultCarrier) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto table_path = ColumnDefinition {
+            .identifier = Field::create_field<TYPE_INT>(100),
+            .name = "v.metric.x",
+            .type = variant_type,
+            .column_paths = {"metric", "x"},
+    };
+    const std::string large_payload(1UL << 20, 'd');
+    table_path.default_expr = VExprContext::create_shared(std::make_shared<VariantV2DefaultExpr>(
+            variant_type, "{\"metric\":{\"x\":17},\"payload\":\"" + large_payload + "\"}"));
+
+    // Entirely idless legacy Iceberg files select BY_NAME. A missing root must reach the existing
+    // default path instead of being rejected by Path Slot initialization.
+    table_path.name_mapping = {"v"};
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_path}, {}, {}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].projection, nullptr);
+    EXPECT_NE(mapper.mappings()[0].default_expr, nullptr);
+
+    Block eval_block;
+    eval_block.insert({ColumnUInt8::create(3, 0), std::make_shared<DataTypeUInt8>(), "rows"});
+    TableReaderMaterializeTestHelper reader;
+    ColumnPtr result;
+    const auto status =
+            reader._materialize_mapping_column(mapper.mappings()[0], &eval_block, 3, &result);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*result);
+    const auto& values = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ASSERT_EQ(values.size(), 3);
+    EXPECT_GT(reader.last_batch_materialization_input_bytes(), result->byte_size());
+    for (size_t row = 0; row < values.size(); ++row) {
+        EXPECT_EQ(nullable.get_null_map_data()[row], 0);
+        EXPECT_EQ(values.get_value_ref(row).get_int(), 17);
+    }
 }
 
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
@@ -2313,6 +2798,86 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
     EXPECT_EQ(context.schema_column->children[1].children[0].get_identifier_field_id(), 24);
     EXPECT_EQ(context.schema_column->children[1].children[1].name, "value");
     EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
+}
+
+TEST(TableReaderTest, AnnotateVariantPathSlotFindsRootByFieldId) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info(
+            {external_schema(100, {external_schema_field("renamed_v", 42)})});
+
+    ColumnDefinition path_column =
+            make_table_column(42, "v.metric.x", std::make_shared<DataTypeVariantV2>());
+    path_column.column_paths = {"metric", "x"};
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &path_column).ok());
+
+    ASSERT_TRUE(context.schema_column.has_value());
+    EXPECT_EQ(context.schema_column->name, "renamed_v");
+    EXPECT_EQ(path_column.get_identifier_field_id(), 42);
+    EXPECT_EQ(path_column.name, "v.metric.x");
+    EXPECT_EQ(path_column.column_paths, std::vector<std::string>({"metric", "x"}));
+    EXPECT_EQ(path_column.name_mapping, std::vector<std::string>({"renamed_v"}));
+}
+
+TEST(TableReaderTest, AnnotateVariantPathSlotDoesNotFallbackAfterMissingFieldId) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {external_schema_field("v", 99)})});
+
+    // Match FileScannerV2's real Path Slot shape: the materialized slot name contains the path
+    // while name_mapping carries the derived root alias. A missing field id must clear that alias
+    // instead of binding to the new field id 99 through BY_NAME on an entirely idless file.
+    ColumnDefinition path_column =
+            make_table_column(42, "v.metric.x", std::make_shared<DataTypeVariantV2>());
+    path_column.column_paths = {"metric", "x"};
+    path_column.name_mapping = {"v"};
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &path_column).ok());
+
+    EXPECT_FALSE(context.schema_column.has_value());
+    EXPECT_EQ(path_column.get_identifier_field_id(), 42);
+    EXPECT_EQ(path_column.name, "v.metric.x");
+    EXPECT_EQ(path_column.column_paths, std::vector<std::string>({"metric", "x"}));
+    EXPECT_TRUE(path_column.has_name_mapping);
+    EXPECT_TRUE(path_column.name_mapping.empty());
+
+    auto idless_same_name =
+            make_file_column(0, "v", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    idless_same_name.identifier = Field::create_field<TYPE_STRING>("v");
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({path_column}, {}, {idless_same_name}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+}
+
+TEST(TableReaderTest, AnnotateVariantPathSlotKeepsAuthoritativeEmptyNameMapping) {
+    auto root_field = external_schema_field("v", 42);
+    root_field.field_ptr->__set_name_mapping({});
+    root_field.field_ptr->__set_name_mapping_is_authoritative(true);
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {root_field})});
+
+    ColumnDefinition path_column =
+            make_table_column(42, "v.metric.x", std::make_shared<DataTypeVariantV2>());
+    path_column.column_paths = {"metric", "x"};
+    path_column.name_mapping = {"v"};
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &path_column).ok());
+
+    ASSERT_TRUE(context.schema_column.has_value());
+    EXPECT_TRUE(path_column.has_name_mapping);
+    EXPECT_TRUE(path_column.name_mapping.empty());
 }
 
 TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAlias) {

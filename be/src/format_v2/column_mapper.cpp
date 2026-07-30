@@ -36,7 +36,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/function/function_variant_element_v2.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/short_circuit_evaluation_expr.h"
 #include "exprs/vcase_expr.h"
@@ -57,6 +59,67 @@
 namespace doris::format {
 
 namespace {
+
+std::string mapping_mode_to_string(TableColumnMappingMode mode);
+
+bool is_variant_v2_type(const DataTypePtr& type) {
+    return type != nullptr &&
+           dynamic_cast<const DataTypeVariantV2*>(remove_nullable(type).get()) != nullptr;
+}
+
+Status resolve_variant_path(const std::vector<std::string>& column_paths,
+                            std::shared_ptr<const ResolvedVariantElementV2Path>* resolved_path) {
+    DORIS_CHECK(!column_paths.empty());
+    DORIS_CHECK(resolved_path != nullptr);
+    std::vector<VariantElementV2PathSegment> segments;
+    segments.reserve(column_paths.size());
+    for (const auto& key : column_paths) {
+        // TSlotDescriptor.column_paths is an already-tokenized list. Treat every entry as one
+        // object key; joining on '.' would turn a literal key such as "a.b" into two selectors.
+        // Array indexes need a typed transport and are intentionally outside this contract.
+        segments.push_back(
+                VariantElementV2PathSegment::object_key(StringRef(key.data(), key.size())));
+    }
+    std::unique_ptr<ResolvedVariantElementV2Path> candidate;
+    RETURN_IF_ERROR(resolve_variant_element_v2_path(segments, &candidate));
+    *resolved_path = std::move(candidate);
+    return Status::OK();
+}
+
+Status initialize_variant_path_mapping(const ColumnDefinition& table_column,
+                                       TableColumnMappingMode mode, ColumnMapping* mapping) {
+    DORIS_CHECK(mapping != nullptr);
+    mapping->column_paths = table_column.column_paths;
+    if (mapping->column_paths.empty()) {
+        return Status::OK();
+    }
+    if (mode == TableColumnMappingMode::BY_INDEX) {
+        return Status::NotSupported(
+                "Variant Path Slot '{}' requires field-id or name table-to-file mapping, got {}",
+                table_column.name, mapping_mode_to_string(mode));
+    }
+    if (!is_variant_v2_type(mapping->table_type)) {
+        return Status::NotSupported(
+                "Variant Path Slot '{}' requires Variant V2 table type, got {}", table_column.name,
+                mapping->table_type == nullptr ? "null" : mapping->table_type->get_name());
+    }
+    // SlotReference.withSubPath() makes every rewritten Path Slot nullable because a key can be
+    // absent even when the root column is NOT NULL. Treat a non-nullable Path Slot as an invalid
+    // FE/BE plan contract instead of materializing a non-null Variant default.
+    DORIS_CHECK(mapping->table_type->is_nullable());
+    return resolve_variant_path(mapping->column_paths, &mapping->resolved_variant_path);
+}
+
+Status validate_variant_path_file_type(const ColumnDefinition& table_column,
+                                       const ColumnMapping& mapping) {
+    if (mapping.column_paths.empty() || is_variant_v2_type(mapping.file_type)) {
+        return Status::OK();
+    }
+    return Status::NotSupported(
+            "Variant Path Slot '{}' requires a Variant V2 file root, but '{}' has type {}",
+            table_column.name, mapping.file_column_name,
+            mapping.file_type == nullptr ? "null" : mapping.file_type->get_name());
+}
 
 Status build_initial_default_column(const ColumnDefinition& column, ColumnPtr* value) {
     DORIS_CHECK(value != nullptr);
@@ -405,7 +468,9 @@ std::string ColumnDefinition::debug_string() const {
         << ", name_mapping="
         << join_debug_strings(name_mapping, [](const std::string& name) { return name; })
         << ", has_name_mapping=" << has_name_mapping << ", local_id=" << local_id
-        << ", type=" << data_type_debug_string(type) << ", children="
+        << ", type=" << data_type_debug_string(type) << ", column_paths="
+        << join_debug_strings(column_paths, [](const std::string& key) { return key; })
+        << ", children="
         << join_debug_strings(children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", identity_children="
@@ -419,6 +484,12 @@ std::string ColumnDefinition::debug_string() const {
 std::string LocalColumnIndex::debug_string() const {
     std::ostringstream out;
     out << "LocalColumnIndex{index=" << index << ", project_all_children=" << project_all_children
+        << ", variant_paths="
+        << join_debug_strings(variant_paths,
+                              [](const std::vector<std::string>& path) {
+                                  return join_debug_strings(
+                                          path, [](const std::string& key) { return key; });
+                              })
         << ", children="
         << join_debug_strings(children,
                               [](const LocalColumnIndex& child) { return child.debug_string(); })
@@ -447,7 +518,9 @@ std::string ColumnMapping::debug_string() const {
         << join_debug_strings(original_file_children,
                               [](const ColumnDefinition& child) { return child.debug_string(); })
         << ", file_type=" << data_type_debug_string(file_type)
-        << ", table_type=" << data_type_debug_string(table_type)
+        << ", table_type=" << data_type_debug_string(table_type) << ", column_paths="
+        << join_debug_strings(column_paths, [](const std::string& key) { return key; })
+        << ", has_resolved_variant_path=" << (resolved_variant_path != nullptr)
         << ", has_projection=" << (projection != nullptr) << ", child_mappings="
         << join_debug_strings(child_mappings,
                               [](const ColumnMapping& child) { return child.debug_string(); })
@@ -1344,6 +1417,11 @@ static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
 }
 
 static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
+    if (!mapping.column_paths.empty()) {
+        // Equal VARIANT types only mean the shared root carrier has the same physical type as the
+        // Path Slot result. The logical values differ until finalize extracts column_paths.
+        return false;
+    }
     if (mapping.table_type == nullptr || mapping.file_type == nullptr) {
         return false;
     }
@@ -1792,8 +1870,16 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
-    if (!force_full_complex_scan_projection && needs_nested_file_projection(*mapping)) {
-        RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
+    if (!force_full_complex_scan_projection) {
+        if (!mapping->column_paths.empty()) {
+            // Path Slots remain separate output mappings, but their physical request is one
+            // partial projection on the shared Variant root. FileScanRequestBuilder unions these
+            // string paths by LocalColumnId just as it already unions numeric nested projections.
+            projection.project_all_children = false;
+            projection.variant_paths.push_back(mapping->column_paths);
+        } else if (needs_nested_file_projection(*mapping)) {
+            RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
+        }
     }
     if (is_predicate_column && !force_full_complex_scan_projection) {
         DCHECK(filter_projections != nullptr);
@@ -1914,7 +2000,8 @@ static Status build_nested_struct_filter_projection_map(
 
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
     DORIS_CHECK(mapping->file_local_id.has_value());
-    if (mapping->is_trivial || needs_complex_rematerialize(*mapping)) {
+    if (!mapping->column_paths.empty() || mapping->is_trivial ||
+        needs_complex_rematerialize(*mapping)) {
         mapping->projection = VExprContext::create_shared(VSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
                 mapping->file_type, mapping->file_column_name));
@@ -2004,6 +2091,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->global_index = global_index;
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
+    RETURN_IF_ERROR(initialize_variant_path_mapping(table_column, _options.mode, mapping));
     // Row-lineage names are Iceberg metadata contracts, not reserved names in generic Hive,
     // Hudi, or Paimon schemas. Only the Iceberg reader may opt into virtual synthesis.
     const auto row_lineage_type =
@@ -2022,6 +2110,7 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     } else if (const auto* file_field = _find_file_field(table_column, _file_schema)) {
         // Normal physical file column mapping.
         RETURN_IF_ERROR(_create_direct_mapping(table_column, *file_field, mapping));
+        RETURN_IF_ERROR(validate_variant_path_file_type(table_column, *mapping));
         if (row_lineage_type != TableVirtualColumnType::INVALID) {
             // Iceberg v3 rewritten files may physically contain row lineage metadata fields.
             // File non-null values must be preserved, while file NULLs still inherit from data file
@@ -2056,6 +2145,13 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
                     "Table column '{}' (global_index={}) does not have a matching partition value",
                     table_column.name, mapping->global_index.value());
         }
+    }
+    if (!mapping->column_paths.empty()) {
+        // The file-local carrier is the root Variant, not the Path Slot value. Never expose it as
+        // a localized filter/constant and never let equal root/output types mark this mapping
+        // trivial; extraction must run in TableReader::finalize_chunk().
+        mapping->is_trivial = false;
+        mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
     }
     return Status::OK();
 }
@@ -2143,7 +2239,10 @@ Status TableColumnMapper::_build_filter_entries(const FileScanRequest& file_requ
     const auto mappings = _filter_visible_mappings();
     for (const auto& mapping : mappings) {
         FilterEntry entry;
-        if (mapping.constant_index.has_value()) {
+        if (!mapping.column_paths.empty()) {
+            // A constant/default is still a root carrier until the Variant path is extracted.
+            // Scanner-level filters refer to the Path Slot, so they must stay above finalize.
+        } else if (mapping.constant_index.has_value()) {
             entry = FilterEntry::constant(*mapping.constant_index);
         } else if (mapping.file_local_id.has_value() &&
                    filter_conversion_has_local_source(mapping.filter_conversion)) {

@@ -32,6 +32,7 @@
 #include "format_v2/file_reader.h"
 
 namespace doris {
+class ResolvedVariantElementV2Path;
 class RuntimeState;
 } // namespace doris
 
@@ -135,6 +136,13 @@ struct ColumnMapping {
     DataTypePtr file_type;
     // Target table/global type after final materialization.
     DataTypePtr table_type;
+    // Existing TSlotDescriptor.column_paths copied through ColumnDefinition. Empty means a normal
+    // root projection. Non-empty paths are exact object-key segments and are never dotted-string
+    // parsed or represented as physical schema children.
+    std::vector<std::string> column_paths;
+    // Immutable, pre-resolved form of column_paths reused for every chunk. This is the existing
+    // Variant V2 element_at kernel representation, not a new FE/Thrift Path Slot protocol.
+    std::shared_ptr<const ResolvedVariantElementV2Path> resolved_variant_path;
 
     // Final projection expression used to convert file-local values into table/global values, such
     // as casts, defaults, partition values, generated columns, or complex-column remaps.

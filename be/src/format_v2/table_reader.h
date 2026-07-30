@@ -24,8 +24,10 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -41,6 +43,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -50,6 +53,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "exec/common/stringop_substring.h"
+#include "exprs/function/function_variant_element_v2.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
@@ -228,6 +232,12 @@ public:
         return _current_split_uses_metadata_count;
     }
 
+    // Largest logical input retained while materializing the last returned batch. FileScannerV2
+    // combines this with the final output width when learning its adaptive batch size.
+    size_t last_batch_materialization_input_bytes() const {
+        return _last_batch_materialization_input_bytes;
+    }
+
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
     // with no concrete reader or split-local state left from the failed split.
@@ -258,6 +268,7 @@ public:
         SCOPED_TIMER(_profile.exec_timer);
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
+        _last_batch_materialization_input_bytes = 0;
 
         while (true) {
             if (*eos) {
@@ -778,14 +789,86 @@ protected:
     // Finalize file-local block to table/global schema block.
     Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
-        size_t idx = 0;
         const auto& mappings = _data_reader.column_mapper->mappings();
-        for (const auto& mapping : mappings) {
+        const size_t file_column_count = _data_reader.block_template.columns();
+        const bool has_variant_path = std::ranges::any_of(
+                mappings,
+                [](const ColumnMapping& mapping) { return !mapping.column_paths.empty(); });
+        // Record before any projection transfers a carrier out of the file-local block. Current
+        // Variant-aware Parquet readers may return a full root even when only a tiny Path Slot is
+        // requested; future physical pruning automatically lowers this sample.
+        _last_batch_materialization_input_bytes =
+                has_variant_path ? _data_reader.block_template.bytes() : 0;
+        auto materialize_mapping = [&](size_t mapping_index,
+                                       bool take_projection_result) -> Status {
             ColumnPtr column;
-            RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
-                                                        &column, idx + 1 == mappings.size()));
-            block->replace_by_position(idx, IColumn::mutate(std::move(column)));
-            idx++;
+            RETURN_IF_ERROR(_materialize_mapping_column(mappings[mapping_index],
+                                                        &_data_reader.block_template, rows, &column,
+                                                        take_projection_result));
+            // Materialization order is internal only. Always write the original global index
+            // position so the table/global output schema remains unchanged.
+            block->replace_by_position(mapping_index, IColumn::mutate(std::move(column)));
+            return Status::OK();
+        };
+
+        if (!has_variant_path) {
+            // Keep the common path identical to the original linear finalization. Building a
+            // carrier ownership plan is only necessary when a Path Slot shares its root source.
+            for (size_t mapping_index = 0; mapping_index < mappings.size(); ++mapping_index) {
+                RETURN_IF_ERROR(
+                        materialize_mapping(mapping_index, mapping_index + 1 == mappings.size()));
+            }
+        } else {
+            // Record the last consumer in execution order once per chunk. This avoids scanning all
+            // mappings for every output column when a Path Slot is present.
+            std::unordered_map<int32_t, size_t> last_file_column_consumers;
+            last_file_column_consumers.reserve(mappings.size());
+            auto record_phase = [&](bool record_paths) {
+                for (size_t mapping_index = 0; mapping_index < mappings.size(); ++mapping_index) {
+                    const auto& mapping = mappings[mapping_index];
+                    if ((!mapping.column_paths.empty()) != record_paths ||
+                        !mapping.file_local_id.has_value() || mapping.projection == nullptr) {
+                        continue;
+                    }
+                    last_file_column_consumers[*mapping.file_local_id] = mapping_index;
+                }
+            };
+            // Every Path Slot reads its shared carrier before any root/normal mapping can transfer
+            // that carrier out of the file block.
+            record_phase(true);
+            record_phase(false);
+
+            auto materialize_phase = [&](bool materialize_paths) -> Status {
+                for (size_t mapping_index = 0; mapping_index < mappings.size(); ++mapping_index) {
+                    const auto& mapping = mappings[mapping_index];
+                    if ((!mapping.column_paths.empty()) != materialize_paths) {
+                        continue;
+                    }
+                    bool take_projection_result = false;
+                    if (mapping.file_local_id.has_value() && mapping.projection != nullptr) {
+                        const auto last_consumer_it =
+                                last_file_column_consumers.find(*mapping.file_local_id);
+                        DORIS_CHECK(last_consumer_it != last_file_column_consumers.end());
+                        take_projection_result = last_consumer_it->second == mapping_index;
+                    }
+                    RETURN_IF_ERROR(materialize_mapping(mapping_index, take_projection_result));
+                }
+                return Status::OK();
+            };
+            RETURN_IF_ERROR(materialize_phase(true));
+            RETURN_IF_ERROR(materialize_phase(false));
+        }
+        // Expressions can append temporary result columns, while carrier transfer leaves same-row
+        // constant placeholders so later expressions retain Block::rows(). Remove the temporary
+        // results and restore only transferred file columns before the next physical batch. Other
+        // file columns keep their allocated buffers for clear_column_data() to reuse.
+        _data_reader.block_template.erase_tail(file_column_count);
+        for (size_t idx = 0; idx < file_column_count; ++idx) {
+            auto& file_column = _data_reader.block_template.get_by_position(idx);
+            if (is_column_const(*file_column.column)) {
+                DORIS_CHECK(file_column.type != nullptr);
+                file_column.column = file_column.type->create_column();
+            }
         }
         RETURN_IF_ERROR(materialize_virtual_columns(block));
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
@@ -1148,7 +1231,11 @@ protected:
         ColumnPtr column = source.column;
         // The final mapping no longer needs the file block. Release its COW owner before mutate(),
         // otherwise nested MAP/STRING columns are deep-copied and a multi-GB payload can OOM.
-        block->replace_by_position(position, source.type->create_column());
+        // Keep a constant placeholder with the original row count: Block::rows() is derived from
+        // its first column, and later mapping/default expressions must still see the full batch
+        // after an earlier Path Slot transfers the carrier at position zero.
+        block->replace_by_position(
+                position, source.type->create_column_const_with_default_value(column->size()));
         return _detach_column(std::move(column));
     }
 
@@ -1297,6 +1384,10 @@ protected:
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column,
                                        bool take_projection_result = false) {
+        if (!mapping.column_paths.empty()) {
+            return _materialize_variant_path_mapping_column(mapping, current_block, rows, column,
+                                                            take_projection_result);
+        }
         if (!mapping.is_trivial && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
             DCHECK(mapping.projection != nullptr);
@@ -1339,29 +1430,106 @@ protected:
             return Status::OK();
         }
         if (mapping.default_expr != nullptr) {
-            if (current_block->rows() == rows) {
-                ColumnWithTypeAndName result;
-                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
-                        mapping.default_expr, current_block, &result));
-                ColumnPtr result_column = result.column;
-                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
-            } else {
-                DORIS_CHECK(mapping.constant_index.has_value());
-                Block eval_block;
-                eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
-                                   mapping.table_type, "__table_reader_const_rows"});
-                ColumnWithTypeAndName result;
-                RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(
-                        mapping.default_expr, &eval_block, &result));
-                ColumnPtr result_column = result.column;
-                RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
-                *column = _detach_column(std::move(result_column));
-            }
-            return Status::OK();
+            return _materialize_default_mapping_column(mapping, current_block, rows, column);
         }
         ColumnPtr result_column = mapping.table_type->create_column_const_with_default_value(rows);
         *column = _detach_column(std::move(result_column));
+        return Status::OK();
+    }
+
+    Status _materialize_default_mapping_column(const ColumnMapping& mapping, Block* current_block,
+                                               size_t rows, ColumnPtr* column) {
+        DORIS_CHECK(mapping.default_expr != nullptr);
+        DORIS_CHECK(mapping.table_type != nullptr);
+        DORIS_CHECK(current_block != nullptr);
+        DORIS_CHECK(column != nullptr);
+        if (current_block->rows() == rows) {
+            ColumnWithTypeAndName result;
+            RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(mapping.default_expr,
+                                                                          current_block, &result));
+            ColumnPtr result_column = result.column;
+            RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
+            *column = _detach_column(std::move(result_column));
+            return Status::OK();
+        }
+
+        DORIS_CHECK(mapping.constant_index.has_value());
+        Block eval_block;
+        eval_block.insert({mapping.table_type->create_column_const_with_default_value(rows),
+                           mapping.table_type, "__table_reader_const_rows"});
+        ColumnWithTypeAndName result;
+        RETURN_IF_ERROR(_execute_default_expr_without_root_type_check(mapping.default_expr,
+                                                                      &eval_block, &result));
+        ColumnPtr result_column = result.column;
+        RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
+        *column = _detach_column(std::move(result_column));
+        return Status::OK();
+    }
+
+    Status _materialize_variant_path_mapping_column(const ColumnMapping& mapping,
+                                                    Block* current_block, size_t rows,
+                                                    ColumnPtr* column,
+                                                    bool take_projection_result) {
+        DORIS_CHECK(!mapping.column_paths.empty());
+        DORIS_CHECK(mapping.resolved_variant_path != nullptr);
+        DORIS_CHECK(mapping.table_type != nullptr);
+        DORIS_CHECK(current_block != nullptr);
+        DORIS_CHECK(column != nullptr);
+
+        ColumnPtr root_column;
+        if (mapping.projection != nullptr) {
+            int result_id;
+            auto status = mapping.projection->execute(current_block, &result_id);
+            if (!status.ok()) {
+                return Status::InternalError(
+                        "Failed to read Variant root carrier for Path Slot '{}' "
+                        "(global_index={}, rows={}): {}, mapping={}",
+                        mapping.table_column_name, mapping.global_index.value(), rows,
+                        status.to_string(), mapping.debug_string());
+            }
+            root_column = take_projection_result
+                                  ? _take_and_detach_block_column(current_block, result_id)
+                                  : current_block->get_by_position(result_id).column;
+        } else if (mapping.default_expr != nullptr) {
+            // Schema-evolution defaults describe the missing root column. Apply the same path
+            // extraction after evaluating that root value instead of exposing the whole default.
+            RETURN_IF_ERROR(_materialize_default_mapping_column(mapping, current_block, rows,
+                                                                &root_column));
+        } else {
+            // A missing root without a default makes every requested subpath SQL NULL.
+            *column = _detach_column(
+                    mapping.table_type->create_column_const_with_default_value(rows));
+            return Status::OK();
+        }
+
+        const ColumnPtr materialized = root_column->convert_to_full_column_if_const();
+        _last_batch_materialization_input_bytes =
+                std::max(_last_batch_materialization_input_bytes, materialized->byte_size());
+        const IColumn* physical = materialized.get();
+        std::span<const uint8_t> outer_nulls;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(physical)) {
+            outer_nulls = nullable->get_null_map_data();
+            physical = &nullable->get_nested_column();
+        }
+        const auto* variant = check_and_get_column<ColumnVariantV2>(physical);
+        if (variant == nullptr) {
+            return Status::NotSupported(
+                    "Variant Path Slot '{}' requires a ColumnVariantV2 root carrier, got {}. "
+                    "Legacy ColumnVariant path extraction is not equivalent because it also needs "
+                    "sparse/document fallback semantics",
+                    mapping.table_column_name, materialized->get_name());
+        }
+        if (variant->size() != rows) {
+            return Status::InternalError(
+                    "Variant root carrier for Path Slot '{}' has {} rows, expected {}",
+                    mapping.table_column_name, variant->size(), rows);
+        }
+
+        ColumnPtr result;
+        RETURN_IF_ERROR(extract_variant_element_v2(*variant, *mapping.resolved_variant_path,
+                                                   outer_nulls, &result));
+        RETURN_IF_ERROR(_align_column_nullability(&result, mapping.table_type));
+        *column = std::move(result);
         return Status::OK();
     }
 
@@ -1763,6 +1931,7 @@ protected:
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
     size_t _batch_size = 0;
+    size_t _last_batch_materialization_input_bytes = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
     // True only when prepare_split() received a digest for the exact conjunct snapshot used by

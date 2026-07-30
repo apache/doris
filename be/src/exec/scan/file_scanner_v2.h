@@ -75,6 +75,9 @@ public:
                                        const std::string& column_name);
     static bool TEST_is_data_file_slot(const TFileScanSlotInfo& slot_info,
                                        const std::string& column_name);
+    static format::ColumnDefinition TEST_build_table_column(const SlotDescriptor* slot_desc) {
+        return _build_table_column(slot_desc);
+    }
     static Status TEST_rewrite_slot_refs_to_global_index(
             VExprSPtr* expr,
             const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index);
@@ -96,6 +99,10 @@ public:
                                                     bool current_split_uses_metadata_count) {
         return _should_run_adaptive_batch_size(predictor_initialized,
                                                current_split_uses_metadata_count);
+    }
+    static size_t TEST_adaptive_batch_sample_bytes(const Block& block,
+                                                   size_t materialization_input_bytes) {
+        return _adaptive_batch_sample_bytes(block, materialization_input_bytes);
     }
 #endif
 
@@ -154,6 +161,8 @@ private:
     bool _should_run_adaptive_batch_size() const;
     static bool _should_run_adaptive_batch_size(bool predictor_initialized,
                                                 bool current_split_uses_metadata_count);
+    static size_t _adaptive_batch_sample_bytes(const Block& block,
+                                               size_t materialization_input_bytes);
     size_t _predict_reader_batch_rows();
     void _update_adaptive_batch_size(const Block& block);
     static RealtimeCounterDeltas _collect_realtime_counter_deltas(

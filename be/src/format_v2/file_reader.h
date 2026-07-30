@@ -149,6 +149,7 @@ private:
         if (projection->project_all_children) {
             return;
         }
+        std::ranges::sort(projection->variant_paths);
         for (auto& child : projection->children) {
             _sort_projection_children_by_file_id(&child);
         }
@@ -163,11 +164,19 @@ private:
         DORIS_CHECK(scan_columns != nullptr);
         const auto file_column_id = projection.column_id();
         DORIS_CHECK(file_column_id != LocalColumnId::invalid());
-        if (!is_predicate_column &&
-            std::ranges::find_if(_request->predicate_columns, [&](const LocalColumnIndex& p) {
-                return p.column_id() == file_column_id;
-            }) != _request->predicate_columns.end()) {
-            return Status::OK();
+        if (!is_predicate_column) {
+            auto predicate_it = std::ranges::find_if(
+                    _request->predicate_columns, [&](const LocalColumnIndex& candidate) {
+                        return candidate.column_id() == file_column_id;
+                    });
+            if (predicate_it != _request->predicate_columns.end()) {
+                // The same root can back several rewritten Path Slots. A later output-only path
+                // must still be merged into the earlier predicate projection instead of being
+                // dropped merely because the root LocalColumnId is already present.
+                RETURN_IF_ERROR(merge_local_column_index(&*predicate_it, projection));
+                _sort_projection_children_by_file_id(&*predicate_it);
+                return Status::OK();
+            }
         }
         if (!_request->local_positions.contains(file_column_id)) {
             _request->local_positions.emplace(file_column_id, _next_block_position(*_request));
@@ -189,6 +198,13 @@ private:
                     _request->non_predicate_columns,
                     [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
             if (it != _request->non_predicate_columns.end()) {
+                auto predicate_it = std::ranges::find_if(
+                        _request->predicate_columns, [&](const LocalColumnIndex& candidate) {
+                            return candidate.column_id() == file_column_id;
+                        });
+                DORIS_CHECK(predicate_it != _request->predicate_columns.end());
+                RETURN_IF_ERROR(merge_local_column_index(&*predicate_it, *it));
+                _sort_projection_children_by_file_id(&*predicate_it);
                 _request->non_predicate_columns.erase(it);
             }
         }

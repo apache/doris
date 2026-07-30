@@ -224,8 +224,8 @@ struct GlobalRowIdContext {
 
 // Column schema definition shared by table/global projection and file-local schema matching.
 //
-// ColumnDefinition intentionally carries schema identity only. FE column unique ids are translated
-// to GlobalIndex at the FileScannerV2 boundary and must not appear in table/file reader APIs.
+// FE column unique ids are translated to typed schema identifiers or GlobalIndex values at the
+// FileScannerV2 boundary and must not otherwise appear in table/file reader APIs.
 struct ColumnDefinition {
     // Typed identifier value used to match a column against another schema.
     //
@@ -252,6 +252,13 @@ struct ColumnDefinition {
     // not fall back to the current name when matching fields in legacy files.
     bool has_name_mapping = false;
     DataTypePtr type;
+    // Object-key segments for one rewritten Variant Path Slot. Empty means this output requests
+    // the root column itself. These are logical projection segments, not physical schema children:
+    // a key containing '.' remains one segment, and readers must not insert these strings into
+    // ColumnDefinition::children.
+    // Keep the explicit empty initializer so existing designated initializers that name later
+    // members do not fail -Wmissing-designated-field-initializers.
+    std::vector<std::string> column_paths {}; // NOLINT(readability-redundant-member-init)
     // Semantic nested children for this schema node.
     //
     // Table/global columns carry projected table children. File-local schemas returned by
@@ -351,6 +358,16 @@ struct LocalColumnIndex {
     int32_t index = -1;
     bool project_all_children = true;
     std::vector<LocalColumnIndex> children {};
+    // Exact object-key paths requested from one Variant root. This deliberately stays separate
+    // from children, whose indexes are reader-local schema ids. Multiple rewritten Path Slots can
+    // share one root LocalColumnId and union their string paths here. A Variant-aware file reader
+    // must use the paths to prune physical typed streams, then materialize an encoded (possibly
+    // partial) root ColumnVariantV2 at this root's LocalIndex. TableReader extracts each logical
+    // Path Slot from that shared carrier; returning a typed leaf directly violates this contract.
+    // Keep the explicit empty initializer so top_level()/local()/partial_local() can continue to
+    // use concise designated initializers under -Wmissing-designated-field-initializers.
+    std::vector<std::vector<std::string>>
+            variant_paths {}; // NOLINT(readability-redundant-member-init)
 
     static LocalColumnIndex top_level(LocalColumnId column_id) {
         return {.index = column_id.value()};
@@ -404,7 +421,13 @@ inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColu
     if (source.project_all_children) {
         target->project_all_children = true;
         target->children.clear();
+        target->variant_paths.clear();
         return Status::OK();
+    }
+    for (const auto& source_path : source.variant_paths) {
+        if (std::ranges::find(target->variant_paths, source_path) == target->variant_paths.end()) {
+            target->variant_paths.push_back(source_path);
+        }
     }
     for (const auto& source_child : source.children) {
         auto target_child_it = std::find_if(

@@ -820,10 +820,31 @@ Status FileScannerV2::_build_default_expr(const TFileScanSlotInfo& slot_info,
 format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor* slot_desc) {
     DORIS_CHECK(slot_desc != nullptr);
     format::ColumnDefinition column;
-    // TODO(gabriel): why always BY_NAME here?
-    column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
+    column.column_paths = slot_desc->column_paths();
+    if (column.column_paths.empty()) {
+        // Keep the existing generic root-column behavior. Non-Iceberg readers map these slots by
+        // name, and their catalog unique ids do not necessarily identify a physical file field.
+        column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
+    } else {
+        // A rewritten Path Slot has its own SlotId while col_unique_id still identifies the
+        // Iceberg root v and column_paths identifies the requested value below it. FE encodes the
+        // path in the materialized name (for example "v.metric.x"). Preserve the root prefix in
+        // the existing name_mapping field so an entirely idless legacy Iceberg file can use its
+        // file-level BY_NAME policy. Files containing any field id remain in strict BY_FIELD_ID
+        // mode and never fall back to this name.
+        DORIS_CHECK(slot_desc->col_unique_id() >= 0);
+        column.identifier = Field::create_field<TYPE_INT>(slot_desc->col_unique_id());
+        std::string path_suffix;
+        for (const auto& key : column.column_paths) {
+            path_suffix.push_back('.');
+            path_suffix.append(key);
+        }
+        DORIS_CHECK(column.name.ends_with(path_suffix));
+        column.name_mapping.push_back(
+                column.name.substr(0, column.name.size() - path_suffix.size()));
+    }
     return column;
 }
 
@@ -962,21 +983,28 @@ size_t FileScannerV2::_predict_reader_batch_rows() {
     return predicted_rows;
 }
 
+size_t FileScannerV2::_adaptive_batch_sample_bytes(const Block& block,
+                                                   size_t materialization_input_bytes) {
+    return std::max(block.bytes(), materialization_input_bytes);
+}
+
 void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
     if (!_should_run_adaptive_batch_size()) {
         return;
     }
-    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(block.bytes()));
+    const size_t sample_bytes = _adaptive_batch_sample_bytes(
+            block, _table_reader->last_batch_materialization_input_bytes());
+    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(sample_bytes));
     if (block.rows() == 0) {
         return;
     }
-    // The sample is taken after TableReader has finalized file-local columns to table columns.
-    // This matches the memory shape seen by upstream operators and catches very wide nested
-    // columns, such as map/string payloads, after the first probe batch.
+    // Use the wider of the final table block and TableReader's pre-extraction carrier. This keeps
+    // current readers that ignore Variant path projection from learning the tiny extracted leaf
+    // width, while a future physically pruned carrier naturally restores larger batches.
     if (!_block_size_predictor->has_history()) {
         COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
     }
-    _block_size_predictor->update(block);
+    _block_size_predictor->update(block.rows(), sample_bytes);
 }
 
 Status FileScannerV2::close(RuntimeState* state) {

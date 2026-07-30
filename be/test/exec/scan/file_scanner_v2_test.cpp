@@ -35,6 +35,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scan_io_context.h"
@@ -121,6 +122,58 @@ TEST(FileScannerV2Test, AdaptiveBatchSizeRunsForCountFallbackOnly) {
     EXPECT_TRUE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, false));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(true, true));
     EXPECT_FALSE(FileScannerV2::TEST_should_run_adaptive_batch_size(false, false));
+}
+
+TEST(FileScannerV2Test, AdaptiveBatchSizeAccountsForPreExtractionVariantCarrier) {
+    constexpr size_t rows = FileScannerV2::ADAPTIVE_BATCH_INITIAL_PROBE_ROWS;
+    constexpr size_t preferred_bytes = 8 * 1024 * 1024;
+    constexpr size_t carrier_bytes = rows * 1024 * 1024;
+    Block tiny_path_output;
+    tiny_path_output.insert(
+            {ColumnInt64::create(rows, 7), std::make_shared<DataTypeInt64>(), "v.metric.x"});
+
+    const size_t sample_bytes =
+            FileScannerV2::TEST_adaptive_batch_sample_bytes(tiny_path_output, carrier_bytes);
+    EXPECT_EQ(sample_bytes, carrier_bytes);
+    EXPECT_EQ(FileScannerV2::TEST_adaptive_batch_sample_bytes(tiny_path_output, 0),
+              tiny_path_output.bytes());
+    AdaptiveBlockSizePredictor predictor(preferred_bytes, 0.0, rows, 4096);
+    predictor.update(tiny_path_output.rows(), sample_bytes);
+
+    // Learning from the tiny extracted INT64 alone would jump to the 4096-row cap. Accounting for
+    // the 1 MiB-per-row fallback carrier keeps the next batch within the 8 MiB target.
+    EXPECT_EQ(predictor.predict_next_rows(), 8);
+}
+
+TEST(FileScannerV2Test, BuildsVariantPathColumnFromExistingSlotFields) {
+    TSlotDescriptor thrift_slot;
+    thrift_slot.__set_id(7);
+    thrift_slot.__set_parent(1);
+    thrift_slot.__set_slotType(std::make_shared<DataTypeVariantV2>()->to_thrift());
+    thrift_slot.__set_columnPos(0);
+    thrift_slot.__set_colName("v.metric.x");
+    thrift_slot.__set_col_unique_id(100);
+    thrift_slot.__set_slotIdx(0);
+    thrift_slot.__set_isMaterialized(true);
+    thrift_slot.__set_is_key(false);
+    thrift_slot.__set_nullIndicatorBit(0);
+    thrift_slot.__set_column_paths({"metric", "x"});
+    SlotDescriptor path_slot(thrift_slot);
+
+    const auto path_column = FileScannerV2::TEST_build_table_column(&path_slot);
+    ASSERT_TRUE(path_column.has_identifier_field_id());
+    EXPECT_EQ(path_column.get_identifier_field_id(), 100);
+    EXPECT_EQ(path_column.name, "v.metric.x");
+    EXPECT_EQ(path_column.column_paths, std::vector<std::string>({"metric", "x"}));
+    EXPECT_EQ(path_column.name_mapping, std::vector<std::string>({"v"}));
+
+    thrift_slot.__set_column_paths({});
+    thrift_slot.__set_colName("v");
+    SlotDescriptor root_slot(thrift_slot);
+    const auto root_column = FileScannerV2::TEST_build_table_column(&root_slot);
+    ASSERT_TRUE(root_column.has_identifier_name());
+    EXPECT_EQ(root_column.get_identifier_name(), "v");
+    EXPECT_TRUE(root_column.column_paths.empty());
 }
 
 struct RetryableCloseState {

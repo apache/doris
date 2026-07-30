@@ -58,6 +58,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/common/endian.h"
 #include "exec/scan/access_path_parser.h"
 #include "exprs/runtime_filter_expr.h"
@@ -2010,6 +2011,18 @@ TEST(IcebergV2ReaderTest, IcebergMappingModeUsesAnyDataColumnFieldId) {
             make_file_column(3, "nested", std::make_shared<DataTypeInt32>()));
     EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema), &scan_params),
               TableColumnMappingMode::BY_FIELD_ID);
+}
+
+TEST(IcebergV2ReaderTest, IcebergMappingModeUsesNameForEntirelyIdlessFile) {
+    IcebergTableReaderMappingModeTestHelper reader;
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+    auto idless_root =
+            make_file_column(1, "v", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    idless_root.identifier = Field::create_field<TYPE_STRING>("v");
+
+    EXPECT_EQ(reader.mapping_mode_for_schema({std::move(idless_root)}, &scan_params),
+              TableColumnMappingMode::BY_NAME);
 }
 
 TEST(IcebergV2ReaderTest, IcebergLegacyPlanKeepsAllFieldIdsMappingRule) {

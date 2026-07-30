@@ -39,6 +39,8 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -253,6 +255,105 @@ TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
         EXPECT_NE(debug.find("child_mappings=[ColumnMapping{global_index="), std::string::npos);
         EXPECT_NE(debug.find("has_default_expr=1"), std::string::npos);
     }
+}
+
+TEST(ColumnMapperTest, VariantPathSlotsShareOneRootCarrierAndFinalizeOnly) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto metric_x = field_id_col("v.metric.x", 100, variant_type);
+    metric_x.column_paths = {"metric", "x"};
+    auto metric_y = field_id_col("v.metric.y", 100, variant_type);
+    metric_y.column_paths = {"metric", "y"};
+    const auto file_root = field_id_col("v", 100, variant_type, 4);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    const std::vector<ColumnDefinition> projected_columns {metric_x, metric_y};
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, {file_root}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, projected_columns, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(4));
+    EXPECT_FALSE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_EQ(request.non_predicate_columns[0].variant_paths,
+              (std::vector<std::vector<std::string>> {
+                      {"metric", "x"},
+                      {"metric", "y"},
+              }));
+    ASSERT_EQ(request.local_positions.size(), 1);
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(4)), LocalIndex(0));
+
+    const auto& mappings = mapper.mappings();
+    ASSERT_EQ(mappings.size(), 2);
+    EXPECT_EQ(mappings[0].table_column_name, "v.metric.x");
+    EXPECT_EQ(mappings[1].table_column_name, "v.metric.y");
+    for (size_t mapping_index = 0; mapping_index < mappings.size(); ++mapping_index) {
+        const auto& mapping = mappings[mapping_index];
+        EXPECT_EQ(mapping.global_index, GlobalIndex(mapping_index));
+        ASSERT_TRUE(mapping.file_local_id.has_value());
+        EXPECT_EQ(*mapping.file_local_id, 4);
+        EXPECT_FALSE(mapping.is_trivial);
+        EXPECT_EQ(mapping.filter_conversion, FilterConversionType::FINALIZE_ONLY);
+        EXPECT_NE(mapping.projection, nullptr);
+        const auto filter_entry = mapper.filter_entries().find(mapping.global_index);
+        ASSERT_NE(filter_entry, mapper.filter_entries().end());
+        EXPECT_FALSE(filter_entry->second.is_set());
+    }
+    EXPECT_EQ(mappings[0].column_paths, std::vector<std::string>({"metric", "x"}));
+    EXPECT_EQ(mappings[1].column_paths, std::vector<std::string>({"metric", "y"}));
+}
+
+TEST(ColumnMapperTest, VariantPathSlotsSupportIdlessNameMappingAndRejectPositionMapping) {
+    auto legacy_path =
+            field_id_col("v.metric.x", 100, make_nullable(std::make_shared<DataTypeVariant>()));
+    legacy_path.column_paths = {"metric", "x"};
+    const auto legacy_root =
+            field_id_col("v", 100, make_nullable(std::make_shared<DataTypeVariant>()), 4);
+    TableColumnMapper field_id_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    const auto legacy_status = field_id_mapper.create_mapping({legacy_path}, {}, {legacy_root});
+    EXPECT_FALSE(legacy_status.ok());
+    EXPECT_NE(legacy_status.to_string().find("Variant V2"), std::string::npos);
+
+    const auto variant_v2_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto name_mapped_path = field_id_col("v.metric.x", 100, variant_v2_type);
+    name_mapped_path.column_paths = {"metric", "x"};
+    name_mapped_path.name_mapping = {"legacy_v"};
+    const auto variant_v2_root = field_id_col("v", 100, variant_v2_type, 4);
+    auto idless_variant_v2_root = variant_v2_root;
+    idless_variant_v2_root.identifier = Field::create_field<TYPE_STRING>("legacy_v");
+    TableColumnMapper name_mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(name_mapper.create_mapping({name_mapped_path}, {}, {idless_variant_v2_root}).ok());
+    ASSERT_EQ(name_mapper.mappings().size(), 1);
+    ASSERT_TRUE(name_mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_EQ(*name_mapper.mappings()[0].file_local_id, 4);
+
+    TableColumnMapper position_mapper({.mode = TableColumnMappingMode::BY_INDEX});
+    const auto position_status =
+            position_mapper.create_mapping({name_mapped_path}, {}, {variant_v2_root});
+    EXPECT_FALSE(position_status.ok());
+    EXPECT_NE(position_status.to_string().find("BY_INDEX"), std::string::npos);
+}
+
+TEST(ColumnMapperTest, VariantPathSlotsKeepAuthoritativeNameAndFieldIdSafety) {
+    const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    auto table_path = field_id_col("v.metric.x", 42, variant_type);
+    table_path.column_paths = {"metric", "x"};
+    table_path.name_mapping = {"v"};
+    table_path.has_name_mapping = true;
+
+    auto idless_same_name = field_id_col("v", 99, variant_type, 4);
+    idless_same_name.identifier = Field::create_field<TYPE_STRING>("v");
+    table_path.name_mapping.clear();
+    TableColumnMapper name_mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(name_mapper.create_mapping({table_path}, {}, {idless_same_name}).ok());
+    ASSERT_EQ(name_mapper.mappings().size(), 1);
+    EXPECT_FALSE(name_mapper.mappings()[0].file_local_id.has_value());
+
+    table_path.name_mapping = {"v"};
+    auto same_name_different_id = field_id_col("v", 99, variant_type, 4);
+    TableColumnMapper field_id_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(field_id_mapper.create_mapping({table_path}, {}, {same_name_different_id}).ok());
+    ASSERT_EQ(field_id_mapper.mappings().size(), 1);
+    EXPECT_FALSE(field_id_mapper.mappings()[0].file_local_id.has_value());
 }
 
 TEST(ColumnMapperTest, ParquetRetainsIdlessComplexWrapperWithNestedFieldId) {

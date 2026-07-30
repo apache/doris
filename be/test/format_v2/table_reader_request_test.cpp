@@ -71,6 +71,33 @@ TEST(FileScanRequestBuilderTest, PredicateColumnRemovesDuplicateNonPredicateColu
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(2));
 }
 
+TEST(FileScanRequestBuilderTest, MergesVariantPathsAcrossPredicateAndOutputSlots) {
+    FileScanRequest request;
+    FileScanRequestBuilder builder(&request);
+
+    auto output_path = LocalColumnIndex::partial_local(7);
+    output_path.variant_paths = {{"metric", "y"}};
+    ASSERT_TRUE(builder.add_non_predicate_column(std::move(output_path)).ok());
+
+    auto predicate_path = LocalColumnIndex::partial_local(7);
+    predicate_path.variant_paths = {{"metric", "x"}};
+    ASSERT_TRUE(builder.add_predicate_column(std::move(predicate_path)).ok());
+
+    auto later_output_path = LocalColumnIndex::partial_local(7);
+    later_output_path.variant_paths = {{"metric", "z"}};
+    ASSERT_TRUE(builder.add_non_predicate_column(std::move(later_output_path)).ok());
+
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].variant_paths, (std::vector<std::vector<std::string>> {
+                                                                  {"metric", "x"},
+                                                                  {"metric", "y"},
+                                                                  {"metric", "z"},
+                                                          }));
+    ASSERT_EQ(request.local_positions.size(), 1);
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(7)), LocalIndex(0));
+}
+
 // Scenario: TableReader's format-specific customization path delegates to FileScanRequestBuilder
 // and preserves the same predicate/non-predicate de-duplication rule.
 TEST(TableReaderRequestTest, AppendPredicateColumnKeepsOtherNonPredicateColumns) {

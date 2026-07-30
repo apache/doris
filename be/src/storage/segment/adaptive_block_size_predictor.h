@@ -61,6 +61,10 @@ public:
     // and the batch returned Status::OK().
     void update(const Block& block);
 
+    // Update from an explicit logical byte sample. This lets callers account for a wider
+    // pre-materialization carrier that is no longer present in the returned Block.
+    void update(size_t rows, size_t bytes);
+
     // Predict how many rows the next batch should read.
     // Never exceeds |block_size_rows|; never returns less than 1.
     // Uses pre-computed metadata hint for first-call estimate when no history exists.

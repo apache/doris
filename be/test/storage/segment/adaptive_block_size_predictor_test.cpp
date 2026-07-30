@@ -89,6 +89,18 @@ TEST_F(AdaptiveBlockSizePredictorTest, NoHistoryReturnsMaxRows) {
     EXPECT_DOUBLE_EQ(pred.bytes_per_row_for_test(), expected_bpr);
 }
 
+TEST_F(AdaptiveBlockSizePredictorTest, ExplicitBytesAccountForPreMaterializationCarrier) {
+    AdaptiveBlockSizePredictor pred(kBlockBytes, 0.0);
+    constexpr size_t rows = 32;
+    constexpr size_t carrier_bytes = rows * 1024 * 1024;
+
+    pred.update(rows, carrier_bytes);
+
+    EXPECT_TRUE(pred.has_history_for_test());
+    EXPECT_DOUBLE_EQ(pred.bytes_per_row_for_test(), 1024.0 * 1024.0);
+    EXPECT_EQ(pred.predict_next_rows(), 8);
+}
+
 // ── Test 2: EWMA convergence ──────────────────────────────────────────────────
 // When every update delivers the same sample, the EWMA stays exactly at that
 // value (0.9*v + 0.1*v == v for any v).
