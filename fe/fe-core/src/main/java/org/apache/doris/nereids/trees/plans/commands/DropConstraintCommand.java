@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -80,21 +81,34 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         }
         // must be checked on both paths above: table resolution failing (which includes an
         // authorization failure) falls back to a name-only lookup that binds nothing.
+        checkAlterPriv(ctx, tableNameInfo);
+        Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
+        if (constraint == null) {
+            throw new AnalysisException(
+                    String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
+        }
+        if (constraint instanceof PrimaryKeyConstraint) {
+            // dropping a primary key cascades into ConstraintManager.cascadeDropForeignKeys(), which
+            // deletes the foreign key constraints of every referencing table, so those tables have to
+            // be authorized too. Checked before dropConstraint() because the cascade is atomic.
+            for (TableNameInfo fkTableInfo : ((PrimaryKeyConstraint) constraint).getForeignTableInfos()) {
+                checkAlterPriv(ctx, fkTableInfo);
+            }
+        }
+        List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
+    }
+
+    private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
+            throws org.apache.doris.common.AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableNameInfo.getCtl(),
                 tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
                     ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
-        Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
-        if (constraint == null) {
-            throw new AnalysisException(
-                    String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
-        }
-        List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
-        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
-                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
     }
 
     private TableNameInfo extractTableNameFromPlan(ConnectContext ctx) {

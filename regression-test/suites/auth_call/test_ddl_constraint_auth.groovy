@@ -78,6 +78,50 @@ suite("test_ddl_constraint_auth", "p0,auth_call") {
     constraints = sql """SHOW CONSTRAINTS FROM ${dbName}.${tableName}"""
     assertTrue(constraints.size() == 1)
 
+    // dropping a primary key cascades into the foreign keys of every referencing table, so ALTER on
+    // the referencing tables is required as well
+    String pkTable = 'test_ddl_constraint_auth_pk_tb'
+    String fkTable = 'test_ddl_constraint_auth_fk_tb'
+    String pkName = 'test_ddl_constraint_auth_pk'
+    String fkName = 'test_ddl_constraint_auth_fk'
+    sql """
+        CREATE TABLE IF NOT EXISTS ${dbName}.${pkTable} (
+            id BIGINT NOT NULL,
+            username VARCHAR(30)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES ("replication_num" = "1");
+        """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${dbName}.${fkTable} (
+            id BIGINT NOT NULL,
+            pk_id BIGINT NOT NULL
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES ("replication_num" = "1");
+        """
+    sql """ALTER TABLE ${dbName}.${pkTable} ADD CONSTRAINT ${pkName} PRIMARY KEY (id)"""
+    sql """ALTER TABLE ${dbName}.${fkTable} ADD CONSTRAINT ${fkName} FOREIGN KEY (pk_id) REFERENCES ${pkTable}(id)"""
+
+    sql """grant ALTER_PRIV on ${dbName}.${pkTable} to ${user}"""
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        sql """use ${dbName}"""
+        test {
+            sql """ALTER TABLE ${pkTable} DROP CONSTRAINT ${pkName}"""
+            exception "denied"
+        }
+    }
+    def fkConstraints = sql """SHOW CONSTRAINTS FROM ${dbName}.${fkTable}"""
+    assertTrue(fkConstraints.size() == 1)
+
+    sql """grant ALTER_PRIV on ${dbName}.${fkTable} to ${user}"""
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        sql """use ${dbName}"""
+        sql """ALTER TABLE ${pkTable} DROP CONSTRAINT ${pkName}"""
+    }
+    fkConstraints = sql """SHOW CONSTRAINTS FROM ${dbName}.${fkTable}"""
+    assertTrue(fkConstraints.isEmpty())
+
     sql """drop database if exists ${dbName}"""
     try_sql("DROP USER ${user}")
 }
