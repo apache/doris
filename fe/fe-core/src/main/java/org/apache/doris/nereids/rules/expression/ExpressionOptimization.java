@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.expression.rules.CondReplaceNullWithFalse;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
+import org.apache.doris.nereids.rules.expression.rules.InferPredicateFromMonotonicFunction;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NestedCaseWhenCondToLiteral;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
@@ -84,7 +85,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
      */
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> ADD_RANGE = ImmutableList.of(
             bottomUp(
-                    AddMinMax.INSTANCE
+                    AddMinMax.INSTANCE,
+                    InferPredicateFromMonotonicFunction.INSTANCE
             )
     );
 
