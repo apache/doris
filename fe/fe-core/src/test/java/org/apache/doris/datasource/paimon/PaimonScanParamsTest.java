@@ -82,6 +82,9 @@ public class PaimonScanParamsTest {
         Table table = Mockito.mock(Table.class);
         Table copied = Mockito.mock(Table.class);
         Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB"));
 
         Assert.assertSame(copied, PaimonScanParams.applyOptions(table, ImmutableMap.of(
                 "read.batch-size", "8192",
@@ -145,6 +148,7 @@ public class PaimonScanParamsTest {
         Table table = Mockito.mock(Table.class);
         Table copied = Mockito.mock(Table.class);
         Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(Collections.emptyMap());
 
         Assert.assertSame(copied, PaimonScanParams.applyOptions(
                 table, ImmutableMap.of("scan.creation-time-millis", "1000")));
@@ -169,7 +173,9 @@ public class PaimonScanParamsTest {
     @Test
     public void testApplyModeClearsInheritedPositions() {
         Table table = Mockito.mock(Table.class);
-        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(Mockito.mock(Table.class));
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(Collections.emptyMap());
 
         PaimonScanParams.applyOptions(table, ImmutableMap.of("scan.mode", "latest"));
 
@@ -188,7 +194,9 @@ public class PaimonScanParamsTest {
     @Test
     public void testIsolationClearsFallbackReadStateKeys() {
         Table table = Mockito.mock(Table.class);
-        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(Mockito.mock(Table.class));
+        Table copied = Mockito.mock(Table.class);
+        Mockito.when(table.copy(ArgumentMatchers.anyMap())).thenReturn(copied);
+        Mockito.when(copied.options()).thenReturn(Collections.emptyMap());
 
         PaimonScanParams.applyOptions(table, ImmutableMap.of("scan.snapshot-id", "1"));
 

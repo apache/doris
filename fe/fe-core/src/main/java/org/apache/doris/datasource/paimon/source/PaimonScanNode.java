@@ -35,6 +35,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -1040,18 +1041,27 @@ public class PaimonScanNode extends FileQueryScanNode {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
 
+        Table finalTable;
         if (theScanParams != null && theScanParams.incrementalRead()) {
             // System table handles are cached, so preserve query isolation by applying dynamic
             // options to a copied Paimon table instead of changing the shared handle.
-            return baseTable.copy(getIncrReadParams());
-        }
-        if (theScanParams != null && theScanParams.isOptions()) {
+            finalTable = baseTable.copy(getIncrReadParams());
+        } else if (theScanParams != null && theScanParams.isOptions()) {
             try {
-                return source.getPaimonTable(theScanParams);
+                finalTable = source.getPaimonTable(theScanParams);
             } catch (IllegalArgumentException e) {
                 throw new UserException(e.getMessage(), e);
             }
+        } else {
+            finalTable = baseTable;
         }
-        return baseTable;
+        try {
+            // This is the last common boundary before planning and serialization, including scans
+            // with no relation copy and incremental/system-table paths that bypass applyOptions.
+            PaimonReaderOptions.validateEffectiveTableOptions(finalTable.options());
+        } catch (IllegalArgumentException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+        return finalTable;
     }
 }

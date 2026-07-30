@@ -544,7 +544,12 @@ public class PaimonJniScanner extends JniScanner {
             return new String[0];
         }
         return Arrays.stream(encodedValues.split(",", -1))
-                .map(encoded -> new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8))
+                .map(encoded -> {
+                    // A marker on every token preserves list arity when the encoded value itself is empty.
+                    Preconditions.checkArgument(encoded.startsWith("$"),
+                            "Encoded JNI schema token is missing its version marker");
+                    return new String(Base64.getDecoder().decode(encoded.substring(1)), StandardCharsets.UTF_8);
+                })
                 .toArray(String[]::new);
     }
 

@@ -101,6 +101,22 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testConstructorDistinguishesEmptyIdentifierFromEmptyProjection() {
+        Map<String, String> oneEmptyField = createBaseParams();
+        oneEmptyField.put("required_fields_base64", "$");
+        oneEmptyField.put("columns_types_base64", "$c3RyaW5n");
+
+        new PaimonJniScanner(128, oneEmptyField);
+
+        Assert.assertArrayEquals(new String[] {""}, PaimonJniScanner.requiredFields(oneEmptyField));
+        Map<String, String> noFields = createBaseParams();
+        noFields.put("required_fields_base64", "");
+        noFields.put("columns_types_base64", "");
+        Assert.assertEquals(0, PaimonJniScanner.requiredFields(noFields).length);
+        new PaimonJniScanner(128, noFields);
+    }
+
+    @Test
     public void testDebugSummaryNeverIncludesRawScannerParams() {
         Map<String, String> params = createBaseParams();
         params.put("hadoop.fs.s3a.secret.key", "FAKE_SECRET_MARKER");
@@ -361,7 +377,7 @@ public class PaimonJniScannerTest {
 
     private String encodeFields(String... fields) {
         return Arrays.stream(fields)
-                .map(field -> Base64.getEncoder().encodeToString(field.getBytes(StandardCharsets.UTF_8)))
+                .map(field -> "$" + Base64.getEncoder().encodeToString(field.getBytes(StandardCharsets.UTF_8)))
                 .collect(java.util.stream.Collectors.joining(","));
     }
 

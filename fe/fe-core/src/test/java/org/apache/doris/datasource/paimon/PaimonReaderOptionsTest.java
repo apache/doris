@@ -20,9 +20,12 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.table.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.Map;
 
 public class PaimonReaderOptionsTest {
@@ -52,5 +55,28 @@ public class PaimonReaderOptionsTest {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> PaimonReaderOptions.validateEffectiveTableOptions(options));
         }
+    }
+
+    @Test
+    void testRejectUnsafeOptionOnlyAfterFinalTableCopy() {
+        Table physicalTable = Mockito.mock(Table.class);
+        Table finalTable = Mockito.mock(Table.class);
+        Mockito.when(physicalTable.copy(Collections.emptyMap())).thenReturn(finalTable);
+        Mockito.when(finalTable.options()).thenReturn(ImmutableMap.of("read.batch-size", "0"));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> PaimonScanParams.applyOptions(physicalTable, Collections.emptyMap()));
+    }
+
+    @Test
+    void testSafeRelationOptionOverridesUnsafePhysicalOption() {
+        Table physicalTable = Mockito.mock(Table.class);
+        Table finalTable = Mockito.mock(Table.class);
+        Map<String, String> relationOptions = ImmutableMap.of("read.batch-size", "4096");
+        Mockito.when(physicalTable.options()).thenReturn(ImmutableMap.of("read.batch-size", "0"));
+        Mockito.when(physicalTable.copy(relationOptions)).thenReturn(finalTable);
+        Mockito.when(finalTable.options()).thenReturn(relationOptions);
+
+        Assertions.assertSame(finalTable, PaimonScanParams.applyOptions(physicalTable, relationOptions));
     }
 }

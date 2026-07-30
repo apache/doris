@@ -645,6 +645,7 @@ public class PaimonScanNodeTest {
         expectedOptions.put("incremental-to-auto-tag", null);
         expectedOptions.put("incremental-between", "1,2");
         Mockito.when(baseTable.copy(expectedOptions)).thenReturn(copiedTable);
+        Mockito.when(copiedTable.options()).thenReturn(Collections.emptyMap());
 
         try {
             Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
@@ -764,6 +765,7 @@ public class PaimonScanNodeTest {
         node.setScanParams(new TableScanParams(
                 TableScanParams.OPTIONS, options, Collections.emptyList()));
         Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(copiedTable);
+        Mockito.when(copiedTable.options()).thenReturn(options);
 
         try {
             Assert.assertSame(copiedTable, invokePrivateMethod(node, "getProcessedTable"));
@@ -819,6 +821,25 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRejectsUnsafePhysicalOptionsAtFinalPlanningBoundary() throws Exception {
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Table unsafePhysicalTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(unsafePhysicalTable);
+        Mockito.when(unsafePhysicalTable.options()).thenReturn(ImmutableMap.of("read.batch-size", "0"));
+        node.setSource(source);
+
+        try {
+            invokePrivateMethod(node, "getProcessedTable");
+            Assert.fail("The final planning boundary must reject an effective zero batch size");
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.assertTrue(e.getTargetException().getMessage().contains("read.batch-size"));
+        }
+    }
+
+    @Test
     public void testDataTableOptionsUseRelationScopedCatalogHandle() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
@@ -835,6 +856,7 @@ public class PaimonScanNodeTest {
                 Collections.emptyList());
         node.setScanParams(scanParams);
         Mockito.when(source.getPaimonTable(scanParams)).thenReturn(relationScopedTable);
+        Mockito.when(relationScopedTable.options()).thenReturn(Collections.emptyMap());
 
         Assert.assertSame(relationScopedTable, invokePrivateMethod(node, "getProcessedTable"));
         Mockito.verify(source).getPaimonTable(scanParams);
@@ -931,6 +953,7 @@ public class PaimonScanNodeTest {
         node.setScanParams(new TableScanParams(
                 TableScanParams.OPTIONS, options, Collections.emptyList()));
         Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(copiedTable);
+        Mockito.when(copiedTable.options()).thenReturn(options);
 
         try {
             invokePrivateMethod(node, "serializeProcessedTable");

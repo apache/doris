@@ -57,6 +57,7 @@ public class PaimonExternalTableTest {
 
         Mockito.doReturn(statementTable).when(externalTable).getPaimonTable(statementSnapshot);
         Mockito.when(statementTable.copy(scanParams.getMapParams())).thenReturn(statementCopy);
+        Mockito.when(statementCopy.options()).thenReturn(scanParams.getMapParams());
         Mockito.when(baseTable.copy(scanParams.getMapParams())).thenReturn(baseCopy);
 
         try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
@@ -85,6 +86,7 @@ public class PaimonExternalTableTest {
         Mockito.doReturn(statementTable).when(externalTable).getPaimonTable(statementSnapshot);
         Mockito.when(statementTable.options()).thenReturn(ImmutableMap.of("scan.snapshot-id", "7"));
         Mockito.when(baseTable.copy(ArgumentMatchers.anyMap())).thenReturn(pinnedCopy);
+        Mockito.when(pinnedCopy.options()).thenReturn(ImmutableMap.of("scan.snapshot-id", "7"));
 
         try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
                 MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {

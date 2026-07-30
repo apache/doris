@@ -141,11 +141,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
             return executionAuthenticator.execute(() -> {
                 Table table = catalog.getTable(identifier);
                 Map<String, String> tableOptions = paimonProperties.getTableOptionsForCopy();
-                Table effectiveTable = tableOptions.isEmpty() ? table : table.copy(tableOptions);
-                // Physical table options bypass Doris property validation, so validate the final
-                // merged view before Paimon can allocate batches or replace its manifest executor.
-                PaimonReaderOptions.validateEffectiveTableOptions(effectiveTable.options());
-                return effectiveTable;
+                // Relation options are applied after this cached handle is returned. Defer final
+                // validation so a safe relation value can override an unsafe physical value.
+                return tableOptions.isEmpty() ? table : table.copy(tableOptions);
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."

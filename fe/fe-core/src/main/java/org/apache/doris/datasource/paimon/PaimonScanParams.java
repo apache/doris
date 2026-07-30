@@ -144,7 +144,11 @@ public final class PaimonScanParams {
                     .filter(key -> !tableOptions.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
-        return table.copy(isolatedOptions);
+        Table effectiveTable = table.copy(isolatedOptions);
+        // Validate after every copy so relation options participate in the documented
+        // relation > catalog > physical precedence before the effective value is judged.
+        PaimonReaderOptions.validateEffectiveTableOptions(effectiveTable.options());
+        return effectiveTable;
     }
 
     private static Set<String> inheritedReadStateKeys() {
