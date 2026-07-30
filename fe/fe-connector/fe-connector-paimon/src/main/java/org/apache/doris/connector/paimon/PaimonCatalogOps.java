@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
@@ -64,7 +65,7 @@ public interface PaimonCatalogOps {
 
     Table getTable(Identifier identifier) throws Catalog.TableNotExistException;
 
-    List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException;
+    List<Partition> listPartitions(Identifier identifier, Table table) throws Catalog.TableNotExistException;
 
     void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
             throws Catalog.DatabaseAlreadyExistException;
@@ -280,8 +281,11 @@ public interface PaimonCatalogOps {
         }
 
         @Override
-        public List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException {
-            return catalog.listPartitions(identifier);
+        public List<Partition> listPartitions(Identifier identifier, Table table)
+                throws Catalog.TableNotExistException {
+            // The supplied handle already contains catalog and relation policy. Reloading by identifier
+            // would discard those copies before manifest enumeration reaches the final scan guard.
+            return CatalogUtils.listPartitionsFromFileSystem(table);
         }
 
         @Override

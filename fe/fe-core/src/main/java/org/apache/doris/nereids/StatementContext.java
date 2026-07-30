@@ -280,6 +280,7 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
@@ -1049,6 +1050,12 @@ public class StatementContext implements Closeable {
             if (!snapshots.containsKey(mvccTableInfo)) {
                 snapshots.put(mvccTableInfo,
                         ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+                scanParams.flatMap(TableScanParams::getResolvedMapParams)
+                        .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));
+            } else if (scanParams.isPresent() && resolvedSnapshotScanParams.containsKey(mvccTableInfo)) {
+                // Snapshot de-duplication also de-duplicates dynamic option resolution. Seed later
+                // aliases so their scan phase consumes the selector used by the cached snapshot.
+                scanParams.get().reuseResolvedMapParams(resolvedSnapshotScanParams.get(mvccTableInfo));
             }
         }
     }
@@ -1127,14 +1134,33 @@ public class StatementContext implements Closeable {
         StringBuilder key = new StringBuilder();
         if (tableSnapshot != null && tableSnapshot.isPresent()) {
             TableSnapshot ts = tableSnapshot.get();
-            key.append("v:").append(ts.getType()).append(':').append(ts.getValue());
+            key.append('v');
+            appendVersionKeyPart(key, ts.getType());
+            appendVersionKeyPart(key, ts.getValue());
         }
         if (scanParams != null && scanParams.isPresent()) {
             TableScanParams sp = scanParams.get();
-            key.append("p:").append(sp.getParamType()).append(':').append(new TreeMap<>(sp.getMapParams()))
-                    .append(':').append(sp.getListParams());
+            key.append('p');
+            appendVersionKeyPart(key, sp.getParamType());
+            Map<String, String> sortedParams = new TreeMap<>(sp.getMapParams());
+            key.append('m').append(sortedParams.size()).append(':');
+            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
+                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
+                // delimiters; sorting separately keeps semantically identical maps order-independent.
+                appendVersionKeyPart(key, entry.getKey());
+                appendVersionKeyPart(key, entry.getValue());
+            }
+            key.append('l').append(sp.getListParams().size()).append(':');
+            for (String value : sp.getListParams()) {
+                appendVersionKeyPart(key, value);
+            }
         }
         return key.toString();
+    }
+
+    private static void appendVersionKeyPart(StringBuilder key, Object value) {
+        String text = String.valueOf(value);
+        key.append(text.length()).append(':').append(text);
     }
 
     /**

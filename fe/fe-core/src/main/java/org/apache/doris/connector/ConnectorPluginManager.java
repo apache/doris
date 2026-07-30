@@ -119,8 +119,20 @@ public class ConnectorPluginManager {
 
     /** Called at FE startup to load built-in providers from classpath. */
     public void loadBuiltins() {
-        ServiceLoader.load(ConnectorProvider.class)
+        loadBuiltins(ConnectorProvider.class.getClassLoader());
+    }
+
+    /** Classloader seam used to verify embedded/classpath providers with their own defining jars. */
+    void loadBuiltins(ClassLoader classLoader) {
+        ServiceLoader.load(ConnectorProvider.class, classLoader)
                 .forEach(p -> {
+                    String rejection = API_VERSION_GATE.rejectionReasonForClass(p.getClass());
+                    if (rejection != null) {
+                        // Classpath discovery must not bypass the major gate used for directory plugins;
+                        // otherwise an old provider silently inherits new SPI default methods.
+                        LOG.warn("Skip built-in connector provider {}: {}", p.getClass().getName(), rejection);
+                        return;
+                    }
                     try {
                         // Snapshot self-reported metadata before publishing the provider
                         // so one throwing implementation is rejected cleanly instead of

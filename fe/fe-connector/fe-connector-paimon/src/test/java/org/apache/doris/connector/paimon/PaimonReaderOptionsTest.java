@@ -95,10 +95,46 @@ public class PaimonReaderOptionsTest {
                 ImmutableMap.of("file-reader-async-threshold", "512 KB"),
                 ImmutableMap.of("scan.manifest.parallelism", "0"),
                 ImmutableMap.of("scan.manifest.parallelism",
-                        String.valueOf(Runtime.getRuntime().availableProcessors() + 1))
+                        String.valueOf(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM + 1))
         }) {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> PaimonReaderOptions.validateEffectiveTableOptions(options));
+        }
+    }
+
+    @Test
+    void testCatalogReplayUsesHardwareIndependentManifestParallelismBound() {
+        Map<String, String> persisted = ImmutableMap.of(
+                PaimonReaderOptions.TABLE_OPTION_PREFIX + "scan.manifest.parallelism",
+                String.valueOf(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM));
+
+        Assertions.assertEquals(String.valueOf(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM),
+                PaimonReaderOptions.compatibleCatalogOptions(persisted)
+                        .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+        Assertions.assertDoesNotThrow(() -> PaimonReaderOptions.validateCatalogProperties(persisted));
+    }
+
+    @Test
+    void testManifestParallelismIsCappedOnlyOnRuntimeCopy() {
+        Table table = fakeTable("physical", Collections.emptyMap());
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        int requested = Math.min(PaimonReaderOptions.MAX_MANIFEST_PARALLELISM, localCapacity + 1);
+
+        Map<String, String> normalized = PaimonReaderOptions.runtimeSafeCopyOptions(table,
+                ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(requested)));
+
+        Assertions.assertEquals(String.valueOf(Math.min(requested, localCapacity)),
+                normalized.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    void testUnnormalizedEffectiveTableCannotGrowPaimonGlobalPool() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        if (localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonReaderOptions.validateEffectiveTableOptions(ImmutableMap.of(
+                            CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
+                            String.valueOf(localCapacity + 1))));
         }
     }
 

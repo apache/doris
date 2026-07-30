@@ -332,11 +332,20 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 finalTable = table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
             }
         }
-        // This is the last common boundary before planning and serialization. Validate only after
-        // relation and incremental copies establish relation > catalog > physical precedence.
+        finalTable = runtimeSafeTable(finalTable);
+        // This is the last common boundary before planning and serialization. Normalize and
+        // validate only after relation > catalog > physical precedence is established.
         PaimonReaderOptions.validateEffectiveTable(finalTable);
         validateHiddenSystemDataTable(paimonHandle, scanOptions);
         return finalTable;
+    }
+
+    private Table runtimeSafeTable(Table table) {
+        Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
+                table, Collections.emptyMap());
+        // The cached catalog handle remains hardware-neutral; only the query-local planning copy
+        // receives a CPU-local cap before it can resize Paimon's JVM-wide manifest executor.
+        return runtimeOptions.isEmpty() ? table : table.copy(runtimeOptions);
     }
 
     private void validateHiddenSystemDataTable(PaimonTableHandle handle, Map<String, String> scanOptions) {

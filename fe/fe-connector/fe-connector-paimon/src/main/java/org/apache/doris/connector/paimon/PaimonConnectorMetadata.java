@@ -43,7 +43,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
@@ -1269,11 +1268,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     /**
      * Builds cache A's key for {@code paimonHandle}: {@code (db, table, snapshotId, schemaId)}.
      *
-     * <p><b>snapshotId</b>: {@link #collectPartitions}'s remote call ({@code catalogOps.listPartitions(Identifier)})
-     * is BASE-identifier-only — it does not apply the handle's pinned {@code scanOptions} (unlike the scan path),
-     * so it always reflects the CURRENT catalog state, never a time-travel pin (branch / time-travel reads never
-     * reach this path at all — see {@link #collectPartitions}). The key must therefore track "current", not
-     * whatever snapshot happens to be threaded on the handle: it reads the SAME per-catalog
+     * <p><b>snapshotId</b>: cached calls have no startup-changing scan options (those bypass this cache), so
+     * {@link #collectPartitions} enumerates the current resolved table copy. The key therefore reads the SAME
+     * per-catalog
      * {@link #latestSnapshotCache} that {@link #beginQuerySnapshot} pins queries to (a cheap in-memory hit within
      * the query — {@code beginQuerySnapshot} already warmed it), so a repeat query within the TTL hits this cache,
      * and a new snapshot (data change, once the entry expires or REFRESH invalidates it) naturally mints a new key.
@@ -1319,20 +1316,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         } else {
             // Partition projection never opens a data reader, so reader-only settings must not
             // invalidate metadata that a later relation-scoped override can make safe.
-            PaimonReaderOptions.validateEffectivePlanningTable(resolvedTable);
-            table = resolvedTable;
+            Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
+                    resolvedTable, Collections.emptyMap());
+            // Metadata planning can also touch Paimon's global manifest executor, so apply the
+            // CPU-local cap to a disposable projection rather than the cached catalog handle.
+            table = runtimeOptions.isEmpty() ? resolvedTable : resolvedTable.copy(runtimeOptions);
+            PaimonReaderOptions.validateEffectivePlanningTable(table);
         }
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         List<Partition> paimonPartitions;
         try {
             paimonPartitions = context.executeAuthenticated(() -> {
-                if (optionsPin) {
-                    // Catalog.listPartitions reloads the raw physical table and drops relation copies.
-                    return CatalogUtils.listPartitionsFromFileSystem(table);
-                }
                 try {
-                    return catalogOps.listPartitions(identifier);
+                    // Always enumerate the exact resolved copy: both relation and catalog policies are
+                    // query semantics and must survive this metadata-planning boundary.
+                    return catalogOps.listPartitions(identifier, table);
                 } catch (Catalog.TableNotExistException e) {
                     LOG.warn("Paimon table not found while listing partitions: {}", identifier, e);
                     return Collections.<Partition>emptyList();

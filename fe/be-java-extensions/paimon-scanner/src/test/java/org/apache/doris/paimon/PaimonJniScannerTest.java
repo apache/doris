@@ -26,6 +26,7 @@ import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.apache.logging.log4j.core.config.Property;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.BufferFileReader;
 import org.apache.paimon.disk.BufferFileWriter;
@@ -34,6 +35,8 @@ import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -41,7 +44,11 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -63,6 +70,27 @@ public class PaimonJniScannerTest {
     @Test
     public void testConstructorAcceptsEmptyProjection() {
         new PaimonJniScanner(128, createBaseParams());
+    }
+
+    @Test
+    public void testOldFeSerializedZeroReadBatchIsRejected() throws Exception {
+        Table configuredTable = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class[] {Table.class}, new SerializableTableHandler(
+                        Collections.singletonMap(CoreOptions.READ_BATCH_SIZE.key(), "0")));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(configuredTable)));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        try {
+            initTable.invoke(scanner);
+            Assert.fail("an unvalidated old-FE batch size must not reach the Paimon reader");
+        } catch (InvocationTargetException e) {
+            Assert.assertTrue(e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains(CoreOptions.READ_BATCH_SIZE.key()));
+        }
     }
 
     @Test
@@ -405,6 +433,29 @@ public class PaimonJniScannerTest {
         Field tableField = PaimonJniScanner.class.getDeclaredField("table");
         tableField.setAccessible(true);
         tableField.set(scanner, table);
+    }
+
+    private static class SerializableTableHandler implements InvocationHandler, Serializable {
+        private static final long serialVersionUID = 1L;
+        private final Map<String, String> options;
+
+        SerializableTableHandler(Map<String, String> options) {
+            this.options = options;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) {
+            if ("options".equals(method.getName())) {
+                return options;
+            }
+            if ("rowType".equals(method.getName())) {
+                return new RowType(Collections.emptyList());
+            }
+            if ("toString".equals(method.getName())) {
+                return "SerializablePaimonTable";
+            }
+            throw new UnsupportedOperationException(method.getName());
+        }
     }
 
     public static class TestIOManager implements IOManager {

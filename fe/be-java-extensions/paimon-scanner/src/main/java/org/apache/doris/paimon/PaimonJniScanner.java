@@ -24,6 +24,7 @@ import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
@@ -669,9 +670,28 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
+        validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
+        }
+    }
+
+    private static void validateSerializedReadBatchSize(String value) {
+        if (value == null) {
+            return;
+        }
+        try {
+            int batchSize = Integer.parseInt(value);
+            if (batchSize < 1 || batchSize > 65536) {
+                throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
+                        + "' must be between 1 and 65536, but was " + value);
+            }
+        } catch (NumberFormatException e) {
+            // Serialized tables can come from an older FE that did not validate reader options;
+            // fail fast instead of allowing an invalid batch size to reach Paimon's read loop.
+            throw new IllegalArgumentException("Paimon option '" + CoreOptions.READ_BATCH_SIZE.key()
+                    + "' must be an integer between 1 and 65536, but was " + value, e);
         }
     }
 

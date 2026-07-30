@@ -32,6 +32,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -189,6 +191,77 @@ public class StatementContextMvccSnapshotTest {
             Assertions.assertSame(option,
                     ctx.getSnapshot(table, Optional.empty(), Optional.of(options("true"))).orElse(null));
         }
+    }
+
+    @Test
+    public void identicalAliasesReuseResolvedStartupOptions() {
+        StatementContext ctx = newStatementContext();
+        MvccTable table = mockMvccTable("t");
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        TableScanParams first = new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.file-creation-time-millis", "1000"), ImmutableList.of());
+        TableScanParams second = new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.file-creation-time-millis", "1000"), ImmutableList.of());
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(first))).thenAnswer(invocation -> {
+            first.getOrResolveMapParams(ignored -> ImmutableMap.of("scan.snapshot-id", "7"));
+            return snapshot;
+        });
+
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(first));
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(second));
+
+        Assertions.assertEquals("7", second.getResolvedMapParams()
+                .orElseThrow(() -> new AssertionError("second alias was not seeded"))
+                .get("scan.snapshot-id"));
+        Mockito.verify(table, Mockito.times(1)).loadSnapshot(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void delimiterCharactersCannotCollideSelectorKeys() {
+        StatementContext ctx = newStatementContext();
+        MvccTable table = mockMvccTable("t");
+        MvccSnapshot oneValue = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot twoValues = Mockito.mock(MvccSnapshot.class);
+        TableScanParams embeddedDelimiter = new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.tag-name", "v1, source.split.target-size=1 MB"), ImmutableList.of());
+        TableScanParams separateEntry = new TableScanParams(TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.tag-name", "v1", "source.split.target-size", "1 MB"),
+                ImmutableList.of());
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(embeddedDelimiter))).thenReturn(oneValue);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(separateEntry))).thenReturn(twoValues);
+
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(embeddedDelimiter));
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(separateEntry));
+
+        // Map.toString() renders these two valid selectors identically. The statement key must encode
+        // entry boundaries structurally or one alias silently reuses the other's pinned snapshot.
+        Assertions.assertSame(oneValue,
+                ctx.getSnapshot(table, Optional.empty(), Optional.of(embeddedDelimiter)).orElse(null));
+        Assertions.assertSame(twoValues,
+                ctx.getSnapshot(table, Optional.empty(), Optional.of(separateEntry)).orElse(null));
+    }
+
+    @Test
+    public void selectorMapIterationOrderDoesNotChangeTheKey() {
+        StatementContext ctx = newStatementContext();
+        MvccTable table = mockMvccTable("t");
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        Map<String, String> forward = new LinkedHashMap<>();
+        forward.put("scan.tag-name", "v1");
+        forward.put("source.split.target-size", "1 MB");
+        Map<String, String> reverse = new LinkedHashMap<>();
+        reverse.put("source.split.target-size", "1 MB");
+        reverse.put("scan.tag-name", "v1");
+        TableScanParams first = new TableScanParams(TableScanParams.OPTIONS, forward, ImmutableList.of());
+        TableScanParams second = new TableScanParams(TableScanParams.OPTIONS, reverse, ImmutableList.of());
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(first))).thenReturn(snapshot);
+
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(first));
+        ctx.loadSnapshots(table, Optional.empty(), Optional.of(second));
+
+        Assertions.assertSame(snapshot,
+                ctx.getSnapshot(table, Optional.empty(), Optional.of(second)).orElse(null));
+        Mockito.verify(table, Mockito.times(1)).loadSnapshot(Mockito.any(), Mockito.any());
     }
 
     @Test

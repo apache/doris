@@ -179,7 +179,8 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     }
 
     @Override
-    public List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException {
+    public List<Partition> listPartitions(Identifier identifier, Table table)
+            throws Catalog.TableNotExistException {
         log.add("listPartitions:" + identifier.getFullName());
         if (throwTableNotExist) {
             throw new Catalog.TableNotExistException(identifier);
