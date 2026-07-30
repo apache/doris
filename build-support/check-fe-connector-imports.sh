@@ -29,11 +29,11 @@
 #
 # The gate matches both plain and `import static` imports, scans src/main/java
 # AND src/test/java, and anchors the SPI-allowed exclusion to the import target
-# (not the file path). Self-test: tools/check-connector-imports.test.sh.
+# (not the file path). Self-test: build-support/tests/test-fe-connector-imports.sh.
 #
 # Usage:
-#   tools/check-connector-imports.sh                  # search default root
-#   tools/check-connector-imports.sh <fe-connector>   # search supplied root
+#   build-support/check-fe-connector-imports.sh                  # search default root
+#   build-support/check-fe-connector-imports.sh <fe-connector>   # search supplied root
 #
 # Exit code:
 #   0 — no forbidden imports
@@ -46,7 +46,7 @@ DEFAULT_ROOT="${SCRIPT_DIR}/../fe/fe-connector"
 ROOT="${1:-${DEFAULT_ROOT}}"
 
 if [ ! -d "${ROOT}" ]; then
-    echo "check-connector-imports: search root not found: ${ROOT}" >&2
+    echo "check-fe-connector-imports: search root not found: ${ROOT}" >&2
     exit 2
 fi
 
@@ -94,7 +94,7 @@ if [ -n "${CANDIDATES}" ]; then
         # line = <file>:<lineno>:import <fqn>;
         fqn=$(printf '%s\n' "${line}" | sed -E 's/.*import[[:space:]]+(static[[:space:]]+)?//; s/;.*//')
         if is_vendored "${fqn}"; then
-            echo "check-connector-imports: skipping vendored same-module import: ${fqn}" >&2
+            echo "check-fe-connector-imports: skipping vendored same-module import: ${fqn}" >&2
             continue
         fi
         RESULT="${RESULT}${line}"$'\n'

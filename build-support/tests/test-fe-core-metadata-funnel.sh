@@ -17,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-# Self-test for tools/check-fecore-metadata-funnel.sh.
+# Self-test for build-support/check-fe-core-metadata-funnel.sh.
 #
 # The gate exits 0 on the real (already-routed) tree, so a controlled RED/GREEN fixture is the
 # only way to prove it catches what it must and to lock the behavior against silent regression.
@@ -32,12 +32,12 @@
 #   SILENT — a comment line naming the call                  (never executable)
 # Plus: exit 0 on a clean tree, and the marker is load-bearing (strip it => the call is flagged).
 #
-# Usage:  bash tools/check-fecore-metadata-funnel.test.sh   # exit 0 = pass, 1 = fail
+# Usage:  bash build-support/tests/test-fe-core-metadata-funnel.sh   # exit 0 = pass, 1 = fail
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE="${SCRIPT_DIR}/check-fecore-metadata-funnel.sh"
+GATE="${SCRIPT_DIR}/../check-fe-core-metadata-funnel.sh"
 
 FX="$(mktemp -d)"
 trap 'rm -rf "${FX}"' EXIT

@@ -42,11 +42,11 @@
 # The match is anchored to the call form (".getMetadata(" with an argument), NOT to
 # getMetadataTableRows(...) or the API declaration.
 #
-# Self-test: tools/check-fecore-metadata-funnel.test.sh.
+# Self-test: build-support/tests/test-fe-core-metadata-funnel.sh.
 #
 # Usage:
-#   tools/check-fecore-metadata-funnel.sh                # default root fe/fe-core
-#   tools/check-fecore-metadata-funnel.sh <fe-core-dir>  # supplied root
+#   build-support/check-fe-core-metadata-funnel.sh                # default root fe/fe-core
+#   build-support/check-fe-core-metadata-funnel.sh <fe-core-dir>  # supplied root
 #
 # Exit code:
 #   0 — no un-exempt bare calls
@@ -60,7 +60,7 @@ DEFAULT_ROOT="${SCRIPT_DIR}/../fe/fe-core"
 ROOT="${1:-${DEFAULT_ROOT}}"
 
 if [ ! -d "${ROOT}" ]; then
-    echo "check-fecore-metadata-funnel: search root not found: ${ROOT}" >&2
+    echo "check-fe-core-metadata-funnel: search root not found: ${ROOT}" >&2
     exit 2
 fi
 

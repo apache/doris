@@ -110,7 +110,8 @@ under the License.
             <!--
               Forbidden-import gate: fe-connector modules MUST NOT import
               fe-core internals. See plan-doc/01-spi-extensions-rfc.md §15.4
-              and tools/check-connector-imports.sh.
+              and build-support/check-fe-connector-imports.sh
+              (self-test build-support/tests/test-fe-connector-imports.sh).
 
               Runs once in this aggregator's validate phase (inherited=false
               keeps the 11 child modules from re-running the same scan).
@@ -122,7 +123,7 @@ under the License.
                 <inherited>false</inherited>
                 <executions>
                     <execution>
-                        <id>check-connector-imports</id>
+                        <id>check-fe-connector-imports</id>
                         <phase>validate</phase>
                         <goals>
                             <goal>exec</goal>
@@ -133,7 +134,7 @@ under the License.
                               depend on directory-maven-plugin's `fe.dir`
                               property (which is only set at `initialize`).
                             -->
-                            <executable>${project.basedir}/../../tools/check-connector-imports.sh</executable>
+                            <executable>${project.basedir}/../../build-support/check-fe-connector-imports.sh</executable>
                             <arguments>
                                 <argument>${project.basedir}</argument>
                             </arguments>

@@ -17,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-# Self-test for tools/check-connector-imports.sh.
+# Self-test for build-support/check-fe-connector-imports.sh.
 #
 # The forbidden-import gate exits 0 on the real (clean) tree both before and
 # after the hardening, so a controlled RED/GREEN fixture is the only way to prove
@@ -31,12 +31,12 @@
 #   - a static import of a VENDORED class            (must be SKIPPED, not falsely reported)
 # and the allow-cases (thrift/filesystem/connector SPI + the non-static vendored import) must stay silent.
 #
-# Usage:  bash tools/check-connector-imports.test.sh   # exit 0 = pass, 1 = fail
+# Usage:  bash build-support/tests/test-fe-connector-imports.sh   # exit 0 = pass, 1 = fail
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE="${SCRIPT_DIR}/check-connector-imports.sh"
+GATE="${SCRIPT_DIR}/../check-fe-connector-imports.sh"
 
 FX="$(mktemp -d)"
 trap 'rm -rf "${FX}"' EXIT
@@ -128,7 +128,7 @@ printf '%s\n' "${OUT}" | grep -q 'skipping vendored .*HiveVersionUtil.SOME_CONST
     || fail "static vendored import was not skipped (E3 static-strip regressed)"
 
 if [ "${FAILED}" -eq 0 ]; then
-    echo "PASS: check-connector-imports.sh catches all 4 holes; allow-cases and vendored imports stay silent."
+    echo "PASS: check-fe-connector-imports.sh catches all 4 holes; allow-cases and vendored imports stay silent."
     exit 0
 fi
 echo "---- gate output ----"
