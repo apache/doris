@@ -433,6 +433,30 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
 }
 
+TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {
+    auto scan_range = [](std::optional<int64_t> row_count) {
+        TScanRangeParams params;
+        auto& file_range = params.scan_range.ext_scan_range.file_scan_range;
+        TFileRangeDesc range;
+        if (row_count.has_value()) {
+            TTableFormatFileDesc table_format;
+            table_format.__set_table_level_row_count(*row_count);
+            range.__set_table_format_params(table_format);
+        }
+        file_range.ranges.push_back(std::move(range));
+        return params;
+    };
+
+    LocalSplitSourceConnector proven({scan_range(4), scan_range(0)}, 2);
+    EXPECT_TRUE(proven.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector missing({scan_range(4), scan_range(std::nullopt)}, 2);
+    EXPECT_FALSE(missing.all_ranges_have_table_level_row_count());
+
+    LocalSplitSourceConnector invalid({scan_range(4), scan_range(-1)}, 2);
+    EXPECT_FALSE(invalid.all_ranges_have_table_level_row_count());
+}
+
 TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     TQueryOptions query_options;
     query_options.__set_enable_file_scanner_v2(true);

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <functional>
 #include <ostream>
+#include <unordered_set>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -58,6 +59,199 @@ static bool is_map_node(const tparquet::SchemaElement& schema) {
 
 static bool is_variant_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.logicalType && schema.logicalType.__isset.VARIANT;
+}
+
+enum class VariantPrimitiveAnnotation : uint8_t {
+    NONE,
+    INT8,
+    INT16,
+    DECIMAL,
+    DATE,
+    TIME_MICROS,
+    TIMESTAMP_MICROS,
+    TIMESTAMP_NANOS,
+    STRING,
+    UUID,
+    UNSUPPORTED,
+};
+
+static VariantPrimitiveAnnotation variant_logical_annotation(
+        const tparquet::SchemaElement& schema) {
+    if (!schema.__isset.logicalType) {
+        return VariantPrimitiveAnnotation::NONE;
+    }
+    const auto& logical = schema.logicalType;
+    if (logical.__isset.INTEGER) {
+        if (!logical.INTEGER.isSigned) {
+            return VariantPrimitiveAnnotation::UNSUPPORTED;
+        }
+        if (logical.INTEGER.bitWidth == 8) {
+            return VariantPrimitiveAnnotation::INT8;
+        }
+        if (logical.INTEGER.bitWidth == 16) {
+            return VariantPrimitiveAnnotation::INT16;
+        }
+        return VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+    if (logical.__isset.DECIMAL) {
+        return VariantPrimitiveAnnotation::DECIMAL;
+    }
+    if (logical.__isset.DATE) {
+        return VariantPrimitiveAnnotation::DATE;
+    }
+    if (logical.__isset.TIME) {
+        return !logical.TIME.isAdjustedToUTC && logical.TIME.unit.__isset.MICROS
+                       ? VariantPrimitiveAnnotation::TIME_MICROS
+                       : VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+    if (logical.__isset.TIMESTAMP) {
+        if (logical.TIMESTAMP.unit.__isset.MICROS) {
+            return VariantPrimitiveAnnotation::TIMESTAMP_MICROS;
+        }
+        if (logical.TIMESTAMP.unit.__isset.NANOS) {
+            return VariantPrimitiveAnnotation::TIMESTAMP_NANOS;
+        }
+        return VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+    if (logical.__isset.STRING) {
+        return VariantPrimitiveAnnotation::STRING;
+    }
+    if (logical.__isset.UUID) {
+        return VariantPrimitiveAnnotation::UUID;
+    }
+    const bool empty = !logical.__isset.MAP && !logical.__isset.LIST && !logical.__isset.ENUM &&
+                       !logical.__isset.UNKNOWN && !logical.__isset.JSON && !logical.__isset.BSON &&
+                       !logical.__isset.FLOAT16 && !logical.__isset.GEOMETRY &&
+                       !logical.__isset.GEOGRAPHY && !logical.__isset.VARIANT;
+    return empty ? VariantPrimitiveAnnotation::NONE : VariantPrimitiveAnnotation::UNSUPPORTED;
+}
+
+static VariantPrimitiveAnnotation variant_converted_annotation(
+        const tparquet::SchemaElement& schema) {
+    if (!schema.__isset.converted_type) {
+        return VariantPrimitiveAnnotation::NONE;
+    }
+    switch (schema.converted_type) {
+    case tparquet::ConvertedType::INT_8:
+        return VariantPrimitiveAnnotation::INT8;
+    case tparquet::ConvertedType::INT_16:
+        return VariantPrimitiveAnnotation::INT16;
+    case tparquet::ConvertedType::DECIMAL:
+        return VariantPrimitiveAnnotation::DECIMAL;
+    case tparquet::ConvertedType::DATE:
+        return VariantPrimitiveAnnotation::DATE;
+    case tparquet::ConvertedType::TIME_MICROS:
+        return VariantPrimitiveAnnotation::TIME_MICROS;
+    case tparquet::ConvertedType::TIMESTAMP_MICROS:
+        return VariantPrimitiveAnnotation::TIMESTAMP_MICROS;
+    case tparquet::ConvertedType::UTF8:
+        return VariantPrimitiveAnnotation::STRING;
+    default:
+        return VariantPrimitiveAnnotation::UNSUPPORTED;
+    }
+}
+
+static Status validate_variant_decimal(const tparquet::SchemaElement& schema,
+                                       tparquet::Type::type physical_type) {
+    int32_t precision = -1;
+    int32_t scale = -1;
+    if (schema.__isset.logicalType && schema.logicalType.__isset.DECIMAL) {
+        precision = schema.logicalType.DECIMAL.precision;
+        scale = schema.logicalType.DECIMAL.scale;
+        if ((schema.__isset.precision && schema.precision != precision) ||
+            (schema.__isset.scale && schema.scale != scale)) {
+            return Status::Corruption(
+                    "Parquet Variant DECIMAL logical and converted parameters disagree");
+        }
+    } else if (schema.__isset.precision && schema.__isset.scale) {
+        precision = schema.precision;
+        scale = schema.scale;
+    }
+    if (precision <= 0 || precision > 38 || scale < 0 || scale > precision) {
+        return Status::Corruption("Parquet Variant DECIMAL({}, {}) is invalid", precision, scale);
+    }
+
+    if ((physical_type == tparquet::Type::INT32 && precision > 9) ||
+        (physical_type == tparquet::Type::INT64 && (precision < 10 || precision > 18)) ||
+        ((physical_type == tparquet::Type::BYTE_ARRAY ||
+          physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) &&
+         precision < 19)) {
+        return Status::Corruption(
+                "Parquet Variant DECIMAL precision {} does not match physical type {}", precision,
+                physical_type);
+    }
+    if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        static constexpr int32_t MAX_PRECISION_BY_LENGTH[] = {2,  4,  6,  9,  11, 14, 16, 18,
+                                                              21, 23, 26, 28, 31, 33, 35, 38};
+        if (!schema.__isset.type_length || schema.type_length <= 0 || schema.type_length > 16 ||
+            precision > MAX_PRECISION_BY_LENGTH[schema.type_length - 1]) {
+            return Status::Corruption(
+                    "Parquet Variant DECIMAL precision {} does not fit fixed length {}", precision,
+                    schema.__isset.type_length ? schema.type_length : -1);
+        }
+    }
+    return Status::OK();
+}
+
+static Status validate_variant_primitive_type(const NativeFieldSchema& typed) {
+    const auto& schema = typed.parquet_schema;
+    auto logical = variant_logical_annotation(schema);
+    auto converted = variant_converted_annotation(schema);
+    if (logical == VariantPrimitiveAnnotation::UNSUPPORTED ||
+        converted == VariantPrimitiveAnnotation::UNSUPPORTED ||
+        (logical != VariantPrimitiveAnnotation::NONE &&
+         converted != VariantPrimitiveAnnotation::NONE && logical != converted)) {
+        return Status::Corruption(
+                "Parquet Variant typed value {} has an unsupported logical annotation", typed.name);
+    }
+    const auto annotation = logical != VariantPrimitiveAnnotation::NONE ? logical : converted;
+    const auto physical = schema.type;
+    bool valid = false;
+    switch (physical) {
+    case tparquet::Type::BOOLEAN:
+        valid = annotation == VariantPrimitiveAnnotation::NONE;
+        break;
+    case tparquet::Type::INT32:
+        valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::INT8 ||
+                annotation == VariantPrimitiveAnnotation::INT16 ||
+                annotation == VariantPrimitiveAnnotation::DECIMAL ||
+                annotation == VariantPrimitiveAnnotation::DATE;
+        break;
+    case tparquet::Type::INT64:
+        valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::DECIMAL ||
+                annotation == VariantPrimitiveAnnotation::TIME_MICROS ||
+                annotation == VariantPrimitiveAnnotation::TIMESTAMP_MICROS ||
+                annotation == VariantPrimitiveAnnotation::TIMESTAMP_NANOS;
+        break;
+    case tparquet::Type::FLOAT:
+    case tparquet::Type::DOUBLE:
+        valid = annotation == VariantPrimitiveAnnotation::NONE;
+        break;
+    case tparquet::Type::BYTE_ARRAY:
+        valid = annotation == VariantPrimitiveAnnotation::NONE ||
+                annotation == VariantPrimitiveAnnotation::STRING ||
+                annotation == VariantPrimitiveAnnotation::DECIMAL;
+        break;
+    case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+        valid = annotation == VariantPrimitiveAnnotation::DECIMAL ||
+                (annotation == VariantPrimitiveAnnotation::UUID && schema.__isset.type_length &&
+                 schema.type_length == 16);
+        break;
+    default:
+        valid = false;
+        break;
+    }
+    if (!valid) {
+        return Status::Corruption(
+                "Parquet Variant typed value {} has unsupported physical/logical type pair",
+                typed.name);
+    }
+    if (annotation == VariantPrimitiveAnnotation::DECIMAL) {
+        RETURN_IF_ERROR(validate_variant_decimal(schema, physical));
+    }
+    return Status::OK();
 }
 
 class ScopedBoolOverride {
@@ -238,12 +432,22 @@ static Status validate_variant_layout(const tparquet::SchemaElement& group_schem
                 // the same precision contract instead of diverging after projection planning.
                 return Status::NotSupported("Parquet Variant TIMESTAMP(NANOS) is not supported");
             }
+            // Preserve precise diagnostics above, then enforce the complete Variant matrix before
+            // generic Parquet inference can re-encode a value with another logical identity.
+            RETURN_IF_ERROR(validate_variant_primitive_type(typed));
             return Status::OK();
         }
 
         const PrimitiveType primitive = remove_nullable(typed.data_type)->get_primitive_type();
         if (primitive == TYPE_STRUCT) {
+            std::unordered_set<std::string> field_names;
             for (const auto& child : typed.children) {
+                if (!field_names.insert(child.name).second) {
+                    // Name lookup selects one physical wrapper, so duplicates would otherwise make
+                    // full reconstruction and leaf projection observe different logical values.
+                    return Status::Corruption(
+                            "Parquet Variant object has duplicate shredded field {}", child.name);
+                }
                 RETURN_IF_ERROR(validate_wrapper(child, WrapperContext::OBJECT_FIELD));
             }
             return Status::OK();
@@ -728,6 +932,12 @@ Status NativeFieldDescriptor::parse_group_field(
     auto& group_schema = t_schemas[curr_pos];
     group_field->parquet_schema = group_schema;
     if (is_variant_node(group_schema)) {
+        if (is_repeated_node(group_schema)) {
+            // A repeated annotated group needs an ARRAY carrier and Dremel-level remapping; treating
+            // it as a scalar Variant would expose the wrong row shape.
+            return Status::NotSupported("repeated Parquet Variant group {} is not supported",
+                                        group_schema.name);
+        }
         // UTC-adjusted timestamps inside Variant carry an instant, independent of the catalog's
         // presentation mapping. Parsing them as DATETIMEV2 would apply the session timezone and
         // lose that instant when the shredded value is re-encoded into ColumnVariantV2.

@@ -112,11 +112,24 @@ std::vector<tparquet::SchemaElement> shredded_object_variant_schema(bool signed_
     typed_integer.__set_name("typed_value");
     typed_integer.__set_type(tparquet::Type::INT32);
     typed_integer.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
-    typed_integer.__set_logicalType(tparquet::LogicalType());
-    typed_integer.logicalType.__set_INTEGER(tparquet::IntType());
-    typed_integer.logicalType.INTEGER.__set_bitWidth(32);
-    typed_integer.logicalType.INTEGER.__set_isSigned(signed_integer);
+    if (!signed_integer) {
+        typed_integer.__set_logicalType(tparquet::LogicalType());
+        typed_integer.logicalType.__set_INTEGER(tparquet::IntType());
+        typed_integer.logicalType.INTEGER.__set_bitWidth(32);
+        typed_integer.logicalType.INTEGER.__set_isSigned(false);
+    }
     schema.insert(schema.end(), {typed_object, field_wrapper, fallback, typed_integer});
+    return schema;
+}
+
+std::vector<tparquet::SchemaElement> shredded_primitive_variant_schema(
+        tparquet::SchemaElement typed_value) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_num_children(3);
+    schema[3].__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    typed_value.__set_name("typed_value");
+    typed_value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    schema.push_back(std::move(typed_value));
     return schema;
 }
 
@@ -213,6 +226,18 @@ TEST(ParquetSchemaTest, NativeSchemaRecognizesVariantLogicalGroup) {
     }
 }
 
+TEST(ParquetSchemaTest, NativeSchemaAcceptsRequiredAndOptionalVariantGroups) {
+    for (const auto repetition :
+         {tparquet::FieldRepetitionType::REQUIRED, tparquet::FieldRepetitionType::OPTIONAL}) {
+        auto schema = unshredded_variant_schema();
+        schema[1].__set_repetition_type(repetition);
+        NativeFieldDescriptor descriptor;
+        const auto status = descriptor.parse_from_thrift(schema);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_NE(descriptor.get_column(0), nullptr);
+    }
+}
+
 TEST(ParquetSchemaTest, NestedVariantPropagatesIntoParentLogicalType) {
     NativeFieldDescriptor descriptor;
     ASSERT_TRUE(descriptor.parse_from_thrift(struct_with_variant_schema()).ok());
@@ -282,6 +307,83 @@ TEST(ParquetSchemaTest, NativeVariantValidatesEveryShreddedWrapperAndScalar) {
             descriptor.parse_from_thrift(shredded_object_variant_schema(true, false));
     EXPECT_TRUE(optional_wrapper_status.is<ErrorCode::CORRUPTION>()) << optional_wrapper_status;
     EXPECT_NE(optional_wrapper_status.to_string().find("wrapper"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsDuplicateObjectFieldNames) {
+    auto schema = shredded_object_variant_schema();
+    schema[4].__set_num_children(2);
+    schema.insert(schema.end(), {schema[5], schema[6], schema[7]});
+
+    NativeFieldDescriptor descriptor;
+    const auto status = descriptor.parse_from_thrift(schema);
+    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+    EXPECT_NE(status.to_string().find("duplicate"), std::string::npos);
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsUnsupportedPrimitiveTypePairs) {
+    std::vector<tparquet::SchemaElement> invalid_typed_values;
+
+    tparquet::SchemaElement int96;
+    int96.__set_type(tparquet::Type::INT96);
+    invalid_typed_values.push_back(int96);
+
+    tparquet::SchemaElement fixed_binary;
+    fixed_binary.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    fixed_binary.__set_type_length(16);
+    invalid_typed_values.push_back(fixed_binary);
+
+    tparquet::SchemaElement json;
+    json.__set_type(tparquet::Type::BYTE_ARRAY);
+    json.__set_logicalType(tparquet::LogicalType());
+    json.logicalType.__set_JSON(tparquet::JsonType());
+    invalid_typed_values.push_back(json);
+
+    tparquet::SchemaElement float16;
+    float16.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    float16.__set_type_length(2);
+    float16.__set_logicalType(tparquet::LogicalType());
+    float16.logicalType.__set_FLOAT16(tparquet::Float16Type());
+    invalid_typed_values.push_back(float16);
+
+    tparquet::SchemaElement mismatched_integer;
+    mismatched_integer.__set_type(tparquet::Type::INT64);
+    mismatched_integer.__set_logicalType(tparquet::LogicalType());
+    mismatched_integer.logicalType.__set_INTEGER(tparquet::IntType());
+    mismatched_integer.logicalType.INTEGER.__set_bitWidth(16);
+    mismatched_integer.logicalType.INTEGER.__set_isSigned(true);
+    invalid_typed_values.push_back(mismatched_integer);
+
+    tparquet::SchemaElement mismatched_decimal;
+    mismatched_decimal.__set_type(tparquet::Type::INT32);
+    mismatched_decimal.__set_logicalType(tparquet::LogicalType());
+    mismatched_decimal.logicalType.__set_DECIMAL(tparquet::DecimalType());
+    mismatched_decimal.logicalType.DECIMAL.__set_precision(10);
+    mismatched_decimal.logicalType.DECIMAL.__set_scale(2);
+    invalid_typed_values.push_back(mismatched_decimal);
+
+    tparquet::SchemaElement bad_uuid;
+    bad_uuid.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    bad_uuid.__set_type_length(15);
+    bad_uuid.__set_logicalType(tparquet::LogicalType());
+    bad_uuid.logicalType.__set_UUID(tparquet::UUIDType());
+    invalid_typed_values.push_back(bad_uuid);
+
+    for (auto& typed_value : invalid_typed_values) {
+        NativeFieldDescriptor descriptor;
+        const auto status = descriptor.parse_from_thrift(
+                shredded_primitive_variant_schema(std::move(typed_value)));
+        EXPECT_FALSE(status.ok()) << "unsupported Variant typed_value pair was accepted";
+    }
+}
+
+TEST(ParquetSchemaTest, NativeVariantRejectsRepeatedOuterGroup) {
+    auto schema = unshredded_variant_schema();
+    schema[1].__set_repetition_type(tparquet::FieldRepetitionType::REPEATED);
+
+    NativeFieldDescriptor descriptor;
+    const auto status = descriptor.parse_from_thrift(schema);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("repeated"), std::string::npos);
 }
 
 TEST(ParquetSchemaTest, NativeVariantAcceptsOmittedShreddedWrapperChildren) {

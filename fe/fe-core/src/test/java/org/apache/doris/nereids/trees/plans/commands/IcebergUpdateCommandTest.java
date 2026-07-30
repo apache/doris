@@ -21,13 +21,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -38,6 +43,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
@@ -96,6 +102,20 @@ public class IcebergUpdateCommandTest {
         Assertions.assertTrue(hasOperation);
         Assertions.assertTrue(hasRowId);
         Assertions.assertTrue(hasC1);
+    }
+
+    @Test
+    public void testMergeSinkRejectsVariantTargetSchema() {
+        IcebergExternalDatabase database = Mockito.mock(IcebergExternalDatabase.class);
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        Column variantColumn = new Column("payload", IcebergUtils.icebergTypeToDorisType(
+                org.apache.iceberg.types.Types.VariantType.get(), false, false));
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(variantColumn));
+        LogicalPlan child = new LogicalOneRowRelation(new RelationId(10), ImmutableList.of());
+
+        Assertions.assertThrows(AnalysisException.class, () -> new LogicalIcebergMergeSink<>(
+                database, table, ImmutableList.of(variantColumn), ImmutableList.of(),
+                new DeleteCommandContext(), java.util.Optional.empty(), java.util.Optional.empty(), child));
     }
 
     @Test

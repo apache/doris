@@ -185,10 +185,14 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DORIS_CHECK(output_tuple_desc != nullptr);
-    if (!is_load && !use_file_scanner_v2 && !is_count_star_pushdown() &&
+    const bool metadata_only_count =
+            is_count_star_pushdown() && _split_source->all_ranges_have_table_level_row_count();
+    if (!is_load && !use_file_scanner_v2 && !metadata_only_count &&
         std::ranges::any_of(output_tuple_desc->slots(), [](const SlotDescriptor* slot) {
             return contains_variant_type(slot->get_data_type_ptr());
         })) {
+        // A syntactic COUNT(*) alone is insufficient: every assigned range must prove that the
+        // legacy scanner will emit metadata counts without decoding a Variant carrier.
         return Status::NotSupported(
                 "External VARIANT columns require FileScannerV2; the legacy file scanner does "
                 "not support VARIANT");

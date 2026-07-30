@@ -327,6 +327,12 @@ public class IcebergScanNodeTest {
             ++snapshotCountCalls;
             return snapshotCount;
         }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
+            slot.setColumn(column);
+            desc.addSlot(slot);
+        }
     }
 
     @Test
@@ -354,6 +360,38 @@ public class IcebergScanNodeTest {
         countStarNode.setPushDownCountSlotIds(Collections.emptyList());
         Assert.assertFalse(countStarNode.isBatchMode());
         Assert.assertEquals(1, countStarNode.snapshotCountCalls);
+    }
+
+    @Test
+    public void testCountStarVariantCompatibilityExemptionRequiresSnapshotCount() throws Exception {
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getEnableExternalTableBatchMode()).thenReturn(false);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(Mockito.mock(Snapshot.class));
+        Backend oldBackend = Mockito.mock(Backend.class);
+        Mockito.when(oldBackend.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(oldBackend.getId()).thenReturn(10004L);
+
+        CountPlanningIcebergScanNode metadataCount =
+                new CountPlanningIcebergScanNode(sv, tableScan, 12);
+        metadataCount.addSlot(1, new Column("payload", Type.VARIANT));
+        metadataCount.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        metadataCount.setPushDownCountSlotIds(Collections.emptyList());
+        metadataCount.checkVariantBackendCompatibilityForCurrentScan(
+                Collections.singletonList(oldBackend));
+
+        CountPlanningIcebergScanNode scanFallback =
+                new CountPlanningIcebergScanNode(sv, tableScan, -1);
+        scanFallback.addSlot(1, new Column("payload", Type.VARIANT));
+        scanFallback.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+        scanFallback.setPushDownCountSlotIds(Collections.emptyList());
+        try {
+            scanFallback.checkVariantBackendCompatibilityForCurrentScan(
+                    Collections.singletonList(oldBackend));
+            Assert.fail("COUNT(*) data fallback must retain the Variant backend gate");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004"));
+        }
     }
 
     @Test

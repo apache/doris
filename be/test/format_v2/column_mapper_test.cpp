@@ -4570,6 +4570,95 @@ TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
     EXPECT_TRUE(root.children[0].children[0].children[0].project_all_children);
 }
 
+TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {
+    auto table_variant = field_id_col("payload", 2, variant_v2());
+    table_variant.variant_access_paths = {{"typed_col"}};
+    auto table_struct = struct_col("info", 1, {table_variant});
+
+    auto field_wrapper = struct_name_col(
+            "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+    auto file_variant = field_id_col("payload", 2, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+    auto file_struct = struct_col("info", 1, {std::move(file_variant)}, 0);
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_struct}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root = request.non_predicate_columns[0];
+    ASSERT_FALSE(root.project_all_children);
+    ASSERT_EQ(root.children.size(), 1);
+    const auto& variant = root.children[0];
+    EXPECT_EQ(variant.local_id(), 0);
+    ASSERT_EQ(variant.children.size(), 1);
+    EXPECT_EQ(variant.children[0].local_id(), 2);
+    ASSERT_EQ(variant.children[0].children.size(), 1);
+    EXPECT_EQ(variant.children[0].children[0].local_id(), 0);
+    ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
+    EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+}
+
+TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
+    auto make_file_variant = [](std::string name, int32_t field_id, int32_t local_id) {
+        auto wrapper = struct_name_col(
+                "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)},
+                0);
+        auto typed = struct_name_col("typed_value", {std::move(wrapper)}, 2);
+        auto variant = field_id_col(name, field_id, variant_v2(), local_id);
+        variant.children = {name_col("metadata", varbinary(), 0), name_col("value", varbinary(), 1),
+                            std::move(typed)};
+        return variant;
+    };
+    auto assert_variant_leaf = [](const LocalColumnIndex& variant) {
+        ASSERT_FALSE(variant.project_all_children);
+        ASSERT_EQ(variant.children.size(), 1);
+        EXPECT_EQ(variant.children[0].local_id(), 2);
+        ASSERT_EQ(variant.children[0].children.size(), 1);
+        ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
+        EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+    };
+
+    {
+        auto table_element = field_id_col("element", 2, variant_v2());
+        table_element.variant_access_paths = {{"typed_col"}};
+        auto table_array = array_col("items", 1, table_element);
+        auto file_array = array_col("items", 1, make_file_variant("element", 2, 0), 0);
+
+        ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+        ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
+        FileScanRequest request;
+        ASSERT_TRUE(mapper.create_scan_request({}, {table_array}, &request).ok());
+        ASSERT_EQ(request.non_predicate_columns.size(), 1);
+        ASSERT_EQ(request.non_predicate_columns[0].children.size(), 1);
+        assert_variant_leaf(request.non_predicate_columns[0].children[0]);
+    }
+
+    {
+        auto table_key = field_id_col("key", 2, str());
+        auto table_value = field_id_col("value", 3, variant_v2());
+        table_value.variant_access_paths = {{"typed_col"}};
+        auto table_map = map_col("attributes", 1, {table_key, table_value}, str(), variant_v2());
+        auto file_key = field_id_col("key", 2, str(), 0);
+        auto file_value = make_file_variant("value", 3, 1);
+        auto file_map = map_col("attributes", 1, {file_key, file_value}, str(), variant_v2(), 0);
+
+        ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+        ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+        FileScanRequest request;
+        ASSERT_TRUE(mapper.create_scan_request({}, {table_map}, &request).ok());
+        ASSERT_EQ(request.non_predicate_columns.size(), 1);
+        const auto& children = request.non_predicate_columns[0].children;
+        const auto value_it = std::ranges::find_if(
+                children, [](const LocalColumnIndex& child) { return child.local_id() == 1; });
+        ASSERT_NE(value_it, children.end());
+        assert_variant_leaf(*value_it);
+    }
+}
+
 TEST(ColumnMapperTest, VariantLeafProjectionRequiresLosslessObjectPath) {
     auto field_wrapper = struct_name_col(
             "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);

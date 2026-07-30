@@ -97,7 +97,7 @@ bool collect_variant_residual_leaf_ids(const ParquetColumnSchema& schema,
 bool detail::variant_projection_is_fully_shredded(const tparquet::FileMetaData& metadata,
                                                   const ParquetColumnSchema& schema,
                                                   const format::LocalColumnIndex& projection) {
-    if (schema.kind != ParquetColumnSchemaKind::VARIANT ||
+    if (schema.kind != ParquetColumnSchemaKind::VARIANT || schema.max_repetition_level != 0 ||
         !format::is_partial_projection(&projection)) {
         return false;
     }
@@ -124,6 +124,34 @@ bool detail::variant_projection_is_fully_shredded(const tparquet::FileMetaData& 
     return true;
 }
 
+size_t detail::finalize_variant_leaf_projection(const tparquet::FileMetaData& metadata,
+                                                const ParquetColumnSchema& schema,
+                                                format::LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    if (!format::is_partial_projection(projection)) {
+        return 0;
+    }
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        if (variant_projection_is_fully_shredded(metadata, schema, *projection)) {
+            return 1;
+        }
+        // Unknown residual completeness must restore this Variant wrapper atomically. For a
+        // repeated ancestor, footer null_count is in the leaf-value domain rather than Variant
+        // instances, so variant_projection_is_fully_shredded() deliberately takes this fallback.
+        projection->project_all_children = true;
+        projection->children.clear();
+        return 0;
+    }
+
+    size_t retained = 0;
+    for (auto& child_projection : projection->children) {
+        const auto* child_schema = projected_schema_child(schema, child_projection.local_id());
+        DORIS_CHECK(child_schema != nullptr);
+        retained += finalize_variant_leaf_projection(metadata, *child_schema, &child_projection);
+    }
+    return retained;
+}
+
 size_t finalize_variant_leaf_projections(
         const NativeParquetMetadata& metadata,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -132,21 +160,11 @@ size_t finalize_variant_leaf_projections(
     size_t retained = 0;
     for (auto& projection : *projections) {
         const int32_t local_id = projection.local_id();
-        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size()) ||
-            file_schema[local_id]->kind != ParquetColumnSchemaKind::VARIANT ||
-            !format::is_partial_projection(&projection)) {
+        if (local_id < 0 || local_id >= static_cast<int32_t>(file_schema.size())) {
             continue;
         }
-        if (detail::variant_projection_is_fully_shredded(metadata.to_thrift(),
-                                                         *file_schema[local_id], projection)) {
-            ++retained;
-            continue;
-        }
-        // A missing/unknown residual statistic means the typed leaf is not a complete logical
-        // view. Restore the whole wrapper before prefetch, page planning, and reader creation all
-        // snapshot the projection so every layer observes the same fallback.
-        projection.project_all_children = true;
-        projection.children.clear();
+        retained += detail::finalize_variant_leaf_projection(metadata.to_thrift(),
+                                                             *file_schema[local_id], &projection);
     }
     return retained;
 }

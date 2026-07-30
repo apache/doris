@@ -280,7 +280,14 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
             throws UserException {
-        boolean projectsVariant = !isTableLevelCountStarPushdown() && projectsVariant(desc);
+        boolean metadataCountProven = false;
+        if (isTableLevelCountStarPushdown()) {
+            // COUNT(*) is metadata-only only after isBatchMode() has obtained a nonnegative snapshot
+            // count. Missing summaries or delete semantics fall back to real Variant file reads.
+            isBatchMode();
+            metadataCountProven = tableLevelPushDownCount;
+        }
+        boolean projectsVariant = !metadataCountProven && projectsVariant(desc);
         checkVariantBackendCompatibility(projectsVariant, backends);
     }
 

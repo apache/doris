@@ -40,6 +40,9 @@ namespace detail {
 bool variant_projection_is_fully_shredded(const tparquet::FileMetaData& metadata,
                                           const ParquetColumnSchema& schema,
                                           const format::LocalColumnIndex& projection);
+size_t finalize_variant_leaf_projection(const tparquet::FileMetaData& metadata,
+                                        const ParquetColumnSchema& schema,
+                                        format::LocalColumnIndex* projection);
 } // namespace detail
 
 // ============================================================================

@@ -1658,17 +1658,24 @@ static bool has_projected_file_children(const ColumnMapping& mapping) {
     return false;
 }
 
-static bool needs_nested_file_projection(const ColumnMapping& mapping) {
+static bool needs_nested_file_projection(const ColumnMapping& mapping,
+                                         bool include_variant_access_paths = false) {
     if (has_projected_file_children(mapping)) {
         // Return True if the projected child column is missing / re-ordered
         return true;
     }
-    return std::ranges::any_of(mapping.child_mappings, [](const ColumnMapping& child_mapping) {
-        return needs_nested_file_projection(child_mapping);
-    });
+    if (include_variant_access_paths && !mapping.variant_access_paths.empty()) {
+        return true;
+    }
+    return std::ranges::any_of(
+            mapping.child_mappings, [include_variant_access_paths](const ColumnMapping& child) {
+                return needs_nested_file_projection(child, include_variant_access_paths);
+            });
 }
 
-static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection);
+static bool build_variant_projection(const ColumnMapping& mapping, LocalColumnIndex* projection);
+static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection,
+                                       bool enable_variant_leaf_projection = false);
 
 // Build the projected file children/type according to the pruned complex projection. For example,
 // if we have a struct column `s` with children `id` and `name`, and the projection only keeps
@@ -1706,11 +1713,15 @@ static Status rebuild_projected_file_children_and_type(
 // projected output shape; file readers still read full keys to construct ColumnMap offsets and keep
 // key semantics unchanged. If a caller tries to project only/prune the key child, the common schema
 // projection helper rejects it.
-static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection) {
+static Status build_complex_projection(const ColumnMapping& mapping, LocalColumnIndex* projection,
+                                       bool enable_variant_leaf_projection) {
     if (projection == nullptr) {
         return Status::InvalidArgument("projection is null");
     }
     DORIS_CHECK(mapping.file_local_id.has_value());
+    if (enable_variant_leaf_projection && build_variant_projection(mapping, projection)) {
+        return Status::OK();
+    }
     *projection = LocalColumnIndex::local(*mapping.file_local_id);
     projection->project_all_children = mapping.child_mappings.empty();
     projection->children.clear();
@@ -1724,7 +1735,8 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     }
     for (const auto* child_mapping : present_children) {
         LocalColumnIndex child_projection;
-        RETURN_IF_ERROR(build_complex_projection(*child_mapping, &child_projection));
+        RETURN_IF_ERROR(build_complex_projection(*child_mapping, &child_projection,
+                                                 enable_variant_leaf_projection));
         projection->children.push_back(std::move(child_projection));
     }
     if (!projection->project_all_children && projection->children.empty()) {
@@ -1825,8 +1837,8 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
         }
         const size_t digits_begin = value.front() == '+' || value.front() == '-' ? 1 : 0;
         return digits_begin < value.size() &&
-               std::ranges::all_of(value.substr(digits_begin),
-                                   [](unsigned char c) { return std::isdigit(c); });
+               std::ranges::all_of(
+                       value.substr(digits_begin), [](unsigned char c) { return std::isdigit(c); });
     };
     if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
         path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
@@ -1913,8 +1925,10 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
         build_variant_projection(*mapping, &projection)) {
         // The per-file Parquet reader will validate residual-value statistics before honoring this
         // physical leaf projection; unsafe files atomically fall back to the complete Variant.
-    } else if (!force_full_complex_scan_projection && needs_nested_file_projection(*mapping)) {
-        RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
+    } else if (!force_full_complex_scan_projection &&
+               needs_nested_file_projection(*mapping, enable_variant_leaf_projection)) {
+        RETURN_IF_ERROR(
+                build_complex_projection(*mapping, &projection, enable_variant_leaf_projection));
     }
     if (is_predicate_column && !force_full_complex_scan_projection) {
         DCHECK(filter_projections != nullptr);
@@ -2565,6 +2579,9 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->original_file_children = file_field.children;
     mapping->projected_file_children = file_field.children;
     mapping->file_type = file_field.type;
+    // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
+    // them instead of leaving them only on the top-level table column.
+    mapping->variant_access_paths = table_column.variant_access_paths;
     mapping->is_trivial = mapping_can_use_file_column_directly(*mapping);
     mapping->filter_conversion = direct_filter_conversion(*mapping);
     mapping->child_mappings.clear();
@@ -2619,6 +2636,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.file_column_name = table_child.name;
                 child_mapping.table_type = table_child.type;
                 child_mapping.file_type = table_child.type;
+                child_mapping.variant_access_paths = table_child.variant_access_paths;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
                 // A missing nested field still has its Iceberg initial-default value in every row
                 // written before the field was added; carry it into recursive materialization.
