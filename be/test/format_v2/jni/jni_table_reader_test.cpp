@@ -133,6 +133,8 @@ TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
     FakeJniTableReader reader;
     reader._jni_columns = {JniTableReader::JniColumn {
             .java_name = "region,code",
+            // Keep the aggregate complete because BE UT treats omitted JNI column fields as errors.
+            .output_type = std::make_shared<DataTypeString>(),
             .transfer_type = std::make_shared<DataTypeString>(),
     }};
 

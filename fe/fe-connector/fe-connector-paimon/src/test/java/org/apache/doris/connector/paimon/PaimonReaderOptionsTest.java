@@ -18,6 +18,8 @@
 package org.apache.doris.connector.paimon;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
@@ -39,6 +41,39 @@ import java.util.Collections;
 import java.util.Map;
 
 public class PaimonReaderOptionsTest {
+
+    @Test
+    void testSupportsSafeBatchReadOptions() {
+        Assertions.assertEquals(ImmutableSet.of(
+                        CoreOptions.READ_BATCH_SIZE.key(),
+                        CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(),
+                        CoreOptions.FILE_INDEX_READ_ENABLED.key(),
+                        CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(),
+                        CoreOptions.SOURCE_SPLIT_OPEN_FILE_COST.key(),
+                        CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
+                        CoreOptions.SCAN_PLAN_SORT_PARTITION.key()),
+                PaimonReaderOptions.supportedOptions());
+
+        Assertions.assertDoesNotThrow(() -> PaimonReaderOptions.validateCatalogProperties(ImmutableMap.of(
+                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "file-index.read.enabled", "false",
+                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "source.split.target-size", "64 MB",
+                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "source.split.open-file-cost", "1 MB",
+                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "scan.manifest.parallelism", "1",
+                AbstractPaimonProperties.TABLE_OPTION_PREFIX + "scan.plan-sort-partition", "true")));
+    }
+
+    @Test
+    void testRejectsInvalidSafeBatchReadOptions() {
+        for (Map<String, String> options : new Map[] {
+                ImmutableMap.of("file-index.read.enabled", "not-a-boolean"),
+                ImmutableMap.of("source.split.target-size", "0 B"),
+                ImmutableMap.of("source.split.open-file-cost", "-1 B"),
+                ImmutableMap.of("scan.plan-sort-partition", "not-a-boolean")
+        }) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonReaderOptions.validateEffectiveTableOptions(options));
+        }
+    }
 
     @Test
     void testRejectUnsafeOptionsFromCreateOrAlterProperties() {
