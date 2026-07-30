@@ -1,0 +1,138 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_colocate_mapping_constraint") {
+    sql """ DROP TABLE IF EXISTS test_colocate_mapping_constraint_left """
+    sql """ DROP TABLE IF EXISTS test_colocate_mapping_constraint_right """
+
+    sql """
+        CREATE TABLE test_colocate_mapping_constraint_left (
+            k1 INT,
+            k2 INT,
+            d1 INT,
+            d2 INT,
+            extra_col INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1, k2) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1",
+            "colocate_with" = "test_colocate_mapping_constraint_group"
+        )
+    """
+    sql """
+        CREATE TABLE test_colocate_mapping_constraint_right (
+            k1 INT,
+            k2 INT,
+            d1 INT,
+            d2 INT,
+            extra_col INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1, k2) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1",
+            "colocate_with" = "test_colocate_mapping_constraint_group"
+        )
+    """
+
+    sql """
+        ALTER TABLE test_colocate_mapping_constraint_left
+        ADD CONSTRAINT left_mapping_1
+        COLOCATE MAPPING mapping_1 (d1) DETERMINES DISTRIBUTION KEY (k1) NOT ENFORCED
+    """
+    sql """
+        ALTER TABLE test_colocate_mapping_constraint_right
+        ADD CONSTRAINT right_mapping_1
+        COLOCATE MAPPING mapping_1 (d1) DETERMINES DISTRIBUTION KEY (k1) NOT ENFORCED
+    """
+    sql """
+        ALTER TABLE test_colocate_mapping_constraint_left
+        ADD CONSTRAINT left_mapping_2
+        COLOCATE MAPPING mapping_2 (d2) DETERMINES DISTRIBUTION KEY (k2) NOT ENFORCED
+    """
+    sql """
+        ALTER TABLE test_colocate_mapping_constraint_right
+        ADD CONSTRAINT right_mapping_2
+        COLOCATE MAPPING mapping_2 (d2) DETERMINES DISTRIBUTION KEY (k2) NOT ENFORCED
+    """
+
+    sql """ INSERT INTO test_colocate_mapping_constraint_left VALUES
+            (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 8) """
+    sql """ INSERT INTO test_colocate_mapping_constraint_right VALUES
+            (1, 10, 100, 1000, 7), (2, 20, 200, 2000, 9) """
+    sql """ SYNC """
+
+    waitForColocateGroupStable("test_colocate_mapping_constraint_group")
+
+    sql """ SET auto_broadcast_join_threshold = -1 """
+    sql """ SET broadcast_row_count_limit = 0 """
+    sql """ SET enable_colocate_mapping_constraint = false """
+    explain {
+        sql """ SELECT *
+                FROM test_colocate_mapping_constraint_left l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+
+    sql """ SET enable_colocate_mapping_constraint = true """
+    explain {
+        sql """ SELECT *
+                FROM test_colocate_mapping_constraint_left l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM test_colocate_mapping_constraint_left l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.d2 = r.d2 """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM test_colocate_mapping_constraint_left l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 AND l.extra_col = r.extra_col """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM test_colocate_mapping_constraint_left l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 """
+        notContains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT l.d1, r.d1
+                FROM test_colocate_mapping_constraint_left l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+
+    order_qt_colocate_mapping_result """
+        SELECT l.k1, l.k2, l.d1, l.d2, l.extra_col,
+               r.k1, r.k2, r.d1, r.d2, r.extra_col
+        FROM test_colocate_mapping_constraint_left l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.d1 = r.d1 AND l.k2 = r.k2
+        ORDER BY l.k1, l.k2
+    """
+}

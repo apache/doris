@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DistributionMapping;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -49,6 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
@@ -280,6 +282,17 @@ public class JoinUtils {
             return false;
         }
 
+        if (couldColocateJoinOnDistributionColumns(leftHashSpec, rightHashSpec, conjuncts)) {
+            return true;
+        }
+        if (!ConnectContext.get().getSessionVariable().isEnableColocateMappingConstraint()) {
+            return false;
+        }
+        return couldColocateJoinOnDistributionMappings(leftHashSpec, rightHashSpec, conjuncts);
+    }
+
+    private static boolean couldColocateJoinOnDistributionColumns(DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec, List<Expression> conjuncts) {
         Set<Integer> equalIndices = new HashSet<>();
         for (Expression expr : conjuncts) {
             // only simple equal predicate can use colocate join
@@ -307,12 +320,63 @@ public class JoinUtils {
                 equalIndices.add(leftIndex);
             }
         }
-        // on conditions must contain all distributed columns
-        if (equalIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values())) {
-            return true;
-        } else {
-            return false;
+        return equalIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values());
+    }
+
+    private static boolean couldColocateJoinOnDistributionMappings(DistributionSpecHash leftHashSpec,
+            DistributionSpecHash rightHashSpec, List<Expression> conjuncts) {
+        List<Pair<ExprId, ExprId>> equalExprIds = Lists.newArrayList();
+        Set<Integer> coveredIndices = new HashSet<>();
+        for (Expression expr : conjuncts) {
+            if (!(expr instanceof EqualPredicate)
+                    || !(((EqualPredicate) expr).left() instanceof SlotReference)
+                    || !(((EqualPredicate) expr).right() instanceof SlotReference)) {
+                return false;
+            }
+            ExprId first = ((SlotReference) ((EqualPredicate) expr).left()).getExprId();
+            ExprId second = ((SlotReference) ((EqualPredicate) expr).right()).getExprId();
+            equalExprIds.add(Pair.of(first, second));
+
+            Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(first);
+            Integer rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(second);
+            if (leftIndex == null) {
+                leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(second);
+                rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(first);
+            }
+            if (leftIndex != null && Objects.equals(leftIndex, rightIndex)) {
+                coveredIndices.add(leftIndex);
+            }
         }
+
+        for (DistributionMapping leftMapping : leftHashSpec.getDistributionMappings()) {
+            for (DistributionMapping rightMapping : rightHashSpec.getDistributionMappings()) {
+                if (!leftMapping.getMappingId().equals(rightMapping.getMappingId())
+                        || !leftMapping.getTargetDistributionIndices()
+                                .equals(rightMapping.getTargetDistributionIndices())
+                        || leftMapping.getDeterminantExprIds().size()
+                                != rightMapping.getDeterminantExprIds().size()) {
+                    continue;
+                }
+                boolean determinantsEqual = true;
+                for (int i = 0; i < leftMapping.getDeterminantExprIds().size(); i++) {
+                    if (!containsEqualPair(equalExprIds, leftMapping.getDeterminantExprIds().get(i),
+                            rightMapping.getDeterminantExprIds().get(i))) {
+                        determinantsEqual = false;
+                        break;
+                    }
+                }
+                if (determinantsEqual) {
+                    coveredIndices.addAll(leftMapping.getTargetDistributionIndices());
+                }
+            }
+        }
+        return coveredIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values());
+    }
+
+    private static boolean containsEqualPair(List<Pair<ExprId, ExprId>> equalExprIds, ExprId left, ExprId right) {
+        return equalExprIds.stream().anyMatch(pair ->
+                (pair.first.equals(left) && pair.second.equals(right))
+                        || (pair.first.equals(right) && pair.second.equals(left)));
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {

@@ -19,6 +19,8 @@ package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
@@ -41,6 +43,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -50,7 +53,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
- * Centralized manager for all table constraints (PK, FK, UNIQUE).
+ * Centralized manager for all table constraints.
  * Constraints are indexed by fully qualified table name (catalog.db.table).
  */
 public class ConstraintManager implements Writable, GsonPostProcessable {
@@ -214,6 +217,12 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             TableNameInfo tableNameInfo) {
         return getConstraintsByType(toKey(tableNameInfo),
                 UniqueConstraint.class);
+    }
+
+    /** Returns all distribution mapping constraints for the given table. */
+    public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraints(
+            TableNameInfo tableNameInfo) {
+        return getConstraintsByType(toKey(tableNameInfo), DistributionMappingConstraint.class);
     }
 
     /**
@@ -537,6 +546,12 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                     if (((ForeignKeyConstraint) c)
                             .getForeignKeyNames()
                             .contains(columnName)) {
+                        return entry.getKey();
+                    }
+                } else if (c instanceof DistributionMappingConstraint) {
+                    DistributionMappingConstraint mapping = (DistributionMappingConstraint) c;
+                    if (mapping.getDeterminantColumnNames().contains(columnName)
+                            || mapping.getDistributionColumnNames().contains(columnName)) {
                         return entry.getKey();
                     }
                 }
@@ -875,6 +890,45 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                         fk.getReferencedColumnNames(),
                         toKey(refTableInfo));
             }
+        } else if (constraint instanceof DistributionMappingConstraint) {
+            validateDistributionMappingConstraint(
+                    tableNameInfo, table, (DistributionMappingConstraint) constraint);
+        }
+    }
+
+    private void validateDistributionMappingConstraint(TableNameInfo tableNameInfo, TableIf table,
+            DistributionMappingConstraint constraint) {
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Distribution mapping constraint only supports OLAP tables");
+        }
+        validateColumnsExist(table, constraint.getDeterminantColumnNames(), toKey(tableNameInfo));
+        validateColumnsExist(table, constraint.getDistributionColumnNames(), toKey(tableNameInfo));
+        if (new HashSet<>(constraint.getDeterminantColumnNames()).size()
+                != constraint.getDeterminantColumnNames().size()) {
+            throw new AnalysisException("Determinant columns in distribution mapping constraint must be unique");
+        }
+        if (new HashSet<>(constraint.getDistributionColumnNames()).size()
+                != constraint.getDistributionColumnNames().size()) {
+            throw new AnalysisException("Distribution columns in distribution mapping constraint must be unique");
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        if (!(olapTable.getDefaultDistributionInfo() instanceof HashDistributionInfo)) {
+            throw new AnalysisException("Distribution mapping constraint requires hash distribution");
+        }
+        List<String> tableDistributionColumns = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo())
+                .getDistributionColumns().stream().map(column -> column.getName().toLowerCase())
+                .collect(Collectors.toList());
+        List<String> constraintDistributionColumns = constraint.getDistributionColumnNames().stream()
+                .map(String::toLowerCase).collect(Collectors.toList());
+        int previousIndex = -1;
+        for (String column : constraintDistributionColumns) {
+            int index = tableDistributionColumns.indexOf(column);
+            if (index <= previousIndex) {
+                throw new AnalysisException("Distribution columns in distribution mapping constraint"
+                        + " must be an ordered subset of table distribution columns");
+            }
+            previousIndex = index;
         }
     }
 

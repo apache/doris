@@ -2045,6 +2045,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     nameParts
             );
             constraint = Constraint.newForeignKeyConstraint(curTable, slots, referenceTable, referencedSlots);
+        } else if (ctx.constraint().COLOCATE() != null) {
+            ImmutableList<Slot> distributionSlots = ctx.constraint().distributionSlots.identifierSeq().ident.stream()
+                    .map(ident -> new UnboundSlot(ident.getText()))
+                    .collect(ImmutableList.toImmutableList());
+            constraint = Constraint.newDistributionMappingConstraint(
+                    curTable, ctx.constraint().mappingId.getText().toLowerCase(), slots, distributionSlots);
         } else {
             throw new AnalysisException("Unsupported constraint " + ctx.getText());
         }

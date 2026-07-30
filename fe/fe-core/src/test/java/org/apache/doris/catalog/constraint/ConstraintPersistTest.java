@@ -208,6 +208,24 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void distributionMappingConstraintPersistTest() throws Exception {
+        ConstraintManager manager = new ConstraintManager();
+        TableNameInfo tableNameInfo = new TableNameInfo("internal.test.mapping_table");
+        DistributionMappingConstraint mapping = new DistributionMappingConstraint(
+                "mapping_constraint", "tenant_by_user", List.of("user_id"), List.of("tenant_id"));
+        manager.addConstraint(tableNameInfo, mapping.getName(), mapping, true);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(outputStream));
+        ConstraintManager loadedManager = ConstraintManager.read(
+                new DataInputStream(new ByteArrayInputStream(outputStream.toByteArray())));
+
+        Constraint loaded = loadedManager.getConstraint(tableNameInfo, mapping.getName());
+        Assertions.assertEquals(mapping, loaded);
+        Assertions.assertEquals("tenant_by_user", ((DistributionMappingConstraint) loaded).getMappingId());
+    }
+
+    @Test
     void addConstraintLogPersistForExternalTableTest() throws Exception {
         Config.edit_log_type = "local";
         FeConstants.runningUnitTest = true;

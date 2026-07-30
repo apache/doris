@@ -48,6 +48,7 @@ public class DistributionSpecHash extends DistributionSpec {
     // use for satisfied judge
     private final List<Set<ExprId>> equivalenceExprIds;
     private final Map<ExprId, Integer> exprIdToEquivalenceSet;
+    private final List<DistributionMapping> distributionMappings;
 
     // below two attributes use for colocate join, only store one table info is enough
     private final long tableId;
@@ -74,6 +75,13 @@ public class DistributionSpecHash extends DistributionSpec {
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
             long tableId, long selectedIndexId, Set<Long> partitionIds) {
+        this(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds, ImmutableList.of());
+    }
+
+    /** Normal constructor with storage distribution mappings. */
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
+            long tableId, long selectedIndexId, Set<Long> partitionIds,
+            List<DistributionMapping> distributionMappings) {
         this.orderedShuffledColumns = ImmutableList.copyOf(
                 Objects.requireNonNull(orderedShuffledColumns, "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
@@ -81,6 +89,7 @@ public class DistributionSpecHash extends DistributionSpec {
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
         this.tableId = tableId;
         this.selectedIndexId = selectedIndexId;
+        this.distributionMappings = ImmutableList.copyOf(distributionMappings);
         ImmutableList.Builder<Set<ExprId>> equivalenceExprIdsBuilder
                 = ImmutableList.builderWithExpectedSize(orderedShuffledColumns.size());
         ImmutableMap.Builder<ExprId, Integer> exprIdToEquivalenceSetBuilder
@@ -110,6 +119,14 @@ public class DistributionSpecHash extends DistributionSpec {
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
             long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
             Map<ExprId, Integer> exprIdToEquivalenceSet) {
+        this(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet, ImmutableList.of());
+    }
+
+    /** Constructor with precomputed equivalence sets and storage distribution mappings. */
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
+            long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
+            Map<ExprId, Integer> exprIdToEquivalenceSet, List<DistributionMapping> distributionMappings) {
         this.orderedShuffledColumns = ImmutableList.copyOf(Objects.requireNonNull(orderedShuffledColumns,
                 "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
@@ -121,6 +138,7 @@ public class DistributionSpecHash extends DistributionSpec {
                 Objects.requireNonNull(equivalenceExprIds, "equivalenceExprIds should not null"));
         this.exprIdToEquivalenceSet = ImmutableMap.copyOf(
                 Objects.requireNonNull(exprIdToEquivalenceSet, "exprIdToEquivalenceSet should not null"));
+        this.distributionMappings = ImmutableList.copyOf(distributionMappings);
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right, ShuffleType shuffleType) {
@@ -175,6 +193,10 @@ public class DistributionSpecHash extends DistributionSpec {
         return exprIdToEquivalenceSet;
     }
 
+    public List<DistributionMapping> getDistributionMappings() {
+        return distributionMappings;
+    }
+
     public Set<ExprId> getEquivalenceExprIdsOf(ExprId exprId) {
         if (exprIdToEquivalenceSet.containsKey(exprId)) {
             return equivalenceExprIds.get(exprIdToEquivalenceSet.get(exprId));
@@ -194,6 +216,10 @@ public class DistributionSpecHash extends DistributionSpec {
 
         DistributionSpecHash requiredHash = (DistributionSpecHash) required;
 
+        if (requiredHash.getShuffleType() == ShuffleType.COLOCATE_MAPPING_REQUIRE) {
+            return mappingContainsSatisfy(requiredHash.getOrderedShuffledColumns());
+        }
+
         if (this.orderedShuffledColumns.size() > requiredHash.orderedShuffledColumns.size()) {
             return false;
         }
@@ -203,6 +229,26 @@ public class DistributionSpecHash extends DistributionSpec {
         }
         return requiredHash.getShuffleType() == this.getShuffleType()
                 && equalsSatisfy(requiredHash.getOrderedShuffledColumns());
+    }
+
+    private boolean mappingContainsSatisfy(List<ExprId> required) {
+        if (shuffleType != ShuffleType.NATURAL) {
+            return false;
+        }
+        Set<ExprId> requiredExprIds = ImmutableSet.copyOf(required);
+        BitSet coveredIndices = new BitSet(orderedShuffledColumns.size());
+        for (ExprId exprId : requiredExprIds) {
+            Integer index = exprIdToEquivalenceSet.get(exprId);
+            if (index != null) {
+                coveredIndices.set(index);
+            }
+        }
+        for (DistributionMapping mapping : distributionMappings) {
+            if (requiredExprIds.containsAll(mapping.getDeterminantExprIds())) {
+                mapping.getTargetDistributionIndices().forEach(coveredIndices::set);
+            }
+        }
+        return coveredIndices.nextClearBit(0) >= orderedShuffledColumns.size();
     }
 
     private boolean containsSatisfy(List<ExprId> required) {
@@ -228,13 +274,15 @@ public class DistributionSpecHash extends DistributionSpec {
     }
 
     public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
+        List<DistributionMapping> mappings = this.shuffleType == ShuffleType.NATURAL
+                && shuffleType == ShuffleType.NATURAL ? distributionMappings : ImmutableList.of();
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, mappings);
     }
 
     public DistributionSpecHash withShuffleTypeAndForbidColocateJoin(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, -1, -1, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, ImmutableList.of());
     }
 
     /**
@@ -303,8 +351,14 @@ public class DistributionSpecHash extends DistributionSpec {
                 exprIdToEquivalenceSet.put(exprIdSetKV.getKey(), exprIdSetKV.getValue());
             }
         }
+        ImmutableList.Builder<DistributionMapping> projectedMappings = ImmutableList.builder();
+        if (this.orderedShuffledColumns.stream().allMatch(projections::containsKey)) {
+            for (DistributionMapping distributionMapping : distributionMappings) {
+                distributionMapping.project(projections).ifPresent(projectedMappings::add);
+            }
+        }
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, projectedMappings.build());
     }
 
     @Override
@@ -313,12 +367,14 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
-        return shuffleType == that.shuffleType && orderedShuffledColumns.equals(that.orderedShuffledColumns);
+        return shuffleType == that.shuffleType
+                && orderedShuffledColumns.equals(that.orderedShuffledColumns)
+                && distributionMappings.equals(that.distributionMappings);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(shuffleType, orderedShuffledColumns);
+        return Objects.hash(shuffleType, orderedShuffledColumns, distributionMappings);
     }
 
     @Override
@@ -330,7 +386,8 @@ public class DistributionSpecHash extends DistributionSpec {
                 "selectedIndexId", selectedIndexId,
                 "partitionIds", partitionIds,
                 "equivalenceExprIds", equivalenceExprIds,
-                "exprIdToEquivalenceSet", exprIdToEquivalenceSet);
+                "exprIdToEquivalenceSet", exprIdToEquivalenceSet,
+                "distributionMappings", distributionMappings);
     }
 
     /**
@@ -346,6 +403,8 @@ public class DistributionSpecHash extends DistributionSpec {
         // output, for shuffle by storage hash method
         STORAGE_BUCKETED,
         // require, need to satisfy the distribution spec by equals.
-        REQUIRE_EQUAL
+        REQUIRE_EQUAL,
+        // join-only request allowing NATURAL distribution mappings to cover hash keys.
+        COLOCATE_MAPPING_REQUIRE
     }
 }

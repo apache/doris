@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -92,6 +93,13 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         } else if (constraint.isUnique()) {
             addConstraintAndInvalidate(
                     tableNameInfo, new UniqueConstraint(name, ImmutableSet.copyOf(columns)));
+        } else if (constraint.isDistributionMapping()) {
+            Pair<ImmutableList<String>, TableIf> distributionColumnsAndTable =
+                    extractColumnsAndTable(ctx, constraint.toDistributionProject());
+            Preconditions.checkState(table.getId() == distributionColumnsAndTable.second.getId(),
+                    "determinant and distribution columns must belong to the same table");
+            addConstraintAndInvalidate(tableNameInfo, new DistributionMappingConstraint(
+                    name, constraint.getMappingId(), columns, distributionColumnsAndTable.first));
         } else {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
         }

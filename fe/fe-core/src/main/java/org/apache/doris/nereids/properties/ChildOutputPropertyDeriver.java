@@ -357,7 +357,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
             }
 
-            if (canUseChildProperties) {
+            if (canUseChildProperties && childDistributionSpecHash.getDistributionMappings().isEmpty()) {
                 return childProperties;
             }
             DistributionSpec defaultAnySpec = childDistributionSpecHash.getShuffleType() == ShuffleType.NATURAL

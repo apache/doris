@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -129,6 +130,32 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
 
         DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 drop constraint un");
+        dropCommand.run(connectContext, null);
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
+                logicalOlapScan().when(o -> getConstraintMgr()
+                        .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
+    }
+
+    @Test
+    void distributionMappingConstraintTest() throws Exception {
+        AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t1 add constraint mapping_constraint "
+                        + "colocate mapping tenant_by_user (k2) determines distribution key (k1) not enforced");
+        command.run(connectContext, null);
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
+            TableNameInfo tableNameInfo = tableNameInfoOf(o.getTable());
+            Constraint constraint = getConstraintMgr().getConstraint(tableNameInfo, "mapping_constraint");
+            if (!(constraint instanceof DistributionMappingConstraint)) {
+                return false;
+            }
+            DistributionMappingConstraint mapping = (DistributionMappingConstraint) constraint;
+            return mapping.getMappingId().equals("tenant_by_user")
+                    && mapping.getDeterminantColumnNames().equals(java.util.List.of("k2"))
+                    && mapping.getDistributionColumnNames().equals(java.util.List.of("k1"));
+        }));
+
+        DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t1 drop constraint mapping_constraint");
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
