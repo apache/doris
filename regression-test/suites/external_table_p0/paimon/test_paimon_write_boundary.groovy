@@ -64,20 +64,14 @@ suite("test_paimon_write_boundary",
         qt_before_rows """select id, score, note from write_boundary order by id"""
         qt_before_snapshots """select count(*) from write_boundary\$snapshots"""
 
-        // WB01-WB06 preserve the documented data-write boundary at analysis time. The source table
-        // and its snapshot list must stay unchanged after every rejected write shape.
-        test {
-            sql """insert into write_boundary values (3, 30, 'insert-values')"""
-            exception "PaimonExternalCatalog"
-        }
-        test {
-            sql """insert into write_boundary select 3, 30, 'insert-select'"""
-            exception "PaimonExternalCatalog"
-        }
-        test {
-            sql """insert overwrite table write_boundary values (3, 30, 'overwrite')"""
-            exception "PaimonExternalCatalog"
-        }
+        // Doris supports INSERT VALUES, INSERT SELECT and INSERT OVERWRITE for Paimon.
+        // Row-level UPDATE, DELETE and MERGE remain outside this write path.
+        sql """insert into write_boundary values (3, 30, 'insert-values')"""
+        sql """insert into write_boundary select 4, 40, 'insert-select'"""
+        sql """refresh table write_boundary"""
+        qt_after_append_rows """select id, score, note from write_boundary order by id"""
+
+        sql """insert overwrite table write_boundary values (5, 50, 'overwrite')"""
         test {
             sql """update write_boundary set score = score + 1 where id = 1"""
             exception "target table in update command should be an olapTable"

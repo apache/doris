@@ -392,6 +392,10 @@ public class Alter {
     private void processAlterTableForExternalTable(
             ExternalTable table,
             List<AlterClause> alterClauses) throws UserException {
+        if (alterClauses.size() > 1) {
+            throw new UserException("External table does not support multiple ALTER clauses "
+                    + "in one statement");
+        }
         long updateTime = System.currentTimeMillis();
         for (AlterClause alterClause : alterClauses) {
             if (alterClause instanceof ModifyTablePropertiesClause) {

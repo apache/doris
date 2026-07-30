@@ -26,7 +26,7 @@ under the License.
         <module>java-common</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
-        <module>paimon-scanner</module>
+        <module>paimon-connector</module>
         <module>max-compute-connector</module>
         <module>avro-scanner</module>
         <!-- lakesoul-scanner module has been deprecated -->

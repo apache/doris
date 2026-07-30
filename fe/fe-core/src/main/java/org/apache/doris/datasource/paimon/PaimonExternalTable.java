@@ -132,6 +132,18 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 getCatalog().getEnableMappingTimestampTz());
     }
 
+    /**
+     * Load the current remote table for a write target.
+     *
+     * <p>A statement MVCC snapshot belongs to a read relation. In a time-travel self-insert the
+     * same Doris table identity can therefore have a historical source snapshot registered in
+     * StatementContext. Write planning must never reuse that snapshot: the writer, target schema
+     * and partition metadata must all come from the latest remote table handle.
+     */
+    public Table getPaimonTableForWrite() {
+        return ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping());
+    }
+
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();
@@ -257,10 +269,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
-        if (isPartitionInvalid(snapshot)) {
+        PaimonPartitionInfo partitionInfo = getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo();
+        if (partitionInfo.getPruningStatus() == PaimonPartitionInfo.PruningStatus.UNPRUNABLE) {
             return PartitionType.UNPARTITIONED;
         }
-        return getPartitionColumns(snapshot).size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
+        return getPaimonSchemaCacheValue(snapshot).getPartitionColumns().isEmpty()
+                ? PartitionType.UNPARTITIONED : PartitionType.LIST;
     }
 
     @Override
@@ -271,15 +285,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        if (isPartitionInvalid(snapshot)) {
+        PaimonPartitionInfo partitionInfo = getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo();
+        if (partitionInfo.getPruningStatus() == PaimonPartitionInfo.PruningStatus.UNPRUNABLE) {
             return Collections.emptyList();
         }
         return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
-    }
-
-    public boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
-        PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
-        return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
     }
 
     @Override
@@ -315,9 +325,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty()).getPartitionInfo().getNameToPartition()
-                .values().stream()
-                .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
+        // Dictionary loading records getTableSnapshot(), whose version is the Paimon snapshot ID.
+        // Use the same monotonic version here instead of deriving a timestamp from partition
+        // metadata. Partition metadata can intentionally be UNPRUNABLE and contain no Doris map.
+        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty())
+                .getSnapshot().getSnapshotId();
     }
 
     @Override

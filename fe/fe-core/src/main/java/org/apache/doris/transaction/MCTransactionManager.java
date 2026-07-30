@@ -30,7 +30,7 @@ public class MCTransactionManager extends AbstractExternalTransactionManager<MCT
     }
 
     @Override
-    MCTransaction createTransaction() {
+    MCTransaction createTransaction(long transactionId) {
         return new MCTransaction(catalog);
     }
 }
