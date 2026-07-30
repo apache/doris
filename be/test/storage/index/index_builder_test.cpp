@@ -253,6 +253,9 @@ protected:
         int32_t column_unique_id;
         std::map<std::string, std::string> properties = {
                 {"parser", "english"}, {"lower_case", "true"}, {"support_phrase", "true"}};
+        // false leaves col_unique_ids empty, reproducing a malformed index meta
+        // that binds to no column.
+        bool bind_column = true;
     };
 
     // SNII schema with k1(uid 1, key) + body_a(uid 2) + body_b(uid 3) and the
@@ -290,7 +293,9 @@ protected:
             index._index_id = spec.index_id;
             index._index_name = spec.index_name;
             index._index_type = IndexType::INVERTED;
-            index._col_unique_ids.push_back(spec.column_unique_id);
+            if (spec.bind_column) {
+                index._col_unique_ids.push_back(spec.column_unique_id);
+            }
             for (const auto& [key, value] : spec.properties) {
                 index._properties[key] = value;
             }
@@ -3555,6 +3560,56 @@ TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesInheritBuildReplaceAndDrop) {
     ASSERT_EQ(plan.build_columns.size(), 1U);
     EXPECT_EQ(plan.build_columns.front().first, 3);
     ASSERT_EQ(plan.build_columns.front().second.size(), 2U);
+}
+
+// A malformed index that binds no column must not block the rewrite unless it
+// actually has to be REBUILT. One corrupted index elsewhere in the schema --
+// neither requested nor present in the container -- would otherwise fail every
+// segment of the tablet forever, blocking BUILD INDEX on healthy indexes.
+TEST_F(IndexBuilderTest, SniiBuildPlanToleratesUnrequestedIndexWithoutColumnUniqueId) {
+    const auto input_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2}});
+    auto output_schema = create_snii_schema(
+            {SniiIndexSpec {.index_id = 1, .index_name = "idx_a", .column_unique_id = 2},
+             SniiIndexSpec {.index_id = 9,
+                            .index_name = "idx_broken",
+                            .column_unique_id = 3,
+                            .bind_column = false}});
+    // idx_a is in the container; idx_broken is not, and is not requested.
+    const auto container_has = [](const TabletIndex& index, bool* exists) {
+        *exists = index.index_id() == 1;
+        return Status::OK();
+    };
+
+    IndexBuilder::SniiIndexRewritePlan plan;
+    ASSERT_TRUE(IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {1},
+                                                      container_has, &plan)
+                        .ok());
+    // The healthy index still inherits; the malformed one just stays absent.
+    ASSERT_EQ(plan.inherit_keys.size(), 1U);
+    EXPECT_EQ(plan.inherit_keys.front().index_id, 1U);
+    EXPECT_TRUE(plan.build_columns.empty());
+}
+
+// An index the plan can neither inherit nor rebuild must fail the rewrite, not
+// be skipped. Without a column unique id there is no raw column to read, so
+// leaving it out would seal a container that does not match the target schema
+// while reporting success.
+TEST_F(IndexBuilderTest, SniiBuildPlanRejectsIndexWithoutColumnUniqueId) {
+    const auto input_schema = create_snii_schema({});
+    auto output_schema = create_snii_schema({SniiIndexSpec {
+            .index_id = 1, .index_name = "idx_a", .column_unique_id = 2, .bind_column = false}});
+
+    const auto container_has = [](const TabletIndex&, bool* exists) {
+        *exists = false;
+        return Status::OK();
+    };
+    IndexBuilder::SniiIndexRewritePlan plan;
+    const Status status = IndexBuilder::plan_snii_index_rewrite(*input_schema, *output_schema, {1},
+                                                                container_has, &plan);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
+    EXPECT_TRUE(plan.inherit_keys.empty());
+    EXPECT_TRUE(plan.build_columns.empty());
 }
 
 TEST_F(IndexBuilderTest, SniiBuildPlanClassifiesReplaceAndRetry) {

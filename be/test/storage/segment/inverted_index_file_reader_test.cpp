@@ -419,6 +419,21 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithSmallNullBitmap) {
     EXPECT_FALSE(res); // Small bitmap should return false
 }
 
+// A rowset written before any index existed has no container file. The SNII
+// reader must report that as INVERTED_INDEX_FILE_NOT_FOUND, not as a bare
+// filesystem NOT_FOUND: IndexBuilder's BUILD INDEX rewrite tells "nothing to
+// inherit, build everything fresh" apart from a real IO failure by exactly that
+// code, and a plain NOT_FOUND aborts the whole build instead.
+TEST_F(InvertedIndexFileReaderTest, TestInitSniiMissingContainerReportsIndexFileNotFound) {
+    const std::string index_path = kTestDir + "/snii_absent_container";
+    InvertedIndexFileInfo file_info;
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::SNII, file_info);
+
+    const Status init_status = reader.init(4096);
+    EXPECT_TRUE(init_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) << init_status;
+}
+
 TEST_F(InvertedIndexFileReaderTest, TestHasNullSniiWithNullBitmap) {
     std::string index_path = kTestDir + "/has_null_snii";
     create_snii_file_with_null_bitmap(index_path + ".idx", 1, "test", true);

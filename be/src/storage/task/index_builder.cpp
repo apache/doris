@@ -80,11 +80,6 @@ Status IndexBuilder::plan_snii_index_rewrite(
         // The target schema holds each logical index exactly once; the final
         // directory could not hold a duplicate key anyway.
         DORIS_CHECK(seen_keys.insert(key).second);
-        if (index->col_unique_ids().empty()) {
-            LOG(WARNING) << "SNII index " << index->index_id()
-                         << " has no column unique id; it stays absent from the rewrite";
-            continue;
-        }
         bool in_container = false;
         RETURN_IF_ERROR(container_has(*index, &in_container));
         const TabletIndex* input_index = nullptr;
@@ -112,6 +107,17 @@ Status IndexBuilder::plan_snii_index_rewrite(
         // Requested and buildable, or present under the same key with a CHANGED
         // definition: the final directory must match the target schema, so the
         // old metadata is dropped and the index is rebuilt from the raw column.
+        //
+        // Only THIS branch needs a column to read: inheriting copies raw bytes by
+        // key, and the "stays absent" branch above reads nothing. So an index
+        // that binds no column fails the rewrite only when it actually has to be
+        // rebuilt -- a malformed index elsewhere in the schema, neither requested
+        // nor present, must not block building the ones that are fine.
+        if (index->col_unique_ids().empty()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                    "SNII rewrite: index {} must be rebuilt but binds no column unique id",
+                    index->index_id());
+        }
         build_by_column[index->col_unique_ids()[0]].push_back(index);
     }
     plan->build_columns.assign(build_by_column.begin(), build_by_column.end());
@@ -819,6 +825,31 @@ Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
         } else if (!init_status.ok()) {
             return init_status;
         }
+    }
+    // The rewrite plan below can only represent IndexType::INVERTED, on BOTH
+    // sides, and a shortfall on either side is a silent drop:
+    //   * target schema: a non-text index there is never planned, so the sealed
+    //     container would simply not have it while the schema claims it does;
+    //   * source container: a blob logical index there is neither inherited nor
+    //     rebuilt, so it would not be carried over.
+    // prepare_rewrite_snapshot refuses blob-bearing containers, but only when
+    // something is inheritable, so it cannot be relied on here. FE rejects ANN on
+    // SNII in CREATE TABLE and ADD INDEX, and the storage format is immutable
+    // after creation -- but RESTORE re-validates almost nothing, so treat these
+    // as reachable rather than impossible, and keep them refused once that gate
+    // is relaxed for real.
+    if (output_rowset_schema->has_ann_index()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "SNII rewrite: the target schema holds a non-text index this rewrite can neither "
+                "inherit nor rebuild. tablet_id={} rowset_id={} segment_id={}",
+                _tablet->tablet_id(), rowset_id, seg_ptr->id());
+    }
+    if (has_container && source_reader->snii_has_blob_index()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "SNII rewrite over a container holding a blob logical index is not supported; "
+                "carrying blob entries through a rewrite needs them re-emitted into the new "
+                "container. tablet_id={} rowset_id={} segment_id={}",
+                _tablet->tablet_id(), rowset_id, seg_ptr->id());
     }
     const auto container_has = [source_reader, has_container](const TabletIndex& index,
                                                               bool* exists) -> Status {

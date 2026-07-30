@@ -17,6 +17,8 @@
 
 #include "storage/index/snii/writer/snii_compound_writer.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <utility>
 
@@ -148,6 +150,12 @@ Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
                     "must hold each key exactly once"));
         }
     }
+    for (const PendingBlobIndex& blob : blobs_) {
+        if (blob.index_id == in.index_id && blob.index_suffix == in.index_suffix) {
+            return poison(Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "compound: new logical index reuses a registered blob index key"));
+        }
+    }
     RETURN_IF_ERROR(ensure_bootstrap());
     auto liw = std::make_unique<LogicalIndexWriter>(in);
     Placement p;
@@ -166,6 +174,128 @@ Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
     p.dict_len = out_->bytes_written() - p.dict_off;
     indexes_.push_back(std::move(liw));
     placements_.push_back(p);
+    return Status::OK();
+}
+
+// Argument validation for one blob registration: the kind must be one this
+// writer can emit, and the named-file table must be non-empty with unique,
+// named, readable entries. Rejecting an unknown kind HERE (rather than letting
+// the directory encoder catch it inside finish()) keeps a multi-GiB blob from
+// being copied before the failure surfaces, and reports a caller bug as
+// INVALID_ARGUMENT instead of an Unsupported format problem.
+Status SniiCompoundWriter::validate_blob_registration(
+        format::LogicalIndexKind kind, const std::vector<BlobFileSource>& cold_files,
+        const std::vector<BlobFileSource>& hot_files) {
+    if (kind != format::LogicalIndexKind::kBkd && kind != format::LogicalIndexKind::kAnn) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                fmt::format("compound: add_blob_index got kind {}; text indexes go through "
+                            "add_logical_index and other kinds are not emittable",
+                            static_cast<uint32_t>(kind)));
+    }
+    if (cold_files.empty() && hot_files.empty()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "compound: blob index registered without files");
+    }
+    for (const std::vector<BlobFileSource>* files : {&cold_files, &hot_files}) {
+        for (const BlobFileSource& file : *files) {
+            if (file.name.empty()) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                        "compound: blob file with empty name");
+            }
+            if (file.length > 0 && !file.read_fn) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                        "compound: blob file without a read function");
+            }
+            size_t seen = 0;
+            for (const std::vector<BlobFileSource>* other : {&cold_files, &hot_files}) {
+                for (const BlobFileSource& candidate : *other) {
+                    seen += candidate.name == file.name ? 1 : 0;
+                }
+            }
+            if (seen != 1) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                        "compound: duplicate blob file name");
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status SniiCompoundWriter::add_blob_index(uint64_t index_id, std::string index_suffix,
+                                          format::LogicalIndexKind kind,
+                                          std::vector<BlobFileSource> cold_files,
+                                          std::vector<BlobFileSource> hot_files) {
+    if (out_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
+    }
+    if (finished_) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("compound: add after finish");
+    }
+    if (!failed_.ok()) return failed_;
+    // Registration writes nothing, so it is legal while a streamed session is
+    // active. Rejections that only mean "bad arguments" leave the writer clean;
+    // key collisions poison it (see below).
+    RETURN_IF_ERROR(validate_blob_registration(kind, cold_files, hot_files));
+    for (const PendingBlobIndex& blob : blobs_) {
+        if (blob.index_id == index_id && blob.index_suffix == index_suffix) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "compound: blob index key registered twice");
+        }
+    }
+    // A key collision against an already-registered index means the caller's plan
+    // cannot produce a valid container (the directory must hold each key exactly
+    // once, and MetadataDirectory::find would silently shadow one of the two).
+    // Poison rather than reject cleanly, mirroring inherit() and
+    // add_logical_index: sealing a container that silently omits an index the
+    // schema requires is never acceptable. Catching it HERE also keeps a
+    // multi-GiB blob from being copied before the failure surfaces, and reports
+    // it as the caller bug it is instead of Corruption from the encoder's
+    // self-check inside finish().
+    for (const InheritedGroup& group : inherited_) {
+        if (group.index_id == index_id && group.index_suffix == index_suffix) {
+            return poison(Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "compound: blob index reuses an inherited key"));
+        }
+    }
+    for (const std::unique_ptr<LogicalIndexWriter>& text : indexes_) {
+        if (text->index_id() == index_id && text->index_suffix() == index_suffix) {
+            return poison(Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "compound: blob index reuses a text logical index key"));
+        }
+    }
+    PendingBlobIndex blob;
+    blob.index_id = index_id;
+    blob.index_suffix = std::move(index_suffix);
+    blob.kind = kind;
+    blob.cold_files = std::move(cold_files);
+    blob.hot_files = std::move(hot_files);
+    blobs_.push_back(std::move(blob));
+    return Status::OK();
+}
+
+Status SniiCompoundWriter::write_blob_files(const std::vector<BlobFileSource>& files,
+                                            std::vector<format::NamedBlobFileRef>* refs) {
+    std::vector<uint8_t> chunk;
+    for (const BlobFileSource& file : files) {
+        format::NamedBlobFileRef ref;
+        ref.name = file.name;
+        ref.offset = out_->bytes_written();
+        ref.length = file.length;
+        uint32_t crc = 0;
+        uint64_t copied = 0;
+        while (copied < file.length) {
+            const auto n = static_cast<size_t>(
+                    std::min<uint64_t>(kBlobCopyChunkBytes, file.length - copied));
+            chunk.resize(n);
+            RETURN_IF_ERROR(file.read_fn(copied, n, chunk.data()));
+            crc = crc32c_extend(crc, Slice(chunk.data(), n));
+            RETURN_IF_ERROR(out_->append(Slice(chunk.data(), n)));
+            copied += n;
+        }
+        ref.crc32c = crc;
+        DORIS_CHECK_EQ(out_->bytes_written(), ref.offset + ref.length);
+        refs->push_back(std::move(ref));
+    }
     return Status::OK();
 }
 
@@ -385,9 +515,31 @@ Status SniiCompoundWriter::write_norms() {
     return Status::OK();
 }
 
+// Streams every registered blob's HOT files -- after all text metadata groups,
+// physically adjacent within each entry, so a future open can fetch an entry's
+// hot set with one range read (mirroring Core/STI/DBD adjacency) -- then appends
+// one directory entry per blob holding its cold refs followed by its hot refs.
+Status SniiCompoundWriter::write_blob_hot_files_and_entries(
+        std::vector<LogicalIndexMetadataRef>* directory_entries) {
+    for (PendingBlobIndex& blob : blobs_) {
+        RETURN_IF_ERROR(write_blob_files(blob.hot_files, &blob.hot_refs));
+    }
+    for (PendingBlobIndex& blob : blobs_) {
+        LogicalIndexMetadataRef entry;
+        entry.index_id = blob.index_id;
+        entry.index_suffix = blob.index_suffix;
+        entry.kind = blob.kind;
+        entry.files.reserve(blob.cold_refs.size() + blob.hot_refs.size());
+        entry.files.insert(entry.files.end(), blob.cold_refs.begin(), blob.cold_refs.end());
+        entry.files.insert(entry.files.end(), blob.hot_refs.begin(), blob.hot_refs.end());
+        directory_entries->push_back(std::move(entry));
+    }
+    return Status::OK();
+}
+
 Status SniiCompoundWriter::write_tail() {
     std::vector<LogicalIndexMetadataRef> directory_entries;
-    directory_entries.reserve(inherited_.size() + indexes_.size());
+    directory_entries.reserve(inherited_.size() + indexes_.size() + blobs_.size());
     // Inherited metadata groups are re-emitted verbatim: their section references
     // already point into the copied prefix, which landed at identical offsets, so
     // no posting is decoded or re-encoded. Only the group's own position moves.
@@ -446,6 +598,8 @@ Status SniiCompoundWriter::write_tail() {
         directory_entries.push_back(std::move(entry));
     }
 
+    RETURN_IF_ERROR(write_blob_hot_files_and_entries(&directory_entries));
+
     ByteSink directory_sink;
     RETURN_IF_ERROR(format::encode_metadata_directory(directory_entries, &directory_sink));
     const uint64_t directory_offset = out_->bytes_written();
@@ -482,6 +636,12 @@ Status SniiCompoundWriter::finish() {
     RETURN_IF_ERROR(ensure_bootstrap()); // empty container still gets a header
     Status status = write_norms();
     if (!status.ok()) return poison(status);
+    // Blob COLD files: after every text physical section (posting/dict/norms/
+    // null-bitmap/BSBF), before the first metadata group. Registration order.
+    for (PendingBlobIndex& blob : blobs_) {
+        status = write_blob_files(blob.cold_files, &blob.cold_refs);
+        if (!status.ok()) return poison(status);
+    }
     status = write_tail();
     if (!status.ok()) return poison(status);
     status = out_->finalize();

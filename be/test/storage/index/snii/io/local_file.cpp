@@ -47,17 +47,16 @@ Status LocalFileReader::open(const std::string& path) {
     return Status::OK();
 }
 
-Status LocalFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
+Status LocalFileReader::pread_exact(uint64_t offset, uint8_t* out, size_t len) const {
     if (fd_ < 0) return Status::Error<ErrorCode::IO_ERROR, false>("read_at on unopened file");
     // Non-wrapping bounds check (offset+len could overflow uint64 on a corrupt arg).
     if (offset > size_ || len > size_ - offset) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "read_at past end of file");
     }
-    out->resize(len);
     size_t done = 0;
     while (done < len) {
-        ssize_t n = ::pread(fd_, out->data() + done, len - done, static_cast<off_t>(offset + done));
+        ssize_t n = ::pread(fd_, out + done, len - done, static_cast<off_t>(offset + done));
         if (n < 0) {
             if (errno == EINTR) continue;
             return Status::Error<ErrorCode::IO_ERROR, false>(errno_msg("pread"));
@@ -68,6 +67,35 @@ Status LocalFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t
         done += static_cast<size_t>(n);
     }
     return Status::OK();
+}
+
+// This overrides a non-const pure virtual in io::FileReader, so a const
+// signature would stop overriding it; and `out` is the output buffer this
+// resizes, so it cannot be pointer-to-const either.
+// NOLINTBEGIN(readability-make-member-function-const,readability-non-const-parameter)
+Status LocalFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
+    // Bounds-check BEFORE resizing so a corrupt length cannot force a huge
+    // allocation (pread_exact re-validates; that repeat is harmless).
+    if (fd_ < 0) {
+        return Status::Error<ErrorCode::IO_ERROR, false>("read_at on unopened file");
+    }
+    if (offset > size_ || len > size_ - offset) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "read_at past end of file");
+    }
+    out->resize(len);
+    return pread_exact(offset, out->data(), len);
+}
+// NOLINTEND(readability-make-member-function-const,readability-non-const-parameter)
+
+Status LocalFileReader::read_into(uint64_t offset, uint8_t* out, size_t out_len) {
+    if (out_len == 0) {
+        return Status::OK();
+    }
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("read_into: null output buffer");
+    }
+    return pread_exact(offset, out, out_len);
 }
 
 LocalFileWriter::~LocalFileWriter() {

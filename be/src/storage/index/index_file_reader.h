@@ -84,6 +84,12 @@ public:
     // SNII only: the raw byte source backing this container, handed to
     // SniiCompoundWriter::inherit for the sequential prefix copy.
     doris::snii::io::FileReader* snii_io_reader() const { return _snii_file_reader.get(); }
+    // SNII only: true when the opened container holds a blob logical index
+    // (BKD / ANN). False when this reader opened no SNII container at all.
+    bool snii_has_blob_index() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _snii_segment_reader != nullptr && _snii_segment_reader->has_blob_index();
+    }
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;

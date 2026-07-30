@@ -20,16 +20,52 @@ syntax = "proto2";
 package doris.snii;
 
 message SniiMetadataDirectoryPB {
+    // Known values: 1 = blob logical index entries are present (set iff any
+    // entry has kind != SNII_KIND_INVERTED). Readers accept a whitelist of
+    // known values and reject everything else as Unsupported.
     repeated uint32 required_features = 1 [packed = true];
     repeated SniiLogicalIndexMetadataPB indexes = 2;
+}
+
+// Logical index kinds. INVERTED keeps the existing three-blob contract; blob
+// kinds carry an opaque named-file table instead. The `kind` field below is
+// deliberately uint32 (not this enum type): proto2 drops unknown enum values
+// into unknown fields, which would make a future kind indistinguishable from
+// an absent one instead of a clean Unsupported.
+enum SniiLogicalIndexKindPB {
+    SNII_KIND_INVERTED = 0; // default: SNII text inverted index
+    SNII_KIND_BKD = 1;      // opaque CLucene BKD blobs
+    SNII_KIND_ANN = 2;      // opaque faiss blobs
+}
+
+// One opaque sub-file of a blob logical index. Offsets are absolute file
+// offsets into the container. NOTE: length may legitimately be 0 (an empty
+// BKD segment writes 0-byte `bkd` / `bkd_index`); this deliberately differs
+// from SniiBlobRefPB, whose length==0 is Corruption.
+message SniiNamedBlobPB {
+    optional bytes name = 1; // e.g. "bkd_meta", "ann.faiss"
+    optional uint64 offset = 2;
+    optional uint64 length = 3; // may be 0
+    // Whole-blob checksum, recorded by the writer. NOT verified on the read
+    // path: a blob is served through random-access reads, so a whole-file
+    // verification would defeat the point, and BKD/faiss both carry their own
+    // structural checks. It exists so an offline inspect/fsck tool (and the
+    // writer's own unit tests) can distinguish "container bytes rotted" from
+    // "reader is buggy". No such tool exists yet.
+    optional uint32 crc32c = 4;
 }
 
 message SniiLogicalIndexMetadataPB {
     optional uint64 index_id = 1;
     optional bytes index_suffix = 2;
-    optional SniiBlobRefPB core_metadata = 3;
-    optional SniiBlobRefPB sampled_term_index = 4;
-    optional SniiBlobRefPB dict_block_directory = 5;
+    optional SniiBlobRefPB core_metadata = 3;        // INVERTED only
+    optional SniiBlobRefPB sampled_term_index = 4;   // INVERTED only
+    optional SniiBlobRefPB dict_block_directory = 5; // INVERTED only
+    // SniiLogicalIndexKindPB. Writers MUST NOT set this field (not even to 0)
+    // on INVERTED entries: proto2 presence semantics would serialize it and
+    // change the bytes of every pure-text directory.
+    optional uint32 kind = 6;
+    repeated SniiNamedBlobPB files = 7; // blob kinds only
 }
 
 message SniiBlobRefPB {

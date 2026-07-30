@@ -33,6 +33,13 @@ inline constexpr uint32_t kTailMagic = 0x4C494154u;      // 'T''A''I''L'
 inline constexpr uint16_t kFormatVersion = 1;
 inline constexpr uint16_t kMinReaderVersion = 1;
 
+// ---- Metadata directory required_features values ----
+// The directory carries opaque blob logical index entries (kind != INVERTED).
+// Set iff at least one such entry exists; readers whitelist known values and
+// reject unknown ones as Unsupported, so a pure-text directory stays
+// byte-identical to the pre-blob format.
+inline constexpr uint32_t kFeatureBlobLogicalIndex = 1;
+
 // ---- SectionFramer type ids for standalone metadata blobs ----
 enum class SectionType : uint8_t {
     kSampledTermIndex = 2,

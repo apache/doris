@@ -78,12 +78,56 @@ Status validate_metadata_group(const format::LogicalIndexMetadataRef& entry,
     return Status::OK();
 }
 
+// Blob entries carry no metadata group; their files must simply live before
+// the directory. (Cold files sit in the data area, hot files between the text
+// metadata groups and the directory -- the reader only needs the upper bound.)
+Status validate_blob_files(const format::LogicalIndexMetadataRef& entry,
+                           uint64_t directory_offset) {
+    for (const format::NamedBlobFileRef& file : entry.files) {
+        if (file.offset > directory_offset || file.length > directory_offset - file.offset) {
+            return corrupted("segment: blob file reference is outside the container data area");
+        }
+    }
+    return Status::OK();
+}
+
 Status find_metadata_ref(const format::MetadataDirectory& directory, uint64_t index_id,
                          std::string_view suffix, const format::LogicalIndexMetadataRef** out) {
     *out = directory.find(index_id, suffix);
     if (*out == nullptr) {
         return Status::Error<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>(
                 "segment: logical index not found");
+    }
+    return Status::OK();
+}
+
+// Guards a text-only entry point against a blob entry (and vice versa): the
+// caller reached the wrong reader for this entry's kind, which is a usage
+// error, not corruption.
+Status require_inverted(const format::LogicalIndexMetadataRef& entry) {
+    if (entry.kind != format::LogicalIndexKind::kInverted) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "segment: logical index is not a text inverted index");
+    }
+    return Status::OK();
+}
+
+// Blob logical indexes are outside the physical-prefix inherit model: their
+// HOT files live inside the metadata area (between the text metadata groups
+// and the directory), which a prefix copy does not cover, and their zeroed
+// core_metadata offsets would collapse the metadata_area_begin computation.
+// A rewrite over such a container must fail loudly BEFORE reading any group,
+// whichever keys the caller keeps -- silently dropping or mis-copying an index
+// is never acceptable. Lifting this needs a hot-file re-emission step in
+// SniiCompoundWriter::inherit (mirroring how metadata groups are re-emitted at
+// new offsets).
+Status reject_blob_container_for_rewrite(const format::MetadataDirectory& directory) {
+    for (const format::LogicalIndexMetadataRef& entry : directory.entries()) {
+        if (entry.kind != format::LogicalIndexKind::kInverted) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                    "segment: rewrite snapshot over a container with blob logical indexes is "
+                    "not supported");
+        }
     }
     return Status::OK();
 }
@@ -127,7 +171,11 @@ Status SniiSegmentReader::open(io::FileReader* const reader, SniiSegmentReader* 
     format::MetadataDirectory directory;
     RETURN_IF_ERROR(format::MetadataDirectory::decode(Slice(directory_bytes), &directory));
     for (const auto& entry : directory.entries()) {
-        RETURN_IF_ERROR(validate_metadata_group(entry, tail.directory_offset));
+        if (entry.kind == format::LogicalIndexKind::kInverted) {
+            RETURN_IF_ERROR(validate_metadata_group(entry, tail.directory_offset));
+        } else {
+            RETURN_IF_ERROR(validate_blob_files(entry, tail.directory_offset));
+        }
     }
 
     out->reader_ = reader;
@@ -160,6 +208,7 @@ Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
     }
     const format::LogicalIndexMetadataRef* entry = nullptr;
     RETURN_IF_ERROR(find_metadata_ref(directory_, index_id, suffix, &entry));
+    RETURN_IF_ERROR(require_inverted(*entry));
 
     // Safe to sum and narrow: open() ran validate_metadata_group on every directory entry.
     const auto core_length = static_cast<size_t>(entry->core_metadata.length);
@@ -175,6 +224,53 @@ Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
             bytes.subslice(core_length + sti_length, dbd_length), out, open_mode);
 }
 
+// Loads one kept logical index into *out and extends *physical_prefix_end to
+// cover every section it references. Fails -- never silently drops an index --
+// on a missing key, a corrupt metadata blob, a section reference outside the
+// physical area, or a doc-count disagreement with the segment.
+Status SniiSegmentReader::load_inherited_index(const LogicalIndexKey& key,
+                                               uint64_t segment_doc_count,
+                                               uint64_t metadata_area_begin,
+                                               InheritedLogicalIndex* const out,
+                                               uint64_t* const physical_prefix_end) const {
+    const format::LogicalIndexMetadataRef* entry = nullptr;
+    RETURN_IF_ERROR(find_metadata_ref(directory_, key.index_id, key.index_suffix, &entry));
+
+    // Safe to sum and narrow: open() ran validate_metadata_group on every entry.
+    out->index_id = entry->index_id;
+    out->index_suffix = entry->index_suffix;
+    out->core_length = static_cast<size_t>(entry->core_metadata.length);
+    out->sampled_term_index_length = static_cast<size_t>(entry->sampled_term_index.length);
+    out->dict_block_directory_length = static_cast<size_t>(entry->dict_block_directory.length);
+    const size_t group_length =
+            out->core_length + out->sampled_term_index_length + out->dict_block_directory_length;
+    RETURN_IF_ERROR(
+            reader_->read_at(entry->core_metadata.offset, group_length, &out->metadata_group));
+    DORIS_CHECK_EQ(out->metadata_group.size(), group_length);
+
+    // Decoding validates the frame crc, so a damaged live index fails the whole
+    // rewrite instead of being silently carried over or dropped.
+    format::CoreMetadata core;
+    RETURN_IF_ERROR(format::decode_core_metadata(
+            Slice(out->metadata_group.data(), out->core_length), &core));
+    if (core.stats.doc_count != segment_doc_count) {
+        return corrupted("segment: inherited logical index doc count disagrees with segment");
+    }
+    out->section_refs = core.section_refs;
+    out->doc_count = core.stats.doc_count;
+
+    for (const format::RegionRef& region :
+         {core.section_refs.dict_region, core.section_refs.posting_region, core.section_refs.norms,
+          core.section_refs.null_bitmap, core.section_refs.bsbf}) {
+        if (region.offset > metadata_area_begin ||
+            region.length > metadata_area_begin - region.offset) {
+            return corrupted("segment: inherited section reference is outside the physical area");
+        }
+        *physical_prefix_end = std::max(*physical_prefix_end, region.offset + region.length);
+    }
+    return Status::OK();
+}
+
 Status SniiSegmentReader::prepare_rewrite_snapshot(const std::vector<LogicalIndexKey>& keep,
                                                    uint64_t segment_doc_count,
                                                    SniiRewriteSnapshot* const out) const {
@@ -185,6 +281,8 @@ Status SniiSegmentReader::prepare_rewrite_snapshot(const std::vector<LogicalInde
     if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
+
+    RETURN_IF_ERROR(reject_blob_container_for_rewrite(directory_));
 
     // The query path skips the bootstrap header because the tail already gates the
     // container version. A rewrite copies those bytes into the new container, so it
@@ -213,49 +311,40 @@ Status SniiSegmentReader::prepare_rewrite_snapshot(const std::vector<LogicalInde
                         "segment: logical index requested twice in one rewrite snapshot");
             }
         }
-        const format::LogicalIndexMetadataRef* entry = nullptr;
-        RETURN_IF_ERROR(find_metadata_ref(directory_, key.index_id, key.index_suffix, &entry));
-
-        // Safe to sum and narrow: open() ran validate_metadata_group on every entry.
         InheritedLogicalIndex kept;
-        kept.index_id = entry->index_id;
-        kept.index_suffix = entry->index_suffix;
-        kept.core_length = static_cast<size_t>(entry->core_metadata.length);
-        kept.sampled_term_index_length = static_cast<size_t>(entry->sampled_term_index.length);
-        kept.dict_block_directory_length = static_cast<size_t>(entry->dict_block_directory.length);
-        const size_t group_length = kept.core_length + kept.sampled_term_index_length +
-                                    kept.dict_block_directory_length;
-        RETURN_IF_ERROR(
-                reader_->read_at(entry->core_metadata.offset, group_length, &kept.metadata_group));
-        DORIS_CHECK_EQ(kept.metadata_group.size(), group_length);
-
-        // Decoding validates the frame crc, so a damaged live index fails the whole
-        // rewrite instead of being silently carried over or dropped.
-        format::CoreMetadata core;
-        RETURN_IF_ERROR(format::decode_core_metadata(
-                Slice(kept.metadata_group.data(), kept.core_length), &core));
-        if (core.stats.doc_count != segment_doc_count) {
-            return corrupted("segment: inherited logical index doc count disagrees with segment");
-        }
-        kept.section_refs = core.section_refs;
-        kept.doc_count = core.stats.doc_count;
-
-        for (const format::RegionRef& region :
-             {core.section_refs.dict_region, core.section_refs.posting_region,
-              core.section_refs.norms, core.section_refs.null_bitmap, core.section_refs.bsbf}) {
-            if (region.offset > metadata_area_begin ||
-                region.length > metadata_area_begin - region.offset) {
-                return corrupted(
-                        "segment: inherited section reference is outside the physical "
-                        "area");
-            }
-            physical_prefix_end = std::max(physical_prefix_end, region.offset + region.length);
-        }
+        RETURN_IF_ERROR(load_inherited_index(key, segment_doc_count, metadata_area_begin, &kept,
+                                             &physical_prefix_end));
         inherited.push_back(std::move(kept));
     }
 
     out->physical_prefix_end_ = physical_prefix_end;
     out->inherited_ = std::move(inherited);
+    return Status::OK();
+}
+
+bool SniiSegmentReader::has_blob_index() const {
+    return std::any_of(directory_.entries().begin(), directory_.entries().end(),
+                       [](const format::LogicalIndexMetadataRef& entry) {
+                           return entry.kind != format::LogicalIndexKind::kInverted;
+                       });
+}
+
+Status SniiSegmentReader::blob_entry(uint64_t index_id, std::string_view suffix,
+                                     const format::LogicalIndexMetadataRef** out) const {
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: null entry out");
+    }
+    *out = nullptr;
+    if (reader_ == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
+    }
+    const format::LogicalIndexMetadataRef* entry = nullptr;
+    RETURN_IF_ERROR(find_metadata_ref(directory_, index_id, suffix, &entry));
+    if (entry->kind == format::LogicalIndexKind::kInverted) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "segment: logical index is not a blob index");
+    }
+    *out = entry;
     return Status::OK();
 }
 
@@ -269,6 +358,7 @@ Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_
     }
     const format::LogicalIndexMetadataRef* entry = nullptr;
     RETURN_IF_ERROR(find_metadata_ref(directory_, index_id, suffix, &entry));
+    RETURN_IF_ERROR(require_inverted(*entry));
     std::vector<uint8_t> core_bytes;
     RETURN_IF_ERROR(reader_->read_at(entry->core_metadata.offset, entry->core_metadata.length,
                                      &core_bytes));

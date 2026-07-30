@@ -18,11 +18,13 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/file_writer.h"
 #include "storage/index/snii/writer/logical_index_writer.h"
@@ -75,6 +77,23 @@ class SniiRewriteSnapshot;
 namespace doris::snii::writer {
 
 class SniiCompoundWriter;
+
+// One opaque sub-file of a blob logical index, registered by add_blob_index.
+// `read_fn` MUST fill exactly `len` bytes at blob-relative `offset` into `out`
+// or return an error -- a short read reported as OK would be checksummed and
+// sealed as if it were the real payload, since the crc is computed over the
+// same buffer this call fills.
+//
+// The signature is PURE Status by design: the future Doris adapter that wraps a
+// staged third-party index directory is required to convert that library's
+// exceptions into Status BEFORE calling in, because the snii core has no
+// try/catch on the sealing path (an escaping exception would skip poison()) and
+// takes no third-party index-library dependency (a guard test enforces this).
+struct BlobFileSource {
+    std::string name;
+    uint64_t length = 0;
+    std::function<Status(uint64_t offset, size_t len, uint8_t* out)> read_fn;
+};
 
 // T2.2 (compaction index merge fast path): handle for ONE streamed logical-index
 // session inside a SniiCompoundWriter, obtained from begin_streamed_index(). The
@@ -150,6 +169,10 @@ public:
     // small enough that even a multi-GiB container costs a negligible number of
     // reads.
     static constexpr size_t kInheritCopyChunkBytes = 64U << 10;
+    // Same rationale for the blob file copy in finish(): peak memory is one
+    // chunk regardless of blob size (a GiB-scale ann.faiss must never be
+    // buffered whole inside the compound writer).
+    static constexpr size_t kBlobCopyChunkBytes = 64U << 10;
 
     // Carries a source container's unchanged logical indexes into this one
     // (BUILD INDEX on SNII). It copies the source's validated physical prefix --
@@ -168,6 +191,18 @@ public:
     // The actual file writing happens in finish() (single front-to-back pass).
     // The key (index_id, suffix) must not collide with an inherited one.
     Status add_logical_index(const SniiIndexInput& in);
+
+    // Registers one opaque BLOB logical index (kind must not be kInverted).
+    // Registration is pure bookkeeping -- NOT A BYTE is written here, so it is
+    // legal at any point before finish() (even while a streamed session is
+    // active). finish() streams cold_files into the data area (after
+    // write_norms) and hot_files after the text metadata groups, physically
+    // adjacent per entry, recording absolute offsets + crc32c into the
+    // directory entry. A rejected registration leaves the writer clean; a copy
+    // failure during finish() poisons the container for good.
+    Status add_blob_index(uint64_t index_id, std::string index_suffix,
+                          format::LogicalIndexKind kind, std::vector<BlobFileSource> cold_files,
+                          std::vector<BlobFileSource> hot_files);
 
     // T2.2: begins a STREAMED logical-index session (the compaction merge fast
     // path) -- the caller pushes pre-merged terms through *session instead of
@@ -215,6 +250,18 @@ private:
         size_t dict_block_directory_length = 0;
     };
 
+    // One registered blob logical index awaiting finish(). cold/hot refs are
+    // resolved as the corresponding bytes stream out during finish().
+    struct PendingBlobIndex {
+        uint64_t index_id = 0;
+        std::string index_suffix;
+        format::LogicalIndexKind kind = format::LogicalIndexKind::kInverted;
+        std::vector<BlobFileSource> cold_files;
+        std::vector<BlobFileSource> hot_files;
+        std::vector<format::NamedBlobFileRef> cold_refs;
+        std::vector<format::NamedBlobFileRef> hot_refs;
+    };
+
     friend class SniiStreamedIndexSession;
 
     Status ensure_bootstrap();
@@ -223,6 +270,18 @@ private:
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
     Status poison(Status status);
+    // Argument validation for one add_blob_index call; see the .cpp.
+    static Status validate_blob_registration(format::LogicalIndexKind kind,
+                                             const std::vector<BlobFileSource>& cold_files,
+                                             const std::vector<BlobFileSource>& hot_files);
+    // Streams `files` into the container at the current position through a
+    // fixed-size chunk buffer, recording each file's absolute placement and
+    // crc32c into *refs. Called from finish() only (cold then hot regions).
+    Status write_blob_files(const std::vector<BlobFileSource>& files,
+                            std::vector<format::NamedBlobFileRef>* refs);
+    // Emits the blob hot-file region and the blob directory entries; see the .cpp.
+    Status write_blob_hot_files_and_entries(
+            std::vector<format::LogicalIndexMetadataRef>* directory_entries);
     // Seals one streamed session: records its placements and adopts its
     // LogicalIndexWriter into indexes_ (only on FULL success -- see the
     // crash-safety note on SniiStreamedIndexSession).
@@ -244,6 +303,9 @@ private:
     // Logical indexes carried over by inherit(), in source directory order. They
     // own no LogicalIndexWriter: their sections are already in the copied prefix.
     std::vector<InheritedGroup> inherited_;
+    // Blob logical indexes registered by add_blob_index(), in add order. Their
+    // bytes stream out during finish() only.
+    std::vector<PendingBlobIndex> blobs_;
     // inherit() ran successfully. Distinct from inherited_ being non-empty: a
     // rewrite may drop every old index and still copy the bootstrap header.
     bool inherited_prefix_ = false;

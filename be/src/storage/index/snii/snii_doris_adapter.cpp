@@ -101,6 +101,29 @@ Status DorisSniiFileReader::read_at(uint64_t offset, size_t len, std::vector<uin
 }
 
 // NOLINTNEXTLINE(readability-non-const-parameter): out is the SNII read output buffer.
+Status DorisSniiFileReader::read_into(uint64_t offset, uint8_t* out, size_t out_len) {
+    if (out_len == 0) {
+        return Status::OK();
+    }
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("output buffer is null");
+    }
+    RETURN_IF_ERROR(_check_read_range(offset, out_len));
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("DorisSniiFileReader::_read_at",
+                                      Status::IOError("injected SNII read failure"), offset,
+                                      out_len);
+    DCHECK(_reader != nullptr);
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(_reader->read_at(offset, Slice(out, out_len), &bytes_read, _current_io_ctx()));
+    if (bytes_read != out_len) {
+        return Status::Error<ErrorCode::IO_ERROR, false>(fmt::format(
+                "short read at offset {}, expect {}, got {}", offset, out_len, bytes_read));
+    }
+    _record_read_stats(cast_set<int64_t>(out_len), cast_set<int64_t>(out_len), 1, 1);
+    return Status::OK();
+}
+
+// NOLINTNEXTLINE(readability-non-const-parameter): out is the SNII read output buffer.
 Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
                                      const io::IOContext* io_ctx) const {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("DorisSniiFileReader::_read_at",

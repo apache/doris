@@ -40,9 +40,13 @@ public:
 
     Status open(const std::string& path);
     Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    Status read_into(uint64_t offset, uint8_t* out, size_t out_len) override;
     uint64_t size() const override { return size_; }
 
 private:
+    // Shared pread loop: read_at resizes its vector and delegates here.
+    Status pread_exact(uint64_t offset, uint8_t* out, size_t len) const;
+
     int fd_ = -1;
     uint64_t size_ = 0;
 };

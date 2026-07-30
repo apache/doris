@@ -104,8 +104,8 @@ std::vector<TermPostings> TokenizeDocs(const std::vector<std::string>& docs, boo
         size_t start = 0;
         while (start <= doc.size()) {
             const size_t space = doc.find(' ', start);
-            const std::string token =
-                    doc.substr(start, space == std::string::npos ? std::string::npos : space - start);
+            const std::string token = doc.substr(
+                    start, space == std::string::npos ? std::string::npos : space - start);
             if (!token.empty()) {
                 buffer.add_token(token, docid, position++);
             }
@@ -136,9 +136,9 @@ std::vector<uint8_t> BuildTwoIndexImage() {
     second.index_suffix = kSuffixB;
     second.config = IndexConfig::kDocsPositions;
     second.doc_count = kDocCount;
-    second.terms = TokenizeDocs({"echo foxtrot golf hotel", "foxtrot india juliett",
-                                 "golf kilo lima mike november"},
-                                /*has_positions=*/true);
+    second.terms = TokenizeDocs(
+            {"echo foxtrot golf hotel", "foxtrot india juliett", "golf kilo lima mike november"},
+            /*has_positions=*/true);
     second.target_dict_block_bytes = 256;
 
     const std::string path = TempPath();
@@ -162,14 +162,16 @@ uint64_t TailDirectoryOffset(const std::vector<uint8_t>& image) {
     const size_t footer = tail_pointer_size();
     EXPECT_GE(image.size(), footer);
     TailPointer tail;
-    EXPECT_TRUE(decode_tail_pointer(Slice(image.data() + image.size() - footer, footer), &tail).ok());
+    EXPECT_TRUE(
+            decode_tail_pointer(Slice(image.data() + image.size() - footer, footer), &tail).ok());
     return tail.directory_offset;
 }
 
 MetadataDirectory ReadDirectory(const std::vector<uint8_t>& image) {
     const size_t footer = tail_pointer_size();
     TailPointer tail;
-    EXPECT_TRUE(decode_tail_pointer(Slice(image.data() + image.size() - footer, footer), &tail).ok());
+    EXPECT_TRUE(
+            decode_tail_pointer(Slice(image.data() + image.size() - footer, footer), &tail).ok());
     MetadataDirectory directory;
     EXPECT_TRUE(MetadataDirectory::decode(Slice(image.data() + tail.directory_offset,
                                                 static_cast<size_t>(tail.directory_length)),
@@ -225,9 +227,9 @@ std::vector<uint8_t> RebuildMetadataArea(
     for (const size_t index : order) {
         const LogicalIndexMetadataRef& source = directory.entries()[index];
         CoreMetadata core;
-        EXPECT_TRUE(decode_core_metadata(
-                            Slice(image.data() + source.core_metadata.offset,
-                                  static_cast<size_t>(source.core_metadata.length)), &core)
+        EXPECT_TRUE(decode_core_metadata(Slice(image.data() + source.core_metadata.offset,
+                                               static_cast<size_t>(source.core_metadata.length)),
+                                         &core)
                             .ok());
         mutate_core(source.index_id, &core);
         ByteSink core_sink;
@@ -283,11 +285,10 @@ TEST(SniiRewriteSnapshot, DescribesEveryKeptLogicalIndex) {
     ASSERT_TRUE(SniiSegmentReader::open(&reader, &segment).ok());
 
     SniiRewriteSnapshot snapshot;
-    ASSERT_TRUE(segment
-                        .prepare_rewrite_snapshot(
-                                KeysOf({{kIndexIdA, kSuffixA}, {kIndexIdB, kSuffixB}}), kDocCount,
-                                &snapshot)
-                        .ok());
+    ASSERT_TRUE(
+            segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}, {kIndexIdB, kSuffixB}}),
+                                             kDocCount, &snapshot)
+                    .ok());
 
     ASSERT_EQ(2U, snapshot.inherited().size());
     const MetadataDirectory directory = ReadDirectory(image);
@@ -301,8 +302,10 @@ TEST(SniiRewriteSnapshot, DescribesEveryKeptLogicalIndex) {
         ASSERT_TRUE(segment.section_refs_for_index(inherited.index_id, inherited.index_suffix,
                                                    &expected_refs)
                             .ok());
-        EXPECT_EQ(expected_refs.posting_region.offset, inherited.section_refs.posting_region.offset);
-        EXPECT_EQ(expected_refs.posting_region.length, inherited.section_refs.posting_region.length);
+        EXPECT_EQ(expected_refs.posting_region.offset,
+                  inherited.section_refs.posting_region.offset);
+        EXPECT_EQ(expected_refs.posting_region.length,
+                  inherited.section_refs.posting_region.length);
         EXPECT_EQ(expected_refs.dict_region.offset, inherited.section_refs.dict_region.offset);
         EXPECT_EQ(expected_refs.dict_region.length, inherited.section_refs.dict_region.length);
         EXPECT_GT(inherited.section_refs.dict_region.length, 0U);
@@ -329,11 +332,10 @@ TEST(SniiRewriteSnapshot, PrefixCoversSectionsAndExcludesMetadata) {
     ASSERT_TRUE(SniiSegmentReader::open(&reader, &segment).ok());
 
     SniiRewriteSnapshot snapshot;
-    ASSERT_TRUE(segment
-                        .prepare_rewrite_snapshot(
-                                KeysOf({{kIndexIdA, kSuffixA}, {kIndexIdB, kSuffixB}}), kDocCount,
-                                &snapshot)
-                        .ok());
+    ASSERT_TRUE(
+            segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}, {kIndexIdB, kSuffixB}}),
+                                             kDocCount, &snapshot)
+                    .ok());
 
     // The prefix starts with the bootstrap header and ends at the last kept
     // section: no metadata group, directory, padding or tail byte is inside it.
@@ -355,11 +357,10 @@ TEST(SniiRewriteSnapshot, DroppedIndexIsAbsentAndShortensThePrefix) {
     ASSERT_TRUE(SniiSegmentReader::open(&reader, &segment).ok());
 
     SniiRewriteSnapshot both;
-    ASSERT_TRUE(segment
-                        .prepare_rewrite_snapshot(
-                                KeysOf({{kIndexIdA, kSuffixA}, {kIndexIdB, kSuffixB}}), kDocCount,
-                                &both)
-                        .ok());
+    ASSERT_TRUE(
+            segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}, {kIndexIdB, kSuffixB}}),
+                                             kDocCount, &both)
+                    .ok());
     SniiRewriteSnapshot first_only;
     ASSERT_TRUE(segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}}), kDocCount,
                                                  &first_only)

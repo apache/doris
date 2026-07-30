@@ -71,6 +71,11 @@ public:
                                  bool direct_remote_io = false);
 
     Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    // Fills the caller's buffer directly (no vector round-trip) under the same
+    // scoped-IOContext resolution as read_at. The blob read shim
+    // (SniiBlobIndexInput) refills through this, so BufferedIndexInput's
+    // large-read bypass lands blob bytes straight in the destination array.
+    Status read_into(uint64_t offset, uint8_t* out, size_t out_len) override;
     Status read_batch(const std::vector<::doris::snii::io::Range>& ranges,
                       std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;

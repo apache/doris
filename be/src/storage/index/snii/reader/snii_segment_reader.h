@@ -112,6 +112,18 @@ public:
     Status section_refs_for_index(uint64_t index_id, std::string_view suffix,
                                   format::SectionRefs* const out) const;
 
+    // Looks up a BLOB logical index entry (kind != kInverted) and exposes its
+    // validated directory entry (kind + named-file table). Absent -> NotFound;
+    // a text inverted entry under that key -> Unsupported (kind mismatch, not
+    // a lookup miss). The pointer stays valid for this reader's lifetime.
+    Status blob_entry(uint64_t index_id, std::string_view suffix,
+                      const format::LogicalIndexMetadataRef** out) const;
+
+    // True when the container holds at least one blob logical index. A rewrite
+    // driven by the text index list must consult this BEFORE deciding it has
+    // nothing to carry over, or it would drop those entries silently.
+    bool has_blob_index() const;
+
     // Builds a rewrite snapshot describing exactly the logical indexes in `keep`.
     // `segment_doc_count` is the segment's row count: every kept logical index must
     // agree with it. Fails -- never silently drops an index -- on a missing or
@@ -123,7 +135,18 @@ public:
 
     io::FileReader* reader() const { return reader_; }
 
+    // Exclusive upper bound of the container's data area: physical sections,
+    // metadata groups and blob files all live strictly before it. Pass this to
+    // SniiBlobDirectory::open so the shim bounds blob files against the same
+    // limit open() validated them with, not against the whole file size.
+    uint64_t directory_offset() const { return directory_offset_; }
+
 private:
+    // One kept index of a rewrite snapshot; see the .cpp for the contract.
+    Status load_inherited_index(const LogicalIndexKey& key, uint64_t segment_doc_count,
+                                uint64_t metadata_area_begin, InheritedLogicalIndex* const out,
+                                uint64_t* const physical_prefix_end) const;
+
     io::FileReader* reader_ = nullptr;
     // Start of the raw metadata directory. Together with the directory entries it
     // bounds the metadata area, which is where the physical section area ends.

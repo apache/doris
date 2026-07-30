@@ -190,10 +190,10 @@ std::vector<uint8_t> WriteContainer(const std::vector<SniiIndexInput*>& inputs) 
 
 // Source container carrying (kIndexIdA, kSuffixA) and (kIndexIdB, kSuffixB).
 std::vector<uint8_t> BuildSourceImage() {
-    SniiIndexInput first = MakeInput(kIndexIdA, kSuffixA, SingleTermCorpus(kTermA, kDocCount),
-                                    kDocCount);
-    SniiIndexInput second = MakeInput(kIndexIdB, kSuffixB, SingleTermCorpus(kTermB, kDocCount),
-                                     kDocCount);
+    SniiIndexInput first =
+            MakeInput(kIndexIdA, kSuffixA, SingleTermCorpus(kTermA, kDocCount), kDocCount);
+    SniiIndexInput second =
+            MakeInput(kIndexIdB, kSuffixB, SingleTermCorpus(kTermB, kDocCount), kDocCount);
     return WriteContainer({&first, &second});
 }
 
@@ -235,7 +235,8 @@ TailPointer ReadTail(const std::vector<uint8_t>& image) {
     const size_t footer = tail_pointer_size();
     EXPECT_GE(image.size(), footer);
     TailPointer tail;
-    EXPECT_TRUE(decode_tail_pointer(Slice(image.data() + image.size() - footer, footer), &tail).ok());
+    EXPECT_TRUE(
+            decode_tail_pointer(Slice(image.data() + image.size() - footer, footer), &tail).ok());
     return tail;
 }
 
@@ -263,8 +264,8 @@ TEST(SniiCompoundWriterInherit, CarriesInheritedIndexesAndAppendsANewOne) {
     MemoryFileWriter sink;
     SniiCompoundWriter compound(&sink);
     ASSERT_TRUE(compound.inherit(snapshot, &source_reader).ok());
-    SniiIndexInput fresh = MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount),
-                                    kDocCount);
+    SniiIndexInput fresh =
+            MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount), kDocCount);
     ASSERT_TRUE(compound.add_logical_index(fresh).ok());
     ASSERT_TRUE(compound.finish().ok());
 
@@ -290,8 +291,8 @@ TEST(SniiCompoundWriterInherit, CopiesThePhysicalPrefixByteForByte) {
     SniiCompoundWriter compound(&sink);
     ASSERT_TRUE(compound.inherit(snapshot, &source_reader).ok());
     ASSERT_EQ(snapshot.physical_prefix_end(), sink.bytes_written());
-    SniiIndexInput fresh = MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount),
-                                    kDocCount);
+    SniiIndexInput fresh =
+            MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount), kDocCount);
     ASSERT_TRUE(compound.add_logical_index(fresh).ok());
     ASSERT_TRUE(compound.finish().ok());
 
@@ -307,9 +308,9 @@ TEST(SniiCompoundWriterInherit, CopiesThePhysicalPrefixByteForByte) {
     ASSERT_TRUE(SniiSegmentReader::open(&output_reader, &segment).ok());
     for (const auto& inherited : snapshot.inherited()) {
         SectionRefs refs;
-        ASSERT_TRUE(segment.section_refs_for_index(inherited.index_id, inherited.index_suffix,
-                                                   &refs)
-                            .ok());
+        ASSERT_TRUE(
+                segment.section_refs_for_index(inherited.index_id, inherited.index_suffix, &refs)
+                        .ok());
         EXPECT_EQ(inherited.section_refs.posting_region.offset, refs.posting_region.offset);
         EXPECT_EQ(inherited.section_refs.posting_region.length, refs.posting_region.length);
         EXPECT_EQ(inherited.section_refs.dict_region.offset, refs.dict_region.offset);
@@ -331,8 +332,8 @@ TEST(SniiCompoundWriterInherit, LeavesTheSourceMetadataDirectoryAndTailBehind) {
     MemoryFileWriter sink;
     SniiCompoundWriter compound(&sink);
     ASSERT_TRUE(compound.inherit(snapshot, &source_reader).ok());
-    SniiIndexInput fresh = MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount),
-                                    kDocCount);
+    SniiIndexInput fresh =
+            MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount), kDocCount);
     ASSERT_TRUE(compound.add_logical_index(fresh).ok());
     ASSERT_TRUE(compound.finish().ok());
 
@@ -345,8 +346,8 @@ TEST(SniiCompoundWriterInherit, LeavesTheSourceMetadataDirectoryAndTailBehind) {
     // Exactly one directory and one tail, both belonging to the new container.
     const TailPointer output_tail = ReadTail(output);
     EXPECT_GE(output_tail.directory_offset, snapshot.physical_prefix_end());
-    EXPECT_EQ(output.size(), output_tail.directory_offset + output_tail.directory_length +
-                                     tail_pointer_size());
+    EXPECT_EQ(output.size(),
+              output_tail.directory_offset + output_tail.directory_length + tail_pointer_size());
     EXPECT_TRUE(sink.finalized());
 }
 
@@ -381,8 +382,8 @@ TEST(SniiCompoundWriterInherit, RejectsInheritAfterAnotherDataOperation) {
 
     MemoryFileWriter sink;
     SniiCompoundWriter compound(&sink);
-    SniiIndexInput fresh = MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount),
-                                    kDocCount);
+    SniiIndexInput fresh =
+            MakeInput(kIndexIdC, kSuffixC, SingleTermCorpus(kTermC, kDocCount), kDocCount);
     ASSERT_TRUE(compound.add_logical_index(fresh).ok());
     const Status status = compound.inherit(snapshot, &source_reader);
     EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
@@ -398,8 +399,8 @@ TEST(SniiCompoundWriterInherit, RejectsANewIndexReusingAnInheritedKey) {
     MemoryFileWriter sink;
     SniiCompoundWriter compound(&sink);
     ASSERT_TRUE(compound.inherit(snapshot, &source_reader).ok());
-    SniiIndexInput clashing = MakeInput(kIndexIdA, kSuffixA, SingleTermCorpus(kTermC, kDocCount),
-                                       kDocCount);
+    SniiIndexInput clashing =
+            MakeInput(kIndexIdA, kSuffixA, SingleTermCorpus(kTermC, kDocCount), kDocCount);
     EXPECT_FALSE(compound.add_logical_index(clashing).ok());
     EXPECT_FALSE(compound.finish().ok())
             << "a duplicate logical index key must never reach a sealed directory";
@@ -445,10 +446,9 @@ TEST(SniiCompoundWriterInherit, CopiesALargePrefixThroughAFixedSizeBuffer) {
     SniiSegmentReader segment;
     ASSERT_TRUE(SniiSegmentReader::open(&source_reader, &segment).ok());
     SniiRewriteSnapshot snapshot;
-    ASSERT_TRUE(segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}}), 40, &snapshot)
-                        .ok());
-    ASSERT_GT(snapshot.physical_prefix_end(),
-              2 * SniiCompoundWriter::kInheritCopyChunkBytes);
+    ASSERT_TRUE(
+            segment.prepare_rewrite_snapshot(KeysOf({{kIndexIdA, kSuffixA}}), 40, &snapshot).ok());
+    ASSERT_GT(snapshot.physical_prefix_end(), 2 * SniiCompoundWriter::kInheritCopyChunkBytes);
     source_reader.clear_reads();
 
     MemoryFileWriter sink;

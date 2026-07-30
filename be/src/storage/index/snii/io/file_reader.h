@@ -19,8 +19,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
+#include "common/check.h"
 #include "common/status.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/io/io_metrics.h"
@@ -43,6 +45,31 @@ public:
     // Reads exactly len bytes starting at offset into *out (which is resized to
     // len). Reading past EOF is an error (Corruption/IoError).
     virtual Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) = 0;
+
+    // Reads exactly out_len bytes starting at offset into the CALLER-OWNED
+    // buffer out. Same EOF semantics as read_at. The default delegates to the
+    // vector overload for readers that predate this entry point; concrete
+    // readers override it to fill `out` directly -- the blob read shim depends
+    // on that to avoid a per-refill allocation and a second GiB-scale buffer
+    // on whole-blob loads (BufferedIndexInput hands large reads straight
+    // through to the caller buffer).
+    virtual Status read_into(uint64_t offset, uint8_t* out, size_t out_len) {
+        if (out_len == 0) {
+            return Status::OK();
+        }
+        if (out == nullptr) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "read_into: null output buffer");
+        }
+        std::vector<uint8_t> scratch;
+        RETURN_IF_ERROR(read_at(offset, out_len, &scratch));
+        // read_at's "reads exactly len bytes" is the contract every implementation
+        // owes; assert it rather than memcpy past the end of what it produced.
+        // inherit() guards the identical postcondition the same way.
+        DORIS_CHECK_EQ(scratch.size(), out_len);
+        std::memcpy(out, scratch.data(), out_len);
+        return Status::OK();
+    }
 
     // Reads a batch of ranges that may be served concurrently. The default is a
     // sequential loop; backends that model concurrency (the test-side

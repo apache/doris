@@ -160,7 +160,19 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     opts.file_size = file_size;
     opts.tablet_id = _tablet_id;
     io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(_fs->open_file(index_file_full_path, &reader, &opts));
+    // A rowset written before any index existed has no container at all. The
+    // filesystem reports that as a plain NOT_FOUND; translate it to the
+    // index-specific code the way the V1/V2 path does, because callers
+    // (IndexBuilder's BUILD INDEX rewrite) distinguish "no container yet, build
+    // everything fresh" from a real IO failure by exactly that code.
+    if (const Status open_status = _fs->open_file(index_file_full_path, &reader, &opts);
+        !open_status.ok()) {
+        if (open_status.is<ErrorCode::NOT_FOUND>()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, false>(
+                    "inverted index file {} is not found.", index_file_full_path);
+        }
+        return open_status;
+    }
     // With NO_CACHE on a remote filesystem there is no CachedRemoteFileReader to
     // account physical remote bytes, so the adapter must count its own reads.
     const bool direct_remote_io = opts.cache_type == io::FileCachePolicy::NO_CACHE &&
@@ -357,8 +369,14 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
         }
         std::shared_lock<std::shared_mutex> lock(_mutex);
         if (_snii_segment_reader == nullptr) {
+            // The container is on disk but this reader never opened it, so we
+            // cannot tell whether the index is in there. Answering "absent"
+            // would make a BUILD INDEX rewrite drop it silently; report the real
+            // condition instead, as the V2 branch below does.
             *res = false;
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "SNII idx file {} exists but is not opened",
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
         }
         return _snii_segment_reader->index_exists(cast_set<uint64_t>(index_meta->index_id()),
                                                   index_meta->get_index_suffix(), res);

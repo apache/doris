@@ -34,12 +34,37 @@ struct MetadataBlobRef {
     uint64_t length = 0;
 };
 
+// Directory entry kinds. kInverted keeps the original three-blob contract
+// (Core/STI/DBD); blob kinds carry an opaque named-file table instead, so a
+// non-text index (BKD / ANN) can live in the container without SNII knowing
+// its internal encoding.
+enum class LogicalIndexKind : uint32_t {
+    kInverted = 0,
+    kBkd = 1,
+    kAnn = 2,
+};
+
+// One opaque sub-file of a blob logical index. `offset` is an absolute
+// container offset. length == 0 is LEGAL here (an empty BKD segment writes
+// 0-byte `bkd` / `bkd_index` files) -- deliberately unlike MetadataBlobRef,
+// whose zero length is Corruption.
+struct NamedBlobFileRef {
+    std::string name;
+    uint64_t offset = 0;
+    uint64_t length = 0;
+    uint32_t crc32c = 0;
+};
+
 struct LogicalIndexMetadataRef {
     uint64_t index_id = 0;
     std::string index_suffix;
-    MetadataBlobRef core_metadata;
-    MetadataBlobRef sampled_term_index;
-    MetadataBlobRef dict_block_directory;
+    MetadataBlobRef core_metadata;        // kInverted only
+    MetadataBlobRef sampled_term_index;   // kInverted only
+    MetadataBlobRef dict_block_directory; // kInverted only
+    // Fields below extend the entry for blob kinds. They sit AFTER the
+    // original members so existing designated-initializer sites stay valid.
+    LogicalIndexKind kind = LogicalIndexKind::kInverted;
+    std::vector<NamedBlobFileRef> files; // blob kinds only
 };
 
 class MetadataDirectory {
