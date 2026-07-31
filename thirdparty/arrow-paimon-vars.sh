@@ -44,3 +44,24 @@ PAIMON_CPP_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tag
 PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
+
+# Identify the checked-in source, patch, and build inputs selected for the
+# Arrow/Paimon stack. Shared prebuilt archives record this value after a
+# successful build, allowing consumers to reject stale sources or patches.
+arrow_paimon_build_fingerprint() {
+    local vars_dir
+    vars_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    (
+        cd "${vars_dir}"
+        export LC_ALL=C
+        git hash-object \
+            arrow-paimon-vars.sh \
+            vars.sh \
+            download-thirdparty.sh \
+            build-thirdparty.sh \
+            paimon-cpp-cache.cmake \
+            patches/apache-arrow-"${ARROW_VERSION}"-*.patch \
+            patches/paimon-cpp-*.patch |
+            git hash-object --stdin
+    )
+}

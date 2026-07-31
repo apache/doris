@@ -134,6 +134,17 @@ jobs:
           # shellcheck source=thirdparty/arrow-paimon-vars.sh
           . ./arrow-paimon-vars.sh
           arrow_paimon_prebuilt_valid=true
+          selected_arrow_paimon_fingerprint="$(arrow_paimon_build_fingerprint)"
+          if [[ -f installed/arrow-paimon-build-fingerprint.txt ]]; then
+            installed_arrow_paimon_fingerprint="$(
+              <installed/arrow-paimon-build-fingerprint.txt
+            )"
+            if [[ "${installed_arrow_paimon_fingerprint}" != "${selected_arrow_paimon_fingerprint}" ]]; then
+              arrow_paimon_prebuilt_valid=false
+            fi
+          else
+            arrow_paimon_prebuilt_valid=false
+          fi
           if [[ -f installed/include/arrow/util/config.h ]]; then
             installed_arrow_version="$(
               awk '$1 == "#define" && $2 == "ARROW_VERSION_STRING" {
@@ -147,6 +158,9 @@ jobs:
             arrow_paimon_prebuilt_valid=false
           fi
           required_arrow_paimon_libraries=(
+            libbrotlicommon.a
+            libbrotlidec.a
+            libbrotlienc.a
             libarrow.a
             libarrow_compute.a
             libarrow_flight.a

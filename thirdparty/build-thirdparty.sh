@@ -2125,6 +2125,7 @@ build_paimon_cpp() {
     fi
 
     echo "Paimon-cpp internal dependencies installed successfully"
+    arrow_paimon_build_fingerprint >"${TP_INSTALL_DIR}/arrow-paimon-build-fingerprint.txt"
 }
 
 # lance-c
