@@ -168,6 +168,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_IPV4 = 38,
     OLAP_FIELD_TYPE_IPV6 = 39,
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
+    OLAP_FIELD_TYPE_TIMESTAMP_NS = 41,
 };
 
 // Define all aggregation methods supported by TabletColumn
@@ -224,6 +225,7 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS ||
            field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
            field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||

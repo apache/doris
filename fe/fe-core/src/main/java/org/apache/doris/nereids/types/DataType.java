@@ -77,6 +77,7 @@ public abstract class DataType {
                     .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
                     .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
                     .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.TIMESTAMP_NS.getPrimitiveType(), TimeStampNsType.INSTANCE)
                     .put(Type.TIMESTAMPTZ.getPrimitiveType(), TimeStampTzType.SYSTEM_DEFAULT)
                     .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
                     .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
@@ -118,7 +119,8 @@ public abstract class DataType {
             .add(DateType.class, () -> ImmutableList.of(
                     DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
-            .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
+            .add(TimeV2Type.class, () -> ImmutableList.of(
+                    DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
 
     public static Map<org.apache.doris.catalog.PrimitiveType, DataType> legacyTypeToNereidsType() {
@@ -351,6 +353,12 @@ public abstract class DataType {
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
                 break;
+            case "timestamp_ns":
+                if (types.size() != 1) {
+                    throw new AnalysisException("timestamp_ns does not support precision");
+                }
+                dataType = TimeStampNsType.INSTANCE;
+                break;
             case "timestamptz":
                 switch (types.size()) {
                     case 1:
@@ -424,6 +432,7 @@ public abstract class DataType {
             case DOUBLE: return DoubleType.INSTANCE;
             case NULL_TYPE: return NullType.INSTANCE;
             case DATETIMEV2: return DateTimeV2Type.of(((ScalarType) type).getScalarScale());
+            case TIMESTAMP_NS: return TimeStampNsType.INSTANCE;
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
@@ -1098,20 +1107,35 @@ public abstract class DataType {
                             + precision + " in not supported.");
                 }
             }
+            case TIMESTAMP_NS:
+                // TIMESTAMP_NS has fixed nanosecond precision and carries no variable precision/scale metadata.
+                break;
+            case DATETIMEV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                if (precision != ScalarType.DATETIME_PRECISION) {
+                    throw new AnalysisException(
+                            "Precision of Datetime must be " + ScalarType.DATETIME_PRECISION
+                                    + "." + " Precision was set to: " + precision + ".");
+                }
+                if (scale < 0 || scale > ScalarType.MAX_DATETIMEV2_SCALE) {
+                    throw new AnalysisException("Scale of Datetime must between 0 and "
+                            + ScalarType.MAX_DATETIMEV2_SCALE + "."
+                            + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
             case TIMEV2:
-            case DATETIMEV2:
             case TIMESTAMPTZ: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
-                // precision: 18
                 if (precision != ScalarType.DATETIME_PRECISION) {
                     throw new AnalysisException(
-                            "Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
+                            "Precision of Time must be " + ScalarType.DATETIME_PRECISION
                                     + "." + " Precision was set to: " + precision + ".");
                 }
-                // scale: [0, 6]
                 if (scale < 0 || scale > 6) {
-                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
+                    throw new AnalysisException("Scale of Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");
                 }
                 break;

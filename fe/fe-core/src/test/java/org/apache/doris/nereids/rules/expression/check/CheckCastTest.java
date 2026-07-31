@@ -42,6 +42,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -56,6 +57,20 @@ import java.util.Collections;
 import java.util.List;
 
 public class CheckCastTest {
+    @Test
+    public void testTimeStampNsOnlySupportsStringCasts() {
+        Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, TimeStampNsType.INSTANCE, true));
+        Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, StringType.INSTANCE, true));
+        Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, TimeStampNsType.INSTANCE, false));
+        Assertions.assertTrue(CheckCast.check(TimeStampNsType.INSTANCE, StringType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, true));
+        Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, TimeStampNsType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, false));
+    }
+
     @Test
     public void testCastBetweenVariantTypes() {
         VariantType v1Source = new VariantType(100);

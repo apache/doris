@@ -400,16 +400,19 @@ public class ColumnDef {
                 break;
             case DATETIME:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 if (defaultValueExprDef == null) {
-                    DateLiteralUtils.createDateLiteral(defaultValue, scalarType);
+                    DateLiteralUtils.createLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
                         if (defaultValueExprDef.getPrecision() != null) {
                             Long defaultValuePrecision = defaultValueExprDef.getPrecision();
                             String typeStr = scalarType.toString();
-                            int typePrecision =
-                                    Integer.parseInt(typeStr.substring(typeStr.indexOf("(") + 1, typeStr.indexOf(")")));
+                            int typePrecision = scalarType.isTimeStampNs()
+                                    ? ScalarType.TIMESTAMP_NS_SCALE
+                                    : Integer.parseInt(typeStr.substring(
+                                            typeStr.indexOf("(") + 1, typeStr.indexOf(")")));
                             if (defaultValuePrecision > typePrecision) {
                                 typeStr = typeStr.replace("V2", "");
                                 throw new AnalysisException("default value precision: " + defaultValue

@@ -28,6 +28,8 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
+import com.google.common.base.Preconditions;
+
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -46,7 +48,7 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
 
     private final int scale;
 
-    private DateTimeV2Type(int scale) {
+    protected DateTimeV2Type(int scale) {
         this.scale = scale;
     }
 
@@ -63,7 +65,11 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         }
     }
 
+    /** Return the wider DATETIMEV2 type. */
     public static DateTimeV2Type getWiderDatetimeV2Type(DateTimeV2Type t1, DateTimeV2Type t2) {
+        Preconditions.checkArgument(t1.getClass() == DateTimeV2Type.class
+                        && t2.getClass() == DateTimeV2Type.class,
+                "TIMESTAMP_NS does not belong to the DATETIMEV2 precision family");
         if (t1.scale > t2.scale) {
             return t1;
         }
@@ -94,6 +100,19 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
             return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
         }
         return MAX;
+    }
+
+    /**
+     * Return the DATETIMEV2 type inferred from {@code dataType}, widened only when the operation
+     * itself requires more fractional digits.
+     */
+    public static DateTimeV2Type forTypeWithMinimumScale(DataType dataType, int minimumScale) {
+        if (dataType instanceof CharacterType) {
+            return DateTimeV2Type.of(minimumScale);
+        }
+        DateTimeV2Type dateTimeV2Type = forType(dataType);
+        return dateTimeV2Type instanceof TimeStampNsType
+                ? dateTimeV2Type : DateTimeV2Type.of(Math.max(dateTimeV2Type.getScale(), minimumScale));
     }
 
     public ScaleTimeType scaleTypeForType(DataType dataType) {

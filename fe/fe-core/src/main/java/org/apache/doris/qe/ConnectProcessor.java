@@ -888,7 +888,7 @@ public abstract class ConnectProcessor {
             case DECIMAL_LITERAL: return DecimalLiteralUtils.create(node.decimal_literal.value);
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
-            case DATE_LITERAL: return DateLiteralUtils.createDateLiteral(node.date_literal.value, null);
+            case DATE_LITERAL: return DateLiteralUtils.createLiteral(node.date_literal.value, null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");

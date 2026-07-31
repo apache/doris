@@ -173,6 +173,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     using UnsignedCppType = uint64_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
     using CppType = uint64_t;
     using UnsignedCppType = uint64_t;
@@ -306,6 +311,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {};
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
@@ -421,6 +429,7 @@ inline size_t field_type_size(FieldType field_type) {
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_DATETIME)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_DATEV2)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_DATETIMEV2)
+        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMESTAMP_NS)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMEV2)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMESTAMPTZ)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_IPV4)

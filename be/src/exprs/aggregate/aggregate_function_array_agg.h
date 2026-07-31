@@ -228,7 +228,7 @@ struct AggregateFunctionArrayAggData<T> {
 
 template <PrimitiveType T>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
-             !is_date_type(T) && !is_ip(T))
+             !is_date_type(T) && !is_timestamp_ns_type(T) && !is_ip(T))
 struct AggregateFunctionArrayAggData<T> {
     static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
@@ -382,7 +382,8 @@ public:
                 vec.insert_from(vec_src, i);
             } else if constexpr (!is_string_type(Data::PType) && !is_int_or_bool(Data::PType) &&
                                  !is_float_or_double(Data::PType) && !is_decimal(Data::PType) &&
-                                 !is_date_type(Data::PType) && !is_ip(Data::PType)) {
+                                 !is_date_type(Data::PType) && !is_timestamp_ns_type(Data::PType) &&
+                                 !is_ip(Data::PType)) {
                 auto& vec = col_null->get_nested_column();
                 vec.insert_from(col_src.get_nested_column(), i);
             } else {

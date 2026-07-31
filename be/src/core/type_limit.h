@@ -20,6 +20,7 @@
 #include "core/extended_types.h"
 #include "core/string_ref.h"
 #include "core/value/decimalv2_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 
 namespace doris {
@@ -116,6 +117,12 @@ struct type_limit<DateV2Value<DateTimeV2ValueType>> {
         uint64_t max = MAX_DATETIME_V2;
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(max);
     }
+};
+
+template <>
+struct type_limit<TimeStampNsValue> {
+    static TimeStampNsValue min() { return TimeStampNsValue(std::numeric_limits<int64_t>::min()); }
+    static TimeStampNsValue max() { return TimeStampNsValue(std::numeric_limits<int64_t>::max()); }
 };
 
 template <>
