@@ -41,6 +41,7 @@ struct SniiQueryStats {
 
     int64_t phrase_candidate_docs = 0;
     int64_t phrase_candidate_visits = 0;
+    int64_t prx_streaming_frames = 0;
     int64_t phrase_prefix_leading_candidate_docs = 0;
     int64_t phrase_prefix_tail_candidate_visits = 0;
 

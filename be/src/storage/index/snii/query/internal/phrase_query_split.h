@@ -25,6 +25,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -82,6 +83,8 @@
 // functions those translation units share; nothing outside query/ may include it.
 namespace doris::snii::query::phrase_impl {
 
+struct PosSource;
+
 using query::internal::DocidChunk;
 using query::internal::DocidSource;
 using query::internal::ResolvedQueryTerm;
@@ -90,6 +93,13 @@ using reader::LogicalIndexReader;
 
 bool apply_common_grams_plan_debug_override(bool cost_prefers_gram,
                                             CommonGramsPlanDebugOverride debug_override);
+
+bool should_use_streaming_exact_phrase(const std::vector<TermPlan>& plans,
+                                       const std::vector<PosSource>& sources,
+                                       std::span<const size_t> phrase_plan_index,
+                                       size_t candidate_count, bool needs_frequency,
+                                       const PhraseQueryOptions& options,
+                                       internal::ExactPhrasePositionAccess position_access);
 
 class CommonGramsPlanningTimer {
 public:
@@ -185,6 +195,8 @@ struct PosChunk {
 struct PosSource {
     std::vector<PosChunk> chunks;
     format::PrxDecodeContext* observer_context = nullptr;
+    uint64_t logical_position_work = 0;
+    uint64_t logical_position_docs = 0;
 };
 
 struct PhraseExecutionState {
@@ -596,3 +608,13 @@ segment_v2::inverted_index::CommonGramsPlanRawCost alternative_clause_raw_cost(
 }
 
 } // namespace doris::snii::query::phrase_impl
+
+#ifdef BE_TEST
+namespace doris::snii::query::internal::testing {
+
+uint64_t streaming_exact_phrase_execution_count();
+void reset_streaming_exact_phrase_execution_count();
+void note_streaming_exact_phrase_execution();
+
+} // namespace doris::snii::query::internal::testing
+#endif

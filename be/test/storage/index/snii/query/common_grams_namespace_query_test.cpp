@@ -637,6 +637,70 @@ TEST(SniiCommonGramsNamespaceQuery, TwoTermsUseSingleGramTermQueryWithoutPrxDeco
     EXPECT_EQ(selected_plan, ExactPhrasePlanKind::kCommonGrams);
     EXPECT_EQ(docs, (std::vector<uint32_t> {0}));
     EXPECT_EQ(profile.prx_decode_stats.frame_count(), 0U);
+    EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames, 0U);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest assertions inflate the score.
+TEST(SniiCommonGramsNamespaceQuery, HybridDocsOnlyGramsPrefilterDistinctUnigramStreamingVerifier) {
+    constexpr uint32_t kPositionsPerPhysicalTerm = 96;
+    std::vector<std::vector<std::string>> corpus(8);
+    for (uint32_t docid = 0; docid < corpus.size(); ++docid) {
+        for (uint32_t repetition = 0; repetition < kPositionsPerPhysicalTerm; ++repetition) {
+            corpus[docid].emplace_back("cat");
+            if (docid != 0 && docid != 4) {
+                corpus[docid].emplace_back("gap");
+            }
+            corpus[docid].insert(corpus[docid].end(), {"the", "dog"});
+        }
+    }
+    Fixture fixture;
+    assert_ok(build_fixture(
+            &fixture,
+            build_common_grams_terms(corpus, /*include_grams=*/true, TestGramPostingShape::kHybrid),
+            hybrid_metadata(), format::CommonGramsPostingPolicy::kHybridV1));
+
+    const std::string cat_the = gram_key("cat", "the");
+    const std::string the_dog = gram_key("the", "dog");
+    const format::DictEntry cat_the_entry = find_entry(fixture.index_reader, cat_the);
+    const format::DictEntry the_dog_entry = find_entry(fixture.index_reader, the_dog);
+    EXPECT_FALSE(entry_has_prx(cat_the_entry));
+    EXPECT_FALSE(entry_has_prx(the_dog_entry));
+    EXPECT_FALSE(cat_the_entry.term_stats_present);
+    EXPECT_FALSE(the_dog_entry.term_stats_present);
+
+    const std::string physical_cat = encoded_plain("cat", PlainTermKeyVersion::kEscapedV1);
+    const std::string physical_the = encoded_plain("the", PlainTermKeyVersion::kEscapedV1);
+    const std::string physical_dog = encoded_plain("dog", PlainTermKeyVersion::kEscapedV1);
+    ASSERT_NE(physical_cat, physical_the);
+    ASSERT_NE(physical_cat, physical_dog);
+    ASSERT_NE(physical_the, physical_dog);
+    for (const std::string* physical_term : {&physical_cat, &physical_the, &physical_dog}) {
+        const format::DictEntry entry = find_entry(fixture.index_reader, *physical_term);
+        EXPECT_TRUE(entry_has_prx(entry));
+        EXPECT_TRUE(entry.term_stats_present);
+        ASSERT_NE(entry.df, 0U);
+        EXPECT_EQ(entry.ttf_delta / entry.df, kPositionsPerPhysicalTerm);
+    }
+
+    std::vector<uint32_t> plain_docs;
+    assert_ok(phrase_query(fixture.index_reader, {"cat", "the", "dog"}, &plain_docs));
+    ASSERT_EQ(plain_docs, (std::vector<uint32_t> {0, 4}));
+
+    using Kind = segment_v2::TermKeyKind;
+    const auto identity = complete_query_identity();
+    const auto plain = plain_query_info({"cat", "the", "dog"});
+    const auto gram = query_info({{Kind::kCommonGram, cat_the}, {Kind::kCommonGram, the_dog}});
+    QueryProfile profile;
+    ExactPhrasePlanKind selected_plan = ExactPhrasePlanKind::kPlain;
+    std::vector<uint32_t> gram_docs;
+    assert_ok(planned_exact_phrase_query(fixture.index_reader, plain, gram, &identity, &gram_docs,
+                                         &profile, &selected_plan,
+                                         verification_dominated_cost_model()));
+    EXPECT_EQ(selected_plan, ExactPhrasePlanKind::kCommonGrams);
+    EXPECT_EQ(gram_docs, plain_docs);
+    EXPECT_GT(profile.phrase_query_stats.prx_streaming_frames, 0U);
+    EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames,
+              profile.prx_decode_stats.frame_count());
 }
 
 TEST(SniiCommonGramsNamespaceQuery,

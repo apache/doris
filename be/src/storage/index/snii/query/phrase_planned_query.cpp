@@ -232,7 +232,8 @@ Status planned_exact_phrase_query_impl(
     auto resolved_plan = materialize_resolved_phrase_plan(use_gram ? gram_plan : plain_plan,
                                                           batch_terms, &resolved);
     return internal::execute_resolved_phrase_plan(idx, std::move(resolved_plan), docids,
-                                                  decode_context);
+                                                  decode_context, nullptr, nullptr,
+                                                  internal::ExactPhrasePositionAccess::kAuto);
 }
 
 Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
@@ -732,8 +733,9 @@ Status planned_phrase_prefix_query_impl(
         return Status::OK();
     }
     if (execute_as_exact_phrase) {
-        return internal::execute_resolved_phrase_plan(idx, std::move(selected_leading), docids,
-                                                      decode_context);
+        return internal::execute_resolved_phrase_plan(
+                idx, std::move(selected_leading), docids, decode_context, nullptr, nullptr,
+                internal::ExactPhrasePositionAccess::kMaterializedOnly);
     }
     return execute_resolved_phrase_prefix_terms(
             idx, std::move(selected_leading), std::move(selected_tail_terms),

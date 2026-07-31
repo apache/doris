@@ -60,6 +60,7 @@ inline void add_phrase_query_stats(OlapReaderStatistics* target,
     SniiQueryStats& stats = target->snii_stats;
     stats.phrase_candidate_docs += static_cast<int64_t>(delta.exact_candidate_docs);
     stats.phrase_candidate_visits += static_cast<int64_t>(delta.exact_candidate_visits);
+    stats.prx_streaming_frames += static_cast<int64_t>(delta.prx_streaming_frames);
     stats.phrase_prefix_leading_candidate_docs +=
             static_cast<int64_t>(delta.prefix_leading_candidate_docs);
     stats.phrase_prefix_tail_candidate_visits +=
@@ -205,6 +206,8 @@ public:
                                                        RuntimeProfile::ROOT_COUNTER, 1);
         candidate_visits_ = profile->add_nonzero_counter("SniiPhraseCandidateVisits", TUnit::UNIT,
                                                          RuntimeProfile::ROOT_COUNTER, 1);
+        streaming_prx_frames_ = profile->add_nonzero_counter(
+                "SniiPhraseStreamingPrxFrames", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
         prefix_leading_candidate_docs_ =
                 profile->add_nonzero_counter("SniiPhrasePrefixLeadingCandidateDocs", TUnit::UNIT,
                                              RuntimeProfile::ROOT_COUNTER, 1);
@@ -256,6 +259,7 @@ public:
         const SniiQueryStats& s = stats.snii_stats;
         COUNTER_UPDATE(candidate_docs_, s.phrase_candidate_docs);
         COUNTER_UPDATE(candidate_visits_, s.phrase_candidate_visits);
+        COUNTER_UPDATE(streaming_prx_frames_, s.prx_streaming_frames);
         COUNTER_UPDATE(prefix_leading_candidate_docs_, s.phrase_prefix_leading_candidate_docs);
         COUNTER_UPDATE(prefix_tail_candidate_visits_, s.phrase_prefix_tail_candidate_visits);
         COUNTER_UPDATE(common_grams_candidate_queries_, s.common_grams_candidate_queries);
@@ -284,6 +288,7 @@ public:
 private:
     RuntimeProfile::Counter* candidate_docs_ = nullptr;
     RuntimeProfile::Counter* candidate_visits_ = nullptr;
+    RuntimeProfile::Counter* streaming_prx_frames_ = nullptr;
     RuntimeProfile::Counter* prefix_leading_candidate_docs_ = nullptr;
     RuntimeProfile::Counter* prefix_tail_candidate_visits_ = nullptr;
     RuntimeProfile::Counter* common_grams_candidate_queries_ = nullptr;

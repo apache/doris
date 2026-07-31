@@ -334,6 +334,7 @@ private:
         snii.prx_phrase_verify_ns += a.prx_phrase_verify_ns - b.prx_phrase_verify_ns;
         snii.phrase_candidate_docs += a.phrase_candidate_docs - b.phrase_candidate_docs;
         snii.phrase_candidate_visits += a.phrase_candidate_visits - b.phrase_candidate_visits;
+        snii.prx_streaming_frames += a.prx_streaming_frames - b.prx_streaming_frames;
         snii.phrase_prefix_leading_candidate_docs +=
                 a.phrase_prefix_leading_candidate_docs - b.phrase_prefix_leading_candidate_docs;
         snii.phrase_prefix_tail_candidate_visits +=
@@ -780,7 +781,10 @@ protected:
     // measures that shape instead. Both are real, and they answer different questions, so the
     // benchmark reports which one it ran rather than silently picking.
     static bool _query_input_rowsets() {
-        return std::getenv("SNII_BENCH_QUERY_INPUT_ROWSETS") != nullptr;
+        // Value semantics, not presence: the name reads like it takes a value, and "=0" silently
+        // meaning "true" already cost one compaction run that reported the phase as skipped.
+        const char* const v = std::getenv("SNII_BENCH_QUERY_INPUT_ROWSETS");
+        return v != nullptr && *v != '\0' && std::string_view(v) != "0";
     }
 
     std::vector<std::string> _discover_corpus() const {
@@ -1843,7 +1847,8 @@ protected:
                   << std::setw(10) << "fetchms" << std::setw(10) << "decodms" << std::setw(10)
                   << "verifms" << std::setw(12) << "docs_tot" << std::setw(12) << "docs_sel"
                   << std::setw(12) << "pos_tot" << std::setw(12) << "pos_sel" << std::setw(10)
-                  << "cand_dc" << std::setw(10) << "cg_gram" << std::endl;
+                  << "str_frm" << std::setw(10) << "cand_dc" << std::setw(10) << "cg_gram"
+                  << std::endl;
         for (size_t i = 0; i < kQueryCases.size(); ++i) {
             const snii::SniiQueryStats& s = snii[i].snii;
             std::cout << std::left << std::setw(14) << kQueryCases[i].label << std::setw(9)
@@ -1855,6 +1860,7 @@ protected:
                       << per(s.prx_selected_docs, snii_n) << std::setw(12)
                       << per(s.prx_total_positions, snii_n) << std::setw(12)
                       << per(s.prx_selected_positions, snii_n) << std::setw(10)
+                      << per(s.prx_streaming_frames, snii_n) << std::setw(10)
                       << per(s.phrase_candidate_docs, snii_n) << std::setw(10)
                       << per(s.common_grams_gram_plans, snii_n) << std::endl;
         }

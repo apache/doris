@@ -33,6 +33,11 @@ struct PhraseMatch;
 
 namespace doris::snii::query::internal {
 
+enum class ExactPhrasePositionAccess : uint8_t {
+    kAuto = 0,
+    kMaterializedOnly = 1,
+};
+
 struct ResolvedPhrasePlan {
     std::vector<ResolvedQueryTerm> unique_terms;
     std::vector<size_t> phrase_plan_index;
@@ -67,10 +72,11 @@ struct ResolvedPhrasePlan {
 // semantics stay above this boundary; the executor treats terms as opaque and
 // consumes the resolved entries so inline posting payloads can move into the
 // execution plans without another allocation/copy.
-Status execute_resolved_phrase_plan(const reader::LogicalIndexReader& idx,
-                                    ResolvedPhrasePlan&& plan, std::vector<uint32_t>* docids,
-                                    format::PrxDecodeContext* observer_context = nullptr,
-                                    std::vector<PhraseMatch>* matches = nullptr,
-                                    const std::vector<uint32_t>* candidate_prefilter = nullptr);
+Status execute_resolved_phrase_plan(
+        const reader::LogicalIndexReader& idx, ResolvedPhrasePlan&& plan,
+        std::vector<uint32_t>* docids, format::PrxDecodeContext* observer_context = nullptr,
+        std::vector<PhraseMatch>* matches = nullptr,
+        const std::vector<uint32_t>* candidate_prefilter = nullptr,
+        ExactPhrasePositionAccess position_access = ExactPhrasePositionAccess::kAuto);
 
 } // namespace doris::snii::query::internal

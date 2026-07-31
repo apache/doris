@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/internal/phrase_query_split.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -496,6 +497,33 @@ TEST(SniiPhrasePrefixQuery, RepeatedExactTermsMatchPositionOracle) {
         ASSERT_TRUE(st.ok()) << st.to_string();
         EXPECT_EQ(got, corpus.phrase_prefix_docs(terms));
     }
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPhrasePrefixQuery, HighTfSingleTailExactPlanStaysMaterialized) {
+    Corpus corpus;
+    corpus.docs.resize(64);
+    for (auto& doc : corpus.docs) {
+        for (size_t repetition = 0; repetition < 8; ++repetition) {
+            doc.insert(doc.end(), {"lead", "tail_exact"});
+        }
+    }
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    query::internal::testing::reset_streaming_exact_phrase_execution_count();
+    query::QueryProfile profile;
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::phrase_prefix_query(idx, {"lead", "tail_exact"}, &got, &profile).ok());
+    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "tail_exact"}));
+    EXPECT_EQ(query::internal::testing::streaming_exact_phrase_execution_count(), 0U);
+    EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames, 0U);
+    query::internal::testing::reset_streaming_exact_phrase_execution_count();
 
     std::remove(path.c_str());
 }

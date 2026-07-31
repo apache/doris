@@ -75,6 +75,7 @@ struct PrxDecodedShape {
 struct PhraseQueryExecutionStats {
     uint64_t exact_candidate_docs = 0;
     uint64_t exact_candidate_visits = 0;
+    uint64_t prx_streaming_frames = 0;
     uint64_t prefix_leading_candidate_docs = 0;
     uint64_t prefix_tail_candidate_visits = 0;
     uint64_t common_grams_candidate_queries = 0;

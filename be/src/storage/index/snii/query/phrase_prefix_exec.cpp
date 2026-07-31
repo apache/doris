@@ -538,8 +538,9 @@ Status execute_resolved_phrase_prefix_terms(
     if (tail_terms.size() == 1) {
         append_resolved_phrase_clause(std::move(tail_terms.front()), tail_position_offset,
                                       &exact_plan);
-        return internal::execute_resolved_phrase_plan(idx, std::move(exact_plan), docids,
-                                                      decode_context, matches, candidate_prefilter);
+        return internal::execute_resolved_phrase_plan(
+                idx, std::move(exact_plan), docids, decode_context, matches, candidate_prefilter,
+                internal::ExactPhrasePositionAccess::kMaterializedOnly);
     }
 
     uint32_t min_lead_df = std::numeric_limits<uint32_t>::max();

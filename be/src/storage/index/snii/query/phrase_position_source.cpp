@@ -35,6 +35,7 @@
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/frq_pod.h"
 #include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/format/prx_frame.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
@@ -80,6 +81,46 @@ PhraseTermMapping build_phrase_term_mapping(const std::vector<std::string>& term
 }
 
 namespace {
+Status accumulate_frame_position_work(Slice frames, uint64_t* work) {
+    ByteSource source(frames);
+    while (!source.eof()) {
+        format::PrxFrameView frame;
+        RETURN_IF_ERROR(format::read_prx_frame(&source, &frame));
+        uint64_t frame_work = frame.uncompressed_length;
+        if (frame.codec == format::PrxCodec::kPfor) {
+            ByteSource payload(frame.payload);
+            uint32_t doc_count = 0;
+            uint32_t total_positions = 0;
+            RETURN_IF_ERROR(payload.get_varint32(&doc_count));
+            RETURN_IF_ERROR(payload.get_varint32(&total_positions));
+            if (doc_count > format::kReaderPrxWindowLimits.max_docs ||
+                total_positions > format::kReaderPrxWindowLimits.max_positions) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "phrase_query: PFOR routing metadata exceeds sane cap");
+            }
+            frame_work = total_positions;
+        }
+        *work += frame_work;
+    }
+    return Status::OK();
+}
+
+Status populate_logical_position_work(const std::vector<TermPlan>& plans,
+                                      std::vector<PosSource>* sources) {
+    DORIS_CHECK_EQ(plans.size(), sources->size());
+    for (size_t plan_index = 0; plan_index < plans.size(); ++plan_index) {
+        if (plans[plan_index].entry.term_stats_present) {
+            continue;
+        }
+        for (const PosChunk& chunk : (*sources)[plan_index].chunks) {
+            (*sources)[plan_index].logical_position_docs += chunk.prx_doc_count;
+            RETURN_IF_ERROR(accumulate_frame_position_work(
+                    chunk.prx, &(*sources)[plan_index].logical_position_work));
+        }
+    }
+    return Status::OK();
+}
+
 Status append_prx_doc_ordinal(size_t ordinal, std::vector<uint32_t>* out) {
     if (ordinal > std::numeric_limits<uint32_t>::max()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -385,6 +426,7 @@ Status build_position_sources_for_candidates(
     for (const PrxRangeAssignment& a : assignments) {
         (*srcs)[a.plan_index].chunks[a.chunk_index].prx = prx_fetcher->get(a.handle);
     }
+    RETURN_IF_ERROR(populate_logical_position_work(plans, srcs));
     // Keep the fetcher alive only when some chunk slice references its buffers.
     if (!assignments.empty()) {
         owners->push_back(std::move(prx_fetcher));

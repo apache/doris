@@ -17,11 +17,60 @@
 
 #include "storage/index/snii/encoding/byte_source.h"
 
+#include <algorithm>
+#include <array>
 #include <limits>
 
 #include "storage/index/snii/encoding/varint.h"
 
 namespace doris::snii {
+
+namespace {
+
+Status decode_delta_value(const uint8_t** cursor, const uint8_t* end, uint32_t* previous,
+                          bool* first_position, uint32_t* value) {
+    const uint8_t* p = *cursor;
+    if (p >= end) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "byte_source: delta run past end");
+    }
+    uint32_t byte = *p++;
+    uint32_t delta = byte & 0x7FU;
+    if (byte >= 0x80) {
+        uint32_t shift = 7;
+        for (;;) {
+            if (p >= end) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "byte_source: delta run past end");
+            }
+            byte = *p++;
+            if (shift == 28 && (byte & 0xF0U) != 0) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "byte_source: delta varint32 overflow");
+            }
+            delta |= (byte & 0x7FU) << shift;
+            if ((byte & 0x80) == 0) {
+                break;
+            }
+            if (shift == 28) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "byte_source: delta varint32 overflow");
+            }
+            shift += 7;
+        }
+    }
+    if (!*first_position && delta > std::numeric_limits<uint32_t>::max() - *previous) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "byte_source: delta prefix sum overflow");
+    }
+    *value = *first_position ? delta : *previous + delta;
+    *previous = *value;
+    *first_position = false;
+    *cursor = p;
+    return Status::OK();
+}
+
+} // namespace
 
 Status ByteSource::get_u8(uint8_t* v) {
     if (remaining() < 1)
@@ -80,6 +129,7 @@ Status ByteSource::get_varint32(uint32_t* v) {
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-non-const-parameter): out is the decoded position output buffer.
 Status ByteSource::decode_delta_run(size_t count, std::vector<uint32_t>* out) {
     if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -94,44 +144,42 @@ Status ByteSource::decode_delta_run(size_t count, std::vector<uint32_t>* out) {
     const uint8_t* p = begin + pos_;
     const size_t original_size = out->size();
     out->reserve(out->size() + count);
-    uint32_t running = 0;
-    const auto fail = [&](const char* message) {
-        out->resize(original_size);
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
-    };
+    uint32_t previous = 0;
+    bool first_position = true;
     for (size_t i = 0; i < count; ++i) {
-        if (p >= end) {
-            return fail("byte_source: delta run past end");
+        uint32_t value = 0;
+        const Status status = decode_delta_value(&p, end, &previous, &first_position, &value);
+        if (!status.ok()) {
+            out->resize(original_size);
+            return status;
         }
-        uint32_t b = *p++;
-        uint32_t delta = b & 0x7FU;
-        if (b >= 0x80) { // multi-byte (rare for position deltas)
-            uint32_t shift = 7;
-            for (;;) {
-                if (p >= end) {
-                    return fail("byte_source: delta run past end");
-                }
-                b = *p++;
-                if (shift == 28 && (b & 0xF0U) != 0) {
-                    return fail("byte_source: delta varint32 overflow");
-                }
-                delta |= (b & 0x7FU) << shift;
-                if ((b & 0x80) == 0) {
-                    break;
-                }
-                if (shift == 28) {
-                    return fail("byte_source: delta varint32 overflow");
-                }
-                shift += 7;
-            }
-        }
-        if (delta > std::numeric_limits<uint32_t>::max() - running) {
-            return fail("byte_source: delta prefix sum overflow");
-        }
-        running += delta;
-        out->push_back(running);
+        out->push_back(value);
     }
     pos_ = static_cast<size_t>(p - begin);
+    return Status::OK();
+}
+
+Status ByteSource::decode_delta_batch(std::span<uint32_t> out, uint32_t* previous,
+                                      bool* first_position) {
+    constexpr size_t kBatchCapacity = 16;
+    if (out.size() > kBatchCapacity) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "byte_source: delta batch exceeds fixed capacity");
+    }
+    std::array<uint32_t, kBatchCapacity> scratch {};
+    const uint8_t* const begin = s_.data();
+    const uint8_t* const end = begin + s_.size();
+    const uint8_t* p = begin + pos_;
+    uint32_t local_previous = *previous;
+    bool local_first_position = *first_position;
+    for (size_t i = 0; i < out.size(); ++i) {
+        RETURN_IF_ERROR(
+                decode_delta_value(&p, end, &local_previous, &local_first_position, &scratch[i]));
+    }
+    std::copy_n(scratch.begin(), out.size(), out.begin());
+    pos_ = static_cast<size_t>(p - begin);
+    *previous = local_previous;
+    *first_position = local_first_position;
     return Status::OK();
 }
 

@@ -36,11 +36,13 @@
 #include "storage/index/snii/format/frq_pod.h"
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/format/prx_position_iterator.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/internal/docid_union.h"
+#include "storage/index/snii/query/internal/exact_phrase_stream_matcher.h"
 #include "storage/index/snii/query/internal/phrase_query_split.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
 #include "storage/index/snii/query/internal/position_math.h"
@@ -65,7 +67,163 @@ using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 using internal::PhraseVerifyTimer;
 
+bool should_use_streaming_exact_phrase(const std::vector<TermPlan>& plans,
+                                       const std::vector<PosSource>& sources,
+                                       std::span<const size_t> phrase_plan_index,
+                                       size_t candidate_count, bool needs_frequency,
+                                       const PhraseQueryOptions& options,
+                                       internal::ExactPhrasePositionAccess position_access) {
+    constexpr uint64_t kMinMaximumPositionWork = 8;
+    constexpr uint64_t kMinEstimatedPositionWork = 512;
+    if (position_access == internal::ExactPhrasePositionAccess::kMaterializedOnly ||
+        options.slop != 0 || needs_frequency) {
+        return false;
+    }
+    DORIS_CHECK_EQ(plans.size(), sources.size());
+
+    unsigned __int128 sum_position_work = 0;
+    uint64_t max_position_work = 0;
+    for (size_t clause = 0; clause < phrase_plan_index.size(); ++clause) {
+        const size_t plan_index = phrase_plan_index[clause];
+        DORIS_CHECK_LT(plan_index, plans.size());
+        for (size_t preceding = 0; preceding < clause; ++preceding) {
+            if (phrase_plan_index[preceding] == plan_index) {
+                return false;
+            }
+        }
+        const TermPlan& plan = plans[plan_index];
+        DORIS_CHECK_NE(plan.df, 0);
+        DORIS_CHECK(plan.entry.term_stats_present ||
+                    sources[plan_index].logical_position_docs != 0);
+        const uint64_t position_work = plan.entry.term_stats_present
+                                               ? plan.entry.ttf_delta / plan.df
+                                               : sources[plan_index].logical_position_work /
+                                                         sources[plan_index].logical_position_docs;
+        sum_position_work += position_work;
+        max_position_work = std::max(max_position_work, position_work);
+    }
+    if (max_position_work < kMinMaximumPositionWork) {
+        return false;
+    }
+
+    constexpr unsigned __int128 kMaxU128 = ~static_cast<unsigned __int128>(0);
+    const auto candidates = static_cast<unsigned __int128>(candidate_count);
+    const unsigned __int128 raw_estimate =
+            candidates > kMaxU128 / sum_position_work ? kMaxU128 : candidates * sum_position_work;
+    const uint64_t estimated_position_work = raw_estimate > std::numeric_limits<uint64_t>::max()
+                                                     ? std::numeric_limits<uint64_t>::max()
+                                                     : static_cast<uint64_t>(raw_estimate);
+    return estimated_position_work >= kMinEstimatedPositionWork;
+}
+
 namespace {
+class StreamingPostingCursor {
+public:
+    void init(const PosSource* source) {
+        DORIS_CHECK(source != nullptr);
+        source_ = source;
+        chunk_index_ = 0;
+        local_doc_index_ = 0;
+        active_frame_ = kNoChunk;
+        local_query_stats_ = {};
+        if (source_->observer_context != nullptr) {
+            iterator_context_ = *source_->observer_context;
+            iterator_context_.query_stats = source_->observer_context->query_stats == nullptr
+                                                    ? nullptr
+                                                    : &local_query_stats_;
+        }
+    }
+
+    Status seek(uint32_t docid) {
+        while (chunk_index_ < source_->chunks.size() &&
+               (source_->chunks[chunk_index_].docids.empty() ||
+                source_->chunks[chunk_index_].docids.back() < docid)) {
+            RETURN_IF_ERROR(finish_active_frame());
+            ++chunk_index_;
+            local_doc_index_ = 0;
+        }
+        if (chunk_index_ >= source_->chunks.size()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: streaming cursor exhausted before target docid");
+        }
+
+        const PosChunk& chunk = source_->chunks[chunk_index_];
+        while (local_doc_index_ < chunk.docids.size() && chunk.docids[local_doc_index_] < docid) {
+            ++local_doc_index_;
+        }
+        if (local_doc_index_ >= chunk.docids.size() || chunk.docids[local_doc_index_] != docid) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: candidate missing from streaming posting chunk");
+        }
+
+        if (active_frame_ != chunk_index_) {
+            RETURN_IF_ERROR(finish_active_frame());
+            RETURN_IF_ERROR(positions_.reset(
+                    chunk.prx, chunk.prx_doc_count, chunk.prx_doc_ordinals,
+                    source_->observer_context == nullptr ? nullptr : &iterator_context_));
+            active_frame_ = chunk_index_;
+        }
+        DORIS_CHECK(chunk.prx_doc_ordinals.empty() ||
+                    chunk.prx_doc_ordinals.size() == chunk.docids.size());
+        DORIS_CHECK(!chunk.prx_doc_ordinals.empty() ||
+                    local_doc_index_ <= std::numeric_limits<uint32_t>::max());
+        const uint32_t prx_doc_ordinal = chunk.prx_doc_ordinals.empty()
+                                                 ? static_cast<uint32_t>(local_doc_index_)
+                                                 : chunk.prx_doc_ordinals[local_doc_index_];
+        return positions_.seek(prx_doc_ordinal);
+    }
+
+    // `available` is an output parameter required by the exact matcher cursor contract.
+    Status next_position(uint32_t* position,
+                         bool* available) { // NOLINT(readability-non-const-parameter)
+        return positions_.next_position(position, available);
+    }
+
+    Status finish_doc() {
+        RETURN_IF_ERROR(positions_.finish_doc());
+        ++local_doc_index_;
+        return Status::OK();
+    }
+
+    Status finish() {
+        RETURN_IF_ERROR(finish_active_frame());
+        while (chunk_index_ < source_->chunks.size() &&
+               local_doc_index_ == source_->chunks[chunk_index_].docids.size()) {
+            ++chunk_index_;
+            local_doc_index_ = 0;
+        }
+        if (chunk_index_ != source_->chunks.size()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: streaming cursor has unconsumed candidate docs");
+        }
+        return Status::OK();
+    }
+
+    void add_query_stats(format::PhraseQueryExecutionStats* stats) const {
+        stats->prx_streaming_frames += local_query_stats_.prx_streaming_frames;
+    }
+
+private:
+    Status finish_active_frame() {
+        if (active_frame_ == kNoChunk) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(positions_.finish_frame());
+        active_frame_ = kNoChunk;
+        return Status::OK();
+    }
+
+    static constexpr size_t kNoChunk = static_cast<size_t>(-1);
+
+    format::PrxPositionIterator positions_;
+    format::PrxDecodeContext iterator_context_;
+    format::PhraseQueryExecutionStats local_query_stats_;
+    const PosSource* source_ = nullptr;
+    size_t chunk_index_ = 0;
+    size_t local_doc_index_ = 0;
+    size_t active_frame_ = kNoChunk;
+};
+
 class PhrasePositionLoader {
 public:
     PhrasePositionLoader(size_t plan_count, std::vector<PosSource>& srcs)
@@ -578,6 +736,47 @@ Status emit_phrase_streaming(const std::vector<TermPlan>& plans,
                                             candidates, collector);
 }
 
+Status emit_exact_phrase_streaming_positions(const std::vector<size_t>& phrase_plan_index,
+                                             const std::vector<uint32_t>& position_offsets,
+                                             std::vector<PosSource>& srcs,
+                                             const std::vector<uint32_t>& candidates,
+                                             PhraseMatchCollector* collector,
+                                             format::PhraseQueryExecutionStats* query_stats) {
+#ifdef BE_TEST
+    internal::testing::note_streaming_exact_phrase_execution();
+#endif
+    std::vector<StreamingPostingCursor> cursors(srcs.size());
+    internal::validate_exact_phrase_stream_inputs(std::span(cursors), std::span(phrase_plan_index),
+                                                  std::span(position_offsets));
+    for (size_t plan_index : phrase_plan_index) {
+        cursors[plan_index].init(&srcs[plan_index]);
+    }
+    for (uint32_t docid : candidates) {
+        bool matched = false;
+        RETURN_IF_ERROR(internal::match_exact_phrase_document(
+                std::span(cursors), std::span(phrase_plan_index), std::span(position_offsets),
+                docid, &matched));
+        if (matched) {
+            collector->emit(docid, 1);
+        }
+    }
+
+    Status first_error;
+    for (size_t plan_index : phrase_plan_index) {
+        const Status status = cursors[plan_index].finish();
+        if (!status.ok() && first_error.ok()) {
+            first_error = status;
+        }
+    }
+    if (!first_error.ok()) {
+        return first_error;
+    }
+    for (size_t plan_index : phrase_plan_index) {
+        cursors[plan_index].add_query_stats(query_stats);
+    }
+    return Status::OK();
+}
+
 // candidate_prefilter (optional): an ascending docid set the phrase must ALSO
 // lie in. When provided, the leading-term conjunction is intersected with it so
 // only docs in the prefilter get their positions read. Docs outside the
@@ -635,7 +834,8 @@ Status execute_phrase_plans_at_offsets(
         const std::vector<size_t>& phrase_plan_index, const std::vector<uint32_t>& position_offsets,
         std::vector<uint32_t>* docids, format::PrxDecodeContext* observer_context,
         std::vector<PhraseMatch>* matches, const PhraseQueryOptions& options,
-        const std::vector<uint32_t>* candidate_prefilter = nullptr) {
+        const std::vector<uint32_t>* candidate_prefilter,
+        internal::ExactPhrasePositionAccess position_access) {
     DCHECK_EQ(phrase_plan_index.size(), position_offsets.size());
     PhraseExecutionState state;
     RETURN_IF_ERROR(build_phrase_execution_state(idx, round1, plans, &state, candidate_prefilter,
@@ -644,11 +844,29 @@ Status execute_phrase_plans_at_offsets(
         return Status::OK();
     }
 
+    const bool use_streaming = should_use_streaming_exact_phrase(
+            *plans, state.srcs, phrase_plan_index, state.candidates.size(), matches != nullptr,
+            options, position_access);
     PhraseVerifyTimer verify_timer(observer_context);
-    PhraseMatchCollector collector(docids, matches);
-    RETURN_IF_ERROR(emit_phrase_streaming(*plans, phrase_plan_index, position_offsets, state.srcs,
-                                          state.candidates, &collector, options));
+    format::PhraseQueryExecutionStats streaming_stats;
+    if (use_streaming) {
+        DCHECK(docids != nullptr);
+        std::vector<uint32_t> staged_docids = std::move(*docids);
+        docids->clear();
+        PhraseMatchCollector collector(&staged_docids, nullptr);
+        RETURN_IF_ERROR(emit_exact_phrase_streaming_positions(phrase_plan_index, position_offsets,
+                                                              state.srcs, state.candidates,
+                                                              &collector, &streaming_stats));
+        *docids = std::move(staged_docids);
+    } else {
+        PhraseMatchCollector collector(docids, matches);
+        RETURN_IF_ERROR(emit_phrase_streaming(*plans, phrase_plan_index, position_offsets,
+                                              state.srcs, state.candidates, &collector, options));
+    }
     verify_timer.commit_success();
+    if (observer_context != nullptr && observer_context->query_stats != nullptr) {
+        observer_context->query_stats->prx_streaming_frames += streaming_stats.prx_streaming_frames;
+    }
     return Status::OK();
 }
 
@@ -665,7 +883,8 @@ Status execute_phrase_plans(const LogicalIndexReader& idx, io::BatchRangeFetcher
                 "phrase_query: phrase length exceeds doc position range");
     }
     return execute_phrase_plans_at_offsets(idx, round1, plans, phrase_plan_index, position_offsets,
-                                           docids, observer_context, matches, options);
+                                           docids, observer_context, matches, options, nullptr,
+                                           internal::ExactPhrasePositionAccess::kAuto);
 }
 
 } // namespace doris::snii::query::phrase_impl
@@ -679,7 +898,8 @@ Status internal::execute_resolved_phrase_plan(const LogicalIndexReader& idx,
                                               std::vector<uint32_t>* docids,
                                               format::PrxDecodeContext* observer_context,
                                               std::vector<PhraseMatch>* matches,
-                                              const std::vector<uint32_t>* candidate_prefilter) {
+                                              const std::vector<uint32_t>* candidate_prefilter,
+                                              internal::ExactPhrasePositionAccess position_access) {
     if (docids == nullptr && matches == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("resolved_phrase_plan: null out");
     }
@@ -712,7 +932,33 @@ Status internal::execute_resolved_phrase_plan(const LogicalIndexReader& idx,
                                                   /*need_positions=*/false));
     return execute_phrase_plans_at_offsets(idx, &round1, &plans, plan.phrase_plan_index,
                                            plan.position_offsets, docids, observer_context, matches,
-                                           {}, candidate_prefilter);
+                                           {}, candidate_prefilter, position_access);
 }
 
 } // namespace doris::snii::query
+
+#ifdef BE_TEST
+namespace doris::snii::query::internal::testing {
+namespace {
+
+std::atomic<uint64_t>& streaming_exact_phrase_execution_atomic() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
+
+} // namespace
+
+uint64_t streaming_exact_phrase_execution_count() {
+    return streaming_exact_phrase_execution_atomic().load(std::memory_order_relaxed);
+}
+
+void reset_streaming_exact_phrase_execution_count() {
+    streaming_exact_phrase_execution_atomic().store(0, std::memory_order_relaxed);
+}
+
+void note_streaming_exact_phrase_execution() {
+    streaming_exact_phrase_execution_atomic().fetch_add(1, std::memory_order_relaxed);
+}
+
+} // namespace doris::snii::query::internal::testing
+#endif

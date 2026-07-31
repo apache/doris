@@ -32,6 +32,7 @@
 #include "storage/index/snii/encoding/pfor.h"
 #include "storage/index/snii/encoding/zstd_codec.h"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/prx_frame.h"
 
 namespace doris::snii::format {
 
@@ -85,11 +86,6 @@ uint64_t elapsed_ns(PrxClock::time_point start) {
 inline constexpr size_t kAutoZstdMinBytes = 512;
 // Default zstd level in auto mode.
 inline constexpr int kDefaultZstdLevel = 3;
-// Maximum decompressed byte size for a single .prx window. Guards against a
-// corrupted uncomp_len read from S3 inflated to a huge value: sanity-check
-// before allocating/decompressing to avoid GB-scale allocations. Windows are
-// 256-doc aligned and normally far below this limit.
-inline constexpr uint32_t kMaxWindowUncompBytes = kReaderPrxWindowLimits.max_uncomp_bytes;
 // Anti-DoS cap on position count decoded from a single window before
 // allocation.
 inline constexpr uint32_t kMaxWindowPositions =
@@ -1039,57 +1035,21 @@ Status write_zstd(Slice plain, int level, ByteSink* sink) {
     return Status::OK();
 }
 
-struct FramedPrxWindow {
-    uint8_t codec = 0;
-    uint32_t uncomp_len = 0;
-    Slice payload;
-};
-
-// Read header + payload and verify the frame CRC.
-Status read_framed(ByteSource* src, FramedPrxWindow* frame) {
-    const size_t start = src->position();
-    RETURN_IF_ERROR(src->get_u8(&frame->codec));
-    if (frame->codec != static_cast<uint8_t>(PrxCodec::kRaw) &&
-        frame->codec != static_cast<uint8_t>(PrxCodec::kZstd) &&
-        frame->codec != static_cast<uint8_t>(PrxCodec::kPfor)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: unknown codec");
-    }
-    RETURN_IF_ERROR(src->get_varint32(&frame->uncomp_len));
-    if (frame->uncomp_len > kMaxWindowUncompBytes) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "prx: uncomp_len exceeds sane window cap");
-    }
-    size_t payload_len = frame->uncomp_len;
-    if (frame->codec == static_cast<uint8_t>(PrxCodec::kZstd)) {
-        uint32_t comp_len = 0;
-        RETURN_IF_ERROR(src->get_varint32(&comp_len));
-        payload_len = comp_len;
-    }
-    RETURN_IF_ERROR(src->get_bytes(payload_len, &frame->payload));
-    const size_t framed_len = src->position() - start;
-    uint32_t stored = 0;
-    RETURN_IF_ERROR(src->get_fixed32(&stored));
-    if (crc32c(src->slice_from(start, framed_len)) != stored) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "prx: window crc mismatch");
-    }
-    return Status::OK();
-}
-
-void initialize_frame_stats(const FramedPrxWindow& encoded, PrxDecodeStats* stats) {
-    if (encoded.codec == static_cast<uint8_t>(PrxCodec::kRaw)) {
+void initialize_frame_stats(const PrxFrameView& encoded, PrxDecodeStats* stats) {
+    if (encoded.codec == PrxCodec::kRaw) {
         stats->raw_frames = 1;
         stats->plaintext_bytes = encoded.payload.size();
-    } else if (encoded.codec == static_cast<uint8_t>(PrxCodec::kZstd)) {
+    } else if (encoded.codec == PrxCodec::kZstd) {
         stats->zstd_frames = 1;
-        stats->plaintext_bytes = encoded.uncomp_len;
+        stats->plaintext_bytes = encoded.uncompressed_length;
     } else {
         stats->pfor_frames = 1;
-        stats->plaintext_bytes = encoded.uncomp_len;
+        stats->plaintext_bytes = encoded.uncompressed_length;
     }
 }
 
-Status decode_csr_frame(const FramedPrxWindow& encoded, std::span<const uint32_t> doc_ordinals,
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): codec dispatch shares one stats commit.
+Status decode_csr_frame(const PrxFrameView& encoded, std::span<const uint32_t> doc_ordinals,
                         bool decode_all_docs, bool all_docs_selected,
                         std::vector<uint32_t>* pos_flat, std::vector<uint32_t>* pos_off,
                         PrxDecodeStats* stats, PrxDecodedShape* shape,
@@ -1108,20 +1068,21 @@ Status decode_csr_frame(const FramedPrxWindow& encoded, std::span<const uint32_t
 
     std::vector<uint8_t> local_decompressed;
     Slice plain = encoded.payload;
-    if (encoded.codec == static_cast<uint8_t>(PrxCodec::kZstd)) {
+    if (encoded.codec == PrxCodec::kZstd) {
         std::vector<uint8_t>* decompressed = &local_decompressed;
         if (allocation_gate != nullptr) {
-            RETURN_IF_ERROR(
-                    allocation_gate->reserve_decompression(encoded.uncomp_len, &decompressed));
+            RETURN_IF_ERROR(allocation_gate->reserve_decompression(encoded.uncompressed_length,
+                                                                   &decompressed));
             DCHECK(decompressed != nullptr);
-            DCHECK_GE(decompressed->capacity(), encoded.uncomp_len);
+            DCHECK_GE(decompressed->capacity(), encoded.uncompressed_length);
         }
-        RETURN_IF_ERROR(zstd_decompress(encoded.payload, encoded.uncomp_len, decompressed));
+        RETURN_IF_ERROR(
+                zstd_decompress(encoded.payload, encoded.uncompressed_length, decompressed));
         plain = Slice(*decompressed);
     }
 
     if (decode_all_docs) {
-        if (encoded.codec == static_cast<uint8_t>(PrxCodec::kPfor)) {
+        if (encoded.codec == PrxCodec::kPfor) {
             RETURN_IF_ERROR(decode_pfor_payload_csr(plain, pos_flat, pos_off, allocation_gate,
                                                     &max_frequency, &has_zero_frequency));
         } else {
@@ -1133,7 +1094,7 @@ Status decode_csr_frame(const FramedPrxWindow& encoded, std::span<const uint32_t
         if (!all_docs_selected) {
             RETURN_IF_ERROR(validate_doc_ordinals(doc_ordinals, total_docs));
         }
-    } else if (encoded.codec == static_cast<uint8_t>(PrxCodec::kPfor)) {
+    } else if (encoded.codec == PrxCodec::kPfor) {
         RETURN_IF_ERROR(decode_pfor_payload_csr_selective(plain, doc_ordinals, pos_flat, pos_off,
                                                           &total_docs, &total_positions,
                                                           &max_frequency, &has_zero_frequency));
@@ -1177,8 +1138,8 @@ Status read_prx_window_csr_impl(ByteSource* source, std::span<const uint32_t> do
     if (collect_stats) {
         decode_start = prx_clock_now();
     }
-    FramedPrxWindow encoded;
-    RETURN_IF_ERROR(read_framed(source, &encoded));
+    PrxFrameView encoded;
+    RETURN_IF_ERROR(read_prx_frame(source, &encoded));
     RETURN_IF_ERROR(decode_csr_frame(encoded, doc_ordinals, decode_all_docs, all_docs_selected,
                                      pos_flat, pos_off, stats,
                                      context == nullptr ? nullptr : context->shape,
@@ -1342,16 +1303,16 @@ Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* p
     if (source == nullptr || per_doc_positions == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("prx: null arg");
     }
-    FramedPrxWindow frame;
-    RETURN_IF_ERROR(read_framed(source, &frame));
-    if (frame.codec == static_cast<uint8_t>(PrxCodec::kPfor)) {
+    PrxFrameView frame;
+    RETURN_IF_ERROR(read_prx_frame(source, &frame));
+    if (frame.codec == PrxCodec::kPfor) {
         return decode_pfor_payload(frame.payload, per_doc_positions);
     }
-    if (frame.codec == static_cast<uint8_t>(PrxCodec::kRaw)) {
+    if (frame.codec == PrxCodec::kRaw) {
         return decode_payload(frame.payload, per_doc_positions);
     }
     std::vector<uint8_t> plain;
-    RETURN_IF_ERROR(zstd_decompress(frame.payload, frame.uncomp_len, &plain));
+    RETURN_IF_ERROR(zstd_decompress(frame.payload, frame.uncompressed_length, &plain));
     return decode_payload(Slice(plain), per_doc_positions);
 }
 

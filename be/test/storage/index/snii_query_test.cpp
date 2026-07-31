@@ -1548,7 +1548,7 @@ TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanNullOutputIsInvalidArgument) {
                         .is<ErrorCode::INVALID_ARGUMENT>());
 }
 
-TEST(SniiPhraseMatcherInvariantTest, ThreeClauseCursorSurvivesRemainingPlanDecode) {
+TEST(SniiPhraseMatcherInvariantTest, ThreeClauseMaterializedCursorSurvivesRemainingPlanDecode) {
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
     reader::LogicalIndexReader index_reader;
@@ -1556,8 +1556,13 @@ TEST(SniiPhraseMatcherInvariantTest, ThreeClauseCursorSurvivesRemainingPlanDecod
                                      /*doc_count=*/400));
 
     internal::query_test_counters() = {};
+    internal::ResolvedPhrasePlan plan;
+    assert_ok(resolve_opaque_matcher_plan(index_reader,
+                                          {"cursor_left", "cursor_right", "cursor_tail"}, &plan));
     std::vector<uint32_t> docids;
-    assert_ok(phrase_query(index_reader, {"cursor_left", "cursor_right", "cursor_tail"}, &docids));
+    assert_ok(internal::execute_resolved_phrase_plan(
+            index_reader, std::move(plan), &docids, nullptr, nullptr, nullptr,
+            internal::ExactPhrasePositionAccess::kMaterializedOnly));
     EXPECT_EQ(docids, (std::vector<uint32_t> {100}));
     EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_hits, 0U);
     EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_misses, 3U);

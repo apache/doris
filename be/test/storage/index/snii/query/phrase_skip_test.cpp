@@ -182,6 +182,53 @@ Corpus BuildDensePhraseCorpus() {
     return c;
 }
 
+Corpus BuildLateOrNoHitCorpus(bool include_late_hits) {
+    constexpr uint32_t kPositionsPerTerm = 48;
+    Corpus corpus;
+    corpus.doc_count = 6;
+    corpus.docs.resize(corpus.doc_count);
+    for (uint32_t docid = 0; docid < corpus.doc_count; ++docid) {
+        std::vector<std::string>& doc = corpus.docs[docid];
+        doc.insert(doc.end(), kPositionsPerTerm, "a");
+        if (!include_late_hits || (docid != 0 && docid != 3)) {
+            doc.emplace_back("gap");
+        }
+        doc.insert(doc.end(), kPositionsPerTerm, "b");
+    }
+    return corpus;
+}
+
+Corpus BuildDistinctTermMatrixCorpus() {
+    constexpr uint32_t kPositionsPerTerm = 48;
+    constexpr uint32_t kTermCount = 10;
+    Corpus corpus;
+    corpus.doc_count = 6;
+    corpus.docs.resize(corpus.doc_count);
+    for (uint32_t docid = 0; docid < corpus.doc_count; ++docid) {
+        std::vector<std::string>& doc = corpus.docs[docid];
+        for (uint32_t repetition = 0; repetition < kPositionsPerTerm; ++repetition) {
+            if (docid == 1) {
+                for (uint32_t term = kTermCount; term > 0; --term) {
+                    doc.push_back("t" + std::to_string(term - 1));
+                }
+                continue;
+            }
+            const uint32_t gap_after = docid == 2   ? 1
+                                       : docid == 3 ? 2
+                                       : docid == 4 ? 5
+                                       : docid == 5 ? 0
+                                                    : kTermCount;
+            for (uint32_t term = 0; term < kTermCount; ++term) {
+                doc.push_back("t" + std::to_string(term));
+                if (term == gap_after) {
+                    doc.emplace_back("gap");
+                }
+            }
+        }
+    }
+    return corpus;
+}
+
 void WriteCorpus(const Corpus& c, const std::string& path) {
     SpimiTermBuffer buf(/*has_positions=*/true);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
@@ -574,6 +621,81 @@ TEST(SniiPhraseSkip, DenseLeadingTermWithRareAnchorSkipsDocsButKeepsPositions) {
     EXPECT_LT(skipped_bytes, full_bytes)
             << "dense leading phrase should keep the rare-position anchor but avoid "
                "reading dense docid regions";
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPhraseSkip, LateAndNoHitHighFrequencyPhrasesMatchIndependentExpectations) {
+    const auto run_case = [](const Corpus& corpus, const std::vector<uint32_t>& expected) {
+        const std::string path = TempPath();
+        WriteCorpus(corpus, path);
+        io::LocalFileReader local;
+        ASSERT_TRUE(local.open(path).ok());
+        SniiSegmentReader segment;
+        ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+        LogicalIndexReader index;
+        ASSERT_TRUE(segment.open_index(1, "body", &index).ok());
+
+        query::QueryProfile profile;
+        std::vector<uint32_t> actual;
+        ASSERT_TRUE(query::phrase_query(index, {"a", "b"}, &actual, &profile).ok());
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(actual, corpus.oracle({"a", "b"}));
+        EXPECT_GT(profile.phrase_query_stats.prx_streaming_frames, 0U);
+        EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames,
+                  profile.prx_decode_stats.frame_count());
+
+        std::remove(path.c_str());
+    };
+
+    run_case(BuildLateOrNoHitCorpus(/*include_late_hits=*/true), {0, 3});
+    run_case(BuildLateOrNoHitCorpus(/*include_late_hits=*/false), {});
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): gtest assertions inflate the score.
+TEST(SniiPhraseSkip, DistinctTwoThreeSixAndTenTermPhrasesMatchIndependentExpectations) {
+    const Corpus corpus = BuildDistinctTermMatrixCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    SniiSegmentReader segment;
+    ASSERT_TRUE(SniiSegmentReader::open(&local, &segment).ok());
+    LogicalIndexReader index;
+    ASSERT_TRUE(segment.open_index(1, "body", &index).ok());
+
+    struct PhraseCase {
+        size_t term_count;
+        std::vector<uint32_t> expected_docs;
+    };
+    const std::vector<PhraseCase> cases = {
+            {.term_count = 2, .expected_docs = {0, 2, 3, 4}},
+            {.term_count = 3, .expected_docs = {0, 3, 4}},
+            {.term_count = 6, .expected_docs = {0, 4}},
+            {.term_count = 10, .expected_docs = {0}},
+    };
+    for (const PhraseCase& phrase_case : cases) {
+        std::vector<std::string> terms;
+        terms.reserve(phrase_case.term_count);
+        for (size_t term = 0; term < phrase_case.term_count; ++term) {
+            terms.push_back("t" + std::to_string(term));
+        }
+
+        query::QueryProfile profile;
+        std::vector<uint32_t> actual;
+        ASSERT_TRUE(query::phrase_query(index, terms, &actual, &profile).ok())
+                << phrase_case.term_count;
+        EXPECT_EQ(actual, phrase_case.expected_docs) << phrase_case.term_count;
+        EXPECT_EQ(actual, corpus.oracle(terms)) << phrase_case.term_count;
+        EXPECT_GT(profile.phrase_query_stats.prx_streaming_frames, 0U) << phrase_case.term_count;
+        EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames,
+                  profile.prx_decode_stats.frame_count())
+                << phrase_case.term_count;
+        EXPECT_GT(profile.prx_decode_stats.raw_frames + profile.prx_decode_stats.zstd_frames +
+                          profile.prx_decode_stats.pfor_frames,
+                  0U)
+                << phrase_case.term_count;
+    }
 
     std::remove(path.c_str());
 }

@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <iterator>
 #include <limits>
 
@@ -259,4 +260,78 @@ TEST(SniiByteSource, DecodeDeltaRunRejectsVarintAndPrefixSumOverflow) {
     const Status sum_status = sum_source.decode_delta_run(2, &out);
     EXPECT_TRUE(sum_status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << sum_status;
     EXPECT_EQ(out, std::vector<uint32_t>({17}));
+}
+
+TEST(ByteSourceTest, DecodeDeltaBatchCarriesPrefixAcrossBatches) {
+    ByteSink sink;
+    for (uint32_t delta : {7U, 2U, 3U, 5U}) {
+        sink.put_varint32(delta);
+    }
+    ByteSource source(sink.view());
+    std::array<uint32_t, 2> first {};
+    std::array<uint32_t, 2> second {};
+    uint32_t previous = 0;
+    bool first_position = true;
+    ASSERT_TRUE(source.decode_delta_batch(first, &previous, &first_position).ok());
+    ASSERT_TRUE(source.decode_delta_batch(second, &previous, &first_position).ok());
+    EXPECT_EQ(first, (std::array<uint32_t, 2> {7, 9}));
+    EXPECT_EQ(second, (std::array<uint32_t, 2> {12, 17}));
+    EXPECT_TRUE(source.eof());
+}
+
+TEST(ByteSourceTest, DecodeDeltaBatchTruncationLeavesStateUnchanged) {
+    ByteSink sink;
+    sink.put_varint32(4);
+    sink.put_u8(0x80);
+    ByteSource source(sink.view());
+    std::array<uint32_t, 2> out {41, 43};
+    const auto out_before = out;
+    uint32_t previous = 7;
+    bool first_position = false;
+
+    const Status status = source.decode_delta_batch(out, &previous, &first_position);
+
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
+    EXPECT_EQ(source.position(), 0U);
+    EXPECT_EQ(out, out_before);
+    EXPECT_EQ(previous, 7U);
+    EXPECT_FALSE(first_position);
+}
+
+TEST(ByteSourceTest, DecodeDeltaBatchOverflowLeavesStateUnchanged) {
+    ByteSink oversized;
+    oversized.put_varint64(uint64_t {1} << 32);
+    ByteSource oversized_source(oversized.view());
+    std::array<uint32_t, 1> oversized_out {47};
+    const auto oversized_out_before = oversized_out;
+    uint32_t oversized_previous = 11;
+    bool oversized_first_position = false;
+
+    const Status oversized_status = oversized_source.decode_delta_batch(
+            oversized_out, &oversized_previous, &oversized_first_position);
+
+    EXPECT_TRUE(oversized_status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>())
+            << oversized_status;
+    EXPECT_EQ(oversized_source.position(), 0U);
+    EXPECT_EQ(oversized_out, oversized_out_before);
+    EXPECT_EQ(oversized_previous, 11U);
+    EXPECT_FALSE(oversized_first_position);
+
+    ByteSink overflowing_sum;
+    overflowing_sum.put_varint32(std::numeric_limits<uint32_t>::max());
+    overflowing_sum.put_varint32(1);
+    ByteSource sum_source(overflowing_sum.view());
+    std::array<uint32_t, 2> sum_out {53, 59};
+    const auto sum_out_before = sum_out;
+    uint32_t sum_previous = 0;
+    bool sum_first_position = true;
+
+    const Status sum_status =
+            sum_source.decode_delta_batch(sum_out, &sum_previous, &sum_first_position);
+
+    EXPECT_TRUE(sum_status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << sum_status;
+    EXPECT_EQ(sum_source.position(), 0U);
+    EXPECT_EQ(sum_out, sum_out_before);
+    EXPECT_EQ(sum_previous, 0U);
+    EXPECT_TRUE(sum_first_position);
 }
