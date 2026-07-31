@@ -253,16 +253,20 @@ public class HyperGraph {
     }
 
     /**
-     * Returns input slots of aliases whose source bitmap is fully contained
-     * in {@code left} or {@code right}. These aliases have already been
-     * materialized by the respective child and their raw input columns no
-     * longer need to be preserved in this join step.
+     * Returns the input slots of aliases whose source bitmap is NOT fully
+     * contained in {@code nodes}.  Such aliases reference tables outside
+     * {@code nodes}, so they are deferred to a later join step and their raw
+     * input columns (from the tables within {@code nodes}) must be preserved
+     * through the current step.  Unlike the split-dependent
+     * {@code left/right} subset checks, this condition depends only on the
+     * union {@code nodes}, so it is join-order-independent — every
+     * decomposition of the same bitmap keeps the same slots.
      */
-    public Set<Slot> getAliasInputSlotsForSubsetNodes(long left, long right) {
+    public Set<Slot> getDeferredAliasInputSlotsForNodes(long nodes) {
         Set<Slot> result = new HashSet<>();
         for (Map.Entry<Long, List<NamedExpression>> entry : nodeToProjectedAliases.entrySet()) {
             long key = entry.getKey();
-            if (LongBitmap.isSubset(key, left) || LongBitmap.isSubset(key, right)) {
+            if (!LongBitmap.isSubset(key, nodes) && LongBitmap.isOverlap(nodes, key)) {
                 for (NamedExpression alias : entry.getValue()) {
                     result.addAll(alias.getInputSlots());
                 }

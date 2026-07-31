@@ -223,38 +223,10 @@ public class PlanReceiver extends AbstractReceiver {
     // The root cause is hyper predicate should be encoded as one or more hyper edges in different scenarios.
     // But we are not able to do so in all cases (complex expression and outer joins).
     // So we use processMissedEdges to find all valid edges when join 0, 1, 2 as fallback plan.
+    // The logic is shared with Counter (see AbstractReceiver.processMissedEdges) so that
+    // GraphSimplifier's pair count matches what PlanReceiver actually emits.
     private boolean processMissedEdges(long left, long right, List<Edge> edges, List<Edge> missingEdges) {
-        // find all used edges
-        BitSet usedEdgesBitmap = new BitSet();
-        usedEdgesBitmap.or(usdEdges.get(left));
-        usedEdgesBitmap.or(usdEdges.get(right));
-        edges.forEach(edge -> usedEdgesBitmap.set(edge.getIndex()));
-
-        // find all referenced nodes
-        long allReferenceNodes = LongBitmap.or(left, right);
-
-        // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
-        for (Edge edge : hyperGraph.getJoinEdges()) {
-            if (LongBitmap.isSubset(edge.getReferenceNodes(), allReferenceNodes)
-                    && !usedEdgesBitmap.get(edge.getIndex())) {
-                if (edge.isEnforcedOrder()) {
-                    return false;
-                } else {
-                    // Reject missed edges that reference a projected alias whose
-                    // source bitmap spans both left and right. The alias layer
-                    // is emitted by proposeProject (after proposeJoin), so the
-                    // join predicate would reference a slot that does not exist
-                    // in either child's output. Wait for a later join step where
-                    // the alias source is fully contained in one child.
-                    if (!hyperGraph.isEdgeSafeForJoin(edge, left, right)) {
-                        return false;
-                    }
-                    // add the missed edge to edges
-                    missingEdges.add(edge);
-                }
-            }
-        }
-        return true;
+        return super.processMissedEdges(hyperGraph, usdEdges, left, right, edges, missingEdges);
     }
 
     private void proposeAllDistributedPlans(GroupExpression groupExpression) {
@@ -357,22 +329,30 @@ public class PlanReceiver extends AbstractReceiver {
                     aliasExprIds.add(a.getExprId());
                 }
                 List<NamedExpression> mergedLayer = new ArrayList<>(aliases);
-                // Identify alias input slots from aliases whose source bitmap
-                // is already fully contained in one child (emitted here). Only
-                // drop them from carry-forward if no parent, final output,
-                // or pending alias layer still needs them.
-                Set<Slot> emittedAliasSlots = hyperGraph.getAliasInputSlotsForSubsetNodes(
-                        left, right);
-                // Slots needed by not-yet-emitted aliases (deferred layers)
-                Set<Slot> deferredAliasSlots = new HashSet<>(aliasInputSlots);
-                deferredAliasSlots.removeAll(emittedAliasSlots);
-                // Only drop emitted alias slots that no parent or deferred
-                // layer needs.  This preserves e.g. a join-key column that
-                // an alias also consumes — the parent's outer join still
-                // references that key.
-                Set<Slot> exclusivelyEmittedSlots = new HashSet<>(emittedAliasSlots);
-                exclusivelyEmittedSlots.removeAll(parentRequireSlots);
-                exclusivelyEmittedSlots.removeAll(deferredAliasSlots);
+                // Decide which raw base columns can be dropped from this alias
+                // layer's carry-forward.  A base column is an alias raw input
+                // that is consumed once every alias reading it has been
+                // materialized within this union.  It must be KEPT when:
+                //   - it is still required by the final output, or
+                //   - a deferred alias (source NOT inside this union) reads it
+                //     (that alias is materialized at a later join step and
+                //     reads the raw base column from the join output), or
+                //   - some join edge references it (e.g. a pushed-down hash
+                //     expression such as `col + 1 = key` reads the raw base
+                //     column from the join output).
+                // Every exclusion above is computed from the graph + union
+                // only, never from the left/right split, so all decompositions
+                // of the same bitmap produce the same plan output set (memo
+                // output-set consistency).  A split-dependent drop would let
+                // one ordering drop a column that another ordering still needs,
+                // producing "Input slot(s) not in child's output" failures.
+                Set<Slot> exclusivelyEmittedSlots = new HashSet<>(aliasInputSlots);
+                exclusivelyEmittedSlots.removeAll(finalRequiredSlots);
+                exclusivelyEmittedSlots.removeAll(hyperGraph.getDeferredAliasInputSlotsForNodes(
+                        LongBitmap.newBitmapUnion(left, right)));
+                for (Edge edge : hyperGraph.getJoinEdges()) {
+                    exclusivelyEmittedSlots.removeAll(edge.getInputSlots());
+                }
                 for (Slot childSlot : logicalPlan.getOutputSet()) {
                     if (requireSlots.contains(childSlot)
                             && !aliasExprIds.contains(childSlot.getExprId())
