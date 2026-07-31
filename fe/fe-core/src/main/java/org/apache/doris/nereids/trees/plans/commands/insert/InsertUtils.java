@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -460,7 +461,7 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
+                            DataType targetType = targetTypeForInlineValue(sameNameColumn);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -481,7 +482,7 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
+                            DataType targetType = targetTypeForInlineValue(columns.get(i));
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -491,6 +492,17 @@ public class InsertUtils {
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+    }
+
+    private static DataType targetTypeForInlineValue(Column column) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        if (VariantType.containsVariant(targetType)) {
+            // A table column describes its storage representation, while Variant V1/V2 and
+            // nested expression layouts are resolved during analysis. BindSink has both the
+            // analyzed expression and final sink schema, so it is the correct coercion boundary.
+            return null;
+        }
+        return targetType;
     }
 
     /** buildAnalyzer */

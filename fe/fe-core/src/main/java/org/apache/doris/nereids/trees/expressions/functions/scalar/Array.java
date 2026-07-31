@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -69,9 +70,11 @@ public class Array extends ScalarFunction
         if (children.isEmpty()) {
             return;
         }
-        DataType firstChildType = getArgument(0).getDataType();
-        if (firstChildType.isJsonType() || firstChildType.isVariantType()) {
-            throw new AnalysisException("array does not support jsonb/variant type");
+        for (Expression child : children) {
+            DataType childType = child.getDataType();
+            if (childType.isJsonType() || VariantType.isLegacyVariant(childType)) {
+                throw new AnalysisException("array does not support jsonb/variant type");
+            }
         }
     }
 

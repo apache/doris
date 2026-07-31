@@ -87,7 +87,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
         sql """
             CREATE VIEW internal.${dbName}.v_variant_v1_nested AS
             SELECT 11 AS id,
-                   array(parse_to_variant('{"legacy":"nested"}')) AS payloads
+                   CAST(NULL AS ARRAY<VARIANT>) AS payloads
         """
 
         sql """SET enable_variant_v2 = true"""
@@ -123,7 +123,9 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon") {
         """
         assertEquals([
                 ["20", "false", "true"],
-                ["21", "true", null],
+                // Invalid JSON is preserved as a Variant string unless the global
+                // throw-on-invalid-JSON option is enabled.
+                ["21", "false", null],
                 ["22", "false", null]
         ], rows.collect { row ->
             row.collect { value -> value == null ? null : value.toString() }

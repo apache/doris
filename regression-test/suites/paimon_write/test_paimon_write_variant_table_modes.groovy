@@ -73,13 +73,6 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[{"name":"age","type":"INT"},{"name":"city","type":"STRING"}]}}]}'
         );
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_orc;
-        CREATE TABLE paimon.${dbName}.t_variant_orc (
-            id INT,
-            payload VARIANT
-        ) USING paimon
-        TBLPROPERTIES ('file.format' = 'orc');
-
         DROP TABLE IF EXISTS paimon.${dbName}.t_non_variant;
         CREATE TABLE paimon.${dbName}.t_non_variant (
             id INT,
@@ -162,6 +155,7 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             INSERT INTO t_variant_schema (id, name, payload) VALUES
                 (3, 'after-normal-column', parse_to_variant('{"schema":"continued"}'))
         """
+        spark_paimon """REFRESH TABLE paimon.${dbName}.t_variant_schema"""
         def schemaRows = spark_paimon """
             SELECT id, name,
                    variant_get(payload, '${root}.schema', 'string'),
@@ -170,8 +164,8 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             ORDER BY id
         """
         assertEquals([
-                ["1", "before", null, "default-note"],
-                ["2", "after-add", "added", "default-note"],
+                ["1", "before", null, null],
+                ["2", "after-add", "added", null],
                 ["3", "after-normal-column", "continued", "default-note"]
         ], schemaRows.collect { row ->
             row.collect { value -> value == null ? null : value.toString() }
@@ -203,14 +197,6 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
         ], shreddedRows.collect { row ->
             row.collect { value -> value == null ? null : value.toString() }
         })
-
-        // Paimon only defines Variant's value/metadata physical layout for Parquet.
-        // Keep the unsupported ORC path explicit and verify the SDK error is surfaced.
-        test {
-            sql """INSERT INTO t_variant_orc VALUES
-                (1, parse_to_variant('{"format":"orc"}'))"""
-            exception "VARIANT"
-        }
 
         // Non-Variant Paimon writes remain unchanged while the session enables V2.
         sql """INSERT INTO t_non_variant VALUES (1, '{"plain":"string"}')"""

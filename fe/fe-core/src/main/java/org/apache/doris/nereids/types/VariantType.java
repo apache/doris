@@ -336,6 +336,57 @@ public class VariantType extends PrimitiveType {
         return false;
     }
 
+    /** Whether this is a legacy Variant leaf rather than the compute-only V2 representation. */
+    public static boolean isLegacyVariant(DataType dataType) {
+        return dataType instanceof VariantType && !((VariantType) dataType).isComputeV2();
+    }
+
+    /**
+     * Whether two types have the same execution layout.
+     *
+     * <p>Variant V2 layout properties describe storage/materialization behavior, but every
+     * compute-only V2 value is the same value/metadata pair. Treating property-only differences
+     * as casts would route an already compatible V2 column through Variant conversion kernels.
+     * Complex containers recurse so nested V2 leaves get the same treatment.</p>
+     */
+    public static boolean isExecutionCompatible(DataType left, DataType right) {
+        if (left.equals(right)) {
+            return true;
+        }
+        if (left instanceof VariantType && right instanceof VariantType) {
+            return ((VariantType) left).isExecutionCompatibleWith((VariantType) right);
+        }
+        if (left instanceof ArrayType && right instanceof ArrayType) {
+            return isExecutionCompatible(
+                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType());
+        }
+        if (left instanceof MapType && right instanceof MapType) {
+            MapType leftMap = (MapType) left;
+            MapType rightMap = (MapType) right;
+            return isExecutionCompatible(leftMap.getKeyType(), rightMap.getKeyType())
+                    && isExecutionCompatible(leftMap.getValueType(), rightMap.getValueType());
+        }
+        if (left instanceof StructType && right instanceof StructType) {
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < leftFields.size(); i++) {
+                StructField leftField = leftFields.get(i);
+                StructField rightField = rightFields.get(i);
+                if (leftField.isNullable() != rightField.isNullable()
+                        || !leftField.getName().equals(rightField.getName())
+                        || !isExecutionCompatible(
+                                leftField.getDataType(), rightField.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     /** Selects the compute-only Variant representation in a possibly nested type. */
     public static DataType toComputeV2(DataType dataType) {
         if (dataType instanceof VariantType) {
@@ -360,7 +411,7 @@ public class VariantType extends PrimitiveType {
      * V2 values share one physical representation, independent of source layout properties.</p>
      */
     public boolean isExecutionCompatibleWith(VariantType other) {
-        return computeV2 == other.computeV2;
+        return isCastCompatibleWith(other);
     }
 
     /**

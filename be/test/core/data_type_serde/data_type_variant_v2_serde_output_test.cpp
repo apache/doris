@@ -200,23 +200,23 @@ std::vector<std::optional<std::string>> orc_values(const DataTypeVariantV2SerDe&
     return result;
 }
 
-std::shared_ptr<arrow::DataType> paimon_variant_arrow_type() {
+std::shared_ptr<arrow::DataType> binary_variant_arrow_type() {
     return arrow::struct_({arrow::field("value", arrow::binary(), false),
                            arrow::field("metadata", arrow::binary(), false)});
 }
 
-std::unique_ptr<arrow::StructBuilder> paimon_variant_arrow_builder() {
+std::unique_ptr<arrow::StructBuilder> binary_variant_arrow_builder() {
     return std::make_unique<arrow::StructBuilder>(
-            paimon_variant_arrow_type(), arrow::default_memory_pool(),
+            binary_variant_arrow_type(), arrow::default_memory_pool(),
             std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
                     std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool()),
                     std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool())});
 }
 
-void expect_paimon_variant_bytes(const DataTypeVariantV2SerDe& serde, const IColumn& column,
+void expect_binary_variant_bytes(const DataTypeVariantV2SerDe& serde, const IColumn& column,
                                  const ColumnVariantV2& encoded,
                                  const NullMap* null_map = nullptr) {
-    auto builder = paimon_variant_arrow_builder();
+    auto builder = binary_variant_arrow_builder();
     const Status status = serde.write_column_to_arrow(column, null_map, builder.get(), 0,
                                                       column.size(), cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
@@ -425,31 +425,29 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_TRUE(invalid_dates->is_typed());
 }
 
-TEST(DataTypeVariantV2SerdeOutputTest, PaimonStructPreservesEncodedAndTypedBytesAndOuterNulls) {
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
     DataTypeVariantV2SerDe serde;
     auto documents = encoded_json({R"({"a":[1,null,"x"]})", R"({"hidden":true})", "null"});
     NullMap mask {0, 1, 0};
-    expect_paimon_variant_bytes(serde, *documents, *documents, &mask);
+    expect_binary_variant_bytes(serde, *documents, *documents, &mask);
 
     auto typed = typed_strings(
             {std::string_view("plain"), std::nullopt, std::string_view(R"({"text":"value"})")});
     ColumnPtr encoded = encoded_copy(*typed);
-    expect_paimon_variant_bytes(serde, *typed, assert_cast<const ColumnVariantV2&>(*encoded));
+    expect_binary_variant_bytes(serde, *typed, assert_cast<const ColumnVariantV2&>(*encoded));
     EXPECT_TRUE(typed->is_typed());
 }
 
-TEST(DataTypeVariantV2SerdeOutputTest, PaimonStructRejectsUnsupportedPrimitiveIds) {
+TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructLeavesPrimitiveCompatibilityToConsumer) {
     DataTypeVariantV2SerDe serde;
     auto time = ColumnTimeV2::create();
     time->insert_value(1500000.0);
     const std::array<uint8_t, 1> not_null {0};
     auto typed_time = ColumnVariantV2::create_typed(nullable(std::move(time), not_null),
                                                     std::make_shared<DataTypeTimeV2>(6));
-    auto builder = paimon_variant_arrow_builder();
-    const Status status = serde.write_column_to_arrow(*typed_time, nullptr, builder.get(), 0, 1,
-                                                      cctz::utc_time_zone());
-    EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
-    EXPECT_EQ(builder->length(), 0);
+    ColumnPtr encoded = encoded_copy(*typed_time);
+    // The Arrow layer is transport-only. Paimon compatibility is checked by its SDK after IPC.
+    expect_binary_variant_bytes(serde, *typed_time, assert_cast<const ColumnVariantV2&>(*encoded));
     EXPECT_TRUE(typed_time->is_typed());
 }
 

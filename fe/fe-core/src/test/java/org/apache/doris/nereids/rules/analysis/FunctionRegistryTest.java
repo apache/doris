@@ -156,8 +156,55 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
                                 return true;
                             })
                     );
+
+            PlanChecker.from(connectContext)
+                    .analyze("select array(parse_to_variant('1')), "
+                            + "map('k', parse_to_variant('2')), "
+                            + "struct(parse_to_variant('3')), "
+                            + "named_struct('v', parse_to_variant('4'))")
+                    .matches(
+                            logicalOneRowRelation().when(oneRowRelation -> {
+                                ArrayType array = (ArrayType) oneRowRelation.getProjects().get(0)
+                                        .child(0).getDataType();
+                                MapType map = (MapType) oneRowRelation.getProjects().get(1)
+                                        .child(0).getDataType();
+                                StructType struct = (StructType) oneRowRelation.getProjects().get(2)
+                                        .child(0).getDataType();
+                                StructType namedStruct = (StructType) oneRowRelation.getProjects().get(3)
+                                        .child(0).getDataType();
+                                Assertions.assertTrue(((VariantType) array.getItemType()).isComputeV2());
+                                Assertions.assertTrue(((VariantType) map.getValueType()).isComputeV2());
+                                Assertions.assertTrue(((VariantType) struct.getFields().get(0)
+                                        .getDataType()).isComputeV2());
+                                Assertions.assertTrue(((VariantType) namedStruct.getFields().get(0)
+                                        .getDataType()).isComputeV2());
+                                return true;
+                            })
+                    );
+
+            AnalysisException mapKeyException = Assertions.assertThrowsExactly(
+                    AnalysisException.class,
+                    () -> PlanChecker.from(connectContext)
+                            .analyze("select map(parse_to_variant('1'), 1)"));
+            Assertions.assertTrue(mapKeyException.getMessage()
+                    .contains("map does not support jsonb/variant type"));
         } finally {
             connectContext.getSessionVariable().enableVariantV2 = false;
+        }
+    }
+
+    @Test
+    public void testLegacyVariantContainerConstructorsRemainRejected() {
+        List<String> sqls = ImmutableList.of(
+                "select array(1, parse_to_variant('2'))",
+                "select map('k', parse_to_variant('2'))",
+                "select struct(parse_to_variant('3'))",
+                "select named_struct('v', parse_to_variant('4'))");
+        for (String sql : sqls) {
+            AnalysisException exception = Assertions.assertThrowsExactly(
+                    AnalysisException.class,
+                    () -> PlanChecker.from(connectContext).analyze(sql));
+            Assertions.assertTrue(exception.getMessage().contains("jsonb/variant type"));
         }
     }
 

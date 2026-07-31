@@ -70,6 +70,7 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -625,6 +626,47 @@ TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
     ASSERT_EQ(12, binary_array->value_length(0));
     const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
     EXPECT_EQ(0, std::memcmp(raw, "binary-value", 12));
+}
+
+TEST(DataTypeSerDeArrowTest, VariantRepresentationPropagatesThroughNestedTypes) {
+    DataTypePtr variant = std::make_shared<DataTypeVariantV2>();
+    DataTypePtr array =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeVariantV2>()));
+    DataTypePtr map =
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                          make_nullable(std::make_shared<DataTypeVariantV2>()));
+    DataTypePtr nested = std::make_shared<DataTypeStruct>(DataTypes {variant, array, map},
+                                                          Strings {"direct", "array", "map"});
+
+    std::shared_ptr<arrow::DataType> json_type;
+    ASSERT_TRUE(convert_to_arrow_type(nested, &json_type, "UTC").ok());
+    const auto& json_struct = assert_cast<const arrow::StructType&>(*json_type);
+    EXPECT_EQ(json_struct.field(0)->type()->id(), arrow::Type::STRING);
+    const auto& json_array = assert_cast<const arrow::ListType&>(*json_struct.field(1)->type());
+    EXPECT_EQ(json_array.value_type()->id(), arrow::Type::STRING);
+    const auto& json_map = assert_cast<const arrow::MapType&>(*json_struct.field(2)->type());
+    EXPECT_EQ(json_map.item_type()->id(), arrow::Type::STRING);
+
+    std::shared_ptr<arrow::DataType> binary_type;
+    ASSERT_TRUE(convert_to_arrow_type(nested, &binary_type, "UTC",
+                                      ArrowVariantRepresentation::BINARY_V2)
+                        .ok());
+    const auto& binary_struct = assert_cast<const arrow::StructType&>(*binary_type);
+    const auto& direct_variant =
+            assert_cast<const arrow::StructType&>(*binary_struct.field(0)->type());
+    const auto& binary_array = assert_cast<const arrow::ListType&>(*binary_struct.field(1)->type());
+    const auto& array_variant = assert_cast<const arrow::StructType&>(*binary_array.value_type());
+    const auto& binary_map = assert_cast<const arrow::MapType&>(*binary_struct.field(2)->type());
+    const auto& map_variant = assert_cast<const arrow::StructType&>(*binary_map.item_type());
+    for (const auto* variant_type : {&direct_variant, &array_variant, &map_variant}) {
+        ASSERT_EQ(variant_type->num_fields(), 2);
+        EXPECT_EQ(variant_type->field(0)->name(), "value");
+        EXPECT_EQ(variant_type->field(0)->type()->id(), arrow::Type::BINARY);
+        EXPECT_FALSE(variant_type->field(0)->nullable());
+        EXPECT_EQ(variant_type->field(1)->name(), "metadata");
+        EXPECT_EQ(variant_type->field(1)->type()->id(), arrow::Type::BINARY);
+        EXPECT_FALSE(variant_type->field(1)->nullable());
+    }
 }
 
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {

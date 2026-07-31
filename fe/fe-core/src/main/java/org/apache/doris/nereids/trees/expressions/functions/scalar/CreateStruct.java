@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -59,9 +60,9 @@ public class CreateStruct extends ScalarFunction
         if (arity() == 0) {
             throw new AnalysisException("struct requires at least one argument, like: struct(1)");
         }
-        // for all field we do not support struct field with jsonb/variant type
         children.forEach(child -> {
-            if (child.getDataType().isJsonType() || child.getDataType().isVariantType()) {
+            if (child.getDataType().isJsonType()
+                    || VariantType.isLegacyVariant(child.getDataType())) {
                 throw new AnalysisException("struct does not support jsonb/variant type");
             }
         });

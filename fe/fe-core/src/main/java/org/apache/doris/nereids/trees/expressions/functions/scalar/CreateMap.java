@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -85,11 +86,15 @@ public class CreateMap extends ScalarFunction
         if (arity() % 2 != 0) {
             throw new AnalysisException("map can't be odd parameters, need even parameters " + this.toSql());
         }
-        children.forEach(child -> {
-            if (child.getDataType().isJsonType() || child.getDataType().isVariantType()) {
+        for (int i = 0; i < arity(); i++) {
+            DataType childType = child(i).getDataType();
+            boolean isKey = i % 2 == 0;
+            if (childType.isJsonType()
+                    || (isKey && childType.isVariantType())
+                    || (!isKey && VariantType.isLegacyVariant(childType))) {
                 throw new AnalysisException("map does not support jsonb/variant type");
             }
-        });
+        }
     }
 
     /**

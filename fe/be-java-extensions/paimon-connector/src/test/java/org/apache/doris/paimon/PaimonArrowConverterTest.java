@@ -121,18 +121,7 @@ public class PaimonArrowConverterTest {
     public void testVariantBinaryTransportPreservesValueAndMetadata() {
         GenericVariant expected = GenericVariant.fromJson(
                 "{\"id\":1,\"nested\":[true,null,\"doris\"]}");
-        Field variantField = new Field(
-                "payload",
-                FieldType.nullable(new ArrowType.Struct()),
-                Arrays.asList(
-                        new Field(
-                                PaimonArrowConverter.VARIANT_VALUE_FIELD,
-                                FieldType.notNullable(new ArrowType.Binary()),
-                                null),
-                        new Field(
-                                PaimonArrowConverter.VARIANT_METADATA_FIELD,
-                                FieldType.notNullable(new ArrowType.Binary()),
-                                null)));
+        Field variantField = variantField();
 
         try (RootAllocator allocator = new RootAllocator();
                 VectorSchemaRoot root = VectorSchemaRoot.create(
@@ -157,6 +146,41 @@ public class PaimonArrowConverterTest {
             Assertions.assertArrayEquals(expected.value(), actual.value());
             Assertions.assertArrayEquals(expected.metadata(), actual.metadata());
             Assertions.assertNull(rows.values(1)[0]);
+        }
+    }
+
+    @Test
+    public void testVariantBinaryTransportRejectsUnsupportedNestedPrimitive() {
+        GenericVariant array = GenericVariant.fromJson("[0]");
+        byte[] unsupportedValue = array.value().clone();
+        int primitiveHeaderOffset = unsupportedValue.length - 2;
+        // The final array element is INT1 (id 3). Replace it with TIME_NTZ_MICROS (id 17),
+        // which Doris V2 can encode but Paimon 1.3.1 does not recognize.
+        Assertions.assertEquals(3 << 2, unsupportedValue[primitiveHeaderOffset] & 0xff);
+        unsupportedValue[primitiveHeaderOffset] = (byte) (17 << 2);
+
+        try (RootAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Collections.singletonList(variantField())), allocator)) {
+            StructVector vector = (StructVector) root.getVector("payload");
+            VarBinaryVector values = (VarBinaryVector) vector.getChild(
+                    PaimonArrowConverter.VARIANT_VALUE_FIELD);
+            VarBinaryVector metadata = (VarBinaryVector) vector.getChild(
+                    PaimonArrowConverter.VARIANT_METADATA_FIELD);
+            root.allocateNew();
+            values.setSafe(0, unsupportedValue);
+            metadata.setSafe(0, array.metadata());
+            vector.setIndexDefined(0);
+            root.setRowCount(1);
+
+            PaimonArrowConverter.RowReader rows =
+                    new PaimonArrowConverter(ZoneId.of("UTC")).rows(
+                            root, new org.apache.paimon.types.DataType[] {new VariantType()});
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> rows.values(0));
+            Assertions.assertTrue(exception.getMessage().contains("payload"));
+            Assertions.assertTrue(exception.getCause().getMessage().contains(
+                    "UNKNOWN_PRIMITIVE_TYPE_IN_VARIANT"));
         }
     }
 
@@ -202,5 +226,20 @@ public class PaimonArrowConverterTest {
         return DataTypes.ROW(
                 DataTypes.FIELD(0, "Foo", DataTypes.INT()),
                 DataTypes.FIELD(1, "foo", DataTypes.INT()));
+    }
+
+    private static Field variantField() {
+        return new Field(
+                "payload",
+                FieldType.nullable(new ArrowType.Struct()),
+                Arrays.asList(
+                        new Field(
+                                PaimonArrowConverter.VARIANT_VALUE_FIELD,
+                                FieldType.notNullable(new ArrowType.Binary()),
+                                null),
+                        new Field(
+                                PaimonArrowConverter.VARIANT_METADATA_FIELD,
+                                FieldType.notNullable(new ArrowType.Binary()),
+                                null)));
     }
 }

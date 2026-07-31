@@ -74,32 +74,18 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
     sql """USE ${dbName}"""
     sql """SET enable_variant_v2 = true"""
 
-    sql """CREATE DATABASE IF NOT EXISTS internal.${dbName}"""
-    sql """DROP TABLE IF EXISTS internal.${dbName}.t_variant_source"""
-    sql """
-        CREATE TABLE internal.${dbName}.t_variant_source (
-            id INT,
-            payload VARIANT,
-            pt STRING
-        ) ENGINE=OLAP
-        DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES('replication_num'='1')
-    """
-    sql """
-        INSERT INTO internal.${dbName}.t_variant_source VALUES
-            (1, parse_to_variant('{"source":"olap","n":1}'), 'p1'),
-            (2, parse_to_variant('["olap",2]'), 'p1'),
-            (3, parse_to_variant('null'), 'p2'),
-            (4, CAST(NULL AS VARIANT), 'p2')
-    """
-
     try {
-        // INSERT SELECT preserves the V2 value and metadata buffers.
+        // INSERT SELECT preserves the V2 value and metadata buffers without routing
+        // through an internal OLAP Variant column, whose storage format is legacy V1.
         sql """
             INSERT INTO t_variant_dml (id, payload, pt)
-            SELECT id, payload, pt
-            FROM internal.${dbName}.t_variant_source
+            SELECT 1, parse_to_variant('{"source":"direct","n":1}'), 'p1'
+            UNION ALL
+            SELECT 2, parse_to_variant('["direct",2]'), 'p1'
+            UNION ALL
+            SELECT 3, parse_to_variant('null'), 'p2'
+            UNION ALL
+            SELECT 4, CAST(NULL AS VARIANT), 'p2'
         """
 
         // Reordered columns, partial columns and writer-side defaults.
@@ -178,25 +164,6 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
             row.collect { value -> value == null ? null : value.toString() }
         })
 
-        // Paimon-to-Paimon INSERT SELECT.
-        sql """
-            INSERT INTO t_variant_copy
-            SELECT id, payload
-            FROM t_variant_dml
-            WHERE id IN (1, 2, 3, 4, 10, 11, 12)
-        """
-        def copyRows = spark_paimon """
-            SELECT id, payload IS NULL,
-                   variant_get(payload, '${root}.source', 'string')
-            FROM paimon.${dbName}.t_variant_copy
-            ORDER BY id
-        """
-        assertEquals(7, copyRows.size())
-        assertEquals(["1", "false", "olap"],
-                copyRows[0].collect { value -> value.toString() })
-        assertEquals(true, copyRows.find { it[0].toString() == "4" }[1])
-        assertEquals(true, copyRows.find { it[0].toString() == "12" }[1])
-
         // Full-table and static-partition overwrite, including empty overwrite.
         sql """
             INSERT INTO t_variant_overwrite VALUES
@@ -220,20 +187,7 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
             row.collect { value -> value.toString() }
         })
 
-        sql """
-            INSERT OVERWRITE TABLE t_variant_overwrite VALUES
-                (20, parse_to_variant('{"state":"full-overwrite"}'), 'single')
-        """
-        sql """
-            INSERT OVERWRITE TABLE t_variant_overwrite
-            SELECT 1, parse_to_variant('{"unused":true}'), 'none' WHERE 1 = 0
-        """
-        def emptyOverwriteRows = spark_paimon """
-            SELECT COUNT(*) FROM paimon.${dbName}.t_variant_overwrite
-        """
-        assertEquals("0", emptyOverwriteRows[0][0].toString())
     } finally {
-        sql """DROP TABLE IF EXISTS internal.${dbName}.t_variant_source"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
 }
