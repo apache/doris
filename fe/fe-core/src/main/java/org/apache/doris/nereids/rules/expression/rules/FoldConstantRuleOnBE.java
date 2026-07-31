@@ -84,6 +84,7 @@ import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.proto.Types.PValues;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -308,14 +309,10 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TNetworkAddress brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
-            queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-            queryGlobals.setTimestampMs(System.currentTimeMillis());
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            if (context.getSessionVariable().getTimeZone().equals("CST")) {
-                queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            } else {
-                queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-            }
+            String statementTimeZone = CoordinatorContext.getStatementTimeZoneOrDefault(context);
+            CoordinatorContext.setQueryTime(queryGlobals,
+                    CoordinatorContext.getStatementStartTimeOrNow(context), statementTimeZone);
+            queryGlobals.setTimeZone(statementTimeZone);
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);

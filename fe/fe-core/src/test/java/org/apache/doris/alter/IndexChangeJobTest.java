@@ -37,6 +37,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
@@ -69,8 +70,6 @@ import java.util.Map;
 
 public class IndexChangeJobTest {
 
-    private static String fileName = "./IndexChangeJobTest";
-
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
@@ -101,6 +100,8 @@ public class IndexChangeJobTest {
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
         // Initialize ConnectContext
         ctx = new ConnectContext();
+        StatementContext statementContext = new StatementContext(ctx, null);
+        ctx.setStatementContext(statementContext);
         mockedConnectContext = Mockito.mockStatic(ConnectContext.class);
         mockedConnectContext.when(ConnectContext::get).thenReturn(ctx);
         FeConstants.runningUnitTest = true;

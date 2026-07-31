@@ -56,6 +56,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -153,7 +154,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     @Override
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
-            BrokerPendingTaskAttachment attachment) throws UserException {
+            BrokerPendingTaskAttachment attachment, Instant statementStartTime) throws UserException {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
         LoadLoadingTask task = new CloudLoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
@@ -161,7 +162,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId, statementStartTime);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 

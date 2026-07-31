@@ -35,18 +35,8 @@ import java.time.ZoneId;
  * unclassified date function
  */
 public class DateTimeAcquire {
-    /**
-     * date acquire function: now
-     */
-    @ExecFunction(name = "now")
     public static Expression now() {
         return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), 0);
-    }
-
-    @ExecFunction(name = "now")
-    public static Expression now(IntegerLiteral precision) {
-        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()),
-                precision.getValue());
     }
 
     /**

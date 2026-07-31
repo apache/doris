@@ -105,7 +105,8 @@ public class MTMVCache {
             ConnectContext currentContext,
             boolean addSessionVarGuard) throws AnalysisException {
         StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
-                new OriginStatement(defSql, 0));
+                new OriginStatement(defSql, 0), currentContext.getStatementContext().getStatementStartTime(),
+                currentContext.getStatementContext().getStatementTimeZone());
         if (!needLock) {
             mvSqlStatementContext.setNeedLockTables(false);
         }

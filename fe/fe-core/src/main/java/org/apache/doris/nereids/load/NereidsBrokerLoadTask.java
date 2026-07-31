@@ -25,12 +25,15 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
  * Nereids Broker Load Task
  */
 public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
+    private final Instant statementStartTime;
+    private final String timezone;
     private long txnId;
     private int timeout;
     private int sendBatchParallelism;
@@ -44,7 +47,7 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
      */
     public NereidsBrokerLoadTask(long txnId, int timeout, int sendBatchParallelism,
             boolean strictMode, boolean memtableOnSinkNode, boolean loadToSingleTablet,
-            PartitionNamesInfo partitions) {
+            PartitionNamesInfo partitions, String timezone, Instant statementStartTime) {
         this.txnId = txnId;
         this.timeout = timeout;
         this.sendBatchParallelism = sendBatchParallelism;
@@ -52,6 +55,13 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.loadToSingleTablet = loadToSingleTablet;
         this.partitionNamesInfo = partitions;
+        this.timezone = timezone;
+        this.statementStartTime = statementStartTime;
+    }
+
+    @Override
+    public Instant getStatementStartTime() {
+        return statementStartTime;
     }
 
     @Override
@@ -156,7 +166,7 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
 
     @Override
     public String getTimezone() {
-        return null;
+        return timezone;
     }
 
     @Override

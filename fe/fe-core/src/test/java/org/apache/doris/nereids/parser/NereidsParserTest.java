@@ -102,6 +102,22 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testParseMultipleRestoresSetVarHintsBetweenStatements() {
+        ConnectContext connectContext = ConnectContext.get();
+        connectContext.getSessionVariable().setTimeZone("+08:00");
+
+        List<Pair<LogicalPlan, StatementContext>> logicalPlanList = new NereidsParser().parseMultiple(
+                "select now(); select /*+ SET_VAR(time_zone='+00:00') */ 1");
+
+        Assertions.assertEquals(2, logicalPlanList.size());
+        Assertions.assertEquals("+08:00", connectContext.getSessionVariable().getTimeZone());
+        Assertions.assertFalse(connectContext.getSessionVariable().getIsSingleSetVar());
+        Assertions.assertTrue(connectContext.getSessionVariable().getSessionOriginValue().isEmpty());
+        Assertions.assertEquals("+08:00", logicalPlanList.get(0).second.getStatementTimeZone().getId());
+        Assertions.assertEquals("Z", logicalPlanList.get(1).second.getStatementTimeZone().getId());
+    }
+
+    @Test
     public void testParseMultipleError() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test SELECT a FROM test;";

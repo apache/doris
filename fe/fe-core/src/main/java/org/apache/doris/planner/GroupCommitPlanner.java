@@ -44,6 +44,7 @@ import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -62,6 +63,7 @@ import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.protobuf.ByteString;
@@ -94,6 +96,7 @@ public class GroupCommitPlanner {
     private int targetColumnSize;
     private TUniqueId loadId;
     private long backendId;
+    private final TPipelineFragmentParamsList execPlanFragmentParams;
     private ByteString execPlanFragmentParamsBytes;
 
     public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
@@ -142,9 +145,29 @@ public class GroupCommitPlanner {
         Preconditions.checkState(scanRangeParams.size() == 1);
         loadId = queryId;
         // see BackendServiceProxy#execPlanFragmentsAsync
-        TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
-        paramsList.addToParamsList(tRequest);
-        execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
+        execPlanFragmentParams = new TPipelineFragmentParamsList();
+        execPlanFragmentParams.addToParamsList(tRequest);
+        serializeExecPlanFragmentParams();
+    }
+
+    private void refreshQueryGlobals(StatementContext statementContext) throws TException {
+        execPlanFragmentParamsBytes = serializeWithQueryGlobals(execPlanFragmentParams, statementContext);
+    }
+
+    @VisibleForTesting
+    static ByteString serializeWithQueryGlobals(TPipelineFragmentParamsList paramsList,
+            StatementContext statementContext) throws TException {
+        String timeZone = statementContext.getStatementTimeZone().getId();
+        for (TPipelineFragmentParams params : paramsList.getParamsList()) {
+            CoordinatorContext.setQueryTime(params.getQueryGlobals(),
+                    statementContext.getStatementStartTime(), timeZone);
+            params.getQueryGlobals().setTimeZone(timeZone);
+        }
+        return ByteString.copyFrom(new TSerializer().serialize(paramsList));
+    }
+
+    private void serializeExecPlanFragmentParams() throws TException {
+        execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(execPlanFragmentParams));
     }
 
     public PGroupCommitInsertResponse executeGroupCommitInsert(ConnectContext ctx,
@@ -227,6 +250,7 @@ public class GroupCommitPlanner {
             List<Expr> valueExprs = statementContext.getIdToPlaceholderRealExpr().values().stream()
                     .map(v -> ((Literal) v).toLegacyLiteral()).collect(Collectors.toList());
             List<InternalService.PDataRow> rows = getRows(groupCommitPlanner.targetColumnSize, valueExprs);
+            groupCommitPlanner.refreshQueryGlobals(statementContext);
             PGroupCommitInsertResponse response = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
             Pair<Boolean, Boolean> needRetryAndReplan = groupCommitPlanner.handleResponse(ctx, retry + 1 < MAX_RETRY,
                     reuse, response);

@@ -54,6 +54,7 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -165,10 +166,13 @@ public class BrokerLoadJobTest {
         TransactionState txnState = Mockito.mock(TransactionState.class);
         ComputeGroupMgr computeGroupMgr = Mockito.mock(ComputeGroupMgr.class);
         TableProperty tableProperty = Mockito.mock(TableProperty.class);
+        List<Instant> taskStatementStartTimes = Lists.newArrayList();
 
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class);
                 MockedConstruction<NereidsLoadingTaskPlanner> ignored =
-                        Mockito.mockConstruction(NereidsLoadingTaskPlanner.class)) {
+                        Mockito.mockConstruction(NereidsLoadingTaskPlanner.class,
+                                (mock, context) -> taskStatementStartTimes.add(
+                                        (Instant) context.arguments().get(16)))) {
             envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
             envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
             envMockedStatic.when(Env::getCurrentProgressManager).thenReturn(progressManager);
@@ -242,6 +246,8 @@ public class BrokerLoadJobTest {
             Assert.assertEquals(true, finishedTaskIds.contains(taskId));
             Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
             Assert.assertEquals(3, idToTasks.size());
+            Assert.assertEquals(3, taskStatementStartTimes.size());
+            Assert.assertEquals(1, taskStatementStartTimes.stream().distinct().count());
         }
     }
 

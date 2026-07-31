@@ -19,21 +19,29 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExecuteCommandTest {
@@ -95,5 +103,33 @@ public class ExecuteCommandTest {
         return scanParams.getOrResolveMapParams(ignored -> ImmutableMap.of(
                 "scan.snapshot-id", String.valueOf(snapshotId.incrementAndGet())))
                 .get("scan.snapshot-id");
+    }
+
+    @Test
+    public void testReapplySetVarHintForCachedExecution() throws Exception {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        sessionVariable.setTimeZone("+00:00");
+        LogicalPlan plan = new LogicalSelectHint<>(
+                ImmutableList.of(new SelectHintSetVar("SET_VAR",
+                        ImmutableMap.of(SessionVariable.TIME_ZONE, Optional.of("+8:00")))),
+                new UnboundOneRowRelation(new RelationId(1), ImmutableList.of()));
+
+        StatementContext firstExecution = new StatementContext(
+                connectContext, new OriginStatement("select 1", 0));
+        ExecuteCommand.applySetVarHints(plan, firstExecution);
+        Assertions.assertEquals("+08:00", sessionVariable.getTimeZone());
+        Assertions.assertEquals("+08:00", firstExecution.getStatementTimeZone().getId());
+
+        VariableMgr.revertSessionValue(sessionVariable);
+        sessionVariable.clearSessionOriginValue();
+        sessionVariable.setIsSingleSetVar(false);
+        Assertions.assertEquals("+00:00", sessionVariable.getTimeZone());
+
+        StatementContext cachedExecution = new StatementContext(
+                connectContext, new OriginStatement("select 1", 0));
+        ExecuteCommand.applySetVarHints(plan, cachedExecution);
+        Assertions.assertEquals("+08:00", sessionVariable.getTimeZone());
+        Assertions.assertEquals("+08:00", cachedExecution.getStatementTimeZone().getId());
     }
 }

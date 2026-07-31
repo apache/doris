@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -86,6 +87,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
@@ -125,6 +128,8 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    private Instant statementStartTime;
+    private ZoneId statementTimeZone;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -358,15 +363,32 @@ public class StatementContext implements Closeable {
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
-        this(connectContext, originStatement, 0);
+        this(connectContext, originStatement, 0, Instant.now(), getTimeZone(connectContext));
+    }
+
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement,
+            Instant statementStartTime) {
+        this(connectContext, originStatement, 0, statementStartTime, getTimeZone(connectContext));
+    }
+
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement,
+            Instant statementStartTime, ZoneId statementTimeZone) {
+        this(connectContext, originStatement, 0, statementStartTime, statementTimeZone);
     }
 
     /**
      * StatementContext
      */
     private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
+        this(connectContext, originStatement, initialId, Instant.now(), getTimeZone(connectContext));
+    }
+
+    private StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId,
+            Instant statementStartTime, ZoneId statementTimeZone) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.statementStartTime = statementStartTime;
+        this.statementTimeZone = statementTimeZone;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
@@ -488,6 +510,47 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public Instant getStatementStartTime() {
+        return statementStartTime;
+    }
+
+    public ZoneId getStatementTimeZone() {
+        return statementTimeZone;
+    }
+
+    public long getStatementStartTimeMillis() {
+        return statementStartTime.toEpochMilli();
+    }
+
+    public int getStatementStartTimeNanoSeconds() {
+        return statementStartTime.getNano();
+    }
+
+    public void resetStatementStartTime() {
+        resetStatementStartTime(Instant.now());
+    }
+
+    public void resetStatementStartTime(Instant statementStartTime) {
+        this.statementStartTime = statementStartTime;
+        refreshStatementTimeZone();
+    }
+
+    public void resetStatementStartTime(Instant statementStartTime, ZoneId statementTimeZone) {
+        this.statementStartTime = statementStartTime;
+        this.statementTimeZone = statementTimeZone;
+    }
+
+    public void refreshStatementTimeZone() {
+        statementTimeZone = getTimeZone(connectContext);
+    }
+
+    private static ZoneId getTimeZone(ConnectContext connectContext) {
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return ZoneId.systemDefault();
+        }
+        return ZoneId.of(connectContext.getSessionVariable().getTimeZone(), TimeUtils.timeZoneAliasMap);
     }
 
     public Set<String> getUsedAIResourceNames() {

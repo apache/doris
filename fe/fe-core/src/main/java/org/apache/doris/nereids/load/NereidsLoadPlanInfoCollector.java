@@ -39,6 +39,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -73,6 +74,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -88,6 +90,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -246,6 +250,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     private TPartialUpdateNewRowPolicy uniquekeyUpdateNewRowPolicy;
     private HashSet<String> partialUpdateInputColumns;
     private Map<String, Expression> exprMap;
+    private final Instant statementStartTime;
 
     private LogicalPlan logicalPlan;
     private Map<String, SlotDescriptor> srcSlots = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -268,6 +273,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         this.uniquekeyUpdateNewRowPolicy = uniquekeyUpdateNewRowPolicy;
         this.partialUpdateInputColumns = partialUpdateInputColumns;
         this.exprMap = exprMap;
+        this.statementStartTime = taskInfo.getStatementStartTime();
     }
 
     /**
@@ -276,12 +282,17 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan, DescriptorTable descTable,
             TupleDescriptor scanDescriptor) {
         this.logicalPlan = logicalPlan;
-        CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
+        CascadesContext cascadesContext = CascadesContext.initContext(createTaskStatementContext(),
                 logicalPlan, PhysicalProperties.ANY);
         PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext, descTable);
         loadPlanInfo.destTuple = scanDescriptor;
         logicalPlan.accept(this, context);
         return loadPlanInfo;
+    }
+
+    StatementContext createTaskStatementContext() {
+        return new StatementContext(ConnectContext.get(), null, statementStartTime,
+                ZoneId.of(taskInfo.getTimezone(), TimeUtils.timeZoneAliasMap));
     }
 
     @Override
@@ -502,7 +513,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
                 List<Long> prunedPartitions = PartitionPruner.prune(
                         partitionSlots, filterPredicate, idToPartitions,
-                        CascadesContext.initContext(new StatementContext(), logicalPlan, PhysicalProperties.ANY),
+                        CascadesContext.initContext(
+                                createTaskStatementContext(), logicalPlan, PhysicalProperties.ANY),
                         PartitionTableType.OLAP, sortedPartitionRanges).first;
                 return prunedPartitions;
             } else {

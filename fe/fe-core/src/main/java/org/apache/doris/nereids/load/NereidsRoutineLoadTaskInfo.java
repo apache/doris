@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -70,6 +71,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected boolean memtableOnSinkNode;
     protected int timeoutSec;
+    private final Instant statementStartTime = Instant.now();
 
     /**
      * NereidsRoutineLoadTaskInfo
@@ -102,6 +104,11 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.timeoutSec = calTimeoutSec();
+    }
+
+    @Override
+    public Instant getStatementStartTime() {
+        return statementStartTime;
     }
 
     @Override

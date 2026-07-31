@@ -36,6 +36,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.util.List;
 
 public class CloudLoadLoadingTask extends LoadLoadingTask {
@@ -51,10 +52,11 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
-            String clusterId) {
+            String clusterId, Instant statementStartTime) {
         super(userinfo, db, table, brokerDesc, fileGroups, jobDeadlineMs, execMemLimit, strictMode, isPartialUpdate,
                 partialUpdateNewKeyPolicy, txnId, callback, timezone, timeoutS, loadParallelism, sendBatchParallelism,
-                loadZeroTolerance, jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize);
+                loadZeroTolerance, jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize,
+                statementStartTime);
         this.cloudClusterId = clusterId;
     }
 

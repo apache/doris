@@ -45,6 +45,8 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -57,6 +59,16 @@ public class StmtExecutorTest extends TestWithFeService {
         InternalSchemaInitializer.createDb();
         InternalSchemaInitializer.createTbl();
         createDatabase("testDb");
+    }
+
+    @Test
+    public void testStatementStartTimeCanBePropagatedForInternalTask() {
+        Instant statementStartTime = Instant.parse("2026-06-12T03:04:05.123456Z");
+
+        new StmtExecutor(connectContext, "select now(6)", statementStartTime);
+
+        Assertions.assertEquals(statementStartTime,
+                connectContext.getStatementContext().getStatementStartTime());
     }
 
     @Test
@@ -423,6 +435,33 @@ public class StmtExecutorTest extends TestWithFeService {
                 parsedStatement instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter,
                 "ParsedStatement should be a LogicalPlanAdapter after parseByNereids(), but was: "
                         + (parsedStatement == null ? "null" : parsedStatement.getClass().getName()));
+        Assertions.assertSame(
+                ((org.apache.doris.nereids.glue.LogicalPlanAdapter) parsedStatement).getStatementContext(),
+                connectContext.getStatementContext());
+    }
+
+    @Test
+    public void testParseByNereidsPreservesExplicitTimeInCoordinatorGlobals() throws Exception {
+        Instant statementStartTime = Instant.parse("2026-07-18T01:02:03.123456Z");
+        ZoneId statementTimeZone = ZoneId.of("UTC");
+        StmtExecutor executor = new StmtExecutor(
+                connectContext, "select now(6), now(kint)", statementStartTime, statementTimeZone);
+
+        Method parseByNereidsMethod = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parseByNereidsMethod.setAccessible(true);
+        parseByNereidsMethod.invoke(executor);
+
+        org.apache.doris.nereids.glue.LogicalPlanAdapter parsedStatement =
+                (org.apache.doris.nereids.glue.LogicalPlanAdapter) executor.getParsedStmt();
+        Assertions.assertSame(parsedStatement.getStatementContext(), connectContext.getStatementContext());
+        Assertions.assertEquals(statementStartTime,
+                connectContext.getStatementContext().getStatementStartTime());
+        Assertions.assertEquals(statementTimeZone,
+                connectContext.getStatementContext().getStatementTimeZone());
+        Assertions.assertEquals(statementStartTime.toEpochMilli(),
+                CoordinatorContext.createQueryGlobals(connectContext).getTimestampMs());
+        Assertions.assertEquals(statementStartTime.getNano(),
+                CoordinatorContext.createQueryGlobals(connectContext).getNanoSeconds());
     }
 
     @Test

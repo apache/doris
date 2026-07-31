@@ -163,6 +163,8 @@ import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -231,6 +233,22 @@ public class StmtExecutor {
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
+        this(context, originStmt, isProxy, Instant.now());
+    }
+
+    private StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy,
+            Instant statementStartTime) {
+        this(context, originStmt, isProxy, new StatementContext(context, originStmt, statementStartTime));
+    }
+
+    private StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy,
+            Instant statementStartTime, ZoneId statementTimeZone) {
+        this(context, originStmt, isProxy,
+                new StatementContext(context, originStmt, statementStartTime, statementTimeZone));
+    }
+
+    private StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy,
+            StatementContext statementContext) {
         Preconditions.checkState(context.getConnectType().equals(ConnectType.MYSQL));
         this.context = context;
         if (context != null) {
@@ -239,7 +257,7 @@ public class StmtExecutor {
         this.originStmt = originStmt;
         this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
-        this.statementContext = new StatementContext(context, originStmt);
+        this.statementContext = statementContext;
         this.context.setStatementContext(statementContext);
         this.profile = new Profile(
                 this.context.getSessionVariable().enableProfile(),
@@ -250,6 +268,17 @@ public class StmtExecutor {
     // for test
     public StmtExecutor(ConnectContext context, String stmt) {
         this(context, new OriginStatement(stmt, 0), false);
+        this.stmtName = stmt;
+    }
+
+    public StmtExecutor(ConnectContext context, String stmt, Instant statementStartTime) {
+        this(context, new OriginStatement(stmt, 0), false, statementStartTime);
+        this.stmtName = stmt;
+    }
+
+    public StmtExecutor(ConnectContext context, String stmt, Instant statementStartTime,
+            ZoneId statementTimeZone) {
+        this(context, new OriginStatement(stmt, 0), false, statementStartTime, statementTimeZone);
         this.stmtName = stmt;
     }
 
@@ -1019,15 +1048,14 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
-        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
-        // without a parsedStatement. Propagate it so that downstream code like
-        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
-        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
-        // Coordinator (which would fail with "fragment has no children").
-        // Only do this when isProxy is true, because other code paths like
-        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
-        if (isProxy) {
-            this.context.getStatementContext().setParsedStatement(parsedStmt);
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            StatementContext parsedStatementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
+            parsedStatementContext.resetStatementStartTime(
+                    statementContext.getStatementStartTime(), statementContext.getStatementTimeZone());
+            setStatementContext(parsedStatementContext);
+            if (isProxy) {
+                parsedStatementContext.setParsedStatement(parsedStmt);
+            }
         }
     }
 
