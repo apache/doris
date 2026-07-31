@@ -41,7 +41,21 @@ jobs:
   code-review:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      FAST_FEEDBACK_MODE: ${{ vars.CODE_REVIEW_FAST_FEEDBACK_MODE || 'shadow' }}
     steps:
+      - name: Validate fast-feedback mode
+        run: |
+          case "$FAST_FEEDBACK_MODE" in
+            shadow|blocker-only)
+              echo "Fast-feedback mode: $FAST_FEEDBACK_MODE"
+              ;;
+            *)
+              echo "Unsupported fast-feedback mode: $FAST_FEEDBACK_MODE"
+              exit 1
+              ;;
+          esac
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -50,8 +64,12 @@ jobs:
 
       - name: Install ripgrep
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          if command -v rg >/dev/null 2>&1; then
+            rg --version | head -n 1
+          else
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
 
       - name: Install Codex
         run: |
@@ -327,6 +345,7 @@ jobs:
           You can comment on the pull request.
           This review task is executed in Codex goal mode. Subsequent prompts and skill indicate all the review and commenting actions you need to perform. The current round can only be concluded after completing the main agent risk scan, the normal full-review subagent review for each round, and the risk-focused subagent scan (if applicable). The final GitHub review can only be submitted after all subagents return NO_NEW_VALUABLE_FINDINGS, and all candidate points from the subagents have been validated, deduplicated, accepted, or rejected by the main agent.
           In addition, the number of iterations shall not exceed 3 rounds. If new subagents identify valuable candidate points after 3 rounds, the main agent must indicate in the final summary that the review is incomplete.
+          Fast feedback is a separate checkpoint, not a replacement for the complete review. Record it immediately after the normal main-agent initial risk scan and before spawning any subagents. The default shadow mode must not create any fast-feedback GitHub review or conversation comment.
 
           Context:
           - Repository: PLACEHOLDER_REPO
@@ -341,6 +360,9 @@ jobs:
           - PR diff range: merge-base(PLACEHOLDER_BASE_SHA, PLACEHOLDER_HEAD_SHA) to PLACEHOLDER_HEAD_SHA
           - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
           - Shared subagent review ledger: PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md
+          - Fast-feedback mode: PLACEHOLDER_FAST_FEEDBACK_MODE
+          - Fast-feedback evidence: PLACEHOLDER_CONTEXT_DIR/fast_feedback_shadow.json
+          - Fast-feedback final assessment: PLACEHOLDER_CONTEXT_DIR/fast_feedback_assessment.json
 
           PR diff and path-reading (for all subagents and the main agent):
           - PLACEHOLDER_CONTEXT_DIR/pr.diff and PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt were both generated locally with `git diff PLACEHOLDER_BASE_SHA...PLACEHOLDER_HEAD_SHA` after the live PR base/head were verified. They are the authoritative PR diff and changed-path list: they contain changes from the computed merge base to the PR head. The listed PR Base SHA identifies the target-branch snapshot and is not necessarily the diff's left endpoint. Do not obtain the PR diff or changed-path list through other means.
@@ -349,12 +371,25 @@ jobs:
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
           The active review goal's progress tracking MUST include, and must stay current throughout the review:
           1. Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
-          2. Perform a main-agent initial risk scan before spawning review subagents. You must thoroughly read all the changes in this PR and understand all the involved mechanisms, pointing out: if there is a problem with this PR, where is the problem most likely to be? Or are there any points you suspect to be risky? write the result under `## Main Initial Risk Scan` in the shared ledger.
-          3. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
-          4. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
-          5. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
-          6. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
-          7. Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+          2. Perform the normal main-agent initial risk scan before spawning review subagents. Thoroughly read all changes in this PR, identify where problems are most likely or which mechanisms are suspicious, and record the result under `## Main Initial Risk Scan` in the shared ledger.
+          3. Attempt to record the fast-feedback shadow checkpoint for the reviewed HEAD SHA by following the Fast Feedback Protocol below. Do this before any subagent is spawned, but never delay or fail the formal review because shadow evidence could not be written.
+          4. Based on the requirements of the code-review skill regarding the coverage points of the review spawn 1-3 subagents (depends on the complexity of the PR), each focusing on certain aspects. The sum of their focus points must fully cover the entire content of PR, as well as the points required in skill and any additional review points you consider necessary. They must complete the review of their own aspects and identify all possible issues before they can finish their work. You need assign each subagent a dedicated section in the shared ledger.
+          5. If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional risk-focused subagent(s), separate from the normal complete-review subagents, to specially investigate those specific mechanisms and their upstream/downstream interactions.
+          6. Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section. The status of each candidate must be clarified after this stage.
+          7. If all subagents return `NO_NEW_VALUABLE_FINDINGS`, or if this loop has already executed 3 rounds, conduct the necessary review to ensure that all current candidate points have been verified, deduplicated, accepted, or rejected, and then submit the final GitHub comment. Otherwise, continue with the next round of the same review process from the beginning.
+          8. Submit the final GitHub review and verify that all accepted comments landed. Then attempt to write the fast-feedback final assessment described below without delaying or failing the formal review. You must address all checkpoints required by the skill, user concerns (if any), and indicate the status of the review completion.
+
+          Fast Feedback Protocol:
+          - PLACEHOLDER_FAST_FEEDBACK_MODE must be either `shadow` or `blocker-only`. In `shadow` mode, do not create any GitHub review or conversation comment from this checkpoint. In `blocker-only` mode, only a confirmed blocker may be published. A no-blocker or inconclusive checkpoint is silent in every mode.
+          - Immediately before recording the checkpoint, re-read the live PR head with `gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER --jq .head.sha`. If it is not exactly PLACEHOLDER_HEAD_SHA, do not record or publish fast feedback; stop the review because its context is stale.
+          - Only a concrete issue that the main agent has already verified against the diff and surrounding code is a confirmed blocker. A suspicion or an item that still needs subagent research is not a confirmed blocker.
+          - Set the checkpoint result to `confirmed_blocker` only when at least one such issue exists; otherwise set it to `no_confirmed_blocker`. The latter means only that the initial scan did not prove a blocker. It is not a clean review result.
+          - Atomically write PLACEHOLDER_CONTEXT_DIR/fast_feedback_shadow.json with this schema before spawning subagents: `{"schema_version":1,"mode":"PLACEHOLDER_FAST_FEEDBACK_MODE","pr_number":PLACEHOLDER_PR_NUMBER,"head_sha":"PLACEHOLDER_HEAD_SHA","recorded_at":"<UTC YYYY-MM-DDTHH:MM:SSZ>","result":"confirmed_blocker|no_confirmed_blocker","confirmed_finding_ids":["<ledger ID>", ...],"published_review_id":null}`. Generate `recorded_at` with `date -u +%Y-%m-%dT%H:%M:%SZ`. Build the JSON with `jq`, write it to a temporary file in PLACEHOLDER_CONTEXT_DIR, then `mv` it into place. Do not include finding bodies or source code in this evidence file.
+          - If the local evidence write fails, record that fact in the ledger, publish no fast feedback, and continue the formal review. The post-run verifier treats missing shadow evidence as a warning in `shadow` mode and as a validation failure in `blocker-only` mode; neither case may prevent submission of the formal review.
+          - In `shadow` mode, `published_review_id` must remain null and no GitHub write is allowed, even for a confirmed blocker.
+          - In `blocker-only` mode, if the result is `confirmed_blocker`, submit the confirmed issues as a `REQUEST_CHANGES` review with inline comments through the GitHub Reviews API. The JSON request must set `"commit_id":"PLACEHOLDER_HEAD_SHA"` explicitly. Start the review body with `[Automated review fast feedback]`, verify that the review and inline comments landed, update `published_review_id` in the evidence file atomically, and record the submitted finding IDs and review ID in the shared ledger so the final review does not duplicate them.
+          - PR conversation comments beginning with `[Automated review fast feedback]` are forbidden in every mode. Do not approve the PR, dismiss a review, trigger a build, or interpret `no_confirmed_blocker` as permission to run buildall.
+          - After recording the checkpoint, continue the complete multi-agent review normally. Later findings are authoritative and may differ from the shadow checkpoint.
 
           Subagent Constraints:
           - Every subagent appends only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
@@ -369,6 +404,8 @@ jobs:
           - The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent.
           - The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item.
           - Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review. At this stage, you can conduct final research on any part you still have doubts about or which may not have been fully investigated, ensuring that all potential issues have been thoroughly investigated and reported.
+          - Re-verify every checkpoint blocker during the complete review. A blocker published in `blocker-only` mode must not be submitted a second time. If a published blocker is disproved, reply to its inline thread with the concrete counter-evidence, mark it `dismissed_with_evidence` in the ledger, and state clearly in the final summary that the fast-feedback finding is withdrawn; do not dismiss the review automatically. Shadow-only candidates follow the normal final-review validation and submission path.
+          - After the final GitHub review is submitted and verified, make a best-effort atomic write to PLACEHOLDER_CONTEXT_DIR/fast_feedback_assessment.json. It must contain `schema_version`, `pr_number`, `head_sha`, `assessed_at`, and `finding_dispositions`. Include every ID from `confirmed_finding_ids` exactly once and no other IDs. Each disposition must be one of `accepted_final`, `duplicate_existing`, or `dismissed_with_evidence`. Use an empty array when the checkpoint had no confirmed findings. Do not include finding bodies or source code. Failure to write this assessment must not amend, withdraw, delay, or fail the formal review.
 
           Any agent MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
 
@@ -383,15 +420,17 @@ jobs:
 
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
-              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
+          - Immediately before submitting the final review, re-read the live PR head with `gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER --jq .head.sha`. If it is not exactly PLACEHOLDER_HEAD_SHA, do not submit the final review; stop because the review context is stale.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion through the GitHub Reviews API with `{"commit_id":"PLACEHOLDER_HEAD_SHA","event":"COMMENT","body":"[Automated review final]\n<summary>"}`.
           - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Start the review body with `[Automated review final]`.
+              - Set `"commit_id":"PLACEHOLDER_HEAD_SHA"` explicitly in the JSON request.
               - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
               - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
               - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
               - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
               - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
-              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+              - The JSON file should contain: {"commit_id":"PLACEHOLDER_HEAD_SHA","event":"REQUEST_CHANGES","body":"[Automated review final]\n<summary>","comments":[...]}
           PROMPT
 
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
@@ -399,6 +438,7 @@ jobs:
           sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_FAST_FEEDBACK_MODE|${FAST_FEEDBACK_MODE}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
 
           python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
           import sys
@@ -422,6 +462,17 @@ jobs:
           - Subagents must not rewrite this file, edit another subagent section, edit main-owned sections, edit repository source files, or submit GitHub comments.
           - Avoid duplicates. If a candidate overlaps an existing candidate, add a duplicate note in your own section that references the existing candidate ID.
           - The main agent owns final status, final deduplication, GitHub review submission, and GitHub API verification.
+
+          ## Fast Feedback
+
+          Main-owned fields:
+
+          - Status: pending
+            Mode:
+            Result:
+            Recorded at:
+            Published review ID:
+            Confirmed finding IDs:
 
           ## Main Initial Risk Scan
 
@@ -535,16 +586,40 @@ jobs:
 
           if [ -z "$failure_reason" ]; then
             reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            fast_feedback_comments_file="$REVIEW_CONTEXT_DIR/pr_fast_feedback_comments.json"
+            shadow_file="$REVIEW_CONTEXT_DIR/fast_feedback_shadow.json"
+            assessment_file="$REVIEW_CONTEXT_DIR/fast_feedback_assessment.json"
+            evaluation_file="$REVIEW_CONTEXT_DIR/fast_feedback_evaluation.json"
             reviews_api_ok=false
+            comments_api_ok=false
             review_verified=false
+            shadow_verified=false
+            assessment_verified=false
+            fast_review_found=false
+            fast_comment_found=false
+            final_review_json=""
+            fast_review_json=""
+
             for attempt in 1 2 3 4 5 6; do
               if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
                 reviews_api_ok=true
-                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                final_review_json="$(jq -c --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
                   (add // [])
-                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
-                  | length > 0
-                ' "$reviews_file" >/dev/null; then
+                  | map(select(
+                      (.submitted_at // "") >= $started_at
+                      and (.commit_id // "") == $head_sha
+                      and (.user.login // "") == "github-actions[bot]"
+                      and (
+                        (.state // "") == "COMMENTED"
+                        or (.state // "") == "CHANGES_REQUESTED"
+                        or (.state // "") == "DISMISSED"
+                      )
+                      and ((.body // "") | startswith("[Automated review final]"))
+                    ))
+                  | sort_by(.submitted_at)
+                  | last // empty
+                ' "$reviews_file")"
+                if [ -n "$final_review_json" ]; then
                   review_verified=true
                   break
                 fi
@@ -552,10 +627,225 @@ jobs:
               sleep 5
             done
 
+            if [ "$reviews_api_ok" = "true" ]; then
+              fast_review_json="$(jq -c --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                (add // [])
+                | map(select(
+                    (.submitted_at // "") >= $started_at
+                    and (.commit_id // "") == $head_sha
+                    and (.user.login // "") == "github-actions[bot]"
+                    and ((.state // "") == "CHANGES_REQUESTED" or (.state // "") == "DISMISSED")
+                    and ((.body // "") | startswith("[Automated review fast feedback]"))
+                  ))
+                | sort_by(.submitted_at)
+                | first // empty
+              ' "$reviews_file")"
+              if [ -n "$fast_review_json" ]; then
+                fast_review_found=true
+              fi
+            fi
+
+            for attempt in 1 2 3; do
+              if gh api --paginate --slurp "repos/${REPO}/issues/${PR_NUMBER}/comments" > "$fast_feedback_comments_file"; then
+                comments_api_ok=true
+                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                  (add // [])
+                  | map(select(
+                      (.created_at // "") >= $started_at
+                      and (.user.login // "") == "github-actions[bot]"
+                      and ((.body // "") | startswith("[Automated review fast feedback]"))
+                      and ((.body // "") | contains($head_sha))
+                    ))
+                  | length > 0
+                ' "$fast_feedback_comments_file" >/dev/null; then
+                  fast_comment_found=true
+                fi
+                break
+              fi
+              sleep 5
+            done
+
+            if [ -s "$shadow_file" ] && jq -e \
+              --arg mode "$FAST_FEEDBACK_MODE" \
+              --argjson pr_number "$PR_NUMBER" \
+              --arg head_sha "$HEAD_SHA" \
+              --arg started_at "$review_started_at" '
+                .schema_version == 1
+                and .mode == $mode
+                and .pr_number == $pr_number
+                and .head_sha == $head_sha
+                and (.recorded_at | type == "string")
+                and ((.recorded_at | fromdateiso8601) >= ($started_at | fromdateiso8601))
+                and (.result == "confirmed_blocker" or .result == "no_confirmed_blocker")
+                and (.confirmed_finding_ids | type == "array")
+                and all(.confirmed_finding_ids[]; type == "string" and length > 0)
+                and (
+                  if .result == "confirmed_blocker" then
+                    (.confirmed_finding_ids | length) > 0
+                  else
+                    (.confirmed_finding_ids | length) == 0
+                  end
+                )
+                and (
+                  if .mode == "shadow" or .result == "no_confirmed_blocker" then
+                    .published_review_id == null
+                  else
+                    true
+                  end
+                )
+              ' "$shadow_file" >/dev/null; then
+              shadow_verified=true
+            fi
+
+            if [ "$shadow_verified" = "true" ]; then
+              shadow_result="$(jq -r '.result' "$shadow_file")"
+              shadow_recorded_at="$(jq -r '.recorded_at' "$shadow_file")"
+              fast_feedback_seconds="$(jq -nr --arg started_at "$review_started_at" --arg recorded_at "$shadow_recorded_at" '
+                ($recorded_at | fromdateiso8601) - ($started_at | fromdateiso8601)
+              ')"
+              echo "Fast-feedback shadow checkpoint was recorded ${fast_feedback_seconds}s after Codex started."
+              echo "fast_feedback_seconds=${fast_feedback_seconds}" >> "$GITHUB_OUTPUT"
+              echo "fast_feedback_result=${shadow_result}" >> "$GITHUB_OUTPUT"
+              if [ "$fast_feedback_seconds" -gt 120 ]; then
+                echo "::warning::Fast-feedback shadow checkpoint missed the 120s observation target (${fast_feedback_seconds}s)."
+              fi
+            fi
+
+            if [ "$shadow_verified" = "true" ] && [ -s "$assessment_file" ] && jq -e \
+              --slurpfile shadow "$shadow_file" \
+              --argjson pr_number "$PR_NUMBER" \
+              --arg head_sha "$HEAD_SHA" '
+                .schema_version == 1
+                and .pr_number == $pr_number
+                and .head_sha == $head_sha
+                and (.assessed_at | type == "string")
+                and ((.assessed_at | fromdateiso8601) >= ($shadow[0].recorded_at | fromdateiso8601))
+                and (.finding_dispositions | type == "array")
+                and all(.finding_dispositions[];
+                  (.id | type == "string" and length > 0)
+                  and (.disposition == "accepted_final"
+                    or .disposition == "duplicate_existing"
+                    or .disposition == "dismissed_with_evidence")
+                )
+                and (([.finding_dispositions[].id] | sort) == ($shadow[0].confirmed_finding_ids | sort))
+                and (([.finding_dispositions[].id] | unique | length) == (.finding_dispositions | length))
+              ' "$assessment_file" >/dev/null; then
+              assessment_verified=true
+            fi
+
             if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
               failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
             elif [ "$review_verified" != "true" ]; then
               failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
+            elif [ "$fast_comment_found" = "true" ]; then
+              failure_reason="Fast feedback must never publish a PR conversation comment."
+            elif [ "$FAST_FEEDBACK_MODE" = "shadow" ] && [ "$fast_review_found" = "true" ]; then
+              failure_reason="Shadow mode published a fast-feedback review."
+            elif [ "$FAST_FEEDBACK_MODE" = "blocker-only" ] && [ "$shadow_verified" != "true" ]; then
+              failure_reason="Blocker-only mode requires valid fast-feedback evidence for the current head SHA."
+            elif [ "$FAST_FEEDBACK_MODE" = "blocker-only" ] && [ "$comments_api_ok" != "true" ]; then
+              failure_reason="Blocker-only mode could not verify that no fast-feedback conversation comment was posted."
+            elif [ "$FAST_FEEDBACK_MODE" = "blocker-only" ] && [ "$shadow_result" = "confirmed_blocker" ] && [ "$fast_review_found" != "true" ]; then
+              failure_reason="Blocker-only mode recorded a confirmed blocker, but no matching fast-feedback review was published."
+            elif [ "$FAST_FEEDBACK_MODE" = "blocker-only" ] && [ "$shadow_result" = "confirmed_blocker" ]; then
+              shadow_review_id="$(jq -r '.published_review_id // ""' "$shadow_file")"
+              detected_review_id="$(jq -r '.id | tostring' <<<"$fast_review_json")"
+              if [ -z "$shadow_review_id" ] || [ "$shadow_review_id" != "$detected_review_id" ]; then
+                failure_reason="Fast-feedback review ID does not match the shadow evidence."
+              fi
+            elif [ "$FAST_FEEDBACK_MODE" = "blocker-only" ] && [ "$shadow_result" = "no_confirmed_blocker" ] && [ "$fast_review_found" = "true" ]; then
+              failure_reason="Blocker-only mode published a fast-feedback review without a confirmed blocker."
+            fi
+
+            if [ "$FAST_FEEDBACK_MODE" = "shadow" ] && [ "$shadow_verified" != "true" ]; then
+              echo "::warning::Fast-feedback shadow evidence is missing or invalid; the formal review remains authoritative."
+            fi
+            if [ "$FAST_FEEDBACK_MODE" = "shadow" ] && [ "$comments_api_ok" != "true" ]; then
+              echo "::warning::Could not verify the absence of a fast-feedback conversation comment; the formal review remains authoritative."
+            fi
+            if [ "$shadow_verified" = "true" ] && [ "$assessment_verified" != "true" ]; then
+              echo "::warning::Fast-feedback final assessment is missing or invalid; directional comparison is still available."
+            fi
+
+            if [ -z "$failure_reason" ] && [ "$shadow_verified" = "true" ]; then
+              final_state="$(jq -r '.state' <<<"$final_review_json")"
+              final_label="no_blocker"
+              if [ "$final_state" = "CHANGES_REQUESTED" ] || [ "$final_state" = "DISMISSED" ]; then
+                final_label="blocker"
+              fi
+
+              comparison="directional_match_no_blocker"
+              if [ "$shadow_result" = "confirmed_blocker" ] && [ "$final_label" = "blocker" ]; then
+                comparison="directional_match_blocker"
+              elif [ "$shadow_result" = "confirmed_blocker" ] && [ "$final_label" = "no_blocker" ]; then
+                comparison="directional_early_blocker_only"
+              elif [ "$shadow_result" = "no_confirmed_blocker" ] && [ "$final_label" = "blocker" ]; then
+                comparison="directional_missed_blocker"
+              fi
+
+              finding_consistency="not_available"
+              accepted_final_count=0
+              duplicate_existing_count=0
+              dismissed_count=0
+              if [ "$assessment_verified" = "true" ]; then
+                accepted_final_count="$(jq '[.finding_dispositions[] | select(.disposition == "accepted_final")] | length' "$assessment_file")"
+                duplicate_existing_count="$(jq '[.finding_dispositions[] | select(.disposition == "duplicate_existing")] | length' "$assessment_file")"
+                dismissed_count="$(jq '[.finding_dispositions[] | select(.disposition == "dismissed_with_evidence")] | length' "$assessment_file")"
+                finding_consistency="no_initial_findings"
+                if [ "$accepted_final_count" -gt 0 ]; then
+                  finding_consistency="at_least_one_accepted_final"
+                elif [ "$duplicate_existing_count" -gt 0 ]; then
+                  finding_consistency="only_duplicate_existing"
+                elif [ "$shadow_result" = "confirmed_blocker" ]; then
+                  finding_consistency="all_dismissed_with_evidence"
+                fi
+              fi
+
+              jq -n \
+                --slurpfile shadow "$shadow_file" \
+                --arg final_review_id "$(jq -r '.id | tostring' <<<"$final_review_json")" \
+                --arg final_state "$final_state" \
+                --arg final_label "$final_label" \
+                --arg final_submitted_at "$(jq -r '.submitted_at' <<<"$final_review_json")" \
+                --argjson fast_feedback_seconds "$fast_feedback_seconds" \
+                --arg comparison "$comparison" \
+                --arg finding_consistency "$finding_consistency" \
+                --argjson accepted_final_count "$accepted_final_count" \
+                --argjson duplicate_existing_count "$duplicate_existing_count" \
+                --argjson dismissed_count "$dismissed_count" '
+                  {
+                    schema_version: 1,
+                    shadow: $shadow[0],
+                    fast_feedback_seconds: $fast_feedback_seconds,
+                    final_review: {
+                      id: $final_review_id,
+                      state: $final_state,
+                      label: $final_label,
+                      submitted_at: $final_submitted_at
+                    },
+                    comparison_scope: "direction_only",
+                    comparison: $comparison,
+                    finding_consistency: $finding_consistency,
+                    finding_disposition_counts: {
+                      accepted_final: $accepted_final_count,
+                      duplicate_existing: $duplicate_existing_count,
+                      dismissed_with_evidence: $dismissed_count
+                    }
+                  }
+                ' > "$evaluation_file"
+              echo "fast_feedback_comparison=${comparison}" >> "$GITHUB_OUTPUT"
+              echo "Fast-feedback shadow directional comparison: ${comparison}."
+              {
+                echo "### Fast-feedback shadow"
+                echo
+                echo "- Mode: \`${FAST_FEEDBACK_MODE}\`"
+                echo "- Initial result: \`${shadow_result}\`"
+                echo "- Initial latency: \`${fast_feedback_seconds}s\`"
+                echo "- Final label: \`${final_label}\`"
+                echo "- Directional comparison: \`${comparison}\`"
+                echo "- Initial-finding consistency: \`${finding_consistency}\`"
+                echo "- Head SHA: \`${HEAD_SHA}\`"
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
 
@@ -567,6 +857,19 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+      - name: Upload fast-feedback shadow evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-review-fast-feedback-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+          path: |
+            .code-review.*/fast_feedback_shadow.json
+            .code-review.*/fast_feedback_assessment.json
+            .code-review.*/fast_feedback_evaluation.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
 
       - name: Record review I/O to Litefuse
         if: ${{ always() }}
