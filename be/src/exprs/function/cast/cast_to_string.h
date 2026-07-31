@@ -114,13 +114,7 @@ private:
                 end = buffer + neg_inf_str_len;
             }
         } else {
-            if constexpr (std::is_same_v<T, float>) {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<float>::digits10 + 1);
-            } else {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<double>::digits10 + 1);
-            }
+            end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
         }
         *end = '\0';
         return int(end - buffer);
