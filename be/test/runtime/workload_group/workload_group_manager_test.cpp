@@ -184,6 +184,7 @@ TEST_F(WorkloadGroupManagerTest, handle_paused_queries_ignores_empty_workload_gr
     _wg_manager->handle_paused_queries();
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+    ASSERT_FALSE(_wg_manager->_paused_queries_list.contains(wg));
 }
 
 TEST_F(WorkloadGroupManagerTest, refresh_restores_query_limit_after_cgroup_expands) {
@@ -205,6 +206,8 @@ TEST_F(WorkloadGroupManagerTest, refresh_restores_query_limit_after_cgroup_expan
               large_mem_limit);
     ASSERT_EQ(query_without_mem_limit->resource_ctx()->memory_context()->mem_limit(),
               small_mem_limit);
+    ASSERT_EQ(query_without_mem_limit->resource_ctx()->memory_context()->user_set_mem_limit(),
+              1LL << 60);
 
     MemInfo::set_mem_limit_for_test(large_mem_limit);
     _wg_manager->refresh_workload_group_memory_state();
@@ -219,6 +222,7 @@ TEST_F(WorkloadGroupManagerTest, refresh_restores_query_limit_after_cgroup_expan
 // it should be resumed
 TEST_F(WorkloadGroupManagerTest, query_exceed) {
     auto wg = _wg_manager->get_or_create_workload_group({});
+    auto query_context = _generate_on_query(wg);
 
     query_context->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
     query_context->query_mem_tracker()->consume(1024 * 4);
@@ -921,7 +925,7 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy
                                .memory_limit = 1024L * 1024 * 200,
                                .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
-    auto query_context = _generate_on_query(wg);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 128, true);
 
     // user_set_mem_limit is set in QueryContext init = query_options.mem_limit = 128MB
     const int64_t user_set = query_context->resource_ctx()->memory_context()->user_set_mem_limit();
@@ -958,7 +962,7 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_dynamic_pol
                                .total_query_slot_count = 5,
                                .slot_mem_policy = TWgSlotMemoryPolicy::DYNAMIC};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
-    auto query_context = _generate_on_query(wg);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 128, true);
 
     const int64_t user_set = query_context->resource_ctx()->memory_context()->user_set_mem_limit();
     ASSERT_EQ(user_set, 1024L * 1024 * 128);
