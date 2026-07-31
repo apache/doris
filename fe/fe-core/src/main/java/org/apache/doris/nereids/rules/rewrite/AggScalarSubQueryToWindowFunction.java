@@ -219,14 +219,20 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
         if (!functions.stream().allMatch(f -> f instanceof SupportWindowAnalytic && !f.isDistinct())) {
             return false;
         }
-        // Reject aggregates whose arguments contain volatile or
-        // NoneMovableFunction expressions (e.g. COUNT(assert_true(...))).
-        // The rewrite places some outer predicates below the window,
-        // changing which rows reach the side-effecting function inside
-        // the aggregate and potentially suppressing expected errors.
-        return functions.stream().noneMatch(
-                f -> f.containsVolatileExpression()
-                        || f.containsType(NoneMovableFunction.class));
+        // Reject aggregates whose COMPLETE output expression contains
+        // volatile or NoneMovableFunction anywhere.  This covers BOTH:
+        //   1. unsafe aggregate arguments — COUNT(assert_true(...))
+        //   2. unsafe wrappers around the aggregate output —
+        //      assert_true(SUM(...) > 0) AS scalar_flag
+        // A check limited to the collected AggregateFunction misses case 2,
+        // where the unsafe call is an ANCESTOR of the aggregate in the output
+        // expression tree.  rewrite() inlines the complete aggOut.child(0)
+        // into the top comparison and pushes some outer predicates below the
+        // window, changing which rows reach the side-effecting function and
+        // potentially suppressing expected errors.
+        return aggOp.getOutputExpressions().stream().allMatch(
+                ne -> !ne.containsVolatileExpression()
+                        && !ne.containsType(NoneMovableFunction.class));
     }
 
     /**
@@ -474,9 +480,21 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
                             innerScan.getScanParams(), outerScan.getScanParams())) {
                         return false;
                     }
-                    // Different table sample → different row set.
+                    // Different table samples → different row set.
                     if (!Objects.equals(
                             innerScan.getTableSample(), outerScan.getTableSample())) {
+                        return false;
+                    }
+                    // Non-repeatable samples: without REPEATABLE, seek is
+                    // -1 and each OlapScanNode resolves it with its own
+                    // SecureRandom at execution time (see
+                    // OlapScanNode.computeSampleTabletIds).  Two
+                    // descriptor-equal non-repeatable samples therefore
+                    // materialize different row sets — the rewrite would
+                    // compute the window only over the outer sample while
+                    // the original scalar subquery read the inner sample.
+                    if (innerScan.getTableSample().isPresent()
+                            && innerScan.getTableSample().get().seek == -1) {
                         return false;
                     }
                     // Different partition selection → different row set.

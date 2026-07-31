@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -1328,24 +1329,98 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 + "      AND f2.v < 10"
                 + "  )";
 
-        // Full regression-style pipeline: PushDownFilterThroughProject splits
-        // the inner filter, MergeFilters merges adjacent filters, then the
-        // custom rule rewrites.
-        Plan plan = PlanChecker.from(createCascadesContext(sql))
+        // Full regression-style pipeline matching the production rewrite
+        // schedule.  Plan Normalization first: LogicalSubQueryAliasToLogicalProject
+        // (production job "Plan Normalization") turns the inner SubQueryAlias
+        // (FROM fact_split2 f2) into a LogicalProject, so PushDownFilterThroughProject
+        // later sees an exact Filter -> Project pair.  Then subquery unnesting:
+        // PullUpProjectUnderApply FIRST (which exposes the inner plan), then
+        // PushDownFilterThroughProject (which can now split an exact
+        // Filter -> Project pair into correlated-above / non-correlated-below),
+        // then MergeFilters (which only combines ADJACENT filters — the Project
+        // in between keeps the two split filters separate).  Capture the plan
+        // immediately before AggScalarSubQueryToWindowFunction to prove the
+        // split actually happened.
+        Plan preRule = PlanChecker.from(createCascadesContext(sql))
                 .analyze(sql)
-                .applyTopDown(new PushDownFilterThroughProject())
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
                 .applyBottomUp(new MergeFilters())
                 .customRewrite(new EliminateUnnecessaryProject())
-                .customRewrite(new AggScalarSubQueryToWindowFunction())
                 .getPlan();
+
+        // Locate the correlated Apply that AggScalarSubQueryToWindowFunction
+        // will rewrite.
+        List<LogicalApply<Plan, Plan>> applies = preRule
+                .collectToList(LogicalApply.class::isInstance);
+        Assertions.assertEquals(1, applies.size(),
+                "Pre-rule plan must contain exactly one correlated Apply");
+        LogicalApply<Plan, Plan> targetApply = applies.get(0);
+
+        // The Apply's right subtree must contain exactly two LogicalFilter
+        // nodes with SEPARATED predicates — one holding the correlated
+        // conjunct (f2.k = d.k) and one holding the non-correlated conjunct
+        // (f2.v < 10).  This proves PushDownFilterThroughProject produced
+        // the split the test is meant to exercise; a single merged filter
+        // would make this regression pass trivially.
+        List<LogicalFilter<Plan>> innerFilters = targetApply.right()
+                .collectToList(LogicalFilter.class::isInstance);
+        Assertions.assertEquals(2, innerFilters.size(),
+                "PushDownFilterThroughProject must split the inner filter "
+                + "into two LogicalFilter nodes.  Actual plan:\n"
+                + targetApply.treeString());
+
+        // Each filter node must hold exactly one of the two predicates:
+        // one conjunct references the correlated slot (d.k), the other
+        // references only the inner fact table's slots.
+        Set<ExprId> correlatedExprIds = targetApply.getCorrelationSlot().stream()
+                .map(Slot::getExprId)
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(1, correlatedExprIds.size(),
+                "Scalar subquery must correlate on exactly one slot");
+        boolean correlatedAlone = false;
+        boolean nonCorrelatedAlone = false;
+        for (LogicalFilter<Plan> f : innerFilters) {
+            boolean hasCorrelated = false;
+            boolean hasNonCorrelated = false;
+            for (Expression conj : f.getConjuncts()) {
+                if (conj.getInputSlotExprIds().stream()
+                        .anyMatch(correlatedExprIds::contains)) {
+                    hasCorrelated = true;
+                } else {
+                    hasNonCorrelated = true;
+                }
+            }
+            if (hasCorrelated && !hasNonCorrelated) {
+                correlatedAlone = true;
+            } else if (hasNonCorrelated && !hasCorrelated) {
+                nonCorrelatedAlone = true;
+            }
+        }
+        Assertions.assertTrue(correlatedAlone,
+                "One inner filter must hold the correlated predicate "
+                + "(f2.k = d.k) alone: " + targetApply.treeString());
+        Assertions.assertTrue(nonCorrelatedAlone,
+                "One inner filter must hold the non-correlated predicate "
+                + "(f2.v < 10) alone: " + targetApply.treeString());
+
+        // Now run the rewrite on the proven-split plan.
+        Plan plan = new AggScalarSubQueryToWindowFunction()
+                .rewriteRoot(preRule, null);
 
         // Rule should match and produce a window
         Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
                 "Rule should produce a window even when inner filter is split by "
                 + "PushDownFilterThroughProject");
 
-        // Verify f.v < 10 (matched from inner filter) is below the window
+        // Verify f.v < 10 (matched from inner filter) is below the window.
+        // The matched conjunct references only the fact table's slots.
+        List<CatalogRelation> rels = plan.collectToList(CatalogRelation.class::isInstance);
+        Set<ExprId> factExprIds = rels.stream()
+                .filter(r -> r.getTable().getName().equals("fact_split2"))
+                .flatMap(r -> r.getOutputExprIdSet().stream())
+                .collect(Collectors.toSet());
         List<LogicalWindow<Plan>> windows = plan.collectToList(LogicalWindow.class::isInstance);
         LogicalWindow<Plan> window = windows.get(0);
         Plan belowWindow = window.child(0);
@@ -1354,13 +1429,17 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         boolean found = false;
         for (LogicalFilter<Plan> f : belowFilters) {
             for (Expression conj : f.getConjuncts()) {
-                if (conj.toSql().contains("v < 10")) {
+                Set<ExprId> conjExprIds = conj.getInputSlotExprIds();
+                if (!conjExprIds.isEmpty()
+                        && factExprIds.containsAll(conjExprIds)
+                        && conj.toSql().contains("< 10")) {
                     found = true;
                 }
             }
         }
         Assertions.assertTrue(found,
-                "Matched inner-filter conjunct f.v < 10 must be below the window");
+                "Matched inner-filter conjunct f.v < 10 must be below the window: "
+                + belowWindow.treeString());
     }
 
     @Test
@@ -1790,6 +1869,80 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
         Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
                 "Rewrite must be rejected when the aggregate argument "
                 + "contains a NoneMovableFunction (e.g. assert_true) "
+                + "because predicates pushed below the window would "
+                + "suppress its side effects");
+    }
+
+    @Test
+    public void testNoneMovableWrappingAggregateOutputRejected() throws Exception {
+        // The unsafe call can also WRAP the aggregate output rather than
+        // being an argument of it — e.g.
+        //   Aggregate(assert_true(SUM(f2.v) > 0, 'bad') AS scalar_flag)
+        // checkAggregate() must validate the COMPLETE output expression,
+        // not just the collected AggregateFunction (SUM).  Checking only
+        // SUM would miss assert_true, which is an ANCESTOR of SUM in the
+        // output expression tree.
+        //
+        // Plan shape:
+        //   Filter(d.tag > 0, f.k = d.k, TRUE = scalar_flag)
+        //     Apply(correlation = d.k)
+        //       CrossJoin
+        //         Scan fact f
+        //         Scan dim d    ← unique, non-null k
+        //       Aggregate(assert_true(SUM(f2.v) > 0, 'bad') AS scalar_flag)
+        //         Filter(f2.k = d.k)
+        //           Scan fact f2
+        //
+        // Without rejection, rewrite() inlines
+        // assert_true(window_sum > 0, 'bad') into the top comparison while
+        // d.tag > 0 and the matched join predicate go below the window.
+        // For a failing key whose dimension row has tag = 0, the original
+        // Apply raises before the outer filter; the rewritten lower filter
+        // removes that key before the assertion, suppressing the error.
+        createTable("CREATE TABLE fact_nm_wrap (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nm_wrap (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nm_wrap add constraint uq_dim_nm_wrap_k unique (k)");
+
+        // assert_true wraps the aggregate output (SUM(f2.v) > 0).  The
+        // unsafe call is an ancestor of SUM, outside the collected
+        // AggregateFunction subtree — must reject.
+        String sql = "SELECT d.did, f.id, f.v "
+                + "FROM fact_nm_wrap f, dim_nm_wrap d "
+                + "WHERE f.k = d.k "
+                + "  AND d.tag > 0"
+                + "  AND TRUE = ("
+                + "    SELECT assert_true(SUM(f2.v) > 0, 'bad') "
+                + "    FROM fact_nm_wrap f2 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Rule must NOT match — the unsafe wrapper around the aggregate
+        // output would be inlined above the window while predicates below
+        // remove failing rows before the assertion runs.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when a NoneMovableFunction wraps "
+                + "the aggregate output (e.g. assert_true(SUM(...) > 0)) "
                 + "because predicates pushed below the window would "
                 + "suppress its side effects");
     }
@@ -3160,6 +3313,109 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
                 "Mismatched scan domains on shared table must be rejected: "
                 + "the outer scan has @incr params but the inner scan "
                 + "reads the full base table");
+    }
+
+    @Test
+    public void testRepeatableSampleTriggersRewrite() throws Exception {
+        // A TABLESAMPLE with the same REPEATABLE seed on both the outer
+        // and inner shared-table scans is deterministic: both OlapScanNodes
+        // resolve the same partition/tablet seek, so they read the same
+        // sample.  The rewrite is safe and should fire.
+        createTable("CREATE TABLE fact_rs (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_rs (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_rs add constraint uq_dim_rs_k unique (k)");
+
+        // Same REPEATABLE seed on both scans → same sampled row set.
+        String sql = "SELECT d.did, f.id, f.v "
+                + "FROM fact_rs f TABLESAMPLE(10 ROWS) REPEATABLE 5, dim_rs d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_rs f2 TABLESAMPLE(10 ROWS) REPEATABLE 5 "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Same repeatable seed → the rewrite is safe.
+        Assertions.assertTrue(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must succeed when both scans use the same "
+                + "REPEATABLE sample seed");
+    }
+
+    @Test
+    public void testNonRepeatableSampleRejected() throws Exception {
+        // TABLESAMPLE(n ROWS) WITHOUT REPEATABLE gives both scans
+        // seek = -1, so their TableSample descriptors compare equal.
+        // At execution, however, each OlapScanNode resolves -1 with its
+        // own SecureRandom partition/tablet seek — the outer and inner
+        // scans read DIFFERENT random samples.  The rewrite removes the
+        // inner scan and computes the window only over the outer sample,
+        // changing the result.  isSameScanDomain() must reject it.
+        createTable("CREATE TABLE fact_nrs (\n"
+                + "  id INT,\n"
+                + "  k INT,\n"
+                + "  v INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE dim_nrs (\n"
+                + "  did INT,\n"
+                + "  k INT NOT NULL,\n"
+                + "  tag INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(did)\n"
+                + "DISTRIBUTED BY HASH(did) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        addConstraint("alter table dim_nrs add constraint uq_dim_nrs_k unique (k)");
+
+        // No REPEATABLE → both scans get seek = -1.  Even though the
+        // descriptors compare equal, the runtime row sets differ.
+        String sql = "SELECT d.did, f.id, f.v "
+                + "FROM fact_nrs f TABLESAMPLE(10 ROWS), dim_nrs d "
+                + "WHERE f.k = d.k "
+                + "  AND f.v * 2 > ("
+                + "    SELECT SUM(f2.v) "
+                + "    FROM fact_nrs f2 TABLESAMPLE(10 ROWS) "
+                + "    WHERE f2.k = d.k"
+                + "  )";
+
+        Plan plan = PlanChecker.from(createCascadesContext(sql))
+                .analyze(sql)
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyTopDown(new PushDownFilterThroughProject())
+                .customRewrite(new EliminateUnnecessaryProject())
+                .customRewrite(new AggScalarSubQueryToWindowFunction())
+                .getPlan();
+
+        // Non-repeatable samples cannot be proven to read the same rows.
+        Assertions.assertFalse(plan.anyMatch(LogicalWindow.class::isInstance),
+                "Rewrite must be rejected when both scans use a "
+                + "non-repeatable TABLESAMPLE — each OlapScanNode "
+                + "picks its own SecureRandom seek at runtime, so the "
+                + "materialized row sets differ even though the "
+                + "descriptors compare equal");
     }
 
     @Test
