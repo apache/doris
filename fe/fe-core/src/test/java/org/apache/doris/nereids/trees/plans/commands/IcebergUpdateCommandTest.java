@@ -113,9 +113,11 @@ public class IcebergUpdateCommandTest {
         Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(variantColumn));
         LogicalPlan child = new LogicalOneRowRelation(new RelationId(10), ImmutableList.of());
 
+        // Satisfy the branch-4.1 sink invariants so the assertion exercises Variant write validation.
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
         Assertions.assertThrows(AnalysisException.class, () -> new LogicalIcebergMergeSink<>(
-                database, table, ImmutableList.of(variantColumn), ImmutableList.of(),
-                new DeleteCommandContext(), java.util.Optional.empty(), java.util.Optional.empty(), child));
+                database, table, icebergTable, ImmutableList.of(variantColumn), ImmutableList.of(),
+                new DeleteCommandContext(), false, java.util.Optional.empty(), java.util.Optional.empty(), child));
     }
 
     @Test
