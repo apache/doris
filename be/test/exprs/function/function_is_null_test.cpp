@@ -20,6 +20,7 @@
 #include "exprs/function/is_not_null.h"
 #include "exprs/function/is_null.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/index_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/storage_engine.h"
 
