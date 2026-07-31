@@ -325,77 +325,35 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     }
     Block input_block = *origin_block;
 
-    size_t bytes_usage = 0;
-    ColumnsWithTypeAndName new_columns;
+    std::vector<int> result_column_ids;
     for (const auto& projections : local_state->_intermediate_projections) {
-        if (projections.empty()) {
-            return Status::InternalError("meet empty intermediate projection, node id: {}",
-                                         node_id());
-        }
-        new_columns.resize(projections.size());
+        result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
-            if (new_columns[i].column->size() != rows) {
-                return Status::InternalError(
-                        "intermediate projection result column size {} not equal input rows {}, "
-                        "expr: {}",
-                        new_columns[i].column->size(), rows,
-                        projections[i]->root()->debug_string());
-            }
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
         }
-        Block tmp_block {new_columns};
-        bytes_usage += tmp_block.allocated_bytes();
-        input_block.swap(tmp_block);
+        input_block.shuffle_columns(result_column_ids);
     }
 
-    if (input_block.rows() != rows) {
-        return Status::InternalError(
-                "after intermediate projections input block rows {} not equal origin rows {}, "
-                "input_block: {}",
-                input_block.rows(), rows, input_block.dump_structure());
-    }
-    auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (is_column_nullable(*to) && !is_column_nullable(*from)) {
-            if (_keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
-                null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-                bytes_usage += null_column.allocated_bytes();
-            } else {
-                to = make_nullable(from, false)->assert_mutable();
-            }
-        } else {
-            if (_keep_origin || !from->is_exclusive()) {
-                to->insert_range_from(*from, 0, rows);
-                bytes_usage += from->allocated_bytes();
-            } else {
-                to = from->assert_mutable();
-            }
-        }
-    };
-
+    DCHECK_EQ(rows, input_block.rows());
     auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
             output_block, *_output_row_descriptor);
     auto& mutable_block = scoped_mutable_block.mutable_block();
     auto& mutable_columns = mutable_block.mutable_columns();
-    if (rows != 0) {
-        DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            ColumnPtr column_ptr;
-            RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
-            if (column_ptr->size() != rows) {
-                return Status::InternalError(
-                        "projection result column size {} not equal input rows {}, expr: {}",
-                        column_ptr->size(), rows,
-                        local_state->_projections[i]->root()->debug_string());
-            }
-            column_ptr = column_ptr->convert_to_full_column_if_const();
-            bytes_usage += column_ptr->allocated_bytes();
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
+    DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
+
+    for (int i = 0; i < mutable_columns.size(); ++i) {
+        ColumnPtr column_ptr;
+        RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
+        column_ptr = column_ptr->convert_to_full_column_if_const();
+        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        DCHECK(mutable_block.rows() == rows);
+        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
     }
-    local_state->_estimate_memory_usage += bytes_usage;
+
+    scoped_mutable_block.restore();
+
+    DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
 }
