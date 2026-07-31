@@ -1464,8 +1464,7 @@ message MetaServiceResponseStatus {
     // enum values. Internal retry signals must be converted before the response is sent.
     // New clients should use this field when the local enum descriptor recognizes the value,
     // otherwise fall back to `code`.
-
-    optional int32 aux_code = 3;
+    optional int32 actual_code = 3;
 }
 
 message MetaServiceHttpRequest {
@@ -1806,7 +1805,7 @@ enum MetaServiceCode {
     // UnknownFieldSet, so old clients read an unset `MetaServiceResponseStatus.code` as OK.
 
     // MetaService must write the exact client-visible code to
-    // `MetaServiceResponseStatus.aux_code` and write only a legacy fallback code to
+    // `MetaServiceResponseStatus.actual_code` and write only a legacy fallback code to
     // `MetaServiceResponseStatus.code`. Any newly added error code that may be returned to
     // clients must be mapped in get_legacy_code().
     OK = 0;

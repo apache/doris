@@ -34,7 +34,6 @@
 #include "common/stats.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
-#include "cpp/cloud_proto_util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_rate_limit_helper.h"
 #include "meta-store/keys.h"
@@ -54,9 +53,9 @@ inline MetaServiceCode get_legacy_code(MetaServiceCode code) {
     }
 }
 
-inline void set_response_status(MetaServiceResponseStatus* status, MetaServiceCode code,
-                                std::string msg) {
-    status->set_aux_code(static_cast<int32_t>(code));
+inline void set_response_code(MetaServiceResponseStatus* status, MetaServiceCode code,
+                              std::string msg) {
+    status->set_actual_code(static_cast<int32_t>(code));
     status->set_code(get_legacy_code(code));
     status->set_msg(std::move(msg));
 }

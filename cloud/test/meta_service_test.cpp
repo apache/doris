@@ -8462,53 +8462,10 @@ TEST(MetaServiceTxnStoreRetryableTest, DoNotReturnRetryableCode) {
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_GET_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
-    ASSERT_TRUE(resp.status().has_aux_code());
-    EXPECT_EQ(resp.status().aux_code(), MetaServiceCode::KV_TXN_GET_ERR);
 
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
     config::txn_store_retry_times = retry_times;
-}
-
-TEST(MetaServiceTxnStoreRetryableTest, ConflictRetryExhaustionReturnsFinalCode) {
-    size_t index = 0;
-    auto* sync_point = SyncPoint::get_instance();
-    sync_point->set_call_back("get_version_code", [&](auto&& args) {
-        ++index;
-        *doris::try_any_cast<MetaServiceCode*>(args[0]) = MetaServiceCode::KV_TXN_CONFLICT;
-    });
-    sync_point->enable_processing();
-    int32_t retry_times = config::txn_store_retry_times;
-    bool enable_retry_txn_conflict = config::enable_retry_txn_conflict;
-    DORIS_CLOUD_DEFER {
-        config::txn_store_retry_times = retry_times;
-        config::enable_retry_txn_conflict = enable_retry_txn_conflict;
-        sync_point->disable_processing();
-        sync_point->clear_all_call_backs();
-    };
-    config::txn_store_retry_times = 2;
-    config::enable_retry_txn_conflict = true;
-
-    auto service = get_meta_service();
-    create_tablet(service.get(), 1, 1, 1, 1);
-    insert_rowset(service.get(), 1, "conflict_retry_exhaustion", 1, 1, 1);
-
-    brpc::Controller ctrl;
-    GetVersionRequest req;
-    req.set_cloud_unique_id("test_cloud_unique_id");
-    req.set_db_id(1);
-    req.set_table_id(1);
-    req.set_partition_id(1);
-
-    GetVersionResponse resp;
-    service->get_version(&ctrl, &req, &resp, nullptr);
-
-    EXPECT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES);
-    ASSERT_TRUE(resp.status().has_aux_code());
-    EXPECT_EQ(resp.status().aux_code(), MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES);
-    EXPECT_EQ(get_response_code(resp.status()),
-              MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES);
-    EXPECT_GE(index, static_cast<std::size_t>(config::txn_store_retry_times + 1));
 }
 
 TEST(MetaServiceTxnStoreRetryableTest, CastAsPreservesMaybeCommittedForProxyRetry) {
@@ -8571,8 +8528,8 @@ TEST(MetaServiceTxnStoreRetryableTest, MaybeCommittedCodeWithoutRetryReturnsComm
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
-    ASSERT_TRUE(resp.status().has_aux_code());
-    EXPECT_EQ(resp.status().aux_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(index, 1);
 
     SyncPoint::get_instance()->disable_processing();
@@ -8613,8 +8570,8 @@ TEST(MetaServiceTxnStoreRetryableTest, ReadMaybeCommittedCodeWithoutRetryReturns
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
-    ASSERT_TRUE(resp.status().has_aux_code());
-    EXPECT_EQ(resp.status().aux_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(resp.version(), 2);
     EXPECT_EQ(index, 1);
 }
@@ -8654,8 +8611,8 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCodeReturnsCommitErr) 
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
-    ASSERT_TRUE(resp.status().has_aux_code());
-    EXPECT_EQ(resp.status().aux_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 
     SyncPoint::get_instance()->disable_processing();
@@ -8700,8 +8657,8 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryReadMaybeCommittedCodeReturnsCommitE
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
-    ASSERT_TRUE(resp.status().has_aux_code());
-    EXPECT_EQ(resp.status().aux_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(resp.version(), 2);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 }

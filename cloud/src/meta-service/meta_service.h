@@ -1039,7 +1039,7 @@ private:
 
         DORIS_CLOUD_DEFER {
             auto* status = resp->mutable_status();
-            set_response_status(status, get_response_code(*status), status->msg());
+            set_response_code(status, status->code(), status->msg());
         };
 
         // life span of this defer MUST be longer than `done`
@@ -1049,6 +1049,8 @@ private:
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             if (resp->status().code() == MetaServiceCode::KV_TXN_MAYBE_COMMITTED) {
+                // Keep maybe-committed as an internal retry signal only. Older proto2
+                // clients may treat unknown enum values as unset and fall back to OK.
                 resp->mutable_status()->set_code(MetaServiceCode::KV_TXN_COMMIT_ERR);
             }
             if (DCHECK_IS_ON()) {
@@ -1097,7 +1099,8 @@ private:
             if (retry_times >= config::txn_store_retry_times ||
                 // Retrying KV_TXN_TOO_OLD is very expensive, so we only retry once.
                 (retry_times > 1 && code == MetaServiceCode::KV_TXN_TOO_OLD)) {
-                // Convert internal retry signals only after MetaService stops retrying.
+                // For KV_TXN_CONFLICT, we should return KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
+                // because BE will retries the KV_TXN_CONFLICT error.
                 resp->mutable_status()->set_code(
                         code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
