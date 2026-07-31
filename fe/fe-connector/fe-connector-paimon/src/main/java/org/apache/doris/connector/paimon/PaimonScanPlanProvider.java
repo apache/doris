@@ -55,12 +55,16 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
@@ -72,6 +76,7 @@ import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.table.system.ReadOptimizedTable;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
@@ -863,8 +868,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partitionKeys));
         }
 
-        // Serialized table for BE's JNI reader
-        String serializedTable = encodeObjectToString(table);
+        // Serialized table for BE's JNI reader, stripped of its catalog loader (see
+        // tableForBackend) so the BE never has to deserialize the Hive metastore stack.
+        String serializedTable = encodeObjectToString(tableForBackend(paimonHandle, table));
         props.put(PROP_SERIALIZED_TABLE, serializedTable);
 
         // Serialized predicates for BE's JNI scanner. ALWAYS emit, even for the no-filter / empty-predicate
@@ -956,6 +962,245 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    /**
+     * Build the Paimon table object that is serialized to the BE.
+     *
+     * <p>Every table loaded from a metastore-backed Paimon catalog (HMS / DLF) carries a Paimon
+     * {@code HiveCatalogLoader} in its {@link CatalogEnvironment}. The BE only reads — via
+     * FE-resolved splits and the object store — and never needs the catalog, yet deserializing that
+     * loader forces the whole Hive metastore stack onto the BE classpath: {@code HiveConf}, the
+     * metastore API, and, when a system table resolves its latest snapshot, even the metastore
+     * client (DLF's {@code ProxyMetaStoreClient} and its REST stack). So we serialize a catalog-less
+     * table to the BE:
+     * <ul>
+     *   <li>data table: drop the catalog loader. A {@link FileStoreTable} is fully defined by
+     *       fileIO / location / schema / catalogEnvironment, and its dynamic options (time travel,
+     *       incremental) are merged into the schema by {@code copy(...)} — which
+     *       {@link #resolveScanTable} has already applied — so rebuilding from
+     *       fileIO / location / schema preserves everything except the catalog loader.</li>
+     *   <li>system table (e.g. {@code $snapshots}): rebuild it over a catalog-less data table so
+     *       {@code SnapshotManager#latestSnapshotId} lists the snapshot directory on the filesystem
+     *       instead of calling the metastore. The base table is the one the FE-side wrapper was
+     *       built over ({@link PaimonTableHandle#getSysBaseTable()}), and for the system tables that
+     *       pick their snapshot on the BE ({@link PaimonScanParams#resolvesSnapshotOnBackend}) what
+     *       the catalog would have done there is done here instead: see
+     *       {@link #authorizeDeferredScan} and {@link #pinCatalogSnapshot}. Every other system table
+     *       reads what the FE already planned, so it is handed over untouched. The relation-scoped
+     *       scan params {@link #resolveScanTable} applied to the original wrapper are re-applied to
+     *       the rebuilt one by {@link #reapplyScanParams}.</li>
+     * </ul>
+     */
+    // Package-private for direct unit testing (PaimonBackendBoundTableTest).
+    Table tableForBackend(PaimonTableHandle handle, Table scanTable) {
+        if (scanTable instanceof FileStoreTable) {
+            // resolveScanTable's copy(...) merged the relation's dynamic options into the schema,
+            // and the rebuild below goes through that schema, so this branch needs no re-application.
+            return dropCatalogLoader((FileStoreTable) scanTable);
+        }
+        if (!handle.isSystemTable()) {
+            return scanTable;
+        }
+        // The very same base table the FE-side wrapper was built over, so that the BE never sees a
+        // different schema generation than the one this query was planned with.
+        FileStoreTable dataTable = handle.getSysBaseTable();
+        if (dataTable == null) {
+            return scanTable;
+        }
+        String sysTableType = handle.getSysTableName();
+        boolean resolvesOnBackend = PaimonScanParams.resolvesSnapshotOnBackend(sysTableType);
+        if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)) {
+            authorizeDeferredScan(dataTable);
+        }
+        FileStoreTable baseForBackend = dropCatalogLoader(dataTable);
+        if (resolvesOnBackend) {
+            baseForBackend = pinCatalogSnapshot(baseForBackend, dataTable);
+        }
+        Table catalogLessSysTable = SystemTableLoader.load(sysTableType, baseForBackend);
+        if (catalogLessSysTable == null) {
+            return scanTable;
+        }
+        return reapplyScanParams(catalogLessSysTable, dataTable, resolvesOnBackend,
+                handle.getScanOptions());
+    }
+
+    /**
+     * Re-apply the relation-scoped scan params to a rebuilt system-table wrapper.
+     *
+     * <p>{@link #resolveScanTable} applies {@code @incr} / {@code @options} to the wrapper the
+     * handle carries, and every Paimon system table delegates {@code copy(...)} to the data table it
+     * wraps. The wrapper rebuilt above is a different object, so the same copy has to be redone on
+     * it, otherwise the BE would materialize its splits against the unpinned latest state. The
+     * branches mirror {@link #resolveScanTable}'s exactly — one chokepoint's worth of logic applied
+     * to two different objects.
+     *
+     * <p>This runs last on purpose: an explicit relation option outranks anything this class pins on
+     * the rebuilt table, and {@code copy(...)} lets the option win. An incremental relation outranks
+     * {@link #pinCatalogSnapshot} the same way but cannot inherit its bound, so it is bound to the
+     * catalog's snapshot separately by {@link PaimonIncrementalScanParams#bindRangeToCatalog}.
+     *
+     * <p>Known gap: the {@code @options} branch reaches tables outside
+     * {@link PaimonScanParams#resolvesSnapshotOnBackend}, {@code $ro} among them, and on a
+     * {@code scan.fallback-branch} table the {@code copy(...)} here is what triggers
+     * {@code rewriteFallbackOptions} - on the already catalog-less pair, so the fallback branch's
+     * {@code scan.snapshot-id} is derived from its snapshot directory rather than from the catalog
+     * pointer, the same gap {@link #pinCatalogSnapshot} documents. It lands harder here: unlike the
+     * pin this is {@code copy(...)}, not {@code copyWithoutTimeTravel(...)}, so it also time-travels
+     * the fallback branch's schema, and {@code $ro} is a data table rather than read-only metadata.
+     */
+    private Table reapplyScanParams(Table rebuiltSysTable, FileStoreTable dataTable,
+            boolean resolvesOnBackend, Map<String, String> scanOptions) {
+        if (scanOptions == null || scanOptions.isEmpty()) {
+            return rebuiltSysTable;
+        }
+        if (PaimonScanParams.isOptionsPin(scanOptions)) {
+            return PaimonScanParams.applyOptions(rebuiltSysTable, scanOptions);
+        }
+        Map<String, String> params = resolvesOnBackend
+                ? PaimonIncrementalScanParams.bindRangeToCatalog(scanOptions, dataTable)
+                : scanOptions;
+        return rebuiltSysTable.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(params));
+    }
+
+    /**
+     * {@code $files} plans only partition-level splits on the FE and re-plans the base table on the
+     * BE through {@code DataTableScan#plan()} ({@code FilesTable.FilesRead#createReader}). That
+     * deferred plan normally authorizes itself through the catalog loader
+     * ({@code CatalogEnvironment#tableQueryAuth} -&gt; {@code Catalog#authTableQuery}); once the
+     * loader is dropped it silently allows everything. So authorize here, while the loader is still
+     * around. Paimon discards the predicates the call returns (row level access control is a TODO in
+     * {@code AbstractDataTableScan#authQuery}), so running it on the FE loses nothing.
+     *
+     * <p>Only {@code $files} may do this: {@code auth(null)} means "every column" to
+     * {@code Catalog#authTableQuery}, and the system tables that keep planning on the FE
+     * ({@code $ro}, {@code $row_tracking}, {@code $audit_log}, {@code $binlog}) already authorize
+     * themselves through {@code DataTableBatchScan} with the slot projection the query really reads.
+     * Authorizing those again for every column would reject a user allowed to read only some of the
+     * base columns. {@code $partitions} never reaches {@code plan()} on either side
+     * ({@code listPartitionEntries} does not authorize), so it has no authorization to transfer.
+     *
+     * <p>A {@code scan.fallback-branch} table has to be authorized branch by branch.
+     * {@code FallbackReadFileStoreTable#newScan} builds a {@code FallbackReadScan} over both
+     * branches' own scans, so each authorizes itself, and {@code FileStoreTableFactory#create} gives
+     * the fallback branch a {@link CatalogEnvironment} of its own carrying a branch-qualified
+     * {@code Identifier}. Since the pair delegates {@code catalogEnvironment()} to its main branch,
+     * authorizing the pair would check the main branch alone and never the fallback one - and once
+     * its loader is dropped that missing check turns into a permanent allow, letting a user denied on
+     * the fallback branch read the fallback rows of {@code $files}.
+     */
+    // Package-private for direct unit testing (PaimonBackendBoundTableTest).
+    static void authorizeDeferredScan(FileStoreTable dataTable) {
+        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
+        if (undecorated instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
+            authorizeBranch(fallbackReadTable.wrapped());
+            authorizeBranch(fallbackReadTable.fallback());
+            return;
+        }
+        authorizeBranch(undecorated);
+    }
+
+    private static void authorizeBranch(FileStoreTable branch) {
+        CoreOptions options = branch.coreOptions();
+        if (options.queryAuthEnabled()) {
+            branch.catalogEnvironment().tableQueryAuth(options).auth(null);
+        }
+    }
+
+    /**
+     * For catalogs that manage versions themselves (Paimon REST / DLF REST) the committed snapshot
+     * is the one the catalog points at, not the newest file in the snapshot directory: Paimon
+     * publishes the snapshot file before the pointer moves, and a rollback leaves newer files
+     * behind. Without the catalog loader {@code SnapshotManager} falls back to listing that
+     * directory, so the BE could plan on a snapshot the catalog has not published while the FE
+     * planned on the previous one. Pin the catalog-visible snapshot instead.
+     *
+     * <p>Only for {@link PaimonScanParams#resolvesSnapshotOnBackend} system tables, because only
+     * those pick their snapshot inside the BE reader. Every other system table materializes the
+     * splits the FE already planned, so pinning them would bind nothing that is not already bound.
+     * The pin goes through {@code copyWithoutTimeTravel}, so it bounds which snapshot the BE plans
+     * on without rewinding the BE's schema to that snapshot.
+     *
+     * <p>Known gap: {@code scan.snapshot-id} only bounds plans that go through
+     * {@code DataTableScan}. {@code $snapshots} ({@code SnapshotManager#snapshotsWithinRange}) and
+     * {@code $buckets} ({@code SnapshotReader#bucketEntries}) ignore it, so on the BE they observe
+     * the snapshot directory rather than the catalog's pointer. Both are read-only metadata tables,
+     * so this shows up only as a transient extra row inside the publication window of a
+     * version-managed catalog.
+     *
+     * <p>Known gap: {@code $files} is planned in two phases and only the second one can be pinned.
+     * The FE emits one marker split per partition of {@code SnapshotManager#latestSnapshot()} at
+     * split generation time ({@code FilesTable.FilesScan#innerPlan} -&gt;
+     * {@code SnapshotReader#partitions}), and that path reads {@code ManifestsReader#read(null, ..)},
+     * which ignores {@code scan.snapshot-id} - so the marker set cannot be bound to the pin, and
+     * {@code FilesSplit} is private to {@code FilesTable}, so Doris cannot emit a snapshot
+     * independent marker either. A commit landing between initialization and split generation that
+     * drops a partition therefore hides that partition's rows even though the BE stays on the older
+     * snapshot. Paimon's two-phase plan has this gap regardless: before the pin the BE resolved the
+     * latest snapshot at read time, i.e. across a strictly wider window, so this only moves which
+     * side of the window the mismatch falls on.
+     *
+     * <p>Known gap: on a table with {@code scan.fallback-branch} this bounds the main branch only.
+     * The pin itself is carried across correctly - {@code copyWithoutTimeTravel} is pair-aware and
+     * {@code rewriteFallbackOptions} converts the main id to the fallback branch's own through
+     * {@code SnapshotManager#earlierOrEqualTimeMills}. What is lost is the pointer that conversion
+     * searches against: the rebuilt pair has no catalog loader on either branch, so the fallback
+     * bound is capped by the newest file in that branch's snapshot directory instead of by the
+     * catalog. Of the pinned tables only {@code $partitions} and {@code $files} read the fallback
+     * branch at all ({@code $manifests} / {@code $statistics} / {@code $table_indexes} reach it
+     * through {@code store()} / {@code statistics()}, which describe the main branch), so the
+     * effect is confined to their rows. Note this outlasts a publication window when it is caused
+     * by a rollback: the abandoned snapshot file stays on the filesystem until it expires, and for
+     * as long as it does the fallback branch can be bound to it.
+     */
+    // Package-private for direct unit testing (PaimonBackendBoundTableTest).
+    static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
+        if (!dataTable.catalogEnvironment().supportsVersionManagement()) {
+            return catalogLessTable;
+        }
+        Long snapshotId = dataTable.snapshotManager().latestSnapshotId();
+        if (snapshotId == null) {
+            return catalogLessTable;
+        }
+        // Without time travel: pin which snapshot the BE plans on, leave schema resolution alone.
+        return catalogLessTable.copyWithoutTimeTravel(
+                Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId)));
+    }
+
+    /**
+     * Return an equivalent {@link FileStoreTable} without the catalog loader, so the BE never
+     * deserializes a {@code HiveCatalogLoader} (and snapshot loading uses the filesystem instead of
+     * the catalog's metastore). fileIO / location / schema (and the schema's options) are preserved.
+     *
+     * <p>A {@code scan.fallback-branch} table must be rebuilt branch by branch.
+     * {@link FallbackReadFileStoreTable} exposes only its main branch through {@code schema()}, and
+     * the plain {@code FileStoreTableFactory#create} re-expands the fallback branch from
+     * {@code SchemaManager(fallbackBranch).latest()} instead of the object the FE captured. That
+     * would ship a main/fallback pair from two different generations: after external DDL publishes
+     * a new schema on both branches, the FE keeps planning on the cached M1/F1 while the BE gets
+     * M1/F2 and fails in {@code FallbackReadFileStoreTable#validateSchema}. So rebuild each branch
+     * from the schema the FE really planned with, and re-wrap.
+     */
+    // Package-private for direct unit testing (PaimonBackendBoundTableTest).
+    static FileStoreTable dropCatalogLoader(FileStoreTable dataTable) {
+        if (dataTable.catalogEnvironment().catalogLoader() == null) {
+            return dataTable;
+        }
+        FileStoreTable undecorated = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
+        if (undecorated instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
+            return new FallbackReadFileStoreTable(
+                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
+                    rebuildWithoutCatalogLoader(fallbackReadTable.fallback()));
+        }
+        return rebuildWithoutCatalogLoader(undecorated);
+    }
+
+    private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
+        return FileStoreTableFactory.createWithoutFallbackBranch(
+                branch.fileIO(), branch.location(), branch.schema(), new Options(),
+                CatalogEnvironment.empty());
     }
 
     /**
@@ -1352,6 +1597,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // is now the catalog-level "paimon.table-option.file-reader-async-threshold" (PaimonTableOptions).
     private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
     private static final String PAIMON_BINLOG_SYSTEM_TABLE = "binlog";
+
+    // The one system table whose deferred BE-side plan must inherit the catalog's authorization —
+    // see authorizeDeferredScan.
+    private static final String PAIMON_FILES_SYSTEM_TABLE = "files";
 
     private static final List<String> BACKEND_PAIMON_JNI_OPTIONS = Arrays.asList(
             "jni.enable_jni_io_manager",

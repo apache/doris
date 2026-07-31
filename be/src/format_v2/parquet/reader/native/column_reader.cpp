@@ -1066,7 +1066,15 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
 
     auto read_and_fill_data = [&](size_t before_rep_level_sz, size_t filter_map_index) {
         RETURN_IF_ERROR(_chunk_reader->fill_def(_def_levels));
-        if (filter_map.has_filter()) {
+        const bool fuse_nested_selection = filter_map.has_filter() && !filter_map.filter_all();
+        size_t ancestor_null_count = 0;
+        if (fuse_nested_selection) {
+            SCOPED_RAW_TIMER(&_decode_null_map_time);
+            RETURN_IF_ERROR(_select_vector.init_nested(
+                    &_rep_levels, &_def_levels, before_rep_level_sz,
+                    _field_schema->repeated_parent_def_level, _field_schema->definition_level,
+                    map_data_column, &filter_map, filter_map_index, &ancestor_null_count));
+        } else if (filter_map.has_filter()) {
             RETURN_IF_ERROR(gen_filter_map(filter_map, filter_map_index, before_rep_level_sz,
                                            _rep_levels.size(), _nested_filter_map_data,
                                            &_nested_filter_map));
@@ -1075,17 +1083,20 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
                     nullptr, _rep_levels.size() - before_rep_level_sz, false));
         }
 
-        _null_run_lengths.clear();
-        _ancestor_null_indices.clear();
-        RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(),
-                                            _null_run_lengths, _ancestor_null_indices));
+        if (!fuse_nested_selection) {
+            _null_run_lengths.clear();
+            _ancestor_null_indices.clear();
+            RETURN_IF_ERROR(gen_nested_null_map(before_rep_level_sz, _rep_levels.size(),
+                                                _null_run_lengths, _ancestor_null_indices));
+            ancestor_null_count = _ancestor_null_indices.size();
 
-        {
-            SCOPED_RAW_TIMER(&_decode_null_map_time);
-            RETURN_IF_ERROR(_select_vector.init(
-                    _null_run_lengths,
-                    _rep_levels.size() - before_rep_level_sz - _ancestor_null_indices.size(),
-                    map_data_column, &_nested_filter_map, 0, &_ancestor_null_indices));
+            {
+                SCOPED_RAW_TIMER(&_decode_null_map_time);
+                RETURN_IF_ERROR(_select_vector.init(
+                        _null_run_lengths,
+                        _rep_levels.size() - before_rep_level_sz - ancestor_null_count,
+                        map_data_column, &_nested_filter_map, 0, &_ancestor_null_indices));
+            }
         }
 
         DORIS_CHECK(_serde != nullptr);
@@ -1104,10 +1115,10 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
                                           map_data_column, materialization_start_row);
         }
         RETURN_IF_ERROR(status);
-        if (!_ancestor_null_indices.empty()) {
-            RETURN_IF_ERROR(_chunk_reader->skip_values(_ancestor_null_indices.size(), false));
+        if (ancestor_null_count != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_null_count, false));
         }
-        if (filter_map.has_filter()) {
+        if (filter_map.has_filter() && !fuse_nested_selection) {
             auto new_rep_sz = before_rep_level_sz;
             for (size_t idx = before_rep_level_sz; idx < _rep_levels.size(); idx++) {
                 if (_nested_filter_map_data[idx - before_rep_level_sz]) {
