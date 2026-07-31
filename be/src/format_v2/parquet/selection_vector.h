@@ -57,6 +57,75 @@ class SelectionVector {
 public:
     using Index = uint16_t;
 
+    // Incrementally compact the first input_count entries in selection coordinates. Call append
+    // exactly once per input entry and finish before exposing the refined selection. Source and
+    // destination may alias because survivors are written no farther than the current input.
+    class DirectCompactor {
+    public:
+        DirectCompactor(const DirectCompactor&) = delete;
+        DirectCompactor& operator=(const DirectCompactor&) = delete;
+        DirectCompactor(DirectCompactor&&) = default;
+        DirectCompactor& operator=(DirectCompactor&&) = default;
+
+        void append(bool keep) {
+            DCHECK(!_finished);
+            DCHECK(_input_position < _input_count);
+            if (keep) {
+                const Index row = _source == nullptr ? static_cast<Index>(_input_position)
+                                                     : _source[_input_position];
+                _destination[_survivor_count] = row;
+                _remains_identity &= row == _survivor_count;
+                ++_survivor_count;
+            }
+            ++_input_position;
+        }
+
+        void reserve(size_t) {}
+
+        void clear() {
+            DORIS_CHECK(!_finished);
+            _input_position = 0;
+            _survivor_count = 0;
+            _remains_identity = true;
+        }
+
+        size_t input_position() const { return _input_position; }
+        size_t survivor_count() const { return _survivor_count; }
+
+        size_t finish() {
+            DORIS_CHECK(!_finished);
+            DORIS_CHECK_EQ(_input_position, _input_count);
+            _owner->_identity = _remains_identity;
+            ++_owner->_generation;
+            _finished = true;
+            return _survivor_count;
+        }
+
+    private:
+        friend class SelectionVector;
+
+        DirectCompactor(SelectionVector* owner, size_t input_count)
+                : _owner(owner),
+                  _source(owner->_data),
+                  _input_count(input_count),
+                  _destination(owner->_data) {
+            if (_destination == nullptr) {
+                owner->_owned.resize(owner->_size);
+                owner->_data = owner->_owned.data();
+                _destination = owner->_data;
+            }
+        }
+
+        SelectionVector* _owner = nullptr;
+        const Index* _source = nullptr;
+        size_t _input_count = 0;
+        Index* _destination = nullptr;
+        size_t _input_position = 0;
+        size_t _survivor_count = 0;
+        bool _remains_identity = true;
+        bool _finished = false;
+    };
+
     SelectionVector() = default;
 
     explicit SelectionVector(size_t count) { resize(count); }
@@ -132,32 +201,9 @@ public:
         return _compact(filter, count, false);
     }
 
-    size_t compact_with_selection_positions(const Index* positions, size_t survivor_count,
-                                            size_t input_count) {
-        DORIS_CHECK(positions != nullptr || survivor_count == 0);
+    DirectCompactor begin_direct_compaction(size_t input_count) {
         DORIS_CHECK(input_count <= _size);
-        DORIS_CHECK(survivor_count <= input_count);
-        Index* source = _data;
-        if (_data == nullptr) {
-            _owned.resize(_size);
-            _data = _owned.data();
-        }
-        bool remains_identity = true;
-        size_t previous_position = 0;
-        for (size_t output = 0; output < survivor_count; ++output) {
-            const size_t position = positions[output];
-            DORIS_CHECK(position < input_count);
-            DORIS_CHECK(output == 0 || position > previous_position);
-            const Index row = source == nullptr ? static_cast<Index>(position) : source[position];
-            _data[output] = row;
-            remains_identity &= row == output;
-            previous_position = position;
-        }
-        // Decoder-emitted survivor positions are already compact and ordered. Gathering by
-        // position avoids constructing and rescanning one keep byte per selected input row.
-        _identity = remains_identity;
-        ++_generation;
-        return survivor_count;
+        return DirectCompactor(this, input_count);
     }
 
     Status materialize_filter(size_t count, int64_t batch_rows, const uint8_t** filter) const {

@@ -59,8 +59,9 @@ public:
 
     // Consume one batch by evaluating dictionary ids. OR callers request a row_filter in current
     // selection coordinates; an AND caller instead supplies compacted_selection so the decoder can
-    // emit ordered survivor positions and avoid a second keep-byte scan. Exactly one output sink
-    // must be non-null, and compacted_selection is mutated only after the full id batch validates.
+    // write each surviving row index in place without a keep-byte buffer or a second gather.
+    // Exactly one output sink must be non-null. The decoder validates the complete external id batch
+    // before appending, so corrupt input cannot leave a partially compacted selection.
     virtual Status select_with_dictionary_filter(const SelectionVector& selection,
                                                  uint16_t selected_rows, int64_t batch_rows,
                                                  const IColumn::Filter& dictionary_filter,

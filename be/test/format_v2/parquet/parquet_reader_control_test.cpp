@@ -200,13 +200,16 @@ TEST(SelectionVectorTest, BulkCompactionSupportsBothFilterCoordinates) {
     EXPECT_TRUE(selection.verify(2, 6).ok());
 }
 
-TEST(SelectionVectorTest, CompactWithDecoderSurvivorPositionsUsesSelectionCoordinates) {
+TEST(SelectionVectorTest, DirectCompactionUsesSelectionCoordinates) {
     SelectionVector selection(6);
     const uint8_t first_filter[] = {0, 1, 1, 0, 1, 0};
     ASSERT_EQ(selection.compact_with_row_filter(first_filter, 6), 3);
 
-    const SelectionVector::Index survivor_positions[] = {0, 2};
-    ASSERT_EQ(selection.compact_with_selection_positions(survivor_positions, 2, 3), 2);
+    auto compactor = selection.begin_direct_compaction(3);
+    compactor.append(true);
+    compactor.append(false);
+    compactor.append(true);
+    ASSERT_EQ(compactor.finish(), 2);
     EXPECT_EQ(selection.get_index(0), 1);
     EXPECT_EQ(selection.get_index(1), 4);
     EXPECT_TRUE(selection.verify(2, 6).ok());

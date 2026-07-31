@@ -2171,8 +2171,8 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 }
                 update_counter_if_not_null(_scan_profile.rows_filtered_by_dict_filter,
                                            filtered_rows);
-                // The decoder emits ordered survivor positions and compacts SelectionVector only
-                // after every external dictionary id is validated.
+                // The decoder validates every external dictionary id before writing survivor row
+                // indexes directly into SelectionVector.
                 *selected_rows = new_selected_rows;
                 if (predicate_only) {
                     auto placeholder = column->clone_empty();

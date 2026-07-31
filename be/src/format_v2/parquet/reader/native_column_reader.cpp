@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -430,12 +431,7 @@ Status NativeColumnReader::read_with_dictionary_filter(
                         "Parquet dictionary predicate encoding changed after {} rows for column {}",
                         *rows_read, _name);
             }
-            if (output->row_filter != nullptr) {
-                output->row_filter->clear();
-            }
-            if (output->survivor_positions != nullptr) {
-                output->survivor_positions->clear();
-            }
+            output->clear();
             return Status::OK();
         }
         if (*rows_read != 0) {
@@ -591,23 +587,28 @@ Status NativeColumnReader::select_with_dictionary_filter(
     RETURN_IF_ERROR(validate_selected_span(batch_rows));
     *used_filter = false;
     *survivor_count = 0;
-    std::vector<uint16_t> survivor_positions;
-    if (row_filter != nullptr) {
-        row_filter->clear();
-        row_filter->reserve(selected_rows);
-    } else {
-        survivor_positions.reserve(selected_rows);
-    }
-    native::DictionaryFilterOutput filter_output {
-            .row_filter = row_filter,
-            .survivor_positions = compacted_selection == nullptr ? nullptr : &survivor_positions};
     if (!_dictionary_filter_enabled) {
         return Status::OK();
     }
     *used_filter = true;
 
+    // Materialize the decoder filter before direct compaction turns an implicit identity
+    // selection into writable storage whose entries are populated incrementally.
     const uint8_t* filter_data = nullptr;
     RETURN_IF_ERROR(selection.materialize_filter(selected_rows, batch_rows, &filter_data));
+
+    std::optional<SelectionVector::DirectCompactor> selection_compactor;
+    if (row_filter != nullptr) {
+        row_filter->clear();
+        row_filter->reserve(selected_rows);
+    } else {
+        selection_compactor.emplace(compacted_selection->begin_direct_compaction(selected_rows));
+    }
+    native::DictionaryFilterOutput filter_output {
+            .row_filter = row_filter,
+            .selection_compactor =
+                    selection_compactor.has_value() ? &selection_compactor.value() : nullptr};
+
     ColumnInt32* direct_matched_ids = nullptr;
     const IColumn* typed_dictionary = nullptr;
     IColumn* projected_values = projected_column;
@@ -634,8 +635,8 @@ Status NativeColumnReader::select_with_dictionary_filter(
             &projected_directly, &direct_filter_used));
     if (direct_filter_used) {
         advance_selected_span(direct_rows_read);
-        DORIS_CHECK_EQ(filter_output.selected_rows, selected_rows);
-        *survivor_count = cast_set<uint16_t>(filter_output.survivor_count);
+        DORIS_CHECK_EQ(filter_output.selected_rows(), selected_rows);
+        *survivor_count = cast_set<uint16_t>(filter_output.survivor_count());
         if (projected_column != nullptr) {
             if (projected_directly) {
                 DORIS_CHECK(direct_matched_ids->empty());
@@ -656,9 +657,8 @@ Status NativeColumnReader::select_with_dictionary_filter(
         if (_profile.reader_select_rows != nullptr) {
             COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
         }
-        if (compacted_selection != nullptr) {
-            compacted_selection->compact_with_selection_positions(
-                    survivor_positions.data(), survivor_positions.size(), selected_rows);
+        if (selection_compactor.has_value()) {
+            DORIS_CHECK_EQ(selection_compactor->finish(), *survivor_count);
         }
         update_reader_read_rows(*survivor_count);
         update_reader_skip_rows(batch_rows - *survivor_count);
@@ -704,13 +704,7 @@ Status NativeColumnReader::select_with_dictionary_filter(
         matched_ids = &assert_cast<ColumnInt32&>(*_matched_dictionary_ids).get_data();
         matched_ids->reserve(selected_rows);
     }
-    filter_output.selected_rows = 0;
-    filter_output.survivor_count = 0;
-    if (row_filter != nullptr) {
-        row_filter->clear();
-    } else {
-        survivor_positions.clear();
-    }
+    filter_output.clear();
     const auto& id_data = ids->get_data();
     for (size_t row = 0; row < selected_rows; ++row) {
         bool keep = false;
@@ -741,10 +735,9 @@ Status NativeColumnReader::select_with_dictionary_filter(
     if (_profile.reader_select_rows != nullptr) {
         COUNTER_UPDATE(_profile.reader_select_rows, selected_rows);
     }
-    *survivor_count = cast_set<uint16_t>(filter_output.survivor_count);
-    if (compacted_selection != nullptr) {
-        compacted_selection->compact_with_selection_positions(
-                survivor_positions.data(), survivor_positions.size(), selected_rows);
+    *survivor_count = cast_set<uint16_t>(filter_output.survivor_count());
+    if (selection_compactor.has_value()) {
+        DORIS_CHECK_EQ(selection_compactor->finish(), *survivor_count);
     }
     update_reader_read_rows(*survivor_count);
     update_reader_skip_rows(batch_rows - *survivor_count);

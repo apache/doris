@@ -28,7 +28,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -41,6 +40,7 @@
 #include "format_v2/parquet/reader/native/decoder.h"
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
+#include "format_v2/parquet/selection_vector.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -62,25 +62,49 @@ struct ColumnChunkRange {
 };
 
 // Dictionary filtering has two consumers with different coordinate requirements. OR branches
-// need a keep byte for every selected row so their bitmaps can be unioned, while an AND stage can
-// emit survivor positions and compact SelectionVector directly. Exactly one sink is populated.
+// need a keep byte for every selected row so their bitmaps can be unioned, while an AND stage
+// writes surviving row indexes directly into SelectionVector. Exactly one sink is populated.
 struct DictionaryFilterOutput {
     IColumn::Filter* row_filter = nullptr;
-    std::vector<uint16_t>* survivor_positions = nullptr;
-    size_t selected_rows = 0;
-    size_t survivor_count = 0;
+    SelectionVector::DirectCompactor* selection_compactor = nullptr;
+    size_t row_filter_selected_rows = 0;
+    size_t row_filter_survivors = 0;
 
     void append(bool keep) {
         if (row_filter != nullptr) {
             row_filter->push_back(keep ? 1 : 0);
+            ++row_filter_selected_rows;
+            row_filter_survivors += keep;
+        } else {
+            selection_compactor->append(keep);
         }
-        if (keep) {
-            if (survivor_positions != nullptr) {
-                survivor_positions->push_back(cast_set<uint16_t>(selected_rows));
-            }
-            ++survivor_count;
+    }
+
+    void reserve(size_t count) {
+        if (row_filter != nullptr) {
+            row_filter->reserve(row_filter->size() + count);
+        } else {
+            selection_compactor->reserve(count);
         }
-        ++selected_rows;
+    }
+
+    void clear() {
+        if (row_filter != nullptr) {
+            row_filter->clear();
+            row_filter_selected_rows = 0;
+            row_filter_survivors = 0;
+        } else {
+            selection_compactor->clear();
+        }
+    }
+
+    size_t selected_rows() const {
+        return row_filter != nullptr ? row_filter_selected_rows
+                                     : selection_compactor->input_position();
+    }
+
+    size_t survivor_count() const {
+        return row_filter != nullptr ? row_filter_survivors : selection_compactor->survivor_count();
     }
 };
 

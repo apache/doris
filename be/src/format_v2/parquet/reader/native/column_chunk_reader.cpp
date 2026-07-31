@@ -2079,7 +2079,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
         ColumnInt32* matched_dictionary_ids, DictionaryFilterOutput* output,
         bool* projected_directly, bool* used_filter) {
     DORIS_CHECK(output != nullptr);
-    DORIS_CHECK((output->row_filter == nullptr) != (output->survivor_positions == nullptr));
+    DORIS_CHECK((output->row_filter == nullptr) != (output->selection_compactor == nullptr));
     DORIS_CHECK(projected_directly != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK((typed_dictionary == nullptr) == (projected_values == nullptr));
@@ -2164,14 +2164,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
         matched->reserve(matched->size() + selection.selected_values);
     }
     if (!direct_fixed_width_projection) {
-        if (output->row_filter != nullptr) {
-            output->row_filter->reserve(output->row_filter->size() +
-                                        _nullable_selection_nulls.size());
-        }
-        if (output->survivor_positions != nullptr) {
-            output->survivor_positions->reserve(output->survivor_positions->size() +
-                                                selection.selected_values);
-        }
+        output->reserve(_nullable_selection_nulls.size());
         size_t physical_row = 0;
         for (const uint8_t is_null : _nullable_selection_nulls) {
             bool keep = false;
