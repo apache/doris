@@ -41,7 +41,7 @@ import java.util.Set;
  * a predicate that stays in Doris, whereas one it renders WRONGLY -- a type whose text spelling the source
  * reads differently -- silently changes which rows come back.
  */
-public final class AnsiDialect implements AdbcDialect {
+public class AnsiDialect implements AdbcDialect {
 
     public static final String NAME = "ansi";
 

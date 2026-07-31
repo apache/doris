@@ -16,12 +16,11 @@
 // under the License.
 
 // ############################################################################
-// THIS SUITE HAS NEVER BEEN RUN.
-//
-// It was written alongside the FE scan path, on a machine that cannot build
-// BE, so nothing here has executed even once. Treat every expectation in it as
-// a claim to be checked, not as a passing baseline, and expect to correct it
-// on the first real run.
+// The source is another Doris, reached over Arrow Flight SQL -- the source
+// phase one exists to replace. The first real run of this suite found two
+// defects that no unit test could have: ANSI identifier quoting, which a Doris
+// source cannot parse at all, and a driver stream whose release callback left
+// Arrow C++ to abort the whole BE.
 //
 // To run it you need, in this order:
 //   1. BE built with arrow-adbc (cd thirdparty && ./build-thirdparty.sh arrow_adbc),
@@ -32,10 +31,10 @@
 //      bytes with no interoperability across builds.
 //   3. adbcDriverPath in regression-conf.groovy only to point somewhere else.
 //
-// There is deliberately NO .out baseline. One written without running would be
-// a guess presented as a verified result, and a guess that happened to be
-// right would be indistinguishable from one that was checked. Generate it on
-// the first real run (-genOut) and read every line before committing it.
+// The .out baseline was generated with -genOut from a run that passed end to
+// end, and every line was checked against the fixture before committing. Note
+// that -genOut records instead of comparing, so a run under it proves only
+// that nothing threw: the run that proves the values is the one without it.
 // ############################################################################
 
 suite("test_adbc_catalog_scan", "p0,external") {

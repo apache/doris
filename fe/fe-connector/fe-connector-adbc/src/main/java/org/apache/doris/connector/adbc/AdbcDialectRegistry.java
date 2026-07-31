@@ -34,9 +34,10 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * would have to be reopened for every source anyone connects. A test drives the query builder with a
  * dialect it defines itself to keep that true.
  *
- * <p>Only {@link AnsiDialect} ships. The others named in the design wait for a source to verify them
- * against: an unverified dialect is a set of guesses about someone else's SQL, and a wrong guess is a
- * syntax error at scan time or, worse, a predicate that quietly selects different rows.
+ * <p>Two ship: {@link AnsiDialect} and {@link DorisDialect}, one per source actually run against. The
+ * others named in the design wait for a source to verify them against: an unverified dialect is a set of
+ * guesses about someone else's SQL, and a wrong guess is a syntax error at scan time or, worse, a predicate
+ * that quietly selects different rows.
  */
 public final class AdbcDialectRegistry {
 
@@ -48,6 +49,7 @@ public final class AdbcDialectRegistry {
 
     static {
         register(DEFAULT);
+        register(new DorisDialect());
     }
 
     private AdbcDialectRegistry() {
