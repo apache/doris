@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 namespace doris {
@@ -34,5 +35,10 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
+
+struct TabletCompactionContext {
+    TabletSharedPtr tablet;
+    int8_t prefer_compaction_level = -1;
+};
 
 } // namespace doris

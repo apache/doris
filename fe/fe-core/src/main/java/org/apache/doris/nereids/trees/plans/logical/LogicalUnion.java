@@ -469,7 +469,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         return literal.checkedCastTo(dataType);
     }
 
-    public LogicalSetOperation withChildrenAndOutputs(List<Plan> children, List<NamedExpression> newOuptuts,
+    public LogicalUnion withChildrenAndOutputs(List<Plan> children, List<NamedExpression> newOuptuts,
             List<List<SlotReference>> childrenOutputs) {
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",

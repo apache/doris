@@ -65,6 +65,7 @@ RUN sed -i -e s@/deb.debian.org/@/mirrors.aliyun.com/@g -e s@/security.debian.or
         tzdata \
         curl \
         unzip \
+        xz-utils \
         patchelf \
         jq \
         procps \

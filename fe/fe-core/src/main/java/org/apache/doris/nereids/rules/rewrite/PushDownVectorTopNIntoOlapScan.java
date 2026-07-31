@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -143,6 +144,12 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             }
         }
         if (!hasAnnIndexOnColumn) {
+            return null;
+        }
+
+        // When limit + offset overflows the long range, the pushed scan limit would wrap to a
+        // negative value; skip the push-down and let the TopN above the scan apply limit/offset.
+        if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
             return null;
         }
 

@@ -85,6 +85,9 @@ ready_probe_with_tls()
     local webserver_port=$(parse_config_file_with_key "webserver_port")
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
     local fqdn=`hostname -f`
+    if ! getent hosts "$fqdn" >/dev/null 2>&1 && ! nslookup "$fqdn" >/dev/null 2>&1; then
+        exit 1
+    fi
     local url="https://${fqdn}:${webserver_port}/api/health"
     local response=$(curl --tlsv1.2 --cert $TLS_CERTIFICATE_PATH --cacert $TLS_CA_CERTIFICATE_PATH --key $TLS_PRIVATE_KEY_PATH -s -w "\n%{http_code}" $url)
     local http_code=$(echo "$response" | tail -n1)
@@ -109,6 +112,9 @@ ready_probe_with_no_tls()
     local webserver_port=$(parse_config_file_with_key "webserver_port")
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
     local host=`hostname -f`
+    if ! getent hosts "$host" >/dev/null 2>&1 && ! nslookup "$host" >/dev/null 2>&1; then
+        exit 1
+    fi
     local url="http://${host}:${webserver_port}/api/health"
 
     local response=$(curl -s -w "\n%{http_code}" $url)

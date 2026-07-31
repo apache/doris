@@ -105,8 +105,8 @@ TEST_F(ColumnMapTest, MapTypeTesterase) {
     EXPECT_EQ(column_map->size(), 2);
     auto* column_result = assert_cast<ColumnMap*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
+    auto& offset_data_res = column_offsets_res;
+    auto& offset_data = column_offsets;
 
     auto& column_data_res = assert_cast<ColumnInt64&>(
             assert_cast<ColumnNullable&>(assert_cast<ColumnMap&>(*column_res).get_values())
@@ -196,8 +196,8 @@ TEST_F(ColumnMapTest, MapTypeTest2erase) {
     EXPECT_EQ(column_map->size(), 3);
     auto* column_result = assert_cast<ColumnMap*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
+    auto& offset_data_res = column_offsets_res;
+    auto& offset_data = column_offsets;
 
     auto& column_data_res = assert_cast<ColumnInt64&>(
             assert_cast<ColumnNullable&>(assert_cast<ColumnMap&>(*column_res).get_values())

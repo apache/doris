@@ -26,7 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -193,13 +193,13 @@ public class StoragePolicy extends Policy {
         Map<String, String> properties = resource.getCopiedProperties();
         switch (resource.getType()) {
             case S3:
-                if (!properties.containsKey(S3Properties.ROOT_PATH)) {
+                if (!properties.containsKey(S3ResourceCompat.ROOT_PATH)) {
                     throw new AnalysisException(String.format(
-                        "Missing [%s] in '%s' resource", S3Properties.ROOT_PATH, storageResource));
+                        "Missing [%s] in '%s' resource", S3ResourceCompat.ROOT_PATH, storageResource));
                 }
-                if (!properties.containsKey(S3Properties.BUCKET)) {
+                if (!properties.containsKey(S3ResourceCompat.BUCKET)) {
                     throw new AnalysisException(String.format(
-                        "Missing [%s] in '%s' resource", S3Properties.BUCKET, storageResource));
+                        "Missing [%s] in '%s' resource", S3ResourceCompat.BUCKET, storageResource));
                 }
                 break;
             case HDFS:

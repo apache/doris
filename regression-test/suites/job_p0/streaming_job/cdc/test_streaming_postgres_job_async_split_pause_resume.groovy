@@ -114,19 +114,45 @@ suite("test_streaming_postgres_job_async_split_pause_resume",
             throw ex
         }
 
-        // Capture state, sleep, recapture — succeedTaskCount must not grow while paused.
-        def succeedAtPause = sql("""select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'""")
-                .get(0).get(0).toString()
-        def rowsAtPause = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as int
-        sleep(15000)
+        // PAUSE is best-effort on the FE side: it stops new chunk dispatch, but any chunk
+        // already in flight on cdc_client keeps running until its stream load commits. Wait
+        // for both SucceedTaskCount and row count to stay flat across a window that is wider
+        // than the post-pause observation sleep below — two equal samples a few seconds apart
+        // are not a strong enough signal: a slow chunk could commit after the would-be settle
+        // and trip the row-growth assertion in the next step.
+        long lastRows = -1L
+        String lastSucceed = ""
+        int stableCount = 0
+        final int requiredStable = 4
+        Awaitility.await().atMost(120, SECONDS).pollInterval(4, SECONDS).until({
+            long curRows = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as long
+            String curSucceed = sql("""select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'""")
+                    .get(0).get(0).toString()
+            if (curRows == lastRows && curSucceed == lastSucceed) {
+                stableCount++
+            } else {
+                stableCount = 1
+                lastRows = curRows
+                lastSucceed = curSucceed
+            }
+            log.info("pause-settle: rows=${curRows} succeed=${curSucceed} stable=${stableCount}/${requiredStable}")
+            stableCount >= requiredStable
+        })
+
+        // Capture state, sleep, recapture — succeedTaskCount must not grow while paused,
+        // and row count must not grow once the in-flight chunk has settled. The sleep below
+        // is intentionally shorter than the stability window above.
+        def succeedAtPause = lastSucceed
+        def rowsAtPause = lastRows
+        sleep(10000)
         def succeedAfterSleep = sql("""select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'""")
                 .get(0).get(0).toString()
-        def rowsAfterSleep = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as int
+        def rowsAfterSleep = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as long
         log.info("paused: succeed ${succeedAtPause}->${succeedAfterSleep} rows ${rowsAtPause}->${rowsAfterSleep}")
         assert succeedAfterSleep == succeedAtPause :
                 "SucceedTaskCount grew while paused (${succeedAtPause} -> ${succeedAfterSleep}) — splitter not stopped"
         assert rowsAfterSleep == rowsAtPause :
-                "row count grew while paused (${rowsAtPause} -> ${rowsAfterSleep}) — tasks still running"
+                "row count grew after PAUSE settled (${rowsAtPause} -> ${rowsAfterSleep}) — new tasks dispatched while paused"
 
         def pausedStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
         assert pausedStatus.get(0).get(0) == "PAUSED" : "job didn't stay PAUSED"

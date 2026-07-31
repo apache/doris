@@ -94,6 +94,9 @@ public interface SourceOffsetProvider {
      */
     default void setCloudCluster(String cloudCluster) {}
 
+    /** Bind the BE this job is pinned to in the binlog phase, for reader-reuse heartbeat routing. */
+    default void setBoundBackendId(long boundBackendId) {}
+
     /**
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
      */
@@ -196,6 +199,11 @@ public interface SourceOffsetProvider {
      */
     default boolean noMoreSplits() {
         return true;
+    }
+
+    /** Splits produced but not yet consumed (FE-side backlog). */
+    default int pendingSplitCount() {
+        return 0;
     }
 
     /**

@@ -265,7 +265,21 @@ suite("pushdown_encode") {
         select v1
         from (select v1 from t1 where k1 > 0 order by v1 limit 10) t group by v1
         """
-        contains("projects=[decode_as_varchar(encode_as_bigint(v1#1)) AS `decode_as_varchar(encode_as_bigint(v1))`#1, encode_as_bigint(v1#1) AS `encode_as_bigint(v1)`#3]")
+        contains("projects=[decode_as_varchar(encode_as_bigint(v1)#2) AS `v1`#1]")
+        /**
+        PhysicalResultSink[78] ( outputExprs=[v1#1] )
++--PhysicalProject[77]@6 ( stats=0.5, projects=[decode_as_varchar(encode_as_bigint(v1)#2) AS `v1`#1] )
+   +--PhysicalHashAggregate[76]@5 ( stats=0.5, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[encode_as_bigint(v1)#2], outputExpr=[encode_as_bigint(v1)#2], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
+      +--PhysicalDistribute[75]@8 ( stats=0.5, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[2], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[2]], exprIdToEquivalenceSet={2=0} ) )
+         +--PhysicalHashAggregate[74]@8 ( stats=0.5, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[encode_as_bigint(v1)#2], outputExpr=[encode_as_bigint(v1)#2], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
+            +--PhysicalProject[73]@4 ( stats=0.5, projects=[encode_as_bigint(decode_as_varchar(encode_as_bigint(v1#1))) AS `encode_as_bigint(v1)`#2] )
+               +--PhysicalTopN[72]@3 ( stats=0.5, limit=10, offset=0, orderKeys=[encode_as_bigint(v1)#3 asc null first], phase=MERGE_SORT )
+                  +--PhysicalDistribute[71]@9 ( stats=0.5, distributionSpec=DistributionSpecGather )
+                     +--PhysicalTopN[70]@9 ( stats=0.5, limit=10, offset=0, orderKeys=[encode_as_bigint(v1)#3 asc null first], phase=LOCAL_SORT )
+                        +--PhysicalProject[69]@2 ( stats=0.5, projects=[encode_as_bigint(v1#1) AS `encode_as_bigint(v1)`#3, v1#1] )
+                           +--PhysicalFilter[68]@1 ( stats=0.5, predicates=(k1#0 > 0) )
+                              +--PhysicalOlapScan[58]@0 ( table=t1, stats=1, operativeSlots=[k1#0, v1#1], virtualColumns=[] )
+        **/
     }
 
     // if encodeBody is used in windowExpression, do not push encode down

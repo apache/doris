@@ -32,6 +32,7 @@ enum class CompactionProfileType : uint8_t {
     BASE = 0,
     CUMULATIVE = 1,
     FULL = 2,
+    BINLOG = 3,
 };
 
 const char* to_string(CompactionProfileType type);
@@ -83,6 +84,7 @@ struct CompletionStats {
     int64_t output_total_size {0}; // _output_rowset->total_disk_size()
     int64_t output_segments_num {0};
     std::string output_version;
+    bool is_ordered_data_compaction {false};
     int64_t merge_latency_ms {0}; // _merge_rowsets_latency_timer (converted to ms)
     int64_t bytes_read_from_local {0};
     int64_t bytes_read_from_remote {0};
@@ -128,6 +130,8 @@ struct CompactionTaskInfo {
     int64_t output_total_size {0}; // bytes, from _output_rowset->total_disk_size()
     int64_t output_segments_num {0};
     std::string output_version; // e.g. "[0-5]"
+    bool is_ordered_data_compaction {
+            false}; // ordered/meta-link compaction path, including binlog quick path
 
     // ===== Merge performance =====
     int64_t merge_latency_ms {0}; // merge rowsets latency (ms; 0 for ordered path)

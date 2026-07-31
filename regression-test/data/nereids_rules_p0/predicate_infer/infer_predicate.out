@@ -354,19 +354,19 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t12.id = t34.id)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------filter(( not id IN (3, 4)) and (t12.id < 9) and (t12.id > 1))
+------filter(( not t12.id IN (3, 4)) and (t12.id < 9) and (t12.id > 1))
 --------PhysicalOlapScan[t1]
-------filter(( not id IN (3, 4)) and (t2.id < 9) and (t2.id > 1))
+------filter(( not t2.id IN (3, 4)) and (t2.id < 9) and (t2.id > 1))
 --------PhysicalOlapScan[t2]
 ----hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
-------filter(( not id IN (3, 4)) and (t3.id < 9) and (t3.id > 1))
+------filter(( not t3.id IN (3, 4)) and (t3.id < 9) and (t3.id > 1))
 --------PhysicalOlapScan[t3]
-------filter(( not id IN (3, 4)) and (t4.id < 9) and (t4.id > 1))
+------filter(( not t4.id IN (3, 4)) and (t4.id < 9) and (t4.id > 1))
 --------PhysicalOlapScan[t4]
 
 -- !infer8 --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN]( not (id = id))
+--NestedLoopJoin[INNER_JOIN]( not (t1.id = t2.id))
 ----filter((t1.id = 1))
 ------PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
@@ -384,7 +384,7 @@ PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
 ----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
-----filter((cast(id as SMALLINT) = 12345))
+----filter((cast(t2.id as SMALLINT) = 12345))
 ------PhysicalOlapScan[t2]
 
 -- !infer11 --

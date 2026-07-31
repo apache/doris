@@ -105,7 +105,7 @@ public:
         return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
     }
 
-    std::set<std::string> partial_update_input_columns() const {
+    const std::set<std::string>& partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
     PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {
@@ -152,6 +152,8 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 // struct TOlapTableIndexTablets {
 //     1: required i64 index_id
 //     2: required list<i64> tablets
+//     3: optional i64 bucket_be_id
+//     4: optional list<i32> local_bucket_seqs
 // }
 
 using BlockRow = std::pair<Block*, int32_t>;
@@ -167,6 +169,12 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
+    // Fallback FE-selected bucket owner BE for adaptive random bucket mode. New FE versions send
+    // this per index in OlapTableIndexTablets.
+    int64_t bucket_be_id = -1;
+    // Fallback bucket indices (0-based) used by FIND_TABLET_RANDOM_BUCKET rotation. New FE versions
+    // send this per index in OlapTableIndexTablets.
+    std::vector<int32_t> local_bucket_seqs;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
     // tablet_id -> set of backend_ids that have version gaps

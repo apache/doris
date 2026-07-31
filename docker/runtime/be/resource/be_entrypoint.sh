@@ -25,9 +25,13 @@ PROBE_TIMEOUT=60
 PROBE_INTERVAL=2
 # rpc port for fe communicate with be.
 HEARTBEAT_PORT=9050
+# timeout for fqdn ready check.
+DNS_READY_TIMEOUT=${DNS_READY_TIMEOUT:-120}
+# interval for fqdn ready check.
+DNS_READY_INTERVAL=${DNS_READY_INTERVAL:-2}
 # fqdn or ip
 MY_SELF=
-MY_IP=`hostname -i`
+MY_IP=${POD_IP:-$(hostname -I | awk '{print $1}')}
 MY_HOSTNAME=`hostname -f`
 DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
 # if config secret for basic auth about operate node of doris, the path must be `/etc/basic_auth`. This is set by operator and the key of password must be `password`.
@@ -263,6 +267,33 @@ collect_env_info()
     fi
 }
 
+wait_for_fqdn_ready()
+{
+    if [[ "x$HOST_TYPE" == "xIP" ]] ; then
+        return 0
+    fi
+
+    local fqdn=$MY_HOSTNAME
+    local start=`date +%s`
+    while true
+    do
+        if getent hosts "$fqdn" >/dev/null 2>&1 || nslookup "$fqdn" >/dev/null 2>&1 ; then
+            log_stderr "[info] fqdn $fqdn is ready."
+            return 0
+        fi
+
+        local now=`date +%s`
+        let "expire=start+DNS_READY_TIMEOUT"
+        if [[ $expire -le $now ]] ; then
+            log_stderr "[error] timeout waiting fqdn ready: $fqdn"
+            return 1
+        fi
+
+        log_stderr "[info] fqdn $fqdn not ready, sleep ${DNS_READY_INTERVAL}s ..."
+        sleep $DNS_READY_INTERVAL
+    done
+}
+
 parse_tls_connection_variables()
 {
     ENABLE_TLS=$(parse_confval_from_conf "enable_tls")
@@ -288,18 +319,36 @@ add_self_as_backend()
 add_self_as_backend_with_no_tls()
 {
     local svc=$1
-    add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";" 2>&1`
+    local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+    log_stderr "[info] add backend sql: $add_sql"
+    add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_status=$?
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-        timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+        add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_status=$?
+    fi
+    log_stderr "[info] add backend result: $add_result"
+    if [[ $add_status -ne 0 ]]; then
+        log_stderr "[error] add backend failed with status $add_status."
+        return $add_status
     fi
 }
 
 add_self_as_backend_with_tls()
 {
     local svc=$1
-    add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";" 2>&1`
+    local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+    log_stderr "[info] add backend sql: $add_sql"
+    add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_status=$?
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-        timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+        add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_status=$?
+    fi
+    log_stderr "[info] add backend result: $add_result"
+    if [[ $add_status -ne 0 ]]; then
+        log_stderr "[error] add backend failed with status $add_status."
+        return $add_status
     fi
 }
 
@@ -337,6 +386,9 @@ add_self()
             create_account $leader
             log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
             add_self_as_backend $svc
+            if [[ "$?" -ne 0 ]]; then
+                return 1
+            fi
 
             let "expire=start+timeout"
             now=`date +%s`
@@ -476,6 +528,7 @@ resolve_password_from_secret
 # parse tls connection variables, if config `enable_tls=true`, use tls connection to manage node.
 parse_tls_connection_variables
 collect_env_info
+wait_for_fqdn_ready || exit 1
 #add_self $fe_addr || exit $?
 check_and_register $fe_addrs
 ./doris-debug --component be

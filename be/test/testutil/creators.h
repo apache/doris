@@ -121,12 +121,50 @@ struct CreateTabletRequestColumnDef {
     bool is_key = false;
     bool has_aggregation_type = false;
     TAggregationType::type aggregation_type = TAggregationType::NONE;
+    bool is_allow_null = false;
 };
+
+// Append a ColumnPB to `schema_pb`. Currently only INT and STRING columns are supported.
+inline ColumnPB* add_column_pb(TabletSchemaPB* schema_pb, int32_t unique_id,
+                               const std::string& name, const std::string& type, bool is_key,
+                               bool nullable) {
+    ColumnPB* column = schema_pb->add_column();
+    column->set_unique_id(unique_id);
+    column->set_name(name);
+    column->set_type(type);
+    column->set_is_key(is_key);
+    column->set_is_nullable(nullable);
+    if (type == "INT") {
+        column->set_length(4);
+        column->set_index_length(4);
+    } else if (type == "STRING") {
+        column->set_length(65535);
+        column->set_index_length(0);
+    } else {
+        DCHECK(false) << "add_column_pb only supports INT/STRING columns for now, got: " << type;
+    }
+    column->set_precision(0);
+    column->set_frac(0);
+    return column;
+}
+
+inline TabletMetaPB create_tablet_meta_pb(int64_t tablet_id, int32_t schema_hash,
+                                          int64_t replica_id, int64_t table_id,
+                                          int64_t partition_id) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_tablet_id(tablet_id);
+    tablet_meta_pb.set_schema_hash(schema_hash);
+    tablet_meta_pb.set_replica_id(replica_id);
+    tablet_meta_pb.set_table_id(table_id);
+    tablet_meta_pb.set_partition_id(partition_id);
+    return tablet_meta_pb;
+}
 
 inline TColumn create_tablet_column(const CreateTabletRequestColumnDef& column_def) {
     TColumn column;
     column.column_name = column_def.column_name;
     column.__set_is_key(column_def.is_key);
+    column.__set_is_allow_null(column_def.is_allow_null);
     column.column_type.type = column_def.type;
     if (column_def.has_aggregation_type) {
         column.__set_aggregation_type(column_def.aggregation_type);
@@ -176,14 +214,15 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
         }
     }
 
-    row_binlog_schema.columns.push_back(
-            create_tablet_column({std::string(kRowBinlogLsnColName), TPrimitiveType::LARGEINT,
-                                  false, true, TAggregationType::NONE}));
     row_binlog_schema.columns.push_back(create_tablet_column(
-            {"__DORIS_BINLOG_OP__", TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
-    row_binlog_schema.columns.push_back(
-            create_tablet_column({std::string(kRowBinlogTimestampColName), TPrimitiveType::BIGINT,
-                                  false, true, TAggregationType::NONE}));
+            {BINLOG_TSO_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE, true}));
+    row_binlog_schema.__set_binlog_tso_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.__set_binlog_lsn_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.__set_binlog_op_idx(row_binlog_schema.columns.size() - 1);
     request->__set_row_binlog_schema(row_binlog_schema);
 }
 

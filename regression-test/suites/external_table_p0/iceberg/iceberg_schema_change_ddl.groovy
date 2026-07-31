@@ -193,7 +193,7 @@ suite("iceberg_schema_change_ddl", "p0,external") {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN non_col bigint"""
         exception "Column non_col does not exist"
     }
-    // not comment, the comment will be removed
+    // Omitted COMMENT preserves the existing comment.
     qt_before_no_comment "desc ${table_name}" 
     sql """ ALTER TABLE ${table_name} MODIFY COLUMN col1 DOUBLE"""
     qt_after_no_comment "desc ${table_name}"
@@ -305,7 +305,7 @@ suite("iceberg_schema_change_ddl", "p0,external") {
     // struct/complex type changes
     test {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN address STRING """
-        exception "Cannot change column type"
+        exception "Modify column type from complex to primitive is not supported"
     }
     
     test {

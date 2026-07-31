@@ -27,7 +27,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
             INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1 
+        DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
@@ -37,10 +37,10 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """insert into var_index values(4, '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
     trigger_and_wait_compaction(table_name, "full", 1800)
-    sql """ set enable_common_expr_pushdown = true """
-    sql """set enable_match_without_inverted_index = false""" 
+    sql """ set enable_segment_limit_pushdown = true """
+    sql """set enable_match_without_inverted_index = false"""
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
-    sql """set enable_match_without_inverted_index = true""" 
+    sql """set enable_match_without_inverted_index = true"""
     sql """insert into var_index values(5, '{"a" : 123456789, "b" : 123456, "c" : 8181111}')"""
     qt_sql """select * from var_index where cast(v["a"] as int) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 11111 order by k"""
     // insert double/float/array/json
@@ -62,7 +62,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                 INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
             )
             DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1 
+            DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
     } catch (Exception e) {
@@ -79,7 +79,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
             v variant
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1 
+        DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
     """
 
@@ -103,7 +103,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                         INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
                     )
                     DUPLICATE KEY(`k`)
-                    DISTRIBUTED BY HASH(k) BUCKETS 1 
+                    DISTRIBUTED BY HASH(k) BUCKETS 1
                     properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
                 """
             } catch (Exception e) {
@@ -117,7 +117,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                     v variant
                 )
                 DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1 
+                DISTRIBUTED BY HASH(k) BUCKETS 1
                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
             """
 
@@ -135,7 +135,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                     INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
                 )
                 DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1 
+                DISTRIBUTED BY HASH(k) BUCKETS 1
                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
             """
 
@@ -146,7 +146,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                     v variant
                 )
                 DUPLICATE KEY(`k`)
-                DISTRIBUTED BY HASH(k) BUCKETS 1 
+                DISTRIBUTED BY HASH(k) BUCKETS 1
                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
             """
             sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
@@ -155,7 +155,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                 exception "The idx_var index can not be built on the v column, because it is a variant type column"
             }
         }
-        
+
     }
 
     sql """ DROP TABLE IF EXISTS ${table_name} """
@@ -167,7 +167,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
         INDEX idx_var2(v) USING INVERTED
     )
     DUPLICATE KEY(`k`)
-    DISTRIBUTED BY HASH(k) BUCKETS 1 
+    DISTRIBUTED BY HASH(k) BUCKETS 1
     properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
@@ -235,7 +235,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     } else {
         assertEquals(5, get_indeces_count())
     }
-    
+
 
     sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """
     sql """ insert into ${table_name} values(2, '{"name": "李四", "age": 20}') """

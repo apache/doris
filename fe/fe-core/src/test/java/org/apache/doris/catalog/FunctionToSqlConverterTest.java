@@ -154,7 +154,7 @@ public class FunctionToSqlConverterTest {
         ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "com.example.TableFn", null, null);
         fn.setUDTFunction(true);
-        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+        fn.setVolatility(FunctionVolatility.STABLE);
 
         String sql = FunctionToSqlConverter.toSql(fn, true);
 
@@ -162,7 +162,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("java_table_fn(int)"));
         Assertions.assertTrue(sql.contains("RETURNS array<int>"));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
-        Assertions.assertFalse(sql.contains("VOLATILITY"));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"stable\""));
     }
 
     @Test
@@ -174,7 +174,7 @@ public class FunctionToSqlConverterTest {
         fn.setUDTFunction(true);
         fn.setRuntimeVersion("3.10.2");
         fn.setFunctionCode("def evaluate(x):\n    yield x");
-        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+        fn.setVolatility(FunctionVolatility.VOLATILE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -182,10 +182,10 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("py_table_fn(int)"));
         Assertions.assertTrue(sql.contains("RETURNS array<int>"));
         Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"volatile\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
         Assertions.assertTrue(sql.contains("AS $$\ndef evaluate(x):\n    yield x\n$$;"));
         Assertions.assertFalse(sql.contains("\"FILE\"="));
-        Assertions.assertFalse(sql.contains("VOLATILITY"));
     }
 
     // ======================== ScalarFunction — IF NOT EXISTS ========================
@@ -263,6 +263,7 @@ public class FunctionToSqlConverterTest {
                 .symbolName("com.example.MySum")
                 .location(URI.create("file:///tmp/java-udaf.jar"))
                 .build();
+        fn.setVolatility(FunctionVolatility.STABLE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -272,6 +273,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"SYMBOL\"=\"com.example.MySum\""));
         Assertions.assertTrue(sql.contains("\"FILE\"=\"file:///tmp/java-udaf.jar\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"stable\""));
         Assertions.assertTrue(sql.contains("\"ALWAYS_NULLABLE\"="));
         Assertions.assertFalse(sql.contains("INIT_FN"));
         Assertions.assertFalse(sql.contains("UPDATE_FN"));
@@ -313,11 +315,13 @@ public class FunctionToSqlConverterTest {
         fn.setRuntimeVersion("3.10.2");
         fn.setExpirationTime(45);
         fn.setFunctionCode("class SumState:\n    pass");
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
         Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
         Assertions.assertTrue(sql.contains("\"EXPIRATION_TIME\"=\"45\""));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"immutable\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
         Assertions.assertTrue(sql.contains("AS $$\nclass SumState:\n    pass\n$$;"));
         Assertions.assertFalse(sql.contains("\"FILE\"="));

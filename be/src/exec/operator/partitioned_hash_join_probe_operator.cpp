@@ -333,6 +333,7 @@ bool PartitionedHashJoinProbeLocalState::is_blockable() const {
 
 Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_partition(
         RuntimeState* state, JoinSpillPartitionInfo& partition_info) {
+    RETURN_IF_CANCELLED(state);
     if (!partition_info.build_file) {
         // Build file is already exhausted for this partition.
         return Status::OK();
@@ -383,6 +384,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_partition(
 
 Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_partition(
         RuntimeState* state, JoinSpillPartitionInfo& partition_info) {
+    RETURN_IF_CANCELLED(state);
     if (!partition_info.probe_file) {
         // Probe file is already exhausted for this partition.
         return Status::OK();
@@ -529,8 +531,6 @@ PartitionedHashJoinProbeOperatorX::PartitionedHashJoinProbeOperatorX(ObjectPool*
                                                                      int operator_id,
                                                                      const DescriptorTbl& descs)
         : JoinProbeOperatorX<PartitionedHashJoinProbeLocalState>(pool, tnode, operator_id, descs),
-          _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
-                                                                    : TJoinDistributionType::NONE),
           _distribution_partition_exprs(tnode.__isset.distribute_expr_lists
                                                 ? tnode.distribute_expr_lists[0]
                                                 : std::vector<TExpr> {}),
@@ -995,6 +995,7 @@ Status PartitionedHashJoinProbeLocalState::revoke_build_data(RuntimeState* state
 //   repartitioned and pushed back to the queue so the hash table build can
 //   proceed later with a smaller footprint.
 Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     VLOG_DEBUG << fmt::format("Query:{}, hash join probe:{}, task:{}, revoke_memory, child_eos:{}",
                               print_id(state->query_id()), node_id(), state->task_id(),
@@ -1013,7 +1014,8 @@ Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
     return local_state.revoke_build_data(state);
 }
 
-Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status PartitionedHashJoinProbeOperatorX::get_block_impl(RuntimeState* state, Block* block,
+                                                         bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
     const bool is_spilled = local_state._shared_state->_is_spilled;

@@ -20,3 +20,5 @@ true
 3	30	31	python	p****n
 4	40	41	doris	d***s
 
+-- !select_file_inline_precedence --
+1007

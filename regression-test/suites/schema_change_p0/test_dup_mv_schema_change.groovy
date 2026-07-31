@@ -59,7 +59,7 @@ suite ("test_dup_mv_schema_change") {
                     `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
                 DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
                 BUCKETS 8
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false" );
+                PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "light_schema_change" = "false" );
             """
 
         sql """ INSERT INTO ${tableName} VALUES

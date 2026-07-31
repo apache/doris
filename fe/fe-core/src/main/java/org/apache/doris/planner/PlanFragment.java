@@ -514,7 +514,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 // parallelism of non-serial operators.
                 // For bucket shuffle / colocate join fragment, always use serial source if the bucket scan nodes are
                 // serial.
-                && (hasSerialScanNode() || (sink instanceof DataStreamSink && !planRoot.isSerialOperator()
+                && (hasSerialScanNode() || (sink instanceof DataStreamSink && !planRoot.isSerialNode()
                 && planRoot.hasSerialChildren()));
     }
 

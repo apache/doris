@@ -19,15 +19,18 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 
 import java.util.List;
 
 /**
  * interface for udf
  */
-public interface Udf extends ComputeNullable {
+public interface Udf extends ComputeNullable, VolatileExpression {
     @Override
     default boolean nullable() {
         NullableMode mode = getNullableMode();
@@ -45,7 +48,21 @@ public interface Udf extends ComputeNullable {
 
     NullableMode getNullableMode();
 
+    FunctionVolatility getVolatility();
+
     List<Expression> children();
+
+    @Override
+    default boolean isDeterministic() {
+        return getVolatility() == FunctionVolatility.IMMUTABLE;
+    }
+
+    Udf withFreshVolatileIdentity();
+
+    static VolatileIdentity createVolatileIdentity(FunctionVolatility volatility) {
+        return volatility == FunctionVolatility.VOLATILE
+                ? VolatileIdentity.newVolatileIdentity() : VolatileIdentity.NON_VOLATILE;
+    }
 
     @Override
     default boolean foldable() {

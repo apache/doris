@@ -83,11 +83,11 @@ suite("test_show_create_storage_vault_command") {
     def hdfsVaultInfo = try_sql """SHOW CREATE STORAGE VAULT ${hdfsVaultName}"""
     def s3VaultInfo = try_sql """SHOW CREATE STORAGE VAULT ${s3VaultName}"""
 
-    if (hdfsVaultInfo.size == 1) {
+    if (hdfsVaultInfo.size() == 1) {
         hdfsVaultExist = true
     }
 
-    if (s3VaultInfo.size == 1) {
+    if (s3VaultInfo.size() == 1) {
         s3VaultExist = true
     }
 

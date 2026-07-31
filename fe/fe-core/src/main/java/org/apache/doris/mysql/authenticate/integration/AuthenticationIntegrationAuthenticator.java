@@ -170,8 +170,8 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
-            return new AuthenticateResponse(true, userIdentities.get(0), false,
-                    principal, authenticatedRoles);
+            return withCredentialExpiration(new AuthenticateResponse(true, userIdentities.get(0), false,
+                    principal, authenticatedRoles), outcome);
         }
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication integration '{}' authenticated user '{}' but JIT is disabled",
@@ -179,8 +179,14 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
             return AuthenticateResponse.failedResponse;
         }
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
-        return new AuthenticateResponse(true, tempUserIdentity, true,
-                principal, authenticatedRoles);
+        return withCredentialExpiration(new AuthenticateResponse(true, tempUserIdentity, true,
+                principal, authenticatedRoles), outcome);
+    }
+
+    private AuthenticateResponse withCredentialExpiration(AuthenticateResponse response,
+            AuthenticationOutcome outcome) {
+        outcome.getAuthResult().getCredentialExpiresAtMillis().ifPresent(response::setCredentialExpiresAtMillis);
+        return response;
     }
 
     private List<AuthenticationIntegrationMeta> resolveAuthenticationChain() throws AuthenticationException {

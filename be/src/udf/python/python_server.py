@@ -252,11 +252,6 @@ def convert_arrow_field_to_python(field, column_metadata=None):
     if field is None:
         return None
 
-    if pa.types.is_map(field.type):
-        # pyarrow.lib.MapScalar's as_py() returns a list of tuples, convert to dict
-        list_of_tuples = field.as_py()
-        return dict(list_of_tuples) if list_of_tuples is not None else None
-    
     # Check if we should apply special IP type conversion based on metadata
     if column_metadata:
         # Arrow metadata keys can be either bytes or str depending on how they were created
@@ -300,8 +295,64 @@ def convert_arrow_field_to_python(field, column_metadata=None):
                         )
                         return value
                 return None
-    
-    return field.as_py()
+
+    return convert_arrow_value_to_python(field.as_py(), field.type)
+
+
+def convert_arrow_value_to_python(value, arrow_type):
+    """
+    Recursively convert Arrow nested values to Doris Python UDF values.
+
+    PyArrow exposes MapScalar.as_py() as a list of key/value tuples. If the map is
+    nested under ARRAY or STRUCT, the top-level scalar is no longer MapScalar, so
+    field.as_py() alone would leak list-of-tuples to user UDF code.
+    """
+    if value is None:
+        return None
+
+    if pa.types.is_map(arrow_type):
+        key_type = arrow_type.key_type
+        item_type = arrow_type.item_type
+        return {
+            convert_arrow_value_to_python(k, key_type): convert_arrow_value_to_python(
+                v, item_type
+            )
+            for k, v in value
+        }
+
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        element_type = arrow_type.value_type
+        return [convert_arrow_value_to_python(v, element_type) for v in value]
+
+    if pa.types.is_struct(arrow_type):
+        return {
+            arrow_type[i].name: convert_arrow_value_to_python(
+                value.get(arrow_type[i].name), arrow_type[i].type
+            )
+            for i in range(len(arrow_type))
+        }
+
+    return value
+
+
+def needs_nested_python_normalization(arrow_type):
+    """
+    Return True when Arrow default Python conversion can leak nested MAP values as
+    list-of-tuples and therefore needs recursive normalization.
+    """
+    if pa.types.is_map(arrow_type):
+        return True
+
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        return needs_nested_python_normalization(arrow_type.value_type)
+
+    if pa.types.is_struct(arrow_type):
+        return any(
+            needs_nested_python_normalization(arrow_type[i].type)
+            for i in range(len(arrow_type))
+        )
+
+    return False
 
 
 def convert_python_to_arrow_value(value, output_type=None):
@@ -563,8 +614,24 @@ class AdaptivePythonUDF:
         Convert a pa.Array to an instance of the specified VectorType.
         """
         if vec_type == VectorType.LIST:
-            return arrow_array.to_pylist()
+            values = arrow_array.to_pylist()
+            if not needs_nested_python_normalization(arrow_array.type):
+                return values
+            return [
+                convert_arrow_value_to_python(value, arrow_array.type)
+                for value in values
+            ]
         elif vec_type == VectorType.PANDAS_SERIES:
+            if needs_nested_python_normalization(arrow_array.type):
+                # Some pyarrow builds cannot materialize nested map-containing arrays
+                # through to_pandas() (for example list<map<...>>). Normalize through
+                # Python objects first, then build an object Series explicitly.
+                values = arrow_array.to_pylist()
+                converted = [
+                    convert_arrow_value_to_python(value, arrow_array.type)
+                    for value in values
+                ]
+                return pd.Series(converted, dtype=object)
             return arrow_array.to_pandas()
         else:
             raise ValueError(f"Unsupported vector type: {vec_type}")
@@ -665,7 +732,7 @@ class AdaptivePythonUDF:
                 # instead of converting to list
                 pylist = arrow_col.to_pylist()
                 if len(pylist) > 0:
-                    converted = pylist[0]
+                    converted = convert_arrow_value_to_python(pylist[0], arrow_col.type)
                     logging.info(
                         "Converted %s to scalar (first value): %s",
                         param.name,

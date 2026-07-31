@@ -17,16 +17,15 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
-import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.identity.ClientSecretCredentialBuilder;
-import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
@@ -61,46 +60,27 @@ import java.util.NoSuchElementException;
 /**
  * Azure Blob Storage implementation of {@link ObjStorage}.
  *
- * <p>No dependency on fe-core, fe-common, or fe-catalog.
- * Accepts a {@code Map<String, String>} of properties with the following keys:
- * <ul>
- *   <li>{@code AZURE_ACCOUNT_NAME} / {@code azure.account_name} / {@code AWS_ACCESS_KEY}
- *       — storage account name</li>
- *   <li>{@code AZURE_ACCOUNT_KEY} / {@code azure.account_key} / {@code AWS_SECRET_KEY}
- *       — storage account key (shared key auth)</li>
- *   <li>{@code AZURE_ENDPOINT} / {@code AWS_ENDPOINT} — custom endpoint (optional)</li>
- *   <li>{@code AZURE_CLIENT_ID} / {@code azure.oauth2_client_id} — service principal client ID</li>
- *   <li>{@code AZURE_CLIENT_SECRET} / {@code azure.oauth2_client_secret} — service principal secret</li>
- *   <li>{@code AZURE_TENANT_ID} / {@code azure.oauth2_client_tenant_id} — AAD tenant ID</li>
- * </ul>
+ * <p>No dependency on fe-core, fe-common, or fe-catalog. Raw aliases are resolved by
+ * {@link AzureFileSystemProperties}; client construction and authentication consume the
+ * typed properties directly.
  */
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
 
-    static final String PROP_ACCOUNT_NAME = "AZURE_ACCOUNT_NAME";
-    static final String PROP_ACCOUNT_NAME_ALT = "azure.account_name";
-    static final String PROP_ACCOUNT_KEY = "AZURE_ACCOUNT_KEY";
-    static final String PROP_ACCOUNT_KEY_ALT = "azure.account_key";
-    static final String PROP_ENDPOINT = "AZURE_ENDPOINT";
-    static final String PROP_ENDPOINT_ALT = "AWS_ENDPOINT";
-    static final String PROP_CLIENT_ID = "AZURE_CLIENT_ID";
-    static final String PROP_CLIENT_ID_ALT = "azure.oauth2_client_id";
-    static final String PROP_CLIENT_SECRET = "AZURE_CLIENT_SECRET";
-    static final String PROP_CLIENT_SECRET_ALT = "azure.oauth2_client_secret";
-    static final String PROP_TENANT_ID = "AZURE_TENANT_ID";
-    static final String PROP_TENANT_ID_ALT = "azure.oauth2_client_tenant_id";
-
-    private static final String DEFAULT_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
     private static final int HTTP_NOT_FOUND = 404;
     /** Validity period for presigned (SAS) URLs, in seconds. */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
-    private final Map<String, String> properties;
+    private final AzureFileSystemProperties properties;
     private volatile BlobServiceClient client;
 
     public AzureObjStorage(Map<String, String> properties) {
-        this.properties = Collections.unmodifiableMap(properties);
+        this(AzureFileSystemProperties.of(properties));
+    }
+
+    public AzureObjStorage(AzureFileSystemProperties properties) {
+        this.properties = properties;
     }
 
     @Override
@@ -116,70 +96,26 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     protected BlobServiceClient buildClient() throws IOException {
-        String accountName = resolveAccountName();
-        String endpoint = resolveEndpoint(accountName);
-        String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
-        if (accountKey == null || accountKey.isEmpty()) {
-            // Fall back to AWS_SECRET_KEY for S3-compat configurations
-            accountKey = properties.get("AWS_SECRET_KEY");
-        }
-        String clientId = resolve(PROP_CLIENT_ID, PROP_CLIENT_ID_ALT, null);
-        String clientSecret = resolve(PROP_CLIENT_SECRET, PROP_CLIENT_SECRET_ALT, null);
-        String tenantId = resolve(PROP_TENANT_ID, PROP_TENANT_ID_ALT, null);
-
+        String endpoint = requireProperty(
+                properties.getEndpoint(), AzureFileSystemProperties.ENDPOINT, "Azure endpoint");
         BlobServiceClientBuilder builder = new BlobServiceClientBuilder().endpoint(endpoint);
 
-        if (accountKey != null && !accountKey.isEmpty()) {
+        if (properties.isSharedKeyAuth()) {
+            String accountName = requireProperty(
+                    properties.getAccountName(), AzureFileSystemProperties.ACCOUNT_NAME, "Azure account name");
+            String accountKey = requireProperty(
+                    properties.getAccountKey(), AzureFileSystemProperties.ACCOUNT_KEY, "Azure account key");
             builder.credential(new StorageSharedKeyCredential(accountName, accountKey));
-        } else if (clientId != null && !clientId.isEmpty()
-                && clientSecret != null && !clientSecret.isEmpty()
-                && tenantId != null && !tenantId.isEmpty()) {
+        } else {
+            String tenantId = properties.resolveTenantId()
+                    .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
             builder.credential(new ClientSecretCredentialBuilder()
                     .tenantId(tenantId)
-                    .clientId(clientId)
-                    .clientSecret(clientSecret)
+                    .clientId(properties.getClientId())
+                    .clientSecret(properties.getClientSecret())
                     .build());
-        } else {
-            builder.credential(new DefaultAzureCredentialBuilder().build());
         }
         return builder.buildClient();
-    }
-
-    private String resolveAccountName() throws IOException {
-        String name = resolve(PROP_ACCOUNT_NAME, PROP_ACCOUNT_NAME_ALT, null);
-        if (name == null || name.isEmpty()) {
-            // Fall back to AWS_ACCESS_KEY for S3-compat configurations
-            name = properties.get("AWS_ACCESS_KEY");
-        }
-        if (name == null || name.isEmpty()) {
-            throw new IOException("Azure account name is required. Set " + PROP_ACCOUNT_NAME);
-        }
-        return name;
-    }
-
-    private String resolveEndpoint(String accountName) {
-        String endpoint = resolve(PROP_ENDPOINT, PROP_ENDPOINT_ALT, null);
-        if (endpoint != null && !endpoint.isEmpty()) {
-            if (!endpoint.startsWith("http")) {
-                endpoint = "https://" + endpoint;
-            }
-            return endpoint;
-        }
-        return String.format(DEFAULT_ENDPOINT_TEMPLATE, accountName);
-    }
-
-    private String resolve(String primaryKey, String altKey, String defaultValue) {
-        String value = properties.get(primaryKey);
-        if (value != null && !value.isEmpty()) {
-            return value;
-        }
-        if (altKey != null) {
-            value = properties.get(altKey);
-            if (value != null && !value.isEmpty()) {
-                return value;
-            }
-        }
-        return defaultValue;
     }
 
     @Override
@@ -383,7 +319,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     /**
      * Opens an InputStream starting at {@code fromByte} using an HTTP Range request.
      */
-    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
@@ -403,7 +340,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     /**
      * Returns the last-modified time of the blob in milliseconds since epoch.
      */
-    long headObjectLastModified(String remotePath) throws IOException {
+    @Override
+    public long headObjectLastModified(String remotePath) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlobProperties props = getClient().getBlobContainerClient(uri.container())
@@ -415,11 +353,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             }
             throw new IOException("getProperties failed for " + remotePath + ": " + e.getMessage(), e);
         }
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
     }
 
     // -------------------------------------------------------------------------
@@ -439,12 +372,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
      */
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String accountName = resolveAccountName();
-        String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
-        if (accountKey == null || accountKey.isEmpty()) {
-            // Fall back to AWS_SECRET_KEY for S3-compat configurations
-            accountKey = properties.get("AWS_SECRET_KEY");
-        }
+        String accountName = requireProperty(
+                properties.getAccountName(), AzureFileSystemProperties.ACCOUNT_NAME, "Azure account name");
+        String accountKey = properties.getAccountKey();
         if (accountKey == null || accountKey.isEmpty()) {
             throw new IOException(
                     "getPresignedUrl requires a storage account key (AZURE_ACCOUNT_KEY)");
@@ -455,7 +385,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } catch (Exception e) {
             throw new IOException("Cannot parse Azure object key: " + objectKey, e);
         }
-        String endpoint = resolveEndpoint(accountName);
+        String endpoint = properties.getEndpoint();
         StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
         return generateSasUrl(endpoint, uri.container(), uri.key(), credential,
                 OffsetDateTime.now().plusSeconds(SESSION_EXPIRE_SECONDS));
@@ -577,6 +507,13 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         // intentionally process-scoped: tearing it down here would also disrupt every
         // other AzureObjStorage instance that happens to share the pool. The Azure SDK
         // releases the pool on JVM shutdown.
+    }
+
+    private static String requireProperty(String value, String key, String description) throws IOException {
+        if (value == null || value.isEmpty()) {
+            throw new IOException(description + " is required; set " + key + " in properties");
+        }
+        return value;
     }
 
     /**

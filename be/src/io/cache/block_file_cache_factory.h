@@ -22,7 +22,9 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -48,6 +50,10 @@ public:
 
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
+
+    Status create_file_caches(
+            const std::vector<CachePath>& cache_paths,
+            const std::function<bool(const std::string&, const Status&)>& should_ignore_error);
 
     Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
 
@@ -85,6 +91,7 @@ public:
      * @return summary message
      */
     std::string clear_file_caches(bool sync);
+    Status clear_file_caches(bool sync, std::string* result);
 
     /**
      * dump lru queue info for all file cache instances

@@ -61,13 +61,16 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
             );
         """
 
+        // GET_REMOTE_DATA_ERROR auto-resumes (PAUSED->PENDING->PAUSED); assert in the poll snapshot, not a separate read.
         try {
             Awaitility.await().atMost(120, SECONDS)
                     .pollInterval(2, SECONDS).until(
                     {
-                        def jobRes = sql """ select Status from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        def jobRes = sql """ select Status, ErrorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobRes: " + jobRes)
                         jobRes.size() == 1 && 'PAUSED'.equals(jobRes.get(0).get(0))
+                                && jobRes.get(0).get(1) != null
+                                && jobRes.get(0).get(1).toString().contains("simulated S3 auth error")
                     }
             )
         } catch (Exception ex) {
@@ -77,10 +80,6 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
             log.info("show task: " + showtask)
             throw ex
         }
-
-        def jobStatus = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-        assert jobStatus.get(0).get(0) == "PAUSED"
-        assert jobStatus.get(0).get(1).contains("simulated S3 auth error")
 
         sql """
             DROP JOB IF EXISTS where jobname = '${jobName}'

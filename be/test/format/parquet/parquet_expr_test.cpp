@@ -49,6 +49,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "core/column/column.h"
@@ -59,6 +60,10 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vdirect_in_predicate.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
+#include "format/column_descriptor.h"
 #include "format/parquet/parquet_block_split_bloom_filter.h"
 #include "format/parquet/parquet_thrift_util.h"
 #include "format/parquet/schema_desc.h"
@@ -70,6 +75,8 @@
 #include "information_schema/schema_scanner.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/predicate/in_list_predicate.h"
 #include "storage/predicate/null_predicate.h"
@@ -83,9 +90,161 @@ class VExprContext;
 //using namespace iceberg;
 using namespace parquet;
 
+namespace {
+
+class ScopedBoolConfig {
+public:
+    ScopedBoolConfig(bool& config, bool value) : _config(config), _old_value(config) {
+        _config = value;
+    }
+    ~ScopedBoolConfig() { _config = _old_value; }
+
+private:
+    bool& _config;
+    bool _old_value;
+};
+
+class TestPageZonemapExpr final : public VExpr {
+public:
+    enum class Mode {
+        BIGINT_MAX_AT_LEAST,
+        HAS_NOT_NULL,
+        STRING_CONTAINS_VALUE,
+        ALWAYS_NO_MATCH,
+        UNSUPPORTED_CAPABILITY,
+        UNSUPPORTED_RESULT
+    };
+
+    TestPageZonemapExpr(std::vector<int> column_ids, Mode mode, int64_t int_value = 0,
+                        std::string string_value = {})
+            : _column_ids(std::move(column_ids)),
+              _mode(mode),
+              _int_value(int_value),
+              _string_value(std::move(string_value)) {
+        _data_type = std::make_shared<DataTypeUInt8>();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("TestPageZonemapExpr is only used by zonemap tests");
+    }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_ids.begin(), _column_ids.end());
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        return _mode != Mode::UNSUPPORTED_CAPABILITY;
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        DORIS_CHECK(_mode != Mode::UNSUPPORTED_CAPABILITY);
+        if (_mode == Mode::ALWAYS_NO_MATCH) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        if (_mode == Mode::UNSUPPORTED_RESULT) {
+            return unsupported_zonemap_filter(ctx);
+        }
+
+        DORIS_CHECK(_column_ids.size() == 1);
+        auto zone_map_ref = ctx.zone_map(_column_ids.front());
+        if (zone_map_ref == nullptr) {
+            ++ctx.stats.unusable_zonemap_eval_count;
+            return ZoneMapFilterResult::kUnsupported;
+        }
+        const auto& zone_map = *zone_map_ref;
+
+        if (_mode == Mode::HAS_NOT_NULL) {
+            return zone_map.has_not_null ? ZoneMapFilterResult::kMayMatch
+                                         : ZoneMapFilterResult::kNoMatch;
+        }
+
+        if (!zone_map.has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+
+        if (_mode == Mode::BIGINT_MAX_AT_LEAST) {
+            return zone_map.max_value.get<TYPE_BIGINT>() >= _int_value
+                           ? ZoneMapFilterResult::kMayMatch
+                           : ZoneMapFilterResult::kNoMatch;
+        }
+
+        DORIS_CHECK(_mode == Mode::STRING_CONTAINS_VALUE);
+        const auto& min_value = zone_map.min_value.get<TYPE_STRING>();
+        const auto& max_value = zone_map.max_value.get<TYPE_STRING>();
+        return min_value <= _string_value && _string_value <= max_value
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    }
+
+private:
+    std::vector<int> _column_ids;
+    Mode _mode;
+    int64_t _int_value;
+    std::string _string_value;
+    std::string _expr_name = "test_page_zonemap_expr";
+};
+
+VExprContextSPtr make_page_zonemap_context(std::shared_ptr<TestPageZonemapExpr> expr) {
+    auto ctx = VExprContext::create_shared(std::move(expr));
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    return ctx;
+}
+
+std::string encode_int64(const int64_t value) {
+    return std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+} // namespace
+
 class ParquetExprTest : public testing::Test {
 public:
     ParquetExprTest() {}
+
+    VExprSPtr create_string_literal(const std::string& value) {
+        TExprNode literal_node;
+        literal_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+        literal_node.__set_type(create_type_desc(TYPE_STRING));
+        TStringLiteral literal;
+        literal.__set_value(value);
+        literal_node.__set_string_literal(literal);
+        literal_node.__set_is_nullable(false);
+        return VLiteral::create_shared(literal_node);
+    }
+
+    VExprContextSPtr create_string_equal(RuntimeState* state, const RowDescriptor& row_desc,
+                                         VExprSPtr left, VExprSPtr right) {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name("eq");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        fn.__set_arg_types({create_type_desc(TYPE_STRING), create_type_desc(TYPE_STRING)});
+        fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode expr_node;
+        expr_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+        expr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        expr_node.__set_opcode(TExprOpcode::EQ);
+        expr_node.__set_fn(fn);
+        expr_node.__set_num_children(2);
+        expr_node.__set_is_nullable(true);
+        auto root = VectorizedFnCall::create_shared(expr_node);
+        root->add_child(std::move(left));
+        root->add_child(std::move(right));
+
+        auto context = VExprContext::create_shared(root);
+        auto status = context->prepare(state, row_desc);
+        EXPECT_TRUE(status.ok()) << status;
+        status = context->open(state);
+        EXPECT_TRUE(status.ok()) << status;
+        return context;
+    }
 
     void SetUp() override {
         std::string test_dir = "ut_dir/test_parquet_expr";
@@ -275,8 +434,10 @@ public:
             scan_range.size = local_file_reader->size();
         }
 
+        query_options.__set_enable_expr_zonemap_filter(true);
+        runtime_state = std::make_unique<RuntimeState>(query_options, query_globals);
         p_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, scan_range.size,
-                                                &ctz, nullptr, nullptr);
+                                                &ctz, nullptr, runtime_state.get());
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
         ParquetInitContext pq_ctx;
@@ -360,6 +521,74 @@ public:
         return dump;
     }
 
+    static void install_page_index_getter(
+            ParquetPredicate::CachedPageIndexStat* cached_page_index) {
+        cached_page_index->get_stat_func =
+                [cached_page_index](ParquetPredicate::PageIndexStat** stat, int cid) -> bool {
+            auto it = cached_page_index->stats.find(cid);
+            if (it == cached_page_index->stats.end()) {
+                return false;
+            }
+            *stat = &it->second;
+            return it->second.available;
+        };
+    }
+
+    ParquetPredicate::PageIndexStat make_int64_page_index_stat(
+            std::vector<std::tuple<int64_t, int64_t, RowRange>> pages) const {
+        ParquetPredicate::PageIndexStat stat;
+        stat.available = true;
+        stat.num_of_pages = pages.size();
+        stat.col_schema = doris_file_metadata->schema().get_column(2);
+        for (const auto& [min_value, max_value, range] : pages) {
+            stat.encoded_min_value.emplace_back(encode_int64(min_value));
+            stat.encoded_max_value.emplace_back(encode_int64(max_value));
+            stat.has_null.emplace_back(false);
+            stat.is_all_null.emplace_back(false);
+            stat.ranges.emplace_back(range);
+        }
+        return stat;
+    }
+
+    ParquetPredicate::PageIndexStat make_string_page_index_stat(
+            std::vector<std::tuple<std::string, std::string, RowRange>> pages) const {
+        ParquetPredicate::PageIndexStat stat;
+        stat.available = true;
+        stat.num_of_pages = pages.size();
+        stat.col_schema = doris_file_metadata->schema().get_column(5);
+        for (const auto& [min_value, max_value, range] : pages) {
+            stat.encoded_min_value.emplace_back(min_value);
+            stat.encoded_max_value.emplace_back(max_value);
+            stat.has_null.emplace_back(false);
+            stat.is_all_null.emplace_back(false);
+            stat.ranges.emplace_back(range);
+        }
+        return stat;
+    }
+
+    static void assert_single_range(RowRanges* ranges, int64_t from, int64_t to) {
+        ASSERT_EQ(1, ranges->range_size());
+        EXPECT_EQ(from, ranges->get_range_from(0));
+        EXPECT_EQ(to, ranges->get_range_to(0));
+    }
+
+    Status process_expr_zonemap_page_filter(
+            ParquetPredicate::CachedPageIndexStat* cached_page_index,
+            RowRanges* candidate_row_ranges, bool* filtered_row_group_by_expr_zonemap = nullptr) {
+        bool filtered_row_group = false;
+        auto status = p_reader->_process_expr_zonemap_page_filter(
+                cached_page_index, candidate_row_ranges, &filtered_row_group);
+        if (filtered_row_group_by_expr_zonemap != nullptr) {
+            *filtered_row_group_by_expr_zonemap = filtered_row_group;
+        }
+        return status;
+    }
+
+    void set_expr_zonemap_filter_enabled(bool enabled) {
+        query_options.__set_enable_expr_zonemap_filter(enabled);
+        runtime_state->set_query_options(query_options);
+    }
+
     static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
                                   std::vector<std::string> table_column_names,
                                   std::vector<TPrimitiveType::type> types) {
@@ -419,6 +648,9 @@ public:
 
     std::string file_path;
     std::unique_ptr<ParquetReader> p_reader;
+    TQueryOptions query_options;
+    TQueryGlobals query_globals;
+    std::unique_ptr<RuntimeState> runtime_state;
     // create doirs parquet reader.
     TDescriptorTable t_desc_table;
     TTableDescriptor t_table_desc;
@@ -430,6 +662,144 @@ public:
     cctz::time_zone ctz = cctz::utc_time_zone();
     std::unordered_map<std::string, int> colname_to_slot_id;
 };
+
+TEST_F(ParquetExprTest, dict_filter_is_blocked_only_for_slots_in_multi_slot_conjuncts) {
+    arrow::StringBuilder left_builder;
+    arrow::StringBuilder right_builder;
+    arrow::StringBuilder filter_builder;
+    for (const auto& value : {"x", "x", "x", "y"}) {
+        ASSERT_TRUE(left_builder.Append(value).ok());
+    }
+    for (const auto& value : {"x", "x", "y", "y"}) {
+        ASSERT_TRUE(right_builder.Append(value).ok());
+    }
+    for (const auto& value : {"keep", "drop", "keep", "keep"}) {
+        ASSERT_TRUE(filter_builder.Append(value).ok());
+    }
+
+    std::shared_ptr<arrow::Array> left_array;
+    std::shared_ptr<arrow::Array> right_array;
+    std::shared_ptr<arrow::Array> filter_array;
+    ASSERT_TRUE(left_builder.Finish(&left_array).ok());
+    ASSERT_TRUE(right_builder.Finish(&right_array).ok());
+    ASSERT_TRUE(filter_builder.Finish(&filter_array).ok());
+
+    auto schema = arrow::schema({arrow::field("left_col", arrow::utf8(), false),
+                                 arrow::field("right_col", arrow::utf8(), false),
+                                 arrow::field("filter_col", arrow::utf8(), false)});
+    auto table = arrow::Table::Make(schema, {left_array, right_array, filter_array});
+    const std::string dict_filter_file = "ut_dir/test_parquet_expr/dict_filter.parquet";
+    auto output_result = arrow::io::FileOutputStream::Open(dict_filter_file);
+    ASSERT_TRUE(output_result.ok()) << output_result.status();
+    auto output = std::move(output_result).ValueUnsafe();
+    ::parquet::WriterProperties::Builder properties_builder;
+    properties_builder.enable_dictionary();
+    auto properties = properties_builder.build();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output,
+                                                      table->num_rows(), properties));
+    ASSERT_TRUE(output->Close().ok());
+
+    TDescriptorTable local_t_desc_table;
+    TTableDescriptor local_t_table_desc;
+    create_table_desc(local_t_desc_table, local_t_table_desc,
+                      {"left_col", "right_col", "filter_col"},
+                      {TPrimitiveType::STRING, TPrimitiveType::STRING, TPrimitiveType::STRING});
+    ObjectPool local_obj_pool;
+    DescriptorTbl* local_desc_tbl = nullptr;
+    auto status = DescriptorTbl::create(&local_obj_pool, local_t_desc_table, &local_desc_tbl);
+    ASSERT_TRUE(status.ok()) << status;
+    auto* tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
+    RowDescriptor row_desc(tuple_desc);
+
+    RuntimeState state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    state.set_desc_tbl(local_desc_tbl);
+    auto multi_slot_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[0]),
+                                VSlotRef::create_shared(tuple_desc->slots()[1]));
+    auto left_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[0]),
+                                create_string_literal("x"));
+    auto right_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[1]),
+                                create_string_literal("x"));
+    auto filter_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[2]),
+                                create_string_literal("keep"));
+
+    VExprContextSPtrs conjuncts = {multi_slot_conjunct, left_conjunct, right_conjunct,
+                                   filter_conjunct};
+    VExprContextSPtrs not_single_slot_filter_conjuncts = {multi_slot_conjunct};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts = {
+            {tuple_desc->slots()[0]->id(), {left_conjunct}},
+            {tuple_desc->slots()[1]->id(), {right_conjunct}},
+            {tuple_desc->slots()[2]->id(), {filter_conjunct}}};
+
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr file_reader;
+    status = local_fs->open_file(dict_filter_file, &file_reader);
+    ASSERT_TRUE(status.ok()) << status;
+
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(dict_filter_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(file_reader->size());
+    auto parquet_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, 64, &ctz,
+                                                       nullptr, &state, nullptr, true);
+    parquet_reader->set_file_reader(file_reader);
+
+    std::vector<std::string> column_names = {"left_col", "right_col", "filter_col"};
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& column_name : column_names) {
+        column_descs.push_back({column_name, nullptr, ColumnCategory::REGULAR, nullptr});
+    }
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"left_col", 0}, {"right_col", 1}, {"filter_col", 2}};
+    std::unordered_map<std::string, int> col_name_to_slot_id = {
+            {"left_col", tuple_desc->slots()[0]->id()},
+            {"right_col", tuple_desc->slots()[1]->id()},
+            {"filter_col", tuple_desc->slots()[2]->id()}};
+    ParquetInitContext parquet_context;
+    parquet_context.column_descs = &column_descs;
+    parquet_context.col_name_to_block_idx = &col_name_to_block_idx;
+    parquet_context.tuple_descriptor = tuple_desc;
+    parquet_context.row_descriptor = &row_desc;
+    parquet_context.params = &scan_params;
+    parquet_context.range = &scan_range;
+    parquet_context.conjuncts = &conjuncts;
+    parquet_context.colname_to_slot_id = &col_name_to_slot_id;
+    parquet_context.not_single_slot_filter_conjuncts = &not_single_slot_filter_conjuncts;
+    parquet_context.slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+    status = parquet_reader->init_reader(&parquet_context);
+    ASSERT_TRUE(status.ok()) << status;
+
+    Block block;
+    for (const auto* slot_desc : tuple_desc->slots()) {
+        block.insert(
+                {slot_desc->type()->create_column(), slot_desc->type(), slot_desc->col_name()});
+    }
+    size_t read_rows = 0;
+    bool eof = false;
+    status = parquet_reader->get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(parquet_reader->_current_group_reader, nullptr);
+
+    const auto& blocked_slot_ids =
+            parquet_reader->_current_group_reader->_dict_filter_blocked_slot_ids;
+    EXPECT_EQ(blocked_slot_ids.size(), 2);
+    EXPECT_TRUE(blocked_slot_ids.contains(tuple_desc->slots()[0]->id()));
+    EXPECT_TRUE(blocked_slot_ids.contains(tuple_desc->slots()[1]->id()));
+    const auto& dict_filter_columns = parquet_reader->_current_group_reader->_dict_filter_cols;
+    ASSERT_EQ(dict_filter_columns.size(), 1);
+    EXPECT_EQ(dict_filter_columns.front().first, "filter_col");
+
+    EXPECT_TRUE(eof);
+    ASSERT_EQ(read_rows, 1);
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(block.get_by_position(0).column->get_data_at(0).to_string(), "x");
+    EXPECT_EQ(block.get_by_position(1).column->get_data_at(0).to_string(), "x");
+    EXPECT_EQ(block.get_by_position(2).column->get_data_at(0).to_string(), "keep");
+}
 
 TEST_F(ParquetExprTest, test_min_max) {
     // open parquet with parquet's API
@@ -836,6 +1206,230 @@ TEST_F(ParquetExprTest, test_min_max_p) {
         ASSERT_EQ(ans_min, min_field);
         ASSERT_EQ(ans_max, max_field);
     }
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_prunes_pages_and_intersects_ranges) {
+    ParquetPredicate::CachedPageIndexStat cached_page_index;
+    cached_page_index.ctz = &ctz;
+    cached_page_index.row_group_range = {0, 30};
+    cached_page_index.stats.emplace(
+            2,
+            make_int64_page_index_stat({{0, 9, {0, 10}}, {10, 19, {10, 20}}, {20, 29, {20, 30}}}));
+    install_page_index_getter(&cached_page_index);
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::BIGINT_MAX_AT_LEAST, 10))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    candidate_row_ranges.add({5, 25});
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+
+    assert_single_range(&candidate_row_ranges, 10, 25);
+    EXPECT_EQ(0, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
+}
+
+TEST_F(ParquetExprTest, test_page_index_filter_applies_expr_zonemap_without_pushdown_predicate) {
+    ScopedBoolConfig enable_page_index_guard(config::enable_parquet_page_index, true);
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::BIGINT_MAX_AT_LEAST, 10000000003))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    std::vector<std::unique_ptr<MutilColumnBlockPredicate>> push_down_pred;
+    const auto& row_group = doris_metadata.row_groups[0];
+    RowGroupReader::RowGroupIndex row_group_index(0, 0, row_group.num_rows);
+    ASSERT_TRUE(p_reader->_process_page_index_filter(row_group, row_group_index, push_down_pred,
+                                                     &candidate_row_ranges)
+                        .ok());
+
+    EXPECT_TRUE(candidate_row_ranges.is_empty());
+    EXPECT_EQ(1, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
+}
+
+TEST_F(ParquetExprTest, test_page_index_filter_skips_column_index_for_unsupported_expr_zonemap) {
+    ScopedBoolConfig enable_page_index_guard(config::enable_parquet_page_index, true);
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::UNSUPPORTED_CAPABILITY))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    std::vector<std::unique_ptr<MutilColumnBlockPredicate>> push_down_pred;
+    const auto& row_group = doris_metadata.row_groups[0];
+    RowGroupReader::RowGroupIndex row_group_index(0, 0, row_group.num_rows);
+    const auto read_calls_before = p_reader->_column_statistics.page_index_read_calls;
+    ASSERT_TRUE(p_reader->_process_page_index_filter(row_group, row_group_index, push_down_pred,
+                                                     &candidate_row_ranges)
+                        .ok());
+
+    assert_single_range(&candidate_row_ranges, 0, row_group.num_rows);
+    EXPECT_EQ(read_calls_before + 1, p_reader->_column_statistics.page_index_read_calls);
+    EXPECT_EQ(0, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_handles_all_null_pages) {
+    ParquetPredicate::PageIndexStat stat;
+    stat.available = true;
+    stat.num_of_pages = 2;
+    stat.col_schema = doris_file_metadata->schema().get_column(2);
+    stat.encoded_min_value = {encode_int64(0), encode_int64(10)};
+    stat.encoded_max_value = {encode_int64(0), encode_int64(10)};
+    stat.has_null = {true, false};
+    stat.is_all_null = {true, false};
+    stat.ranges = {{0, 10}, {10, 20}};
+
+    ParquetPredicate::CachedPageIndexStat cached_page_index;
+    cached_page_index.ctz = &ctz;
+    cached_page_index.row_group_range = {0, 20};
+    cached_page_index.stats.emplace(2, std::move(stat));
+    install_page_index_getter(&cached_page_index);
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::HAS_NOT_NULL))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    candidate_row_ranges.add({0, 20});
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+
+    assert_single_range(&candidate_row_ranges, 10, 20);
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_intersects_multiple_columns) {
+    ParquetPredicate::CachedPageIndexStat cached_page_index;
+    cached_page_index.ctz = &ctz;
+    cached_page_index.row_group_range = {0, 30};
+    cached_page_index.stats.emplace(
+            2,
+            make_int64_page_index_stat({{0, 9, {0, 10}}, {10, 19, {10, 20}}, {20, 29, {20, 30}}}));
+    cached_page_index.stats.emplace(
+            5, make_string_page_index_stat(
+                       {{"a", "a", {0, 10}}, {"b", "b", {10, 20}}, {"c", "c", {20, 30}}}));
+    install_page_index_getter(&cached_page_index);
+
+    VExprContextSPtrs conjuncts {
+            make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+                    std::vector<int> {2}, TestPageZonemapExpr::Mode::BIGINT_MAX_AT_LEAST, 10)),
+            make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+                    std::vector<int> {5}, TestPageZonemapExpr::Mode::STRING_CONTAINS_VALUE, 0,
+                    "b"))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    candidate_row_ranges.add({0, 30});
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+
+    assert_single_range(&candidate_row_ranges, 10, 20);
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_skips_when_disabled_or_no_candidate) {
+    set_expr_zonemap_filter_enabled(false);
+
+    ParquetPredicate::CachedPageIndexStat cached_page_index;
+    cached_page_index.ctz = &ctz;
+    cached_page_index.row_group_range = {0, 10};
+    cached_page_index.stats.emplace(2, make_int64_page_index_stat({{0, 9, {0, 10}}}));
+    install_page_index_getter(&cached_page_index);
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::ALWAYS_NO_MATCH))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    candidate_row_ranges.add({0, 10});
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+    assert_single_range(&candidate_row_ranges, 0, 10);
+
+    set_expr_zonemap_filter_enabled(true);
+    candidate_row_ranges.clear();
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+    EXPECT_TRUE(candidate_row_ranges.is_empty());
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_skips_unsupported_columns_and_metadata) {
+    ParquetPredicate::CachedPageIndexStat cached_page_index;
+    cached_page_index.ctz = &ctz;
+    cached_page_index.row_group_range = {0, 10};
+    auto unavailable_stat = make_int64_page_index_stat({{0, 9, {0, 10}}});
+    unavailable_stat.available = false;
+    cached_page_index.stats.emplace(2, std::move(unavailable_stat));
+    install_page_index_getter(&cached_page_index);
+
+    VExprContextSPtrs conjuncts {
+            make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+                    std::vector<int> {2}, TestPageZonemapExpr::Mode::ALWAYS_NO_MATCH)),
+            make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+                    std::vector<int> {2, 5}, TestPageZonemapExpr::Mode::ALWAYS_NO_MATCH)),
+            make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+                    std::vector<int> {1000}, TestPageZonemapExpr::Mode::ALWAYS_NO_MATCH))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    candidate_row_ranges.add({0, 10});
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+
+    assert_single_range(&candidate_row_ranges, 0, 10);
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_page_filter_keeps_unsupported_results_and_counts_stats) {
+    ParquetPredicate::CachedPageIndexStat cached_page_index;
+    cached_page_index.ctz = &ctz;
+    cached_page_index.row_group_range = {0, 20};
+    cached_page_index.stats.emplace(
+            2, make_int64_page_index_stat({{0, 9, {0, 10}}, {10, 19, {10, 20}}}));
+    install_page_index_getter(&cached_page_index);
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::UNSUPPORTED_RESULT))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    RowRanges candidate_row_ranges;
+    candidate_row_ranges.add({0, 20});
+    ASSERT_TRUE(process_expr_zonemap_page_filter(&cached_page_index, &candidate_row_ranges).ok());
+
+    assert_single_range(&candidate_row_ranges, 0, 20);
+    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_row_group_filter_skips_complex_parent_column) {
+    auto* col_schema = p_reader->_file_metadata->schema().get_column("string_col");
+    ASSERT_NE(nullptr, col_schema);
+    ASSERT_GE(col_schema->physical_column_index, 0);
+    // Complex parent fields have no physical Parquet column. Force the same schema state here
+    // to verify the row-group expr-zonemap path falls back before indexing row_group.columns.
+    col_schema->physical_column_index = -1;
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {5}, TestPageZonemapExpr::Mode::HAS_NOT_NULL))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    bool filter_group = false;
+    ASSERT_TRUE(p_reader->_process_expr_zonemap_filter(doris_metadata.row_groups[0], &filter_group)
+                        .ok());
+
+    EXPECT_FALSE(filter_group);
+    EXPECT_EQ(0, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
+    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
+}
+
+TEST_F(ParquetExprTest, test_expr_zonemap_row_group_filter_skips_type_mismatch_column) {
+    auto* col_schema = p_reader->_file_metadata->schema().get_column("int64_col");
+    ASSERT_NE(nullptr, col_schema);
+    col_schema->data_type = std::make_shared<DataTypeString>();
+
+    VExprContextSPtrs conjuncts {make_page_zonemap_context(std::make_shared<TestPageZonemapExpr>(
+            std::vector<int> {2}, TestPageZonemapExpr::Mode::HAS_NOT_NULL))};
+    p_reader->set_conjuncts_for_test(conjuncts);
+
+    bool filter_group = false;
+    ASSERT_TRUE(p_reader->_process_expr_zonemap_filter(doris_metadata.row_groups[0], &filter_group)
+                        .ok());
+
+    EXPECT_FALSE(filter_group);
+    EXPECT_EQ(0, p_reader->_reader_statistics.filtered_row_groups_by_expr_zonemap);
+    EXPECT_EQ(1, p_reader->_reader_statistics.expr_zonemap_unusable_evals);
 }
 
 TEST_F(ParquetExprTest, test_in) {

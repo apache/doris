@@ -19,6 +19,11 @@ import org.apache.commons.io.FileUtils
 
 suite("load") {
 
+
+    multi_sql """
+        set enable_insert_strict = true;
+        set enable_strict_cast = false;
+    """
     // ddl begin
     sql "drop table if exists fn_test"
     sql "drop table if exists fn_test_not_nullable"
@@ -159,13 +164,11 @@ suite("load") {
 
     if (!isClusterKeyEnabled()) {
     // test fn_test_ip_nullable_rowstore table with update action
-    sql "set enable_insert_strict = false;"
     sql "update fn_test_ip_nullable_rowstore set ip4 = '' where id = 1;"
     sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
     log.info("sql_res: ${sql_res[0]}".toString())
     assertEquals(sql_res[0].toString(), '[1, null, ::1, "127.0.0.1", "::1"]')
     sql "update fn_test_ip_nullable_rowstore set ip6 = '' where id = 1;"
-    sql "set enable_insert_strict = true;"
     sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
     assertEquals(sql_res[0].toString(), '[1, null, null, "127.0.0.1", "::1"]')
     sql "update fn_test_ip_nullable_rowstore set ip4 = '127.0.0.1' where id = 1;"
@@ -232,12 +235,12 @@ suite("load") {
     // not null will throw exception if we has data in table
     test {
         sql "update fn_test_ip_not_nullable_rowstore set ip4 = '' where id = 1;"
-        exception("parse ipv4 fail")
+        exception("null value for not null column")
     }
 
     test {
         sql "update fn_test_ip_not_nullable_rowstore set ip6 = '' where id = 1;"
-        exception("parse ipv6 fail")
+        exception("null value for not null column")
     }
     sql """
     set debug_skip_fold_constant=false;
@@ -746,9 +749,7 @@ suite("load") {
             }
             insert_sql += ")"
             log.info("insert_sql: ${insert_sql}".toString())
-            sql "set enable_insert_strict = false"
             sql insert_sql
-            sql "set enable_insert_strict = true"
             row_cnt ++
         }
     }

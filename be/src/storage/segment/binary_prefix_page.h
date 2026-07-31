@@ -94,7 +94,7 @@ private:
 
 class BinaryPrefixPageDecoder : public PageDecoder {
 public:
-    BinaryPrefixPageDecoder(Slice data, const PageDecoderOptions& options)
+    BinaryPrefixPageDecoder(Slice data, const PageDecoderOptions& /*options*/)
             : _data(data), _parsed(false) {}
 
     Status init() override;

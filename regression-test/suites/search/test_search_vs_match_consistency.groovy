@@ -18,8 +18,8 @@
 suite("test_search_vs_match_consistency", "p0") {
     def tableName = "search_match_consistency_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
-    sql """ set enable_common_expr_pushdown = true """
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -106,122 +106,122 @@ suite("test_search_vs_match_consistency", "p0") {
     Thread.sleep(5000)
 
     qt_keyword_case_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ title FROM ${keywordTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ title FROM ${keywordTable}
         WHERE redirect match_all "Rainbowman"
         ORDER BY title
     """
 
     qt_keyword_case_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ title FROM ${keywordTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ title FROM ${keywordTable}
         WHERE search('redirect:All("Rainbowman")', '{"mode":"standard"}')
         ORDER BY title
     """
 
     // Test Suite 1: Basic OR query consistency
     qt_test_1_1_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:Ronald OR title:Selma', '{"mode":"standard"}')
     """
 
     qt_test_1_1_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Ronald" or title match "Selma"
     """
 
     // Test 1.2: OR across different fields
     qt_test_1_2_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:Ronald OR content:Selma', '{"mode":"standard"}')
     """
 
     qt_test_1_2_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Ronald" or content match "Selma"
     """
 
     // Test 1.3: Complex OR with ALL operation
     qt_test_1_3_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:Ronald OR (content:ALL(Selma Blair))', '{"mode":"standard"}')
     """
 
     qt_test_1_3_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Ronald" or (content match_all "Selma Blair")
     """
 
     // Test Suite 2: NOT query consistency
     qt_test_2_1_internal_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT content:Round', '{"mode":"standard"}')
     """
 
     qt_test_2_1_external_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE not search('content:Round', '{"mode":"standard"}')
     """
 
     // Test 2.2: NOT with different fields
     qt_test_2_2_internal_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT title:Ronald', '{"mode":"standard"}')
     """
 
     qt_test_2_2_external_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE not search('title:Ronald', '{"mode":"standard"}')
     """
 
     // Test 2.3: NOT with complex expression
     qt_test_2_3_internal_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT (title:Ronald AND content:biography)', '{"mode":"standard"}')
     """
 
     qt_test_2_3_external_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE not search('title:Ronald AND content:biography', '{"mode":"standard"}')
     """
 
     // Test Suite 3: NULL value behavior in OR queries
     qt_test_3_1_or_with_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:NonExistent OR content:Ronald', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_test_3_2_or_multiple_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:Mystery OR content:Round', '{"mode":"standard"}')
         ORDER BY id
     """
 
     // Test Suite 4: AND query behavior with NULLs
     qt_test_4_1_and_with_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:Ronald AND content:biography', '{"mode":"standard"}')
         ORDER BY id
     """
 
     // Test Suite 5: Edge cases and complex scenarios
     qt_test_5_1_empty_string """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:"" OR content:Round', '{"mode":"standard"}')
     """
 
     qt_test_5_2_complex_nested """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('(title:Ronald OR title:Selma) AND NOT (content:Round AND author:NonExistent)', '{"mode":"standard"}')
     """
 
     // Test Suite 6: Performance and consistency verification
     qt_test_6_1_large_or_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:Ronald OR title:Selma OR content:Round OR content:biography OR author:Smith OR tags:history', '{"mode":"standard"}')
     """
 
     qt_test_6_1_large_or_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Ronald" or title match "Selma" or content match "Round" or content match "biography" or author match "Smith" or tags match "history"
     """
 
@@ -280,17 +280,17 @@ suite("test_search_vs_match_consistency", "p0") {
 
     // Mandy/Kesha consistency checks
     qt_man_pat_1_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE search('content:ALL("Mandy Patinkin") OR NOT (content:ANY("Kesha"))', '{"mode":"standard"}')
     """
 
     qt_man_pat_1_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE content match_all "Mandy Patinkin" or not (content match_any "Kesha")
     """
 
     qt_man_pat_1_search_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content,
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content,
                CASE WHEN title IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS title_status,
                CASE WHEN content IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS content_status
         FROM ${mandyTable}
@@ -299,7 +299,7 @@ suite("test_search_vs_match_consistency", "p0") {
     """
 
     qt_man_pat_1_match_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content,
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content,
                CASE WHEN title IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS title_status,
                CASE WHEN content IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS content_status
         FROM ${mandyTable}
@@ -308,54 +308,54 @@ suite("test_search_vs_match_consistency", "p0") {
     """
 
     qt_man_pat_2_search_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE search('title:Mandy OR content:Kesha', '{"mode":"standard"}')
     """
 
     qt_man_pat_2_match_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE title match "Mandy" OR content match "Kesha"
     """
 
     qt_man_pat_2_search_or_ids """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mandyTable}
         WHERE search('title:Mandy OR content:Kesha', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_man_pat_2_match_or_ids """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mandyTable}
         WHERE title match "Mandy" OR content match "Kesha"
         ORDER BY id
     """
 
     qt_man_pat_3_search_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE search('title:Mandy AND category:biography', '{"mode":"standard"}')
     """
 
     qt_man_pat_3_match_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE title match "Mandy" AND category match "biography"
     """
 
     qt_man_pat_4_search_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE search('NOT content:Kesha', '{"mode":"standard"}')
     """
 
     qt_man_pat_4_match_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE NOT content match "Kesha"
     """
 
     qt_man_pat_5_search_nested """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE search('(title:Mandy OR content:Kesha) AND category:music', '{"mode":"standard"}')
     """
 
     qt_man_pat_5_match_nested """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE (title match "Mandy" OR content match "Kesha") AND category match "music"
     """
 
@@ -405,69 +405,69 @@ suite("test_search_vs_match_consistency", "p0") {
     Thread.sleep(10000)
 
     qt_fred_1_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('title:Fred OR NOT content:ANY("Rahul Gandhi")', '{"mode":"standard"}')
     """
 
     qt_fred_1_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE title match "Fred" OR NOT (content match_any "Rahul Gandhi")
     """
 
     qt_fred_1_search_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${fredTable}
         WHERE search('title:Fred OR NOT content:ANY("Rahul Gandhi")', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_fred_1_match_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${fredTable}
         WHERE title match "Fred" OR NOT (content match_any "Rahul Gandhi")
         ORDER BY id
     """
 
     qt_fred_2_title_only """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('title:Fred', '{"mode":"standard"}')
     """
 
     qt_fred_2_content_any """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('content:ANY("Rahul Gandhi")', '{"mode":"standard"}')
     """
 
     qt_fred_2_not_content """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('NOT content:ANY("Rahul Gandhi")', '{"mode":"standard"}')
     """
 
     qt_fred_3_or_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('title:Fred OR NOT title:Random', '{"mode":"standard"}')
     """
 
     qt_fred_3_or_not_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE title match "Fred" OR NOT title match "Random"
     """
 
     qt_fred_4_and_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('title:Fred AND NOT content:ANY("Rahul Gandhi")', '{"mode":"standard"}')
     """
 
     qt_fred_4_and_not_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE title match "Fred" AND NOT (content match_any "Rahul Gandhi")
     """
 
     qt_fred_5_nested """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE search('(title:Fred OR title:John) OR NOT (content:ANY("Rahul Gandhi") OR content:ANY("politics"))', '{"mode":"standard"}')
     """
 
     qt_fred_5_nested_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${fredTable}
         WHERE (title match "Fred" OR title match "John") OR NOT (content match_any "Rahul Gandhi" OR content match_any "politics")
     """
 

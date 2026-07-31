@@ -24,6 +24,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <string_view>
 #include <thread>
 
 #include "common/config.h"
@@ -32,6 +33,7 @@
 #include "io/cache/file_cache_common.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_request.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -65,6 +67,7 @@ public:
         _action = std::make_unique<FileCacheAction>(nullptr);
 
         ASSERT_NE(doris::ExecEnv::GetInstance()->file_cache_factory(), nullptr);
+        reset_file_cache_factory();
 
         _base_path = "/tmp/file_cache_action_ut_" + std::to_string(getpid());
         (void)std::filesystem::create_directories(_base_path);
@@ -72,6 +75,8 @@ public:
         settings.storage = "memory";
         settings.capacity = 1024 * 1024;          // 1MB
         settings.max_file_block_size = 64 * 1024; // 64KB
+        settings.query_queue_size = 1024 * 1024;
+        settings.query_queue_elements = 16;
         auto cache = std::make_unique<doris::io::BlockFileCache>(_base_path, settings);
         ASSERT_TRUE(cache->initialize());
         for (int i = 0; i < 1000; ++i) {
@@ -82,6 +87,7 @@ public:
         auto* factory = doris::io::FileCacheFactory::instance();
         factory->_caches.emplace_back(std::move(cache));
         factory->_path_to_cache[_base_path] = raw;
+        _cache = raw;
     }
 
     void TearDown() override {
@@ -94,7 +100,7 @@ public:
         }
 
         if (doris::ExecEnv::GetInstance()->file_cache_factory() != nullptr) {
-            doris::io::FileCacheFactory::instance()->clear_file_caches(true);
+            reset_file_cache_factory();
         }
     }
 
@@ -103,8 +109,35 @@ protected:
     event_base* _event_base = nullptr;
     std::unique_ptr<FileCacheAction> _action;
     std::string _base_path;
+    doris::io::BlockFileCache* _cache = nullptr;
 
     inline static std::unique_ptr<doris::io::FileCacheFactory> _suite_factory;
+
+    void reset_file_cache_factory() {
+        auto* factory = doris::io::FileCacheFactory::instance();
+        factory->clear_file_caches(true);
+        factory->_caches.clear();
+        factory->_path_to_cache.clear();
+        factory->_capacity = 0;
+        _cache = nullptr;
+    }
+
+    void cache_file_block(const std::string& file_path) {
+        auto hash = doris::io::BlockFileCache::hash(file_path);
+        doris::io::CacheContext context;
+        doris::io::ReadStatistics stats;
+        context.cache_type = doris::io::FileCacheType::NORMAL;
+        context.stats = &stats;
+
+        auto holder = _cache->get_or_set(hash, 0, 4, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        auto& block = holder.file_blocks.front();
+        ASSERT_EQ(block->get_or_set_downloader(), doris::io::FileBlock::get_caller_id());
+        std::string data = "data";
+        ASSERT_TRUE(block->append(Slice(data.data(), data.size())).ok());
+        ASSERT_TRUE(block->finalize().ok());
+        ASSERT_EQ(_cache->_cur_cache_size, 4);
+    }
 };
 
 TEST_F(FileCacheActionTest, list_base_paths) {
@@ -158,6 +191,55 @@ TEST_F(FileCacheActionTest, check_consistency_ok) {
 
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(json_metrics, "null");
+}
+
+TEST_F(FileCacheActionTest, clear_defaults_to_async) {
+    cache_file_block("clear_defaults_to_async.dat");
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+
+    req._params["op"] = "clear";
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(json_metrics.empty());
+    EXPECT_EQ(_cache->_cur_cache_size, 0);
+}
+
+TEST_F(FileCacheActionTest, clear_sync_true_returns_sync_summary_json) {
+    cache_file_block("clear_sync_true_returns_sync_summary_json.dat");
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+
+    req._params["op"] = "clear";
+    req._params["sync"] = "true";
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    EXPECT_TRUE(status.ok());
+    EXPECT_NE(json_metrics.find("\"status\":\"OK\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("finish clear_file_cache_sync"), std::string::npos);
+    EXPECT_NE(json_metrics.find("sync_remove=1"), std::string::npos);
+    EXPECT_EQ(_cache->_cur_cache_size, 0);
+}
+
+TEST_F(FileCacheActionTest, clear_value_uses_async_remove) {
+    constexpr std::string_view file_path = "clear_value_uses_async_remove.dat";
+    cache_file_block(std::string(file_path));
+    auto hash = doris::io::BlockFileCache::hash(std::string(file_path));
+    HttpRequest req(_evhttp_req);
+    std::string json_metrics;
+
+    req._params["op"] = "clear";
+    req._params["value"] = std::string(file_path);
+
+    Status status = _action->_handle_header(&req, &json_metrics);
+
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(json_metrics.empty());
+    EXPECT_EQ(_cache->_cur_cache_size, 0);
+    EXPECT_TRUE(_cache->get_blocks_by_key(hash).empty());
 }
 
 } // namespace doris

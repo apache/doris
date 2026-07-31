@@ -19,7 +19,11 @@
 
 #include <concurrentqueue.h>
 
+#include <array>
+#include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
+#include <mutex>
+#include <unordered_map>
 
 #include "io/cache/file_cache_common.h"
 
@@ -57,11 +61,13 @@ public:
     }
     void record_queue_event(FileCacheType type, CacheLRULogType log_type, const UInt128Wrapper hash,
                             const size_t offset, const size_t size);
-    void replay_queue_event(FileCacheType type);
+    size_t replay_queue_event(FileCacheType type);
     void evaluate_queue_diff(LRUQueue& base, std::string name,
                              std::lock_guard<std::mutex>& cache_lock);
     size_t get_lru_queue_update_cnt_from_last_dump(FileCacheType type);
     void reset_lru_queue_update_cnt_from_last_dump(FileCacheType type);
+    size_t lru_log_queue_size(FileCacheType type) const;
+    void update_shadow_queue_element_count_metrics();
 
     CacheLRULogQueue& get_lru_log_queue(FileCacheType type);
     LRUQueue& get_shadow_queue(FileCacheType type);
@@ -81,8 +87,15 @@ private:
     CacheLRULogQueue _disposable_lru_log_queue;
 
     std::unordered_map<FileCacheType, size_t> _lru_queue_update_cnt_from_last_dump;
+    std::array<std::atomic<size_t>, 4> _lru_log_queue_size {};
 
     BlockFileCache* _mgr;
+
+    bool reserve_lru_log_queue_slot(FileCacheType type);
+    void release_lru_log_queue_slot(FileCacheType type);
+    void limit_shadow_queue_size(LRUQueue& shadow_queue, std::lock_guard<std::mutex>& lru_log_lock);
+    void update_shadow_queue_element_count_metrics_unlocked(
+            std::lock_guard<std::mutex>& lru_log_lock);
 };
 
 } // namespace doris::io

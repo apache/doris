@@ -143,7 +143,7 @@ private:
         auto& column_filter_data = column_filter->get_data();
         const char* src_column_data_ptr = nullptr;
         const uint8_t* null_map_data = nullptr;
-        if (!src_column.is_nullable()) {
+        if (!is_column_nullable(src_column)) {
             src_column_data_ptr = src_column.get_raw_data().data;
         } else {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&src_column);

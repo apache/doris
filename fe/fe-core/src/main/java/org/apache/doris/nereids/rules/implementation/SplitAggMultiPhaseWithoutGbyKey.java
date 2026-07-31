@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -75,7 +76,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         return ImmutableList.of(
             logicalAggregate()
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
-                    .when(agg -> agg.getDistinctArguments().size() == 1 || agg.distinctFuncNum() == 1)
+                    .when(agg -> AggregateUtils.distinctArgumentGroupCountUpToTwo(agg) == 1)
                     .thenApplyMulti(ctx -> rewrite(ctx.root, ctx.cascadesContext))
                     .toRule(RuleType.SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY)
         );
@@ -154,10 +155,13 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
 
         Map<AggregateFunction, Alias> originFuncToAliasPhase1 = new HashMap<>();
+        Map<AggregateFunction, Expression> aggregateFunctionWithGuardExpr =
+                logicalAgg.getAggregateFunctionWithGuardExpr();
         for (AggregateFunction function : aggregateFunctions) {
             AggregateFunction aggFunc = AggregateUtils.tryConvertToMultiDistinct(function);
             AggregateExpression localAggExpr = new AggregateExpression(aggFunc, inputToResultParam);
-            originFuncToAliasPhase1.put(function, new Alias(localAggExpr));
+            originFuncToAliasPhase1.put(function,
+                    new Alias(withSessionVarGuard(function, localAggExpr, aggregateFunctionWithGuardExpr)));
         }
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
@@ -172,37 +176,14 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
 
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
+                    if (outputChild instanceof SessionVarGuardExpr
+                            && ((SessionVarGuardExpr) outputChild).child() instanceof AggregateFunction) {
+                        return rewriteFinalAggregate((AggregateFunction) ((SessionVarGuardExpr) outputChild).child(),
+                                originFuncToAliasPhase1, ((SessionVarGuardExpr) outputChild).getSessionVars());
+                    }
                     if (outputChild instanceof AggregateFunction) {
-                        Alias alias = originFuncToAliasPhase1.get(outputChild);
-                        AggregateExpression localAggExpr = (AggregateExpression) alias.child();
-                        AggregateFunction aggFunc = localAggExpr.getFunction();
-                        Slot childSlot = alias.toSlot();
-                        if (aggFunc instanceof MultiDistinction) {
-                            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
-                                    ImmutableMap.of(
-                                        MultiDistinctCount.class, () -> new Sum0(childSlot),
-                                        MultiDistinctSum.class, () -> new Sum(childSlot),
-                                        MultiDistinctSum0.class, () -> new Sum0(childSlot),
-                                        // TODO: now we don't support group_concat,
-                                        // we need add support for group_concat without order by,
-                                        // and add test for group_concat
-                                        MultiDistinctGroupConcat.class, () -> new GroupConcat(childSlot));
-                            return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param);
-                        } else {
-                            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
-                                    ImmutableMap.of(
-                                        Count.class, () -> new Sum0(childSlot),
-                                        Sum.class, () -> new Sum(childSlot),
-                                        Sum0.class, () -> new Sum0(childSlot),
-                                        Min.class, () -> new Min(childSlot),
-                                        Max.class, () -> new Max(childSlot),
-                                        AnyValue.class, () -> new AnyValue(childSlot),
-                                        // TODO: now we don't support group_concat,
-                                        // we need add support for group_concat without order by,
-                                        // and add test for group_concat
-                                        GroupConcat.class, () -> new GroupConcat(childSlot));
-                            return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param, childSlot);
-                        }
+                        return rewriteFinalAggregate((AggregateFunction) outputChild, originFuncToAliasPhase1,
+                                aggregateFunctionWithGuardExpr, param);
                     } else {
                         return outputChild;
                     }
@@ -232,5 +213,70 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
             return false;
         }
         return true;
+    }
+
+    private Expression withSessionVarGuard(AggregateFunction originFunction, AggregateExpression aggregateExpression,
+            Map<AggregateFunction, Expression> aggregateFunctionWithGuardExpr) {
+        Expression guardExpr = aggregateFunctionWithGuardExpr.get(originFunction);
+        if (guardExpr instanceof SessionVarGuardExpr) {
+            return withSessionVarGuard(aggregateExpression, ((SessionVarGuardExpr) guardExpr).getSessionVars());
+        }
+        return aggregateExpression;
+    }
+
+    private Expression withSessionVarGuard(Expression expression, Map<String, String> sessionVars) {
+        return new SessionVarGuardExpr(expression, sessionVars);
+    }
+
+    private Expression rewriteFinalAggregate(AggregateFunction originFunction,
+            Map<AggregateFunction, Alias> originFuncToAliasPhase1, Map<AggregateFunction, Expression> guardExprs,
+            AggregateParam param) {
+        Expression finalAggregate = rewriteFinalAggregate(originFunction, originFuncToAliasPhase1, param);
+        Expression guardExpr = guardExprs.get(originFunction);
+        if (guardExpr instanceof SessionVarGuardExpr) {
+            return withSessionVarGuard(finalAggregate, ((SessionVarGuardExpr) guardExpr).getSessionVars());
+        }
+        return finalAggregate;
+    }
+
+    private Expression rewriteFinalAggregate(AggregateFunction originFunction,
+            Map<AggregateFunction, Alias> originFuncToAliasPhase1, Map<String, String> sessionVars) {
+        return withSessionVarGuard(rewriteFinalAggregate(originFunction, originFuncToAliasPhase1,
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false)), sessionVars);
+    }
+
+    private Expression rewriteFinalAggregate(AggregateFunction originFunction,
+            Map<AggregateFunction, Alias> originFuncToAliasPhase1, AggregateParam param) {
+        Alias alias = originFuncToAliasPhase1.get(originFunction);
+        AggregateExpression localAggExpr = (AggregateExpression)
+                SessionVarGuardExpr.getSessionVarGuardChild(alias.child());
+        AggregateFunction aggFunc = localAggExpr.getFunction();
+        Slot childSlot = alias.toSlot();
+        if (aggFunc instanceof MultiDistinction) {
+            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
+                    ImmutableMap.of(
+                        MultiDistinctCount.class, () -> new Sum0(childSlot),
+                        MultiDistinctSum.class, () -> new Sum(childSlot),
+                        MultiDistinctSum0.class, () -> new Sum0(childSlot),
+                        // TODO: now we don't support group_concat,
+                        // we need add support for group_concat without order by,
+                        // and add test for group_concat
+                        MultiDistinctGroupConcat.class, () -> new GroupConcat(childSlot));
+            return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param);
+        } else {
+            Map<Class<? extends AggregateFunction>, Supplier<AggregateFunction>> functionMap =
+                    ImmutableMap.of(
+                        Count.class, () -> new Sum0(childSlot),
+                        Sum.class, () -> new Sum(childSlot),
+                        Sum0.class, () -> new Sum0(childSlot),
+                        Min.class, () -> new Min(childSlot),
+                        Max.class, () -> new Max(childSlot),
+                        AnyValue.class, () -> new AnyValue(childSlot),
+                        // TODO: now we don't support group_concat,
+                        // we need add support for group_concat without order by,
+                        // and add test for group_concat
+                        GroupConcat.class, () -> new GroupConcat(childSlot));
+            return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param, childSlot);
+        }
     }
 }

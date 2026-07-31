@@ -300,10 +300,16 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
-    if (master_info.__isset.cloud_cluster_info &&
-        master_info.cloud_cluster_info.__isset.isStandby) {
+    if (master_info.__isset.cloud_cluster_info) {
         auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(_cluster_info);
-        cloud_cluster_info->set_is_in_standby(master_info.cloud_cluster_info.isStandby);
+        if (master_info.cloud_cluster_info.__isset.isStandby) {
+            cloud_cluster_info->set_is_in_standby(master_info.cloud_cluster_info.isStandby);
+        }
+        if (master_info.cloud_cluster_info.__isset.cloud_compute_group_id &&
+            !master_info.cloud_cluster_info.cloud_compute_group_id.empty()) {
+            cloud_cluster_info->set_cloud_compute_group_id(
+                    master_info.cloud_cluster_info.cloud_compute_group_id);
+        }
     }
 
     if (master_info.__isset.tablet_report_inactive_duration_ms) {
@@ -331,21 +337,4 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     return Status::OK();
 }
 
-Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
-                               std::unique_ptr<ThriftServer>* thrift_server,
-                               uint32_t worker_thread_num, ClusterInfo* cluster_info) {
-    HeartbeatServer* heartbeat_server = new HeartbeatServer(cluster_info);
-    if (heartbeat_server == nullptr) {
-        return Status::InternalError("Get heartbeat server failed");
-    }
-
-    heartbeat_server->init_cluster_id();
-
-    std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
-    std::shared_ptr<HeartbeatServiceProcessor::TProcessor> server_processor(
-            new HeartbeatServiceProcessor(handler));
-    *thrift_server = std::make_unique<ThriftServer>("heartbeat", server_processor, server_port,
-                                                    worker_thread_num);
-    return Status::OK();
-}
 } // namespace doris

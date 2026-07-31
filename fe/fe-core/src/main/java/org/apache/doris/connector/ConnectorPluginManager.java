@@ -20,11 +20,14 @@ package org.apache.doris.connector;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -32,9 +35,14 @@ import org.apache.logging.log4j.Logger;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.ServiceLoader;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -45,26 +53,50 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 2. DirectoryPluginRuntimeManager scan (production plugin directories)
  *
  * <p>The first provider that returns {@code supports(catalogType, props) == true} is used.
- * Classpath providers have higher priority than directory-loaded providers.
+ * Classpath providers have higher priority than directory-loaded providers. A provider's
+ * {@code getType()} must be unique and must not name a catalog type the engine implements itself; both are
+ * checked when the provider is discovered (see {@link #registerDiscovered}).
  *
  * <p>Unlike {@link org.apache.doris.fs.FileSystemPluginManager}, this class returns
- * {@code null} from {@link #createConnector} when no provider matches, allowing
- * fe-core to gracefully fall back to the existing hardcoded CatalogFactory logic
- * during the migration period.
+ * {@code null} from {@link #createConnector} when no provider matches, leaving it to the caller to decide
+ * how to fail — {@code CatalogFactory} then tries the catalog types the engine implements itself, and
+ * a gateway asking for a sibling fails with its own connector-specific message.
  */
 public class ConnectorPluginManager {
 
     private static final Logger LOG = LogManager.getLogger(ConnectorPluginManager.class);
 
-    /** The API version that this FE build supports. Increment on breaking SPI changes. */
-    static final int CURRENT_API_VERSION = 1;
+    /**
+     * The connector plugin API contract this FE serves. Built from the version filtered into
+     * fe-connector-spi at build time, and anchored on {@link ConnectorProvider} so that it is read from the
+     * very artifact carrying the SPI. A missing or malformed resource is a build defect and fails class
+     * initialization loudly rather than degrading into a check that admits everything.
+     */
+    private static final ApiVersionGate API_VERSION_GATE =
+            ApiVersionGate.forFamily("connector", ConnectorProvider.class);
 
     // Connector SPI and filesystem SPI classes must be parent-first so that all
     // instances of shared interfaces/classes are loaded by a single ClassLoader.
     private static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.");
 
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "CONNECTOR";
+
+    /**
+     * Engine names {@code CREATE TABLE ... ENGINE=<name>} resolves inside the engine itself, so no plugin may
+     * claim one: {@code olap} is the internal catalog's, and the other three are retired table types that
+     * still owe the user a specific "use X instead" message from {@code InternalCatalog}. Letting a plugin
+     * shadow one of these would silently redirect a statement the engine answers for.
+     */
+    private static final Set<String> RESERVED_CREATE_TABLE_ENGINE_NAMES =
+            new HashSet<>(Arrays.asList("olap", "mysql", "odbc", "broker"));
+
     private final List<ConnectorProvider> providers = new CopyOnWriteArrayList<>();
+    /** Lower-cased type names already claimed by a discovered provider. Guards {@code getType()} uniqueness. */
+    private final Set<String> claimedTypes = ConcurrentHashMap.newKeySet();
+    /** Lower-cased create-table engine names already claimed. Same uniqueness rule as {@link #claimedTypes}. */
+    private final Set<String> claimedEngineNames = ConcurrentHashMap.newKeySet();
     private final DirectoryPluginRuntimeManager<ConnectorProvider> runtimeManager =
             new DirectoryPluginRuntimeManager<>();
     private final ClassLoadingPolicy classLoadingPolicy =
@@ -74,9 +106,96 @@ public class ConnectorPluginManager {
     public void loadBuiltins() {
         ServiceLoader.load(ConnectorProvider.class)
                 .forEach(p -> {
-                    providers.add(p);
-                    LOG.info("Registered built-in connector provider: {}", p.getType());
+                    try {
+                        // Snapshot self-reported metadata before publishing the provider
+                        // so one throwing implementation is rejected cleanly instead of
+                        // aborting startup or being active without an inventory row.
+                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
+                    } catch (RuntimeException e) {
+                        LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
+                                p.getClass().getName(), e);
+                        return;
+                    }
+                    // Deliberately outside that catch: registerDiscovered's fail-loud
+                    // IllegalStateException reports a build error, not a "skip this one" condition.
+                    if (registerDiscovered(p, true)) {
+                        LOG.info("Registered built-in connector provider: {}", p.getType());
+                    }
                 });
+    }
+
+    /**
+     * Admits a discovered provider after checking its {@code getType()} contract: non-blank, not an engine
+     * built-in catalog type name, and not already claimed (compared case-insensitively, because
+     * {@link ConnectorProvider#supports} matches case-insensitively and catalog types are lower-cased before
+     * routing). Refusing a reserved name here is what makes it impossible for a plugin to shadow a catalog type
+     * the engine implements itself — routing order then cannot matter. The engine names it claims for
+     * {@code CREATE TABLE ... ENGINE=} go through the same two checks.
+     *
+     * @param failFast {@code true} for the classpath batch: two providers claiming one type name there is a
+     *                 build error and must fail loud. {@code false} for the plugin-directory batch: that is a
+     *                 deployment accident, so the offender is skipped and logged, preserving
+     *                 {@link #loadPlugins}'s partial-success contract (one bad plugin dir must not stop FE).
+     * @return true if the provider was admitted
+     */
+    boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
+        String type = provider.getType();
+        Set<String> engineNames = provider.acceptedCreateTableEngineNames();
+        String problem = typeNameProblem(type);
+        if (problem == null) {
+            problem = createTableEngineNameProblem(engineNames);
+        }
+        // Claim last, and only once nothing else can reject: a failed claim must not leave a name taken.
+        if (problem == null && !claimedTypes.add(type.toLowerCase())) {
+            problem = "type name '" + type + "' is already claimed by another registered connector provider";
+        }
+        if (problem != null) {
+            String message = "Rejected connector provider " + provider.getClass().getName() + ": " + problem;
+            if (failFast) {
+                throw new IllegalStateException(message);
+            }
+            LOG.error("{}. The connector will not be available.", message);
+            return false;
+        }
+        for (String engineName : engineNames) {
+            claimedEngineNames.add(engineName.toLowerCase());
+        }
+        providers.add(provider);
+        return true;
+    }
+
+    private static String typeNameProblem(String type) {
+        if (type == null || type.trim().isEmpty()) {
+            return "getType() returned a blank type name";
+        }
+        if (CatalogFactory.isBuiltinCatalogType(type)) {
+            return "type name '" + type + "' is reserved for a catalog type the engine implements itself";
+        }
+        return null;
+    }
+
+    /**
+     * Same uniqueness rule as the type name, applied to the engine names a provider claims for
+     * {@code CREATE TABLE ... ENGINE=}. Two plugins answering to one engine name would make the statement
+     * mean whichever registered first, so the second is refused at registration and routing order cannot
+     * matter — mirroring how a duplicate catalog type is handled.
+     */
+    private String createTableEngineNameProblem(Set<String> engineNames) {
+        for (String engineName : engineNames) {
+            if (engineName == null || engineName.trim().isEmpty()) {
+                return "acceptedCreateTableEngineNames() returned a blank engine name";
+            }
+            String lower = engineName.toLowerCase();
+            if (RESERVED_CREATE_TABLE_ENGINE_NAMES.contains(lower)) {
+                return "create-table engine name '" + engineName
+                        + "' is reserved for an engine name the engine resolves itself";
+            }
+            if (claimedEngineNames.contains(lower)) {
+                return "create-table engine name '" + engineName
+                        + "' is already claimed by another registered connector provider";
+            }
+        }
+        return null;
     }
 
     /**
@@ -90,7 +209,8 @@ public class ConnectorPluginManager {
                 pluginRoots,
                 ConnectorPluginManager.class.getClassLoader(),
                 ConnectorProvider.class,
-                classLoadingPolicy);
+                classLoadingPolicy,
+                API_VERSION_GATE);
 
         LOG.info("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
                         + "successCount={}, failureCount={}",
@@ -104,33 +224,82 @@ public class ConnectorPluginManager {
         }
 
         for (PluginHandle<ConnectorProvider> handle : report.getSuccesses()) {
-            providers.add(handle.getFactory());
-            LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
-                    handle.getPluginName(), handle.getPluginDir(),
-                    handle.getResolvedJars().size());
+            // Built-ins (and earlier-loaded plugins) must never be displaced by a
+            // same-name directory jar.
+            if (hasProviderNamed(handle.getPluginName())) {
+                LOG.warn("Skip connector plugin '{}' from {}: name conflicts with an already "
+                        + "registered provider", handle.getPluginName(), handle.getPluginDir());
+                runtimeManager.discard(handle.getPluginName());
+                continue;
+            }
+            // The inventory row is written only for a provider that was actually admitted, so
+            // information_schema.extensions never lists a connector the routing table cannot reach.
+            if (registerDiscovered(handle.getFactory(), false)) {
+                PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
+                LOG.info("Loaded connector plugin: name={}, pluginDir={}, jarCount={}",
+                        handle.getPluginName(), handle.getPluginDir(),
+                        handle.getResolvedJars().size());
+            } else {
+                // registerDiscovered already logged why it refused. Release the runtime here too, so
+                // every "loaded from a directory but not admitted" exit discards the plugin's
+                // classloader — the same pairing the name-conflict path above and both of
+                // FileSystemPluginManager's reject paths follow.
+                runtimeManager.discard(handle.getPluginName());
+            }
         }
     }
 
+    private boolean hasProviderNamed(String name) {
+        for (ConnectorProvider p : providers) {
+            if (name.equals(p.name())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
-     * Creates a Connector for the given catalog type by selecting the first supporting provider.
+     * Creates a Connector for the given catalog type by selecting the first supporting provider, with no
+     * regard for whether that connector may stand on its own as a catalog.
      *
-     * <p>Returns {@code null} if no provider supports the given catalog type.
-     * This allows fe-core to gracefully fall back to the existing hardcoded CatalogFactory
-     * switch-case during the migration period.
+     * <p><b>This is the sibling-lookup entry point</b> ({@code ConnectorContext.createSiblingConnector}): a
+     * sibling-only connector — one whose table format is parasitic on another connector's metastore — is
+     * reachable <em>only</em> here, so this method must never filter on
+     * {@link ConnectorProvider#isStandaloneCatalogType()}. Use
+     * {@link #createStandaloneCatalogConnector} to build a catalog.
      *
-     * @param catalogType the catalog type (e.g. "hive", "iceberg", "es")
+     * <p>Returns {@code null} if no provider supports the given catalog type; the caller decides how to fail.
+     *
+     * @param catalogType the catalog type (e.g. "hms", "iceberg", "es")
      * @param properties  catalog configuration properties
      * @param context     runtime context provided by fe-core
      * @return a ready-to-use Connector, or {@code null} if no provider matches
      */
     public Connector createConnector(
             String catalogType, Map<String, String> properties, ConnectorContext context) {
+        return createConnector(catalogType, properties, context, false);
+    }
+
+    /**
+     * Creates a Connector to back a standalone catalog, i.e. one named by the {@code type} property of a
+     * {@code CREATE CATALOG}. Same selection as {@link #createConnector} except that a provider declaring
+     * {@link ConnectorProvider#isStandaloneCatalogType()} {@code == false} is passed over, because building a
+     * catalog around it would produce a catalog with no engine-side semantics behind it.
+     *
+     * @return a ready-to-use Connector, or {@code null} if no provider claims the type as a standalone catalog
+     */
+    public Connector createStandaloneCatalogConnector(
+            String catalogType, Map<String, String> properties, ConnectorContext context) {
+        return createConnector(catalogType, properties, context, true);
+    }
+
+    private Connector createConnector(String catalogType, Map<String, String> properties,
+            ConnectorContext context, boolean standaloneOnly) {
         for (ConnectorProvider provider : providers) {
             if (provider.supports(catalogType, properties)) {
-                int providerVersion = provider.apiVersion();
-                if (providerVersion != CURRENT_API_VERSION) {
-                    LOG.warn("Skipping connector provider '{}': apiVersion={} (expected {})",
-                            provider.getType(), providerVersion, CURRENT_API_VERSION);
+                if (standaloneOnly && !provider.isStandaloneCatalogType()) {
+                    LOG.info("Provider '{}' claims catalogType='{}' but is not a standalone catalog type; "
+                            + "it can only be built as an embedded sibling.", provider.getType(), catalogType);
                     continue;
                 }
                 LOG.info("Creating connector via provider '{}' for catalogType='{}'",
@@ -138,9 +307,26 @@ public class ConnectorPluginManager {
                 return provider.create(properties, context);
             }
         }
-        LOG.debug("No ConnectorProvider supports catalogType='{}'. Registered: {}",
-                catalogType, providerNames());
+        LOG.debug("No ConnectorProvider supports catalogType='{}' (standaloneOnly={}). Registered: {}",
+                catalogType, standaloneOnly, providerNames());
         return null;
+    }
+
+    /**
+     * Finds the provider that would back a catalog of this type, without creating a connector. For engine
+     * decisions that must be answered for a catalog that may not be initialized yet — asking the connector
+     * would force-initialize it. Same selection as {@link #createConnector}: first provider that supports the
+     * type.
+     *
+     * @return the matching provider, or empty if none matches
+     */
+    public Optional<ConnectorProvider> findProvider(String catalogType, Map<String, String> properties) {
+        for (ConnectorProvider provider : providers) {
+            if (provider.supports(catalogType, properties)) {
+                return Optional.of(provider);
+            }
+        }
+        return Optional.empty();
     }
 
     /** Returns the type names of all registered providers. */
@@ -153,6 +339,21 @@ public class ConnectorPluginManager {
     }
 
     /**
+     * Returns the type names that can be written in {@code CREATE CATALOG}, sorted. Excludes sibling-only
+     * connectors: naming one of those in a diagnostic would point the user at a type they cannot create.
+     */
+    public List<String> getStandaloneCatalogTypes() {
+        List<String> types = new ArrayList<>();
+        for (ConnectorProvider p : providers) {
+            if (p.isStandaloneCatalogType()) {
+                types.add(p.getType());
+            }
+        }
+        Collections.sort(types);
+        return types;
+    }
+
+    /**
      * Validates catalog properties using the matching provider.
      * Does nothing if no provider matches.
      *
@@ -161,19 +362,18 @@ public class ConnectorPluginManager {
     public void validateProperties(String catalogType, Map<String, String> properties) {
         for (ConnectorProvider provider : providers) {
             if (provider.supports(catalogType, properties)) {
-                if (provider.apiVersion() != CURRENT_API_VERSION) {
-                    throw new IllegalArgumentException(
-                            "Connector provider '" + provider.getType()
-                                    + "' has incompatible API version " + provider.apiVersion()
-                                    + " (expected " + CURRENT_API_VERSION + ")");
-                }
                 provider.validateProperties(properties);
                 return;
             }
         }
     }
 
-    /** Registers a provider at highest priority (index 0). For testing overrides. */
+    /**
+     * Registers a provider at highest priority (index 0). For testing overrides.
+     *
+     * <p>Deliberately bypasses {@link #registerDiscovered}'s uniqueness check: shadowing an already-registered
+     * type is exactly what this method exists for (several tests stand in for a real plugin this way).
+     */
     public void registerProvider(ConnectorProvider provider) {
         providers.add(0, provider);
     }

@@ -227,3 +227,26 @@ INSERT INTO TABLE test_empty_null_defined_text VALUES
   (1, 'Alice'),
   (2, NULL),
   (3, '');
+
+drop table if exists test_single_col_null_format_text;
+
+create external table test_single_col_null_format_text (
+  name STRING
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+WITH SERDEPROPERTIES (
+  "serialization.null.format"="null_value"
+)
+STORED AS TEXTFILE
+LOCATION '/user/doris/suites/regression/serde_prop/test_single_col_null_format_text';
+
+drop table if exists test_default_null_format_multi_col_text;
+
+create external table test_default_null_format_multi_col_text (
+  c1 STRING,
+  c2 STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS TEXTFILE
+LOCATION '/user/doris/suites/regression/serde_prop/test_default_null_format_multi_col_text';

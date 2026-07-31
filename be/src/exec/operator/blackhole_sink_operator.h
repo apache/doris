@@ -68,7 +68,7 @@ public:
 
     Status init(const TDataSink& tsink) override;
 
-    Status sink(RuntimeState* state, Block* block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* block, bool eos) override;
 
     Status close(RuntimeState* state) override;
 

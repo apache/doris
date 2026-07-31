@@ -112,8 +112,6 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean disableAutoCompaction;
 
-    private boolean enableSingleReplicaCompaction;
-
     private boolean skipWriteIndexOnLoad;
 
     private String compactionPolicy;
@@ -157,7 +155,6 @@ public class CreateReplicaTask extends AgentTask {
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
-                             boolean enableSingleReplicaCompaction,
                              boolean skipWriteIndexOnLoad,
                              String compactionPolicy,
                              long timeSeriesCompactionGoalSizeMbytes,
@@ -209,7 +206,6 @@ public class CreateReplicaTask extends AgentTask {
             }
         }
         this.disableAutoCompaction = disableAutoCompaction;
-        this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
@@ -317,6 +313,7 @@ public class CreateReplicaTask extends AgentTask {
         int deleteSign = -1;
         int sequenceCol = -1;
         int versionCol = -1;
+        int commitTsoCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
@@ -352,11 +349,15 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isVersionColumn()) {
                 versionCol = i;
             }
+            if (column.isCommitTsoColumn()) {
+                commitTsoCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
+        tSchema.setCommitTsoColIdx(commitTsoCol);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);
@@ -384,7 +385,6 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
-        tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);
@@ -467,6 +467,9 @@ public class CreateReplicaTask extends AgentTask {
             tRowBinlogSchema.setSchemaHash(rowBinlogMeta.getSchemaHash());
             tRowBinlogSchema.setKeysType(rowBinlogMeta.getKeysType().toThrift());
             tRowBinlogSchema.setStorageType(TStorageType.COLUMN);
+            int binlogTsoIdx = -1;
+            int binlogLsnIdx = -1;
+            int binlogOpIdx = -1;
 
             List<TColumn> tRowBinlogColumns = null;
             List<Column> rowBinlogColumns = rowBinlogMeta.getSchema(true);
@@ -483,7 +486,20 @@ public class CreateReplicaTask extends AgentTask {
                 }
                 objectPool.put(rowBinlogColumns, tRowBinlogColumns);
             }
+            for (int i = 0; i < rowBinlogColumns.size(); i++) {
+                Column column = rowBinlogColumns.get(i);
+                if (column.getName().equals(Column.BINLOG_TSO_COL)) {
+                    binlogTsoIdx = i;
+                } else if (column.getName().equals(Column.BINLOG_LSN_COL)) {
+                    binlogLsnIdx = i;
+                } else if (column.getName().equals(Column.BINLOG_OPERATION_COL)) {
+                    binlogOpIdx = i;
+                }
+            }
             tRowBinlogSchema.setColumns(tRowBinlogColumns);
+            tRowBinlogSchema.setBinlogTsoIdx(binlogTsoIdx);
+            tRowBinlogSchema.setBinlogLsnIdx(binlogLsnIdx);
+            tRowBinlogSchema.setBinlogOpIdx(binlogOpIdx);
             createTabletReq.setRowBinlogSchema(tRowBinlogSchema);
         }
 

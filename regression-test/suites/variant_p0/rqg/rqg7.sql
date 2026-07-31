@@ -57,7 +57,6 @@ PROPERTIES (
 "light_schema_change" = "true",
 "replication_num" = "1",
 "disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
 "group_commit_interval_ms" = "10000",
 "group_commit_data_bytes" = "134217728"
 );;
@@ -125,7 +124,6 @@ PROPERTIES (
 "light_schema_change" = "true",
 "replication_num" = "1",
 "disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
 "group_commit_interval_ms" = "10000",
 "group_commit_data_bytes" = "134217728"
 );;
@@ -193,7 +191,6 @@ PROPERTIES (
 "light_schema_change" = "true",
 "replication_num" = "1",
 "disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
 "group_commit_interval_ms" = "10000",
 "group_commit_data_bytes" = "134217728"
 );;
@@ -261,7 +258,6 @@ PROPERTIES (
 "light_schema_change" = "true",
 "replication_num" = "1",
 "disable_auto_compaction" = "false",
-"enable_single_replica_compaction" = "false",
 "group_commit_interval_ms" = "10000",
 "group_commit_data_bytes" = "134217728"
 );;

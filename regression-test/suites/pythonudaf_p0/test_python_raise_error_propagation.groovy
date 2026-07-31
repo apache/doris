@@ -188,7 +188,8 @@ class InlineMergeErrorUDAF:
         """
 
         test {
-            sql """ SELECT py_inline_raise_udaf_merge(val) FROM python_raise_error_test; """
+            sql """ SELECT /*+SET_VAR(parallel_pipeline_task_num=2)*/ py_inline_raise_udaf_merge(val)
+                    FROM python_raise_error_test; """
             exception "inline_udaf_merge_error_42"
         }
 

@@ -5,14 +5,14 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF22 customer_id->c_customer_id;RF23 customer_id->c_customer_id;RF24 customer_id->c_customer_id;RF25 customer_id->c_customer_id;RF26 customer_id->c_customer_id
+----------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((t_c_firstyear.year_total > 0.000000), (cast(t_c_secyear.year_total as DECIMALV3(38, 16)) / t_c_firstyear.year_total), NULL) > if((t_w_firstyear.year_total > 0.000000), (cast(t_w_secyear.year_total as DECIMALV3(38, 16)) / t_w_firstyear.year_total), NULL))) build RFs:RF25 customer_id->c_customer_id;RF26 customer_id->c_customer_id;RF27 customer_id->c_customer_id;RF28 customer_id->c_customer_id;RF29 customer_id->c_customer_id
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=() build RFs:RF18 customer_id->c_customer_id;RF19 customer_id->c_customer_id;RF20 customer_id->c_customer_id;RF21 customer_id->c_customer_id
+--------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=() build RFs:RF20 customer_id->c_customer_id;RF21 customer_id->c_customer_id;RF22 customer_id->c_customer_id;RF23 customer_id->c_customer_id
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_c_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF15 customer_id->c_customer_id;RF16 customer_id->c_customer_id;RF17 customer_id->c_customer_id
+------------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_c_secyear.customer_id)) otherCondition=((if((t_c_firstyear.year_total > 0.000000), (cast(t_c_secyear.year_total as DECIMALV3(38, 16)) / t_c_firstyear.year_total), NULL) > if((t_s_firstyear.year_total > 0.000000), (cast(t_s_secyear.year_total as DECIMALV3(38, 16)) / t_s_firstyear.year_total), NULL))) build RFs:RF16 customer_id->c_customer_id;RF17 customer_id->c_customer_id;RF18 customer_id->c_customer_id
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_c_firstyear.customer_id)) otherCondition=() build RFs:RF13 customer_id->c_customer_id;RF14 customer_id->c_customer_id
-------------------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=() build RFs:RF12 customer_id->c_customer_id
+------------------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=() build RFs:RF12 customer_id->c_customer_id;RF15 customer_id->c_customer_id;RF19 customer_id->c_customer_id;RF24 customer_id->c_customer_id;RF30 customer_id->c_customer_id
 --------------------------PhysicalProject
 ----------------------------hashAgg[GLOBAL]
 ------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF10 RF11
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer] apply RFs: RF12 RF14 RF16 RF19 RF23
+--------------------------------------------PhysicalOlapScan[customer] apply RFs: RF12 RF14 RF17 RF21 RF26
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 2000))
 ------------------------------------------PhysicalOlapScan[date_dim]
@@ -40,7 +40,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF8 RF9
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[customer] apply RFs: RF13 RF15 RF18 RF22
+----------------------------------------------PhysicalOlapScan[customer] apply RFs: RF13 RF16 RF20 RF25
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_year = 1999))
 --------------------------------------------PhysicalOlapScan[date_dim]
@@ -56,7 +56,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF6 RF7
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer] apply RFs: RF17 RF20 RF24
+--------------------------------------------PhysicalOlapScan[customer] apply RFs: RF15 RF18 RF22 RF27
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 1999))
 ------------------------------------------PhysicalOlapScan[date_dim]
@@ -71,7 +71,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer] apply RFs: RF21 RF25
+--------------------------------------PhysicalOlapScan[customer] apply RFs: RF19 RF23 RF28
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_year = 2000))
 ------------------------------------PhysicalOlapScan[date_dim]
@@ -87,7 +87,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF26
+------------------------------------PhysicalOlapScan[customer] apply RFs: RF24 RF29
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_year = 1999))
 ----------------------------------PhysicalOlapScan[date_dim]
@@ -102,7 +102,7 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer]
+------------------------------PhysicalOlapScan[customer] apply RFs: RF30
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_year = 2000))
 ----------------------------PhysicalOlapScan[date_dim]

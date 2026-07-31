@@ -50,6 +50,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -176,7 +177,8 @@ public class PartitionCompensator {
             Set<String> relatedBaseTablePartitions = partitionMapping.get(mvValidPartition.getName());
             if (relatedBaseTablePartitions != null) {
                 mvValidBaseTablePartitionNameSet.addAll(relatedBaseTablePartitions);
-                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId())).isEmpty()) {
+                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId()),
+                        Optional.empty()).isEmpty()) {
                     mvValidHasDataRelatedBaseTableNameSet.addAll(relatedBaseTablePartitions);
                 }
             }
@@ -198,7 +200,8 @@ public class PartitionCompensator {
                 // Base table partition maybe deleted, need not union
                 continue;
             }
-            baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
+            Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet)
+                    .copyInto(baseTableNeedUnionPartitionNameSet);
         }
         // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)

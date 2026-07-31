@@ -1,0 +1,128 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+import org.apache.doris.regression.suite.ClusterOptions
+
+import java.util.concurrent.TimeUnit
+
+suite("test_insert_fail_fast_after_be_restart", "docker") {
+    def options = new ClusterOptions()
+    options.enableDebugPoints()
+    options.setFeNum(1)
+    options.setBeNum(1)
+    options.cloudMode = false
+    // Keep the BE logically alive during restart so the test exercises the process-epoch branch,
+    // rather than the existing backend-down branch.
+    options.feConfigs += ["max_backend_heartbeat_failure_tolerance_count=100"]
+
+    docker(options) {
+        GetDebugPoint().clearDebugPointsForAllBEs()
+
+        try {
+            sql "DROP TABLE IF EXISTS test_insert_fail_fast_after_be_restart"
+            sql """
+                CREATE TABLE test_insert_fail_fast_after_be_restart (
+                    k BIGINT NOT NULL,
+                    v BIGINT NOT NULL
+                )
+                DUPLICATE KEY(k)
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1"
+                )
+            """
+
+            def backendBeforeRestart = sql_return_maparray("SHOW BACKENDS")[0]
+            def backendId = backendBeforeRestart.BackendId.toString()
+            def previousLastStartTime = backendBeforeRestart.LastStartTime.toString()
+            assertTrue(backendBeforeRestart.Alive.toString().equalsIgnoreCase("true"))
+
+            // Hold the load fragment before it can report completion to FE. Restarting the BE
+            // at this point drops that report while the replacement process quickly becomes alive.
+            def debugPointToken = "insert_restart_${System.nanoTime()}"
+            def debugPointParams = [sleep_sec: 300, token: debugPointToken]
+            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriter.close.sleep", debugPointParams)
+            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2.close.sleep", debugPointParams)
+
+            def insertFuture = thread {
+                sql "SET enable_nereids_planner = true"
+                sql "SET enable_fallback_to_original_planner = false"
+                sql "SET insert_timeout = 300"
+                try {
+                    sql """
+                        INSERT INTO test_insert_fail_fast_after_be_restart
+                        SELECT number, number FROM numbers("number" = "1024")
+                    """
+                    return null
+                } catch (Throwable t) {
+                    logger.info("INSERT failed after BE restart as expected: ${t.message}")
+                    return t.message
+                }
+            }
+
+            def beLogFile = new File(cluster.getBeByIndex(1).getLogFilePath())
+            def debugPointMarkers = [
+                    "hit debug point VTabletWriter.close.sleep, token=${debugPointToken}",
+                    "hit debug point VTabletWriterV2.close.sleep, token=${debugPointToken}"
+            ]
+            def waitDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+            def debugPointHit = false
+            while (System.nanoTime() < waitDeadline) {
+                if (beLogFile.exists()) {
+                    def beLog = beLogFile.text
+                    if (debugPointMarkers.any { beLog.contains(it) }) {
+                        debugPointHit = true
+                        break
+                    }
+                }
+                sleep(200)
+            }
+            assertTrue(debugPointHit, "INSERT did not reach the writer close debug point")
+
+            cluster.restartBackends()
+
+            def restartedBackendObserved = false
+            def heartbeatDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+            while (System.nanoTime() < heartbeatDeadline) {
+                def currentBackend = sql_return_maparray("SHOW BACKENDS")
+                        .find { it.BackendId.toString() == backendId }
+                if (currentBackend != null
+                        && currentBackend.Alive.toString().equalsIgnoreCase("true")
+                        && currentBackend.LastStartTime.toString() != previousLastStartTime) {
+                    restartedBackendObserved = true
+                    break
+                }
+                sleep(200)
+            }
+            assertTrue(restartedBackendObserved,
+                    "FE did not observe the restarted BE as alive with a changed process epoch")
+
+            // LoadProcessor checks backend health every 30 seconds. The restarted BE is alive,
+            // so this only finishes before insert_timeout when FE also compares process epochs.
+            def errorMessage = insertFuture.get(60, TimeUnit.SECONDS)
+            assertNotNull(errorMessage, "INSERT should fail after its BE process restarts")
+            assertTrue(errorMessage.contains("process epoch changed"),
+                    "unexpected INSERT error after BE restart: ${errorMessage}")
+            assertTrue(errorMessage.contains("backend restarted"),
+                    "INSERT error should explain that the backend restarted: ${errorMessage}")
+
+            assertEquals(0, sql("SELECT COUNT(*) FROM test_insert_fail_fast_after_be_restart")[0][0] as int)
+        } finally {
+            GetDebugPoint().clearDebugPointsForAllBEs()
+        }
+    }
+}

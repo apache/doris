@@ -26,8 +26,10 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <type_traits>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
@@ -159,6 +161,19 @@ public:
     }
     void SetUp() override { helper = std::make_unique<CommonDataTypeTest>(); }
     std::unique_ptr<CommonDataTypeTest> helper;
+};
+
+class RowStoreCompactJsonbConfigGuard {
+public:
+    explicit RowStoreCompactJsonbConfigGuard(bool enabled)
+            : _old_value(config::enable_row_store_compact_jsonb) {
+        config::enable_row_store_compact_jsonb = enabled;
+    }
+
+    ~RowStoreCompactJsonbConfigGuard() { config::enable_row_store_compact_jsonb = _old_value; }
+
+private:
+    bool _old_value;
 };
 
 TEST_F(DataTypeDecimalSerDeTest, serdes) {
@@ -492,5 +507,131 @@ TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAlignedDecimal256TypeAlignment) {
     ASSERT_EQ(column->size(), num_elements);
     EXPECT_EQ(column->get_element(0).to_string(20), decimal_strings[0]);
     EXPECT_EQ(column->get_element(1).to_string(20), decimal_strings[1]);
+}
+
+template <PrimitiveType T>
+void check_decimal_row_store_jsonb_width(const DataTypeDecimalSerDe<T>& serde,
+                                         typename PrimitiveTypeTraits<T>::CppType value, int scale,
+                                         JsonbType expected_type) {
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    auto src = ColumnType::create(0, scale);
+    src->insert_value(value);
+
+    JsonbWriterT<JsonbOutStream> jsonb_writer;
+    jsonb_writer.writeStartObject();
+    Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+    options.enable_row_store_compact_jsonb = config::enable_row_store_compact_jsonb;
+    serde.write_one_cell_to_jsonb(*src, jsonb_writer, pool, 0, 0, options);
+    jsonb_writer.writeEndObject();
+
+    const JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                    jsonb_writer.getOutput()->getSize(), &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st;
+    const JsonbDocument& doc = *pdoc;
+    auto it = doc->begin();
+    ASSERT_TRUE(it != doc->end());
+    ASSERT_EQ(it->value()->type, expected_type);
+
+    auto dst = ColumnType::create(0, scale);
+    serde.read_one_cell_from_jsonb(*dst, it->value());
+    ASSERT_EQ(dst->size(), 1);
+    EXPECT_EQ(dst->get_element(0), src->get_element(0));
+}
+
+template <PrimitiveType T>
+void check_decimal_row_store_jsonb_read_compat(const DataTypeDecimalSerDe<T>& serde,
+                                               const JsonbValue* value,
+                                               typename PrimitiveTypeTraits<T>::CppType expected,
+                                               int scale) {
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
+    auto dst = ColumnType::create(0, scale);
+    serde.read_one_cell_from_jsonb(*dst, value);
+    ASSERT_EQ(dst->size(), 1);
+    EXPECT_EQ(dst->get_element(0), expected);
+}
+
+TEST_F(DataTypeDecimalSerDeTest, RowStoreDecimalJsonbWidth) {
+    {
+        RowStoreCompactJsonbConfigGuard guard(false);
+        check_decimal_row_store_jsonb_width(*serde_decimal32_4, Decimal32(1), 0,
+                                            JsonbType::T_Int32);
+        check_decimal_row_store_jsonb_width(*serde_decimal64_1, Decimal64(1), 0,
+                                            JsonbType::T_Int64);
+        check_decimal_row_store_jsonb_width(*serde_decimal128v2,
+                                            DecimalV2Value(static_cast<Int128>(1)), 9,
+                                            JsonbType::T_Int128);
+        check_decimal_row_store_jsonb_width(*serde_decimal128v3_1,
+                                            Decimal128V3(static_cast<Int128>(1)), 0,
+                                            JsonbType::T_Int128);
+    }
+
+    {
+        RowStoreCompactJsonbConfigGuard guard(true);
+        check_decimal_row_store_jsonb_width(*serde_decimal32_4, Decimal32(1), 0, JsonbType::T_Int8);
+        check_decimal_row_store_jsonb_width(*serde_decimal32_4, Decimal32(128), 0,
+                                            JsonbType::T_Int16);
+        check_decimal_row_store_jsonb_width(*serde_decimal32_4, Decimal32(32768), 0,
+                                            JsonbType::T_Int32);
+        check_decimal_row_store_jsonb_width(*serde_decimal64_1, Decimal64(1), 0, JsonbType::T_Int8);
+        check_decimal_row_store_jsonb_width(
+                *serde_decimal64_1, Decimal64(static_cast<Int64>(1) << 40), 0, JsonbType::T_Int64);
+        check_decimal_row_store_jsonb_width(
+                *serde_decimal128v2, DecimalV2Value(static_cast<Int128>(1)), 9, JsonbType::T_Int8);
+        check_decimal_row_store_jsonb_width(*serde_decimal128v2,
+                                            DecimalV2Value(static_cast<Int128>(1) << 40), 9,
+                                            JsonbType::T_Int64);
+        check_decimal_row_store_jsonb_width(*serde_decimal128v2,
+                                            DecimalV2Value(static_cast<Int128>(1) << 70), 9,
+                                            JsonbType::T_Int128);
+        check_decimal_row_store_jsonb_width(
+                *serde_decimal128v3_1, Decimal128V3(static_cast<Int128>(1)), 0, JsonbType::T_Int8);
+        check_decimal_row_store_jsonb_width(*serde_decimal128v3_1,
+                                            Decimal128V3(static_cast<Int128>(1) << 40), 0,
+                                            JsonbType::T_Int64);
+        check_decimal_row_store_jsonb_width(*serde_decimal128v3_1,
+                                            Decimal128V3(static_cast<Int128>(1) << 100), 0,
+                                            JsonbType::T_Int128);
+    }
+
+    auto check_encoded_value = [](auto& serde, auto expected, int scale, JsonbType expected_type,
+                                  auto write_value) {
+        JsonbWriterT<JsonbOutStream> jsonb_writer;
+        jsonb_writer.writeStartObject();
+        jsonb_writer.writeKey(static_cast<JsonbKeyValue::keyid_type>(0));
+        write_value(jsonb_writer);
+        jsonb_writer.writeEndObject();
+
+        const JsonbDocument* pdoc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                        jsonb_writer.getOutput()->getSize(), &pdoc);
+        ASSERT_TRUE(st.ok()) << st;
+        auto it = (*pdoc)->begin();
+        ASSERT_TRUE(it != (*pdoc)->end());
+        ASSERT_EQ(it->value()->type, expected_type);
+        check_decimal_row_store_jsonb_read_compat(*serde, it->value(), expected, scale);
+    };
+
+    // Backward compatibility: existing row-store data may still contain fixed-width decimal tags.
+    check_encoded_value(serde_decimal32_4, Decimal32(1), 0, JsonbType::T_Int32,
+                        [](JsonbWriter& writer) { writer.writeInt32(1); });
+    check_encoded_value(serde_decimal64_1, Decimal64(1), 0, JsonbType::T_Int64,
+                        [](JsonbWriter& writer) { writer.writeInt64(1); });
+    check_encoded_value(serde_decimal128v2, DecimalV2Value(static_cast<Int128>(1)), 9,
+                        JsonbType::T_Int128, [](JsonbWriter& writer) { writer.writeInt128(1); });
+    check_encoded_value(serde_decimal128v3_1, Decimal128V3(static_cast<Int128>(1)), 0,
+                        JsonbType::T_Int128, [](JsonbWriter& writer) { writer.writeInt128(1); });
+
+    // The reader accepts compact tags even when compact writes are disabled.
+    RowStoreCompactJsonbConfigGuard guard(false);
+    check_encoded_value(serde_decimal64_1, Decimal64(1), 0, JsonbType::T_Int8,
+                        [](JsonbWriter& writer) { writer.writeInt8(1); });
+    check_encoded_value(serde_decimal128v2, DecimalV2Value(static_cast<Int128>(1)), 9,
+                        JsonbType::T_Int8, [](JsonbWriter& writer) { writer.writeInt8(1); });
+    check_encoded_value(serde_decimal128v3_1, Decimal128V3(static_cast<Int128>(1)), 0,
+                        JsonbType::T_Int8, [](JsonbWriter& writer) { writer.writeInt8(1); });
 }
 } // namespace doris

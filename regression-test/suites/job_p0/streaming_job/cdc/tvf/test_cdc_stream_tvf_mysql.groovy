@@ -57,6 +57,87 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "offset is required"
         }
 
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "database is required for MySQL"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "unknown_db",
+                "jdbc_url" = "jdbc:foo://localhost:3306",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "Unsupported type"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "table" = "t1",
+                "offset" = "latest")"""
+            exception "type is required"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "snapshot_split_size" = "abc")"""
+            exception "Invalid value for key 'snapshot_split_size'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "snapshot_parallelism" = "0")"""
+            exception "Invalid value for key 'snapshot_parallelism'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "abc")"""
+            exception "Invalid value for key 'offset'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "ssl_mode" = "bogus")"""
+            exception "Invalid value for key 'ssl_mode'"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "database" = "db1",
+                "table" = "t1",
+                "offset" = "latest",
+                "ssl_mode" = "verify-ca")"""
+            exception "ssl_mode 'verify-ca' requires ssl_rootcert to be set"
+        }
+
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
@@ -65,17 +146,20 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             sql """CREATE TABLE ${mysqlDb}.${table1} (
                   `name` varchar(200) NOT NULL,
                   `age` int DEFAULT NULL,
+                  `tinyint_1` tinyint(1) DEFAULT NULL,
+                  `year_zero` year DEFAULT NULL,
                   PRIMARY KEY (`name`)
                 ) ENGINE=InnoDB"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('A1', 1);"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('A1', 1, 0, 0);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('B1', 2, 1, 2023);"""
 
             def result = sql_return_maparray "show master status"
             def file = result[0]["File"]
             def position = result[0]["Position"]
             offset = """{"file":"${file}","pos":"${position}"}"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('C1', 3);"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('D1', 4);"""
+            // Values 4 and YEAR 0 distinguish numeric JDBC semantics from boolean/date semantics.
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('C1', 3, 4, 0);"""
+            sql """INSERT INTO ${mysqlDb}.${table1} VALUES ('D1', 4, -1, 2024);"""
 
             // capture offset before UPDATE/DELETE events
             def result2 = sql_return_maparray "show master status"
@@ -161,7 +245,7 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
                 "database" = "${mysqlDb}",
                 "table" = "${table1}",
                 "offset" = 'notjson')"""
-            exception "Unsupported offset: notjson"
+            exception "Invalid value for key 'offset'"
         }
 
         // --- Non-existent table ---

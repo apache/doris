@@ -87,39 +87,36 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
-        if (_alreay_eos) {
-            *eos = true;
-            _padding_block.swap(_origin_block);
-        } else {
-            _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-            const auto min_batch_size = std::max(state->batch_size() / 2, 1);
-            const auto block_max_bytes = state->preferred_block_size_bytes();
-            while (_padding_block.rows() < min_batch_size &&
-                   _padding_block.bytes() < block_max_bytes && !*eos) {
-                RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
-                if (_origin_block.rows() >= min_batch_size) {
-                    break;
-                }
+        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        const auto min_batch_size = std::max(state->batch_size() / 2, 1);
+        const auto block_max_bytes = state->preferred_block_size_bytes();
+        while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
+               !*eos) {
+            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+            if (*eos) {
+                // For the final block, merge any padding directly and return eos in this call.
+                // The merged tail can be larger than the target batch, but each source block is
+                // already bounded by the lower scanner.
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+                break;
+            }
+            if (_origin_block.rows() >= min_batch_size) {
+                break;
+            }
 
-                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
-                    _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
-                    RETURN_IF_ERROR(_merge_padding_block());
-                    _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-                } else {
-                    if (_origin_block.rows() < _padding_block.rows()) {
-                        _padding_block.swap(_origin_block);
-                    }
-                    break;
+            if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+            } else {
+                if (_origin_block.rows() < _padding_block.rows()) {
+                    _padding_block.swap(_origin_block);
                 }
+                break;
             }
         }
 
-        // first output the origin block change eos = false, next time output padding block
-        // set the eos to true
-        if (*eos && !_padding_block.empty() && !_origin_block.empty()) {
-            _alreay_eos = true;
-            *eos = false;
-        }
         if (_origin_block.empty() && !_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         }
@@ -273,6 +270,40 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     return Status::OK();
 }
 
+uint64_t Scanner::_current_condition_cache_digest() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_local_state != nullptr);
+    if (_local_state->get_condition_cache_digest() == 0) {
+        return 0;
+    }
+
+    // ScanLocalState computed its digest after collecting the RFs that were ready during open(). A
+    // scanner may later clone more RF conjuncts between file splits, so rebuild from its current
+    // snapshot instead of reusing that stale value. For example, split 0 may use P, while split 1
+    // starts after an IN RF with payload {7, 9} arrives and must use digest(P AND RF{7, 9}). A
+    // different payload {8, 10} consequently receives a different key. get_digest() returning zero
+    // is the correctness fallback for an RF whose complete semantics cannot be represented.
+    return _build_condition_cache_digest(_state->query_options().condition_cache_digest,
+                                         _conjuncts);
+}
+
+uint64_t Scanner::_build_condition_cache_digest(uint64_t seed, const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        seed = conjunct->get_digest(seed);
+        if (seed == 0) {
+            return 0;
+        }
+    }
+    return seed;
+}
+
+#ifdef BE_TEST
+uint64_t Scanner::TEST_build_condition_cache_digest(uint64_t seed,
+                                                    const VExprContextSPtrs& conjuncts) {
+    return _build_condition_cache_digest(seed, conjuncts);
+}
+#endif
+
 Status Scanner::close(RuntimeState* state) {
 #ifndef BE_TEST
     COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
@@ -289,9 +320,11 @@ void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
 
-    // Update stats for load
-    _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
-    _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    // Update stats for load. See _should_update_load_counters() for why this is gated.
+    if (_should_update_load_counters()) {
+        _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+        _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    }
 }
 
 void Scanner::_update_scan_cpu_timer() {

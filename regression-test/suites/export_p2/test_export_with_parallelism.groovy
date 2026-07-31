@@ -87,10 +87,9 @@ suite("test_export_with_parallelism", "p2") {
         }
     }
 
-    def outFilePath = """${bucket}/export/exp_"""
-
     def test_export = {format, file_suffix, isDelete, parallelism, whereExpr ->
         def uuid = UUID.randomUUID().toString()
+        def outFilePath = """${bucket}/export/${table_export_name}/${uuid}/exp_"""
         // exec export
         sql """
             EXPORT TABLE ${table_export_name}  ${whereExpr}  TO "s3://${outFilePath}"
@@ -126,6 +125,13 @@ suite("test_export_with_parallelism", "p2") {
 
         // because parallelism = min(parallelism, tablets_num)
         for (int j = 0; j < parallelism && j < 3; ++j) {
+            def csvSchemaProps = ""
+            if (format in ["csv", "csv_with_names", "csv_with_names_and_types"]) {
+                csvSchemaProps = """
+                        "column_separator" = "\t",
+                        "csv_schema" = "id:int;name:string;age:int",
+                """
+            }
             // check data correctness
             sql """ insert into ${table_load_name}
                         select * from s3(
@@ -133,6 +139,7 @@ suite("test_export_with_parallelism", "p2") {
                         "s3.access_key"= "${ak}",
                         "s3.secret_key" = "${sk}",
                         "format" = "${format}",
+                        ${csvSchemaProps}
                         "region" = "${region}",
                         "provider" = "${getS3Provider()}",
                         "use_path_style" = "false" -- aliyun does not support path_style

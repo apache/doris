@@ -18,6 +18,7 @@
  */
 
 suite("query13") {
+    sql "set parallel_pipeline_task_num=2"
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'

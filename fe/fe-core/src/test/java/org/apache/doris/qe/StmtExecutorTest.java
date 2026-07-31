@@ -29,6 +29,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -69,6 +71,40 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);
+    // it is released later by finalizeArrowFlightQuery(), which closes the coordinator and then
+    // unregisters the query. The close and the unregister must be independent: if coord.close()
+    // throws, the query registration must still be released (the try/finally), otherwise the query
+    // leaks in QeProcessorImpl forever. The thrown error is expected to propagate to the caller
+    // (ConnectContext.closeFlightSqlDeferredExecutors), which catches and logs it.
+    @Test
+    public void testFinalizeArrowFlightQueryUnregistersQueryEvenIfCoordCloseThrows() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
+        TUniqueId queryId = new TUniqueId(0x6226259L, 0x62259L);
+        connectContext.setQueryId(queryId);
+
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        Mockito.doThrow(new RuntimeException("coord close failed")).when(coord).close();
+        stmtExecutor.setCoord(coord);
+
+        // Simulate the in-flight query whose results DoGet is still pulling.
+        QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coord));
+        Assert.assertNotNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+
+        try {
+            stmtExecutor.finalizeArrowFlightQuery();
+            Assert.fail("expected coord.close() failure to propagate after the query is unregistered");
+        } catch (RuntimeException e) {
+            Assert.assertEquals("coord close failed", e.getMessage());
+        }
+
+        // The coordinator close was attempted (releases SplitSource + query queue slot) ...
+        Mockito.verify(coord).close();
+        // ... and despite it failing, the query registration was still released (no leak).
+        Assert.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
     }
 
     @Test
@@ -349,5 +385,91 @@ public class StmtExecutorTest extends TestWithFeService {
         clearMethod.invoke(executor);
 
         Mockito.verify(resultFileSink).setDeleteExistingFiles(false);
+    }
+
+    @Test
+    public void testParseByNereidsSetsParsedStatementOnStatementContext() throws Exception {
+        // This test verifies the fix for a bug in multi-FE environments where
+        // parseByNereids() did not propagate the parsed statement to the
+        // StatementContext. In the proxy flow (e.g., when a follower FE forwards
+        // a query to the master FE), the StmtExecutor is created via the proxy
+        // constructor which creates a fresh StatementContext without a
+        // parsedStatement. Without the fix, statementContext.getParsedStatement()
+        // remains null, causing SessionVariable.canUseNereidsDistributePlanner()
+        // to return false, which leads EnvFactory.createCoordinator() to create
+        // a legacy Coordinator instead of NereidsCoordinator, resulting in
+        // "fragment has no children" error.
+
+        // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                new OriginStatement("select 1", 0), true);
+
+        // Before parsing, statementContext should exist but parsedStatement should be null
+        Assertions.assertNotNull(connectContext.getStatementContext());
+        Assertions.assertNull(connectContext.getStatementContext().getParsedStatement(),
+                "ParsedStatement should be null before parseByNereids() in proxy flow");
+
+        // Trigger parseByNereids via reflection (it's private)
+        Method parseByNereidsMethod = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parseByNereidsMethod.setAccessible(true);
+        parseByNereidsMethod.invoke(executor);
+
+        // After parsing, parsedStatement should be set on the StatementContext
+        org.apache.doris.analysis.StatementBase parsedStatement
+                = connectContext.getStatementContext().getParsedStatement();
+        Assertions.assertNotNull(parsedStatement,
+                "ParsedStatement should not be null after parseByNereids() in proxy flow");
+        Assertions.assertTrue(
+                parsedStatement instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter,
+                "ParsedStatement should be a LogicalPlanAdapter after parseByNereids(), but was: "
+                        + (parsedStatement == null ? "null" : parsedStatement.getClass().getName()));
+    }
+
+    @Test
+    public void testShouldDisableCloudVersionCacheOnRetryForE230() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalDeployMode = Config.deploy_mode;
+        long originalPartitionTtl = connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs;
+        long originalTableTtl = connectContext.getSessionVariable().cloudTableVersionCacheTtlMs;
+        try {
+            Config.cloud_unique_id = "test-cloud-id";
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = some other error"));
+            // null error message must not trigger the disable.
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(null));
+
+            // Non-cloud mode must never disable the version cache, even on E-230.
+            Config.cloud_unique_id = "";
+            Config.deploy_mode = "";
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+            Config.cloud_unique_id = "test-cloud-id";
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.deploy_mode = originalDeployMode;
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
+        }
     }
 }

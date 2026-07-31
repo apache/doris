@@ -103,10 +103,10 @@ static void merge_agg_states(AggregateDataPtr& dst_ref, AggregateDataPtr src, bo
     } else {
         const size_t num_fns = evaluators.size();
         for (size_t i = 0; i < num_fns; ++i) {
-            evaluators[i]->function()->merge(dst_ref + offsets[i], src + offsets[i], arena);
+            evaluators[i]->merge(dst_ref + offsets[i], src + offsets[i], arena);
         }
         for (size_t i = 0; i < num_fns; ++i) {
-            evaluators[i]->function()->destroy(src + offsets[i]);
+            evaluators[i]->destroy(src + offsets[i]);
         }
     }
 }
@@ -380,16 +380,14 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
         DataTypes value_data_types(agg_size);
 
         for (size_t i = 0; i < agg_size; ++i) {
-            value_data_types[i] =
-                    shared_state.aggregate_evaluators[i]->function()->get_serialized_type();
+            value_data_types[i] = shared_state.aggregate_evaluators[i]->get_serialized_type();
             if (mem_reuse) {
                 value_columns[i] =
                         IColumn::mutate(std::move(block->get_by_position(key_size + i).column));
             } else {
-                value_columns[i] =
-                        shared_state.aggregate_evaluators[i]->function()->create_serialize_column();
+                value_columns[i] = shared_state.aggregate_evaluators[i]->create_serialize_column();
             }
-            shared_state.aggregate_evaluators[i]->function()->serialize_to_column(
+            shared_state.aggregate_evaluators[i]->serialize_to_column(
                     values, shared_state.offsets_of_aggregate_states[i], value_columns[i],
                     num_rows);
         }
@@ -730,7 +728,7 @@ BucketedAggSourceOperatorX::BucketedAggSourceOperatorX(ObjectPool* pool, const T
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.bucketed_agg_node.need_finalize) {}
 
-Status BucketedAggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status BucketedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

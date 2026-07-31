@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -114,6 +115,27 @@ class FindHashConditionForJoinTest implements MemoPatternMatchSupported {
                         logicalJoin()
                                 .when(j -> j.getHashJoinConjuncts().equals(ImmutableList.of(eq1)))
                                 .when(j -> j.getJoinType().isInnerJoin())
+                );
+    }
+
+    @Test
+    void testDoNotExtractVolatileEqualPredicateAsHashCondition() {
+        Slot studentId = studentScan.getOutput().get(0);
+        Slot sid = scoreScan.getOutput().get(0);
+
+        Expression deterministicEq = new EqualTo(studentId, sid);
+        Expression volatileEq = new EqualTo(studentId, new Add(sid, new Random()));
+
+        LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
+                ImmutableList.of(deterministicEq, volatileEq),
+                new DistributeHint(DistributeType.NONE), Optional.empty(), studentScan, scoreScan, null);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new FindHashConditionForJoin())
+                .matches(
+                        logicalJoin()
+                                .when(j -> j.getHashJoinConjuncts().equals(ImmutableList.of(deterministicEq)))
+                                .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(volatileEq)))
                 );
     }
 }

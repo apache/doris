@@ -43,9 +43,8 @@ Status inline check_dict_input_data(ColumnsWithTypeAndName& key_data,
     IColumn::Filter filter(key_data.front().column->size(), 1);
 
     for (auto& key : key_data) {
-        if (key.column->is_nullable()) {
-            const auto& null_map = assert_cast<const ColumnNullable*>(key.column.get())
-                                           ->get_null_map_data(); // Get the null_map in the key
+        if (const auto* nullable_key = check_and_get_column<ColumnNullable>(key.column.get())) {
+            const auto& null_map = nullable_key->get_null_map_data(); // Get the null_map in the key
             for (size_t i = 0; i < key.column->size(); ++i) {
                 if (null_map[i] == 1) {
                     // If the value in the null_map of the key is 0, filter it out

@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.RoutineLoadTestUtils
 import org.apache.kafka.clients.admin.AdminClient
-import org.apache.kafka.clients.producer.KafkaProducer
-import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_error_info","nonConcurrent") {
@@ -30,58 +30,25 @@ suite("test_routine_load_error_info","nonConcurrent") {
                   "test_error_info",
                 ]
 
-    String enabled = context.config.otherConfigs.get("enableKafkaTest")
-    String kafka_port = context.config.otherConfigs.get("kafka_port")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    def kafka_broker = "${externalEnvIp}:${kafka_port}"
+    def kafkaTestEnabled = RoutineLoadTestUtils.isKafkaTestEnabled(context)
+    def kafka_broker = RoutineLoadTestUtils.getKafkaBroker(context)
 
     // send data to kafka 
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        def props = new Properties()
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-        // add timeout config
-        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
-        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
-
-        // check conenction
-        def verifyKafkaConnection = { prod ->
-            try {
-                logger.info("=====try to connect Kafka========")
-                def partitions = prod.partitionsFor("__connection_verification_topic")
-                return partitions != null
-            } catch (Exception e) {
-                throw new Exception("Kafka connect fail: ${e.message}".toString())
-            }
-        }
-        // Create kafka producer
-        def producer = new KafkaProducer<>(props)
+    if (kafkaTestEnabled) {
+        def producer = RoutineLoadTestUtils.createKafkaProducer(kafka_broker)
         try {
-            logger.info("Kafka connecting: ${kafka_broker}")
-            if (!verifyKafkaConnection(producer)) {
-                throw new Exception("can't get any kafka info")
+            for (String kafkaCsvTopic in kafkaCsvTpoics) {
+                def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
+                RoutineLoadTestUtils.sendTestDataToKafka(producer, [kafkaCsvTopic], txt.readLines())
             }
-        } catch (Exception e) {
-            logger.error("FATAL: " + e.getMessage())
+        } finally {
             producer.close()
-            throw e  
-        }
-        logger.info("Kafka connect success")
-        for (String kafkaCsvTopic in kafkaCsvTpoics) {
-            def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
-            def lines = txt.readLines()
-            lines.each { line ->
-                logger.info("=====${line}========")
-                def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
-                producer.send(record)
-            }
         }
     }
 
     def createTable = {tableName ->
         sql """
-            DROP TABLE IF EXISTS ${tableName}
+            DROP TABLE IF EXISTS ${tableName} FORCE
         """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName}
@@ -165,15 +132,47 @@ suite("test_routine_load_error_info","nonConcurrent") {
                 )
                 FROM KAFKA
                 (
-                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_broker_list" = "${kafka_broker}",
                     "kafka_topic" = "${kafkaTopic}",
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
         """
     }
 
+    def createReadCommittedJob = {jobName, tableName, kafkaTopic ->
+        sql """
+        CREATE ROUTINE LOAD ${jobName} on ${tableName}
+                COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18),
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${kafkaTopic}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING",
+                    "property.isolation.level" = "read_committed"
+                );
+        """
+    }
+
+    def createKafkaTopic = {kafkaTopic ->
+        def adminProps = new Properties()
+        adminProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+        def adminClient = AdminClient.create(adminProps)
+        try {
+            adminClient.createTopics([new NewTopic(kafkaTopic, 1, (short) 1)]).all().get()
+        } finally {
+            adminClient.close()
+        }
+    }
+
     // case 1: task failed
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (kafkaTestEnabled) {
         // create table
         def jobName = "test_error_info"
         def tableName = "test_routine_error_info"
@@ -203,13 +202,13 @@ suite("test_routine_load_error_info","nonConcurrent") {
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("BetaRowsetWriter._check_segment_number_limit_too_many_segments")
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 
     // case 2: reschedule job
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (kafkaTestEnabled) {
         def jobName = "test_error_info"
         def tableName = "test_routine_error_info"
         try {
@@ -236,13 +235,13 @@ suite("test_routine_load_error_info","nonConcurrent") {
                 sleep(1000)
             }
         } finally {
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 
     // case 3: memory limit
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (kafkaTestEnabled) {
         def jobName = "test_memory_limit_error_info"
         def tableName = "test_routine_memory_limit_error_info"
         
@@ -272,8 +271,54 @@ suite("test_routine_load_error_info","nonConcurrent") {
             }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("RoutineLoadTaskExecutor.submit_task.memory_limit")
-            sql "stop routine load for ${jobName}"
-            sql "DROP TABLE IF EXISTS ${tableName}"
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
+        }
+    }
+
+    // case 4: read_committed lag hint
+    if (kafkaTestEnabled) {
+        def jobName = "test_read_committed_lag_error_info"
+        def tableName = "test_routine_read_committed_lag_error_info"
+        def kafkaTopic = "test_read_committed_lag_error_info_${System.currentTimeMillis()}"
+        def debugPoint = "KafkaRoutineLoadJob.hasPositiveLagForTask"
+
+        try {
+            createKafkaTopic(kafkaTopic)
+            def producer = RoutineLoadTestUtils.createKafkaProducer(kafka_broker)
+            try {
+                def txt = new File("""${context.file.parent}/data/${kafkaCsvTpoics[0]}.csv""").text
+                RoutineLoadTestUtils.sendTestDataToKafka(producer, [kafkaTopic], txt.readLines())
+            } finally {
+                producer.close()
+            }
+            createTable(tableName)
+            sql "sync"
+            GetDebugPoint().enableDebugPointForAllFEs(debugPoint)
+            createReadCommittedJob(jobName, tableName, kafkaTopic)
+            sql "sync"
+
+            // check error info
+            def count = 0
+            while (true) {
+                def res = sql "show routine load for ${jobName}"
+                log.info("show routine load: ${res[0].toString()}".toString())
+                log.info("other msg: ${res[0][19].toString()}".toString())
+                if (res[0][19].toString() != "") {
+                    assertTrue(res[0][19].toString().contains("some records may be in uncommitted transactions"))
+                    break;
+                }
+                count++
+                if (count > 60) {
+                    assertEquals(1, 2)
+                    break;
+                }
+                sleep(1000)
+            }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs(debugPoint)
+            try_sql "stop routine load for ${jobName}"
+            try_sql "DROP TABLE IF EXISTS ${tableName} FORCE"
         }
     }
 }

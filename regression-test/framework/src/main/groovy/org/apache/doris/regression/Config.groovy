@@ -170,6 +170,10 @@ class Config {
 
     public String tdeAk
     public String tdeSk
+    public String tdeAwsAk
+    public String tdeAwsSk
+    public String tdeAliyunAk
+    public String tdeAliyunSk
     public String tdeKeyEndpoint
     public String tdeKeyRegion
     public String tdeKeyProvider
@@ -240,6 +244,10 @@ class Config {
             String cloudVersion,
             String tdeAk,
             String tdeSk,
+            String tdeAwsAk,
+            String tdeAwsSk,
+            String tdeAliyunAk,
+            String tdeAliyunSk,
             String tdeKeyEndpoint,
             String tdeKeyRegion,
             String tdeKeyProvider,
@@ -304,6 +312,10 @@ class Config {
         this.cloudVersion = cloudVersion
         this.tdeAk = tdeAk
         this.tdeSk = tdeSk
+        this.tdeAwsAk = tdeAwsAk
+        this.tdeAwsSk = tdeAwsSk
+        this.tdeAliyunAk = tdeAliyunAk
+        this.tdeAliyunSk = tdeAliyunSk
         this.tdeKeyEndpoint = tdeKeyEndpoint
         this.tdeKeyRegion = tdeKeyRegion
         this.tdeKeyProvider = tdeKeyProvider
@@ -311,6 +323,10 @@ class Config {
         this.tdeKeyId = tdeKeyId
         this.enableMultiVersionStatus = enableMultiVersionStatus
         this.enableClusterSnapshot = enableClusterSnapshot
+    }
+
+    static String secretStatus(String value) {
+        return value == null || value == "" ? "unset" : "set"
     }
 
     static String removeDirectoryPrefix(String str) {
@@ -512,9 +528,17 @@ class Config {
         log.info("cloudVersion is ${config.cloudVersion}".toString())
 
         config.tdeAk = cmd.getOptionValue(tdeAkOpt, config.tdeAk)
-        log.info("tdeAk is ${config.tdeAk}".toString())
+        log.info("tdeAk is ${secretStatus(config.tdeAk)}".toString())
         config.tdeSk = cmd.getOptionValue(tdeSkOpt, config.tdeSk)
-        log.info("tdeSk is ${config.tdeSk}".toString())
+        log.info("tdeSk is ${secretStatus(config.tdeSk)}".toString())
+        config.tdeAwsAk = cmd.getOptionValue(tdeAwsAkOpt, config.tdeAwsAk)
+        log.info("tdeAwsAk is ${secretStatus(config.tdeAwsAk)}".toString())
+        config.tdeAwsSk = cmd.getOptionValue(tdeAwsSkOpt, config.tdeAwsSk)
+        log.info("tdeAwsSk is ${secretStatus(config.tdeAwsSk)}".toString())
+        config.tdeAliyunAk = cmd.getOptionValue(tdeAliyunAkOpt, config.tdeAliyunAk)
+        log.info("tdeAliyunAk is ${secretStatus(config.tdeAliyunAk)}".toString())
+        config.tdeAliyunSk = cmd.getOptionValue(tdeAliyunSkOpt, config.tdeAliyunSk)
+        log.info("tdeAliyunSk is ${secretStatus(config.tdeAliyunSk)}".toString())
         config.tdeKeyEndpoint = cmd.getOptionValue(tdeKeyEndpointOpt, config.tdeKeyEndpoint)
         log.info("tdeKeyEndpoint is ${config.tdeKeyEndpoint}".toString())
         config.tdeKeyRegion = cmd.getOptionValue(tdeKeyRegionOpt, config.tdeKeyRegion)
@@ -657,6 +681,10 @@ class Config {
             configToString(obj.cloudVersion),
             configToString(obj.tdeAk),
             configToString(obj.tdeSk),
+            configToString(obj.tdeAwsAk),
+            configToString(obj.tdeAwsSk),
+            configToString(obj.tdeAliyunAk),
+            configToString(obj.tdeAliyunSk),
             configToString(obj.tdeKeyEndpoint),
             configToString(obj.tdeKeyRegion),
             configToString(obj.tdeKeyProvider),

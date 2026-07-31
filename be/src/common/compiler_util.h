@@ -57,3 +57,11 @@
 #else
 #define NO_SANITIZE_UNDEFINED
 #endif
+
+// Allow reassociation only when the evaluation order is not part of the operation's contract.
+// This may change the least significant bits of floating-point results.
+#ifdef __clang__
+#define ALLOW_FP_REASSOCIATION _Pragma("clang fp reassociate(on)")
+#else
+#define ALLOW_FP_REASSOCIATION
+#endif

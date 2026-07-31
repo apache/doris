@@ -29,6 +29,10 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/function.h"
@@ -59,6 +63,17 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     std::string debug_string() const override;
+    bool has_else_expr() const { return _has_else_expr; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TCaseExpr case_node;
+        case_node.__set_has_case_expr(false);
+        case_node.__set_has_else_expr(_has_else_expr);
+        node.__set_case_expr(case_node);
+        *cloned_expr = VCaseExpr::create_shared(node);
+        return Status::OK();
+    }
 
 private:
     template <typename IndexType, typename ColumnType>
@@ -73,6 +88,7 @@ private:
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
                       std::is_same_v<ColumnType, ColumnVariant> ||
+                      std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
@@ -133,10 +149,19 @@ private:
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
             CASE_TYPE(TYPE_STRUCT, ColumnStruct)
-            CASE_TYPE(TYPE_VARIANT, ColumnVariant)
             CASE_TYPE(TYPE_BITMAP, ColumnBitmap)
             CASE_TYPE(TYPE_HLL, ColumnHLL)
             CASE_TYPE(TYPE_QUANTILE_STATE, ColumnQuantileState)
+        case PrimitiveType::TYPE_VARIANT: {
+            const IDataType* variant_type = remove_nullable(data_type()).get();
+            if (dynamic_cast<const DataTypeVariantV2*>(variant_type) != nullptr) {
+                return _execute_update_result_impl<IndexType, ColumnVariantV2>(
+                        then_idx, then_columns, rows_count);
+            }
+            DORIS_CHECK(dynamic_cast<const DataTypeVariant*>(variant_type) != nullptr);
+            return _execute_update_result_impl<IndexType, ColumnVariant>(then_idx, then_columns,
+                                                                         rows_count);
+        }
         default:
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "argument_type {} not supported",
                             data_type()->get_name());
@@ -156,7 +181,7 @@ private:
                 continue;
             }
             std::tie(raw_then_columns[i], is_consts[i]) = unpack_if_const(then_columns[i]);
-            is_nullable[i] = raw_then_columns[i]->is_nullable();
+            is_nullable[i] = is_column_nullable(*raw_then_columns[i]);
         }
 
         auto* raw_result_column = result_column_ptr.get();
@@ -260,7 +285,7 @@ private:
                 continue;
             }
 
-            if (raw_when_column->is_nullable()) {
+            if (is_column_nullable(*raw_when_column)) {
                 const auto* column_nullable_ptr =
                         assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                                 raw_when_column.get());
@@ -277,10 +302,7 @@ private:
                     continue;
                 }
                 const auto* __restrict cond_raw_nullmap =
-                        assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                column_nullable_ptr->get_null_map_column_ptr().get())
-                                ->get_data()
-                                .data();
+                        column_nullable_ptr->get_null_map_column_ptr()->get_data().data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
                                               !cond_raw_nullmap[row_idx]) *

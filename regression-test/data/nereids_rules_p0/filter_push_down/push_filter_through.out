@@ -49,7 +49,7 @@ PhysicalResultSink
 -- !filter_join_inner --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----filter((length(msg) = 0))
+----filter((length(t1.msg) = 0))
 ------PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -228,7 +228,7 @@ PhysicalResultSink
 
 -- !filter_aggregation_group_set --
 PhysicalResultSink
---filter((cast(msg as DECIMALV3(38, 6)) = 1.000000))
+--filter((cast(t1.msg as DECIMALV3(38, 6)) = 1.000000))
 ----hashAgg[GLOBAL]
 ------PhysicalRepeat
 --------filter((t1.id > 10))
@@ -236,7 +236,7 @@ PhysicalResultSink
 
 -- !filter_aggregation_group_set --
 PhysicalResultSink
---filter(OR[(t1.id > 10),(cast(msg as DECIMALV3(38, 6)) = 1.000000)])
+--filter(OR[(t1.id > 10),(cast(t1.msg as DECIMALV3(38, 6)) = 1.000000)])
 ----hashAgg[GLOBAL]
 ------PhysicalRepeat
 --------PhysicalOlapScan[t1]
@@ -304,7 +304,7 @@ PhysicalResultSink
 --PhysicalUnion
 ----filter(id IN (2, 3))
 ------PhysicalOneRowRelation
-----filter(id IN (2, 3))
+----filter(t2.id IN (2, 3))
 ------PhysicalOlapScan[t2]
 
 -- !push_filter_intersect --
@@ -312,16 +312,16 @@ PhysicalResultSink
 --PhysicalIntersect
 ----filter(id IN (2, 3))
 ------PhysicalOneRowRelation
-----filter(id IN (2, 3))
+----filter(t2.id IN (2, 3))
 ------PhysicalOlapScan[t2]
 
 -- !push_filter_except --
 PhysicalResultSink
 --PhysicalExcept
 ----filter((id = 2))
-------filter((length(msg) = 0))
+------filter((length(t1.msg) = 0))
 --------PhysicalOlapScan[t1]
-----filter((length(msg) = 0) and (t2.id = 2))
+----filter((length(t2.msg) = 0) and (t2.id = 2))
 ------PhysicalOlapScan[t2]
 
 -- !push_filter_except --
@@ -366,6 +366,6 @@ PhysicalResultSink
 ----PhysicalQuickSort[LOCAL_SORT]
 ------PhysicalWindow
 --------PhysicalQuickSort[LOCAL_SORT]
-----------filter(OR[(length(msg) = 0),(t1.id = 2)])
+----------filter(OR[(length(t1.msg) = 0),(t1.id = 2)])
 ------------PhysicalOlapScan[t1]
 

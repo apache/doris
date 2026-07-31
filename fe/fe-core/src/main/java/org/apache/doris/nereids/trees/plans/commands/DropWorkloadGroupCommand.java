@@ -60,10 +60,11 @@ public class DropWorkloadGroupCommand extends DropCommand {
         }
 
         if (Config.isCloudMode()) {
-            String originCgStr = computeGroup;
             if (StringUtils.isEmpty(computeGroup)) {
-                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
+                throw new UserException("Must specify compute group via 'FOR <compute_group>' "
+                        + "in cloud mode.");
             }
+            String originCgStr = computeGroup;
             String clusterId = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
                     computeGroup);
             // there are two cases can not find a cluster_id:
@@ -79,13 +80,17 @@ public class DropWorkloadGroupCommand extends DropCommand {
             } else {
                 computeGroup = clusterId;
             }
-            Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
         } else {
+            // In non-cloud mode, 'FOR <compute_group>' is also supported syntactically, but
+            // the value here actually refers to a resource group (Tag) — there are no real
+            // compute groups in non-cloud mode. The grammar is shared with cloud mode purely
+            // for consistency. When the clause is omitted, fall back to the default resource
+            // group Tag.VALUE_DEFAULT_TAG.
             if (StringUtils.isEmpty(computeGroup)) {
                 computeGroup = Tag.VALUE_DEFAULT_TAG;
             }
-            Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
         }
+        Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
     }
 
     @Override

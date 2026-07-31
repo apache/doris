@@ -17,11 +17,15 @@
 
 package org.apache.doris.filesystem;
 
+import org.apache.doris.filesystem.capability.Capability;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -29,6 +33,43 @@ import java.util.Set;
  * All methods throw IOException (not UserException or checked vendor exceptions).
  */
 public interface FileSystem extends AutoCloseable {
+
+    /**
+     * Returns a provider-specific optional capability exposed through a stable API type.
+     *
+     * <p>Core filesystem operations must remain on {@link FileSystem}. Optional operations
+     * such as presigned URLs or temporary credentials should be exposed as capability
+     * interfaces so callers do not depend on concrete filesystem implementations.
+     */
+    default <T extends Capability> Optional<T> capability(Class<T> capabilityType) {
+        Objects.requireNonNull(capabilityType, "capabilityType must not be null");
+        return Optional.empty();
+    }
+
+    /**
+     * Returns the requested capability or throws a clear error if the filesystem does not
+     * expose it.
+     */
+    default <T extends Capability> T requireCapability(Class<T> capabilityType) {
+        Objects.requireNonNull(capabilityType, "capabilityType must not be null");
+        return capability(capabilityType).orElseThrow(() -> new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support " + capabilityType.getSimpleName()));
+    }
+
+    /**
+     * Resolves the concrete {@link FileSystem} that actually serves {@code location}.
+     *
+     * <p>A plain, single-backend filesystem <em>is</em> the filesystem for every location, so the
+     * default returns {@code this}. A scheme-routing filesystem (e.g. {@code SpiSwitchingFileSystem})
+     * overrides this to return the per-scheme delegate the location maps to.
+     *
+     * <p>Callers use this when they need the <em>concrete</em> implementation rather than the routing
+     * facade — for example to test {@code instanceof ObjFileSystem} before driving an object-store
+     * multipart upload, which a routing facade cannot answer without knowing the location.
+     */
+    default FileSystem forLocation(Location location) throws IOException {
+        return this;
+    }
 
     boolean exists(Location location) throws IOException;
 

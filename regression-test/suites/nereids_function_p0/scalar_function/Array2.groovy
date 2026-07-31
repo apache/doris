@@ -45,6 +45,10 @@ suite("nereids_scalar_fn_Array2") {
                                IF(IPV4_STRING_TO_NUM_OR_NULL(x) = IPV4_STRING_TO_NUM_OR_NULL(y), 0, 1)),
                                ['192.168.0.3', '192.168.0.1', '192.168.0.2'])"""
     order_qt_sql_array_sort_8 """SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), [3, -2.1, 5.34, 1.2, 2.2])"""
+    test {
+        sql """SELECT array_sort(x -> x, [3, 2, 1])"""
+        exception "the lambda must be a binary comparator lambda"
+    }
 
     order_qt_sql_array_sort_Tinyint """SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN -1
                                  WHEN y IS NULL THEN 1

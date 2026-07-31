@@ -199,14 +199,14 @@ struct ConvertParams {
 inline IColumn* get_mutable_inner_column(ColumnPtr& column) {
     column = IColumn::mutate(std::move(column));
     auto mutable_column = column->assert_mutable();
-    if (mutable_column->is_nullable()) {
+    if (is_column_nullable(*mutable_column)) {
         return &assert_cast<ColumnNullable*>(mutable_column.get())->get_nested_column();
     }
     return mutable_column.get();
 }
 
 inline size_t get_mutable_inner_column_size(const ColumnPtr& column) {
-    if (column->is_nullable()) {
+    if (is_column_nullable(*column)) {
         const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
         return nullable->get_nested_column().size();
     }
@@ -214,7 +214,7 @@ inline size_t get_mutable_inner_column_size(const ColumnPtr& column) {
 }
 
 inline size_t get_null_map_size_or_inner_column_size(const ColumnPtr& column) {
-    if (column->is_nullable()) {
+    if (is_column_nullable(*column)) {
         const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
         return nullable->get_null_map_column().size();
     }
@@ -222,7 +222,7 @@ inline size_t get_null_map_size_or_inner_column_size(const ColumnPtr& column) {
 }
 
 inline size_t get_appended_null_map_start(const ColumnPtr& column, size_t new_rows) {
-    if (!column->is_nullable()) {
+    if (!is_column_nullable(*column)) {
         return 0;
     }
     const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
@@ -233,7 +233,7 @@ inline size_t get_appended_null_map_start(const ColumnPtr& column, size_t new_ro
 
 inline void align_null_map(ColumnPtr& src_column, ColumnPtr& dst_column, size_t old_null_map_size,
                            size_t new_rows, size_t src_null_map_start = 0) {
-    if (!dst_column->is_nullable()) {
+    if (!is_column_nullable(*dst_column)) {
         return;
     }
 
@@ -245,7 +245,7 @@ inline void align_null_map(ColumnPtr& src_column, ColumnPtr& dst_column, size_t 
         return;
     }
     DCHECK_EQ(dst_null_map.size(), old_null_map_size);
-    if (src_column->is_nullable()) {
+    if (is_column_nullable(*src_column)) {
         const auto* src_nullable = assert_cast<const ColumnNullable*>(src_column.get());
         DCHECK_GE(src_nullable->get_null_map_column().size(), src_null_map_start + new_rows);
         dst_null_map.insert_range_from(src_nullable->get_null_map_column(), src_null_map_start,

@@ -115,7 +115,8 @@ Status KinesisConf::apply_to_get_shard_iterator_request(
     it = _get_shard_iterator_params.find("timestamp");
     if (it != _get_shard_iterator_params.end()) {
         try {
-            request.SetTimestamp(Aws::Utils::DateTime(std::stol(it->second)));
+            request.SetTimestamp(
+                    Aws::Utils::DateTime(static_cast<int64_t>(std::stoll(it->second))));
         } catch (const std::exception&) {
             return Status::InternalError("Failed to apply get_shard_iterator.timestamp: {}",
                                          it->second);

@@ -131,6 +131,7 @@ public class OlapQueryCacheTest {
         state = new QueryState();
         scheduler = new ConnectScheduler(10);
         SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.parallelPipelineTaskNum = 2;
         Deencapsulation.setField(sessionVariable, "beNumberForTest", 1);
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         env = AccessTestUtil.fetchAdminCatalog();

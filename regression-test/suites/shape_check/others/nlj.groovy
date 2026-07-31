@@ -18,6 +18,7 @@
  */
 
 suite("nlj") {
+    sql "set parallel_pipeline_task_num=2"
     sql 'set enable_parallel_result_sink=false;'
     sql """
     drop table if exists a;

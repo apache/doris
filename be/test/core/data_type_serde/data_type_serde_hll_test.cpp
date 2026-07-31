@@ -197,4 +197,14 @@ TEST(HLLSerdeTest, SerdeArrowTest) {
     // CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
     std::cout << "test write/read_column_to_arrow " << std::endl;
 }
+
+TEST(HLLSerdeTest, UnsupportedArrowReadReturnsError) {
+    auto hll_serde = std::make_shared<DataTypeHLLSerDe>(1);
+    auto column_hll = ColumnHLL::create();
+
+    EXPECT_EQ(hll_serde->get_name(), "HLL");
+    EXPECT_FALSE(
+            hll_serde->read_column_from_arrow(*column_hll, nullptr, 0, 0, cctz::utc_time_zone())
+                    .ok());
+}
 } // namespace doris

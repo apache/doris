@@ -45,5 +45,5 @@ true	false	true	true
 true	false	false	true
 
 -- !test_compare_expression_16 --
-\N	\N	\N	\N
+false	true	false	true
 

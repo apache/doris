@@ -417,6 +417,11 @@ public:
         std::vector<std::string_view> views;
 
         if (is_column<ColumnArray>(argument_columns[1].get())) {
+            if (argument_size != 2) {
+                return Status::InvalidArgument(
+                        "concat_ws with array argument expects exactly 2 arguments, but got {}",
+                        argument_size);
+            }
             // Determine if the nested type of the array is String
             const auto& array_column = reinterpret_cast<const ColumnArray&>(*argument_columns[1]);
             if (!array_column.get_data().is_column_string()) {
@@ -472,6 +477,7 @@ private:
         const auto& src_string_offsets = string_column.get_offsets();
         const auto& src_array_offsets = array_column.get_offsets();
         size_t current_src_array_offset = 0;
+        auto& array_nullmap = *null_list[1];
 
         // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -481,6 +487,12 @@ private:
 
             if (sep_nullmap[i]) {
                 res_offset[i] = res_data.size();
+                current_src_array_offset += src_array_offsets[i] - src_array_offsets[i - 1];
+                continue;
+            }
+
+            if (array_nullmap[i]) {
+                StringOP::push_empty_string(i, res_data, res_offset);
                 current_src_array_offset += src_array_offsets[i] - src_array_offsets[i - 1];
                 continue;
             }

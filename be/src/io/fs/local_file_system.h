@@ -63,6 +63,8 @@ public:
     static bool equal_or_sub_path(const Path& parent, const Path& child);
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
+    // delete directory only if it is empty
+    Status delete_empty_directory(const Path& dir);
     // change the file permission of the given path
     Status permission(const Path& file, std::filesystem::perms prms);
 
@@ -87,6 +89,7 @@ protected:
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
     Status delete_directory_or_file_impl(const Path& path);
+    Status delete_empty_directory_impl(const Path& dir);
     Status batch_delete_impl(const std::vector<Path>& files) override;
     Status exists_impl(const Path& path, bool* res) const override;
     Status file_size_impl(const Path& file, int64_t* file_size) const override;

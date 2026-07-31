@@ -51,7 +51,7 @@ enum FileFormat { COMMON, ORC, PARQUET };
 // Returns IColumn* (raw pointer) to avoid creating a second owning MutableColumnPtr,
 // which would violate COW invariant (use_count > 1).
 inline IColumn* get_mutable_inner_col(MutableColumnPtr& dst_col) {
-    if (dst_col->is_nullable()) {
+    if (is_column_nullable(*dst_col)) {
         return static_cast<ColumnNullable*>(dst_col.get())->get_nested_column_ptr().get();
     } else {
         return dst_col.get();
@@ -230,7 +230,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             null_map = &static_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
@@ -287,7 +287,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
@@ -587,7 +587,7 @@ public:
 
         NullMap* null_map = nullptr;
         IColumn* to_col = nullptr;
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             auto* nullable = assert_cast<ColumnNullable*>(dst_col.get());
             to_col = nullable->get_nested_column_ptr().get();
             null_map = &nullable->get_null_map_data();
@@ -646,7 +646,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
@@ -736,7 +736,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         NullMap* null_map = nullptr;
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
@@ -828,7 +828,7 @@ public:
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();
 
         NullMap* null_map = nullptr;
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
@@ -1000,7 +1000,7 @@ public:
 
         IColumn* to_col = nullptr;
         // nullmap flag seems have been handled in upper level
-        if (dst_col->is_nullable()) {
+        if (is_column_nullable(*dst_col)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(dst_col.get());
             to_col = const_cast<ColumnNullable*>(nullable)->get_nested_column_ptr().get();
         } else {

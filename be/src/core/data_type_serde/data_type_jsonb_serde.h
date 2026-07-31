@@ -90,7 +90,4 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
 };
-
-void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
-                                rapidjson::Document::AllocatorType& allocator);
 } // namespace doris

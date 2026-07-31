@@ -20,14 +20,22 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.URI;
+import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.CreateFunctionInfo;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
@@ -37,13 +45,21 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /*
@@ -128,6 +144,311 @@ public class CreateFunctionTest {
                 + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');";
         createFunction(defaultVolatileSql, ctx);
         Assert.assertEquals(FunctionVolatility.VOLATILE, findFunction(db, "py_default").getVolatility());
+
+        String defaultImmutableUdafSql = "create aggregate function db1.py_agg_default(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='Agg', 'runtime_version'='3.10.2');";
+        createFunction(defaultImmutableUdafSql, ctx);
+        Assert.assertEquals(FunctionVolatility.IMMUTABLE, findFunction(db, "py_agg_default").getVolatility());
+
+        String stableUdtfSql = "create tables function db1.py_table_stable(int) returns array<int> "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='stable');";
+        createFunction(stableUdtfSql, ctx);
+        Assert.assertEquals(FunctionVolatility.STABLE, findFunction(db, "py_table_stable").getVolatility());
+    }
+
+    @Test
+    public void testCreatePythonFunctionRejectsObjectTypes() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_obj_type_db;");
+        dorisAssert = new DorisAssert(ctx);
+        dorisAssert.useDatabase("py_obj_type_db");
+
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_bitmap_arg(bitmap) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support argument 1 type bitmap");
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.j_bitmap_arg(bitmap) returns int "
+                + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                "JAVA_UDF does not support argument 1 type bitmap");
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_hll_ret(int) returns hll "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support return type hll");
+        assertCreateFunctionAnalysisException(ctx, "create aggregate function py_obj_type_db.py_quantile_arg"
+                + "(quantile_state) returns int properties('type'='PYTHON_UDF', 'symbol'='Agg', "
+                + "'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support argument 1 type quantile_state");
+        assertCreateFunctionAnalysisException(ctx, "create aggregate function py_obj_type_db.j_quantile_arg"
+                + "(quantile_state) returns int properties('type'='JAVA_UDF', 'symbol'='Agg');",
+                "JAVA_UDF does not support argument 1 type quantile_state");
+        assertCreateFunctionAnalysisException(ctx, "create tables function py_obj_type_db.py_bitmap_table(int) "
+                + "returns array<bitmap> properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2');",
+                "ARRAY unsupported sub-type: bitmap");
+    }
+
+    @Test
+    public void testCreateFunctionRollbackOnlyFailedOverload() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database rollback_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_function_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Function existingFunction = createJavaUdf("rollback_function_db", "rollback_fn", Type.INT);
+            db.addFunction(existingFunction, false);
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function failedFunction = createJavaUdf("rollback_function_db", "rollback_fn", Type.BIGINT);
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    "rollback_function_db", failedFunction)).thenThrow(new RuntimeException("translate failed"));
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> db.addFunction(failedFunction, false));
+            Assert.assertEquals("translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(failedFunction)));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any()));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionRollbackWhenOuterFunctionFails() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database rollback_table_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_table_function_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Function tableFunction = createJavaUdtf("rollback_table_function_db", "rollback_table_fn", Type.INT);
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("rollback_table_function_db"), Mockito.any(Function.class)))
+                    .thenAnswer(invocation -> {
+                        Function function = invocation.getArgument(1);
+                        if ("rollback_table_fn_outer".equals(function.functionName())) {
+                            throw new RuntimeException("outer translate failed");
+                        }
+                        return true;
+                    });
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> db.addTableFunction(tableFunction, false));
+            Assert.assertEquals("outer translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
+            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
+            Assert.assertThrows(AnalysisException.class,
+                    () -> db.getFunction(searchDesc("rollback_table_function_db", "rollback_table_fn_outer",
+                            Type.INT)));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.argThat(function -> "rollback_table_fn".equals(function.functionName())),
+                    Mockito.eq(true), Mockito.any()));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.argThat(function -> "rollback_table_fn_outer".equals(function.functionName())),
+                    Mockito.eq(true), Mockito.any()));
+            mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
+                    Mockito.argThat(function -> "rollback_table_fn".equals(function.getName().getFunction()))));
+            mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
+                    Mockito.argThat(function -> "rollback_table_fn_outer".equals(function.getName().getFunction()))));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionRollbackKeepsVariadicNereidsOverload() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database rollback_table_function_vararg_db;");
+        ctx.setDatabase("rollback_table_function_vararg_db");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_table_function_vararg_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("rollback_table_function_vararg_db"),
+                    Mockito.argThat(function -> "rollback_vararg_table_fn_outer".equals(function.functionName()))))
+                    .thenThrow(new RuntimeException("outer translate failed"));
+
+            Function variadicFunction = createJavaUdtf(
+                    "rollback_table_function_vararg_db", "rollback_vararg_table_fn", Type.INT);
+            variadicFunction.setHasVarArgs(true);
+            db.addFunction(variadicFunction, false);
+            Assert.assertSame(variadicFunction, db.getFunction(searchDesc(variadicFunction)));
+            assertSingleVariadicUdfBuilder("rollback_table_function_vararg_db", "rollback_vararg_table_fn");
+
+            Mockito.clearInvocations(spyEditLog);
+            Function tableFunction = createJavaUdtf(
+                    "rollback_table_function_vararg_db", "rollback_vararg_table_fn", Type.INT);
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> db.addTableFunction(tableFunction, false));
+            Assert.assertEquals("outer translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
+            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
+            Assert.assertSame(variadicFunction, db.getFunction(searchDesc(variadicFunction)));
+            assertSingleVariadicUdfBuilder("rollback_table_function_vararg_db", "rollback_vararg_table_fn");
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionIfNotExistsSkipsExistingPair() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database existing_table_function_pair_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("existing_table_function_pair_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("existing_table_function_pair_db"), Mockito.any(Function.class)))
+                    .thenReturn(true);
+            Function existingFunction = createJavaUdtf(
+                    "existing_table_function_pair_db", "existing_table_pair_fn", Type.INT);
+            Function existingOuterFunction = createJavaUdtf(
+                    "existing_table_function_pair_db", "existing_table_pair_fn_outer", Type.INT);
+            db.addFunction(existingFunction, false);
+            db.addFunction(existingOuterFunction, false);
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function tableFunction = createJavaUdtf(
+                    "existing_table_function_pair_db", "existing_table_pair_fn", Type.INT);
+            db.addTableFunction(tableFunction, true);
+
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionLogsPairAtomically() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database atomic_table_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("atomic_table_function_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("atomic_table_function_db"), Mockito.any(Function.class)))
+                    .thenReturn(true);
+            Function tableFunction = createJavaUdtf("atomic_table_function_db", "atomic_table_fn", Type.INT);
+
+            db.addTableFunction(tableFunction, false);
+
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog).logAddFunctions(Mockito.argThat(functions ->
+                    functions.size() == 2
+                            && "atomic_table_fn".equals(functions.get(0).functionName())
+                            && "atomic_table_fn_outer".equals(functions.get(1).functionName())));
+            Assert.assertSame(tableFunction, db.getFunction(searchDesc(tableFunction)));
+            Assert.assertNotNull(db.getFunction(searchDesc("atomic_table_function_db", "atomic_table_fn_outer",
+                    Type.INT)));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionJournalReplayRestoresPair() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database replay_table_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("replay_table_function_db");
+        Assert.assertNotNull(db);
+
+        Function tableFunction = createJavaUdtf("replay_table_function_db", "replay_table_fn", Type.INT);
+        Function outerFunction = createOuterTableFunction(tableFunction);
+        JournalEntity journalEntity = new JournalEntity();
+        journalEntity.setOpCode(OperationType.OP_ADD_FUNCTIONS);
+        journalEntity.setData(new CreateFunctionInfo(ImmutableList.of(tableFunction, outerFunction)));
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        journalEntity.write(new DataOutputStream(outputStream));
+        JournalEntity replayJournalEntity = new JournalEntity();
+        replayJournalEntity.readFields(new DataInputStream(new ByteArrayInputStream(outputStream.toByteArray())));
+
+        Assert.assertEquals(OperationType.OP_ADD_FUNCTIONS, replayJournalEntity.getOpCode());
+        Assert.assertTrue(replayJournalEntity.getData() instanceof CreateFunctionInfo);
+        Assert.assertEquals(2, ((CreateFunctionInfo) replayJournalEntity.getData()).getFunctions().size());
+        EditLog.loadJournal(Env.getCurrentEnv(), 0L, replayJournalEntity);
+        Assert.assertNotNull(db.getFunction(searchDesc(tableFunction)));
+        Assert.assertNotNull(db.getFunction(searchDesc(outerFunction)));
+    }
+
+    @Test
+    public void testCreateGlobalFunctionRollbackOnlyFailedOverload() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        FunctionSearchDesc existingFunctionDesc = searchDesc(null, "rollback_global_fn", Type.INT);
+        FunctionSearchDesc failedFunctionDesc = searchDesc(null, "rollback_global_fn", Type.BIGINT);
+        globalFunctionMgr.dropFunction(existingFunctionDesc, true);
+        globalFunctionMgr.dropFunction(failedFunctionDesc, true);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddGlobalFunction(Mockito.any(Function.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Function existingFunction = createJavaUdf(null, "rollback_global_fn", Type.INT);
+            globalFunctionMgr.addFunction(existingFunction, false);
+            Assert.assertSame(existingFunction, globalFunctionMgr.getFunction(existingFunctionDesc));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function failedFunction = createJavaUdf(null, "rollback_global_fn", Type.BIGINT);
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    null, failedFunction)).thenThrow(new RuntimeException("global translate failed"));
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> globalFunctionMgr.addFunction(failedFunction, false));
+            Assert.assertEquals("global translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddGlobalFunction(Mockito.any(Function.class));
+            Assert.assertSame(existingFunction, globalFunctionMgr.getFunction(existingFunctionDesc));
+            Assert.assertThrows(AnalysisException.class, () -> globalFunctionMgr.getFunction(failedFunctionDesc));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any()));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+            globalFunctionMgr.dropFunction(existingFunctionDesc, true);
+            globalFunctionMgr.dropFunction(failedFunctionDesc, true);
+        }
     }
 
     @Test
@@ -215,6 +536,12 @@ public class CreateFunctionTest {
         }
     }
 
+    private void assertCreateFunctionAnalysisException(ConnectContext ctx, String sql, String message) {
+        Exception exception = Assert.assertThrows(Exception.class, () -> createFunction(sql, ctx));
+        Assert.assertTrue("Expected error to contain: " + message + ", actual: " + exception.getMessage(),
+                exception.getMessage().contains(message));
+    }
+
     private boolean containsIgnoreCase(String str, String sub) {
         return str.toLowerCase().contains(sub.toLowerCase());
     }
@@ -226,5 +553,41 @@ public class CreateFunctionTest {
             }
         }
         throw new AssertionError("function not found: " + functionName);
+    }
+
+    private Function createJavaUdf(String dbName, String functionName, Type... argTypes) throws AnalysisException {
+        return ScalarFunction.createUdf(Function.BinaryType.JAVA_UDF, new FunctionName(dbName, functionName), argTypes,
+                Type.INT, false, URI.create("file:///tmp/" + functionName + ".jar"), "evaluate", null, null);
+    }
+
+    private Function createJavaUdtf(String dbName, String functionName, Type... argTypes) throws AnalysisException {
+        Function function = createJavaUdf(dbName, functionName, argTypes);
+        function.setUDTFunction(true);
+        return function;
+    }
+
+    private void assertSingleVariadicUdfBuilder(String dbName, String functionName) {
+        Map<String, List<FunctionBuilder>> builders = Env.getCurrentEnv().getFunctionRegistry()
+                .getName2UdfBuilders().get(dbName);
+        Assert.assertNotNull(builders);
+        List<FunctionBuilder> functionBuilders = builders.get(functionName);
+        Assert.assertNotNull(functionBuilders);
+        Assert.assertEquals(1, functionBuilders.size());
+        Assert.assertTrue(((UdfBuilder) functionBuilders.get(0)).hasVarArguments());
+    }
+
+    private Function createOuterTableFunction(Function function) {
+        Function outerFunction = function.clone();
+        FunctionName name = outerFunction.getFunctionName();
+        name.setFn(name.getFunction() + "_outer");
+        return outerFunction;
+    }
+
+    private FunctionSearchDesc searchDesc(Function function) {
+        return new FunctionSearchDesc(function.getFunctionName(), function.getArgs(), function.hasVarArgs());
+    }
+
+    private FunctionSearchDesc searchDesc(String dbName, String functionName, Type... argTypes) {
+        return new FunctionSearchDesc(new FunctionName(dbName, functionName), argTypes, false);
     }
 }

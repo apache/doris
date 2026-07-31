@@ -60,9 +60,6 @@ public:
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
-    }
     Status check_column(const IColumn& column) const override {
         return check_column_non_nested_type<ColumnVariant>(column);
     }

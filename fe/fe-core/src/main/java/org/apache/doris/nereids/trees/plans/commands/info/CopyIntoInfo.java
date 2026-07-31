@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -42,13 +43,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.S3PropertyUtils;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -58,6 +57,8 @@ import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -66,6 +67,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -75,9 +78,12 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -234,8 +240,10 @@ public class CopyIntoInfo {
         }
         PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
         List<Slot> slots = boundRelation.getOutput();
-        Scope scope = new Scope(slots);
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+        CopyIntoFileSlots fileSlots = new CopyIntoFileSlots(slots, copyFromDesc.getFileColumns(),
+                copyFromDesc.getColumnMappingList());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(fileSlots.getScopeSlots()),
+                cascadesContext, false, false);
 
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(((OlapScan) boundRelation).getTable());
@@ -248,13 +256,14 @@ public class CopyIntoInfo {
         if (copyFromDesc.getColumnMappingList() != null && !copyFromDesc.getColumnMappingList().isEmpty()) {
             legacyColumnMappingList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                legacyColumnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                legacyColumnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext,
+                        fileSlots));
             }
         }
         Expr legacyFileFilterExpr = null;
         if (copyFromDesc.getFileFilterExpr().isPresent()) {
             legacyFileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
+                    analyzer, context, cascadesContext, fileSlots);
         }
 
         String compression = copyIntoProperties.getCompression();
@@ -278,7 +287,7 @@ public class CopyIntoInfo {
         String path;
         for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
             path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
+            dataDescription.getFilePaths().set(i, convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
             dataDescription.getFilePaths().set(i, path);
         }
@@ -301,7 +310,7 @@ public class CopyIntoInfo {
     }
 
     private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,
-                                       CascadesContext cascadesContext) {
+                                       CascadesContext cascadesContext, CopyIntoFileSlots fileSlots) {
         Expression expression;
         try {
             expression = analyzer.analyze(expr, new ExpressionRewriteContext(cascadesContext));
@@ -309,16 +318,99 @@ public class CopyIntoInfo {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("In where clause '"
                     + expr.toSql() + "', " + Utils.convertFirstChar(e.getMessage()));
         }
-        ExpressionToExpr translator = new ExpressionToExpr();
+        ExpressionToExpr translator = new ExpressionToExpr(fileSlots);
         return expression.accept(translator, context);
     }
 
     private static class ExpressionToExpr extends ExpressionTranslator {
+        private final CopyIntoFileSlots fileSlots;
+
+        private ExpressionToExpr(CopyIntoFileSlots fileSlots) {
+            this.fileSlots = fileSlots;
+        }
+
+        @Override
+        public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            String fileSlotName = fileSlots.getFileSlotName(slotReference.getExprId());
+            if (fileSlotName != null) {
+                return new SlotRef(null, fileSlotName);
+            }
+            return super.visitSlotReference(slotReference, context);
+        }
+
         @Override
         public Expr visitCast(Cast cast, PlanTranslatorContext context) {
             // left child of cast is target type, right child of cast is expression
             return new CastExpr(cast.getDataType().toCatalogDataType(),
                     cast.child().accept(this, context), cast.nullable());
+        }
+    }
+
+    private static class CopyIntoFileSlots {
+        private final List<Slot> scopeSlots;
+        private final Map<ExprId, String> fileSlotNames = Maps.newHashMap();
+
+        private CopyIntoFileSlots(List<Slot> targetSlots, List<String> fileColumns,
+                List<Expression> columnMappingList) {
+            scopeSlots = new ArrayList<>(targetSlots);
+            if (fileColumns == null) {
+                return;
+            }
+            Map<String, DataType> targetColumnTypes = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (Slot slot : targetSlots) {
+                targetColumnTypes.put(slot.getName(), slot.getDataType());
+            }
+            Map<String, DataType> fileColumnTypes = inferFileColumnTypes(targetColumnTypes, columnMappingList);
+            for (String fileColumn : fileColumns) {
+                if (!isFileColumnPlaceholder(fileColumn) || fileSlotNames.containsValue(fileColumn)) {
+                    continue;
+                }
+                SlotReference slot = new SlotReference(fileColumn,
+                        fileColumnTypes.getOrDefault(fileColumn, StringType.INSTANCE), true);
+                scopeSlots.add(slot);
+                fileSlotNames.put(slot.getExprId(), fileColumn);
+            }
+        }
+
+        private List<Slot> getScopeSlots() {
+            return scopeSlots;
+        }
+
+        private String getFileSlotName(ExprId exprId) {
+            return fileSlotNames.get(exprId);
+        }
+
+        private static boolean isFileColumnPlaceholder(String columnName) {
+            return columnName != null && columnName.startsWith("$");
+        }
+
+        private static Map<String, DataType> inferFileColumnTypes(Map<String, DataType> targetColumnTypes,
+                List<Expression> columnMappingList) {
+            Map<String, DataType> fileColumnTypes = Maps.newHashMap();
+            if (columnMappingList == null) {
+                return fileColumnTypes;
+            }
+            for (Expression expression : columnMappingList) {
+                if (!(expression instanceof EqualTo)) {
+                    continue;
+                }
+                EqualTo columnMapping = (EqualTo) expression;
+                if (!(columnMapping.left() instanceof UnboundSlot)) {
+                    continue;
+                }
+                DataType targetType = targetColumnTypes.get(((UnboundSlot) columnMapping.left()).getName());
+                if (targetType == null) {
+                    continue;
+                }
+                for (UnboundSlot fileColumn : columnMapping.right()
+                        .<UnboundSlot>collect(UnboundSlot.class::isInstance)) {
+                    String fileColumnName = fileColumn.getName();
+                    if (isFileColumnPlaceholder(fileColumnName)) {
+                        fileColumnTypes.putIfAbsent(fileColumnName, targetType);
+                    }
+                }
+            }
+            return fileColumnTypes;
         }
     }
 
@@ -329,17 +421,19 @@ public class CopyIntoInfo {
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
         stagePrefix = objInfo.getPrefix();
         objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
-        brokerProperties.put(S3Properties.Env.ENDPOINT, objInfo.getEndpoint());
-        brokerProperties.put(S3Properties.Env.REGION, objInfo.getRegion());
-        brokerProperties.put(S3Properties.Env.ACCESS_KEY, objectInfo.getAk());
-        brokerProperties.put(S3Properties.Env.SECRET_KEY, objectInfo.getSk());
+        // Exact literals of the legacy S3Properties.Env.* constants.
+        brokerProperties.put("AWS_ENDPOINT", objInfo.getEndpoint());
+        brokerProperties.put("AWS_REGION", objInfo.getRegion());
+        brokerProperties.put("AWS_ACCESS_KEY", objectInfo.getAk());
+        brokerProperties.put("AWS_SECRET_KEY", objectInfo.getSk());
         if (objectInfo.getToken() != null) {
-            brokerProperties.put(S3Properties.Env.TOKEN, objectInfo.getToken());
+            brokerProperties.put("AWS_TOKEN", objectInfo.getToken());
         }
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
         // S3 Provider properties should be case insensitive.
-        brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
+        // "provider" is the exact literal of the legacy StorageProperties.FS_PROVIDER_KEY.
+        brokerProperties.put("provider", objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.validate();
@@ -415,5 +509,17 @@ public class CopyIntoInfo {
 
     public String getPattern() {
         return this.legacyCopyFromParam.getStageAndPattern().getPattern();
+    }
+
+    /** Direct copy of the legacy {@code S3PropertyUtils.convertPathToS3} pure function. */
+    private static String convertPathToS3(String path) {
+        try {
+            URI orig = new URI(path);
+            URI s3url = new URI("s3", orig.getRawAuthority(),
+                    orig.getRawPath(), orig.getRawQuery(), orig.getRawFragment());
+            return s3url.toString();
+        } catch (URISyntaxException e) {
+            return path;
+        }
     }
 }

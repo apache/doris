@@ -287,6 +287,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         int deleteSign = -1;
         int sequenceCol = -1;
+        int commitTsoCol = -1;
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
             if (column.isDeleteSignColumn()) {
@@ -295,9 +296,13 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (column.isSequenceColumn()) {
                 sequenceCol = i;
             }
+            if (column.isCommitTsoColumn()) {
+                commitTsoCol = i;
+            }
         }
         schemaBuilder.setDeleteSignIdx(deleteSign);
         schemaBuilder.setSequenceColIdx(sequenceCol);
+        schemaBuilder.setCommitTsoColIdx(commitTsoCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {
@@ -333,15 +338,20 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
         }
 
-        // Enable external column meta layout when storage_format is V3 (Cloud mode).
+        // Persist the storage format directly on the schema so the BE doesn't have to
+        // derive it from the three legacy flags below on the way back from MS. The flags
+        // are still written for backward-compat with BEs that predate the storage_format
+        // schema field; both representations agree on every V3 tablet.
         switch (storageFormat) {
             case V3:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V3);
                 schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
                 schemaBuilder.setIntegerTypeDefaultUsePlainEncoding(true);
                 schemaBuilder.setBinaryPlainEncodingDefaultImpl(
                         OlapFile.BinaryPlainEncodingTypePB.BINARY_PLAIN_ENCODING_V2);
                 break;
             default:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V2);
                 break;
         }
 

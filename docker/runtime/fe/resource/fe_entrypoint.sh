@@ -39,6 +39,10 @@ FE_MASTER=
 POD_INDEX=
 # probe interval: 2 seconds
 PROBE_INTERVAL=2
+# timeout for fqdn ready check.
+DNS_READY_TIMEOUT=${DNS_READY_TIMEOUT:-120}
+# interval for fqdn ready check.
+DNS_READY_INTERVAL=${DNS_READY_INTERVAL:-2}
 # timeout for probe master: 60 seconds
 PROBE_MASTER_POD0_TIMEOUT=60 # at most 30 attempts, no less than the times needed for an election
 # no-0 ordinal pod timeout for probe master: 90 times
@@ -140,6 +144,33 @@ collect_env_info()
         doris_meta_path="/opt/apache-doris/fe/doris-meta"
     fi
     DORIS_META_DIR=$doris_meta_path
+}
+
+wait_for_fqdn_ready()
+{
+    if [[ "x$START_TYPE" != "xtrue" ]] ; then
+        return 0
+    fi
+
+    local fqdn=$POD_FQDN
+    local start=`date +%s`
+    while true
+    do
+        if getent hosts "$fqdn" >/dev/null 2>&1 || nslookup "$fqdn" >/dev/null 2>&1 ; then
+            log_stderr "[info] fqdn $fqdn is ready."
+            return 0
+        fi
+
+        local now=`date +%s`
+        let "expire=start+DNS_READY_TIMEOUT"
+        if [[ $expire -le $now ]] ; then
+            log_stderr "[error] timeout waiting fqdn ready: $fqdn"
+            return 1
+        fi
+
+        log_stderr "[info] fqdn $fqdn not ready, sleep ${DNS_READY_INTERVAL}s ..."
+        sleep $DNS_READY_INTERVAL
+    done
 }
 
 # get all registered fe in cluster.
@@ -575,6 +606,7 @@ fi
 #first upate config
 update_conf_from_configmap
 collect_env_info
+wait_for_fqdn_ready || exit 1
 mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret

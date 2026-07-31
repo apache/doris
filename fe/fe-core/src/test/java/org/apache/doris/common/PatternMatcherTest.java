@@ -98,6 +98,10 @@ public class PatternMatcherTest {
             Assert.assertFalse(matcher.match("my-abc-hostabc"));
             Assert.assertFalse(matcher.match("abcmy-abc-host"));
             Assert.assertTrue(matcher.match("my-%-host"));
+
+            matcher = PatternMatcher.createMysqlPattern("test_dropped_partition_field$partitions", false);
+            Assert.assertTrue(matcher.match("test_dropped_partition_field$partitions"));
+            Assert.assertFalse(matcher.match("test_dropped_partition_fieldapartitions"));
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }

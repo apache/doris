@@ -163,7 +163,7 @@ void primary_to_direct_mapping(Method* context, const ColumnRawPtrs& key_columns
     FieldType min_key = std::numeric_limits<FieldType>::max();
 
     size_t num_rows = key_columns[0]->size();
-    if (key_columns[0]->is_nullable()) {
+    if (is_column_nullable(*key_columns[0])) {
         const FieldType* input_keys = (FieldType*)assert_cast<const ColumnNullable*>(key_columns[0])
                                               ->get_nested_column_ptr()
                                               ->get_raw_data()

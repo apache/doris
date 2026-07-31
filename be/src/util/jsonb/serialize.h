@@ -41,6 +41,14 @@ public:
     static void block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
                                int num_cols, const DataTypeSerDeSPtrs& serdes,
                                const std::unordered_set<int32_t>& row_store_cids);
+    static void block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
+                               int num_cols, const DataTypeSerDeSPtrs& serdes,
+                               const std::unordered_set<int32_t>& row_store_cids, size_t row_pos,
+                               size_t num_rows);
+    static size_t block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
+                                 int num_cols, const DataTypeSerDeSPtrs& serdes,
+                                 const std::unordered_set<int32_t>& row_store_cids, size_t row_pos,
+                                 size_t num_rows, size_t max_bytes);
     // batch rows
     static Status jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
                                  const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,

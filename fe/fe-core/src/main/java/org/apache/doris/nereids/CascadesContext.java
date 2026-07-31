@@ -287,7 +287,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public TableCollectAndHookInitializer newTableCollector(boolean firstLevel) {
-        return new TableCollectAndHookInitializer(this, firstLevel);
+        return newTableCollector(firstLevel, false);
+    }
+
+    public TableCollectAndHookInitializer newTableCollector(boolean firstLevel, boolean enablePreloadRule) {
+        return new TableCollectAndHookInitializer(this, firstLevel, enablePreloadRule);
     }
 
     public Analyzer newAnalyzer() {
@@ -481,6 +485,14 @@ public class CascadesContext implements ScheduleContext {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return this.statementContext.getConsumerIdToFilters();
+    }
+
+    public void putConsumerIdToLimitRows(RelationId id, long rows) {
+        this.statementContext.getConsumerIdToLimitRows().merge(id, rows, Math::max);
+    }
+
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return this.statementContext.getConsumerIdToLimitRows();
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Multimap<Slot, Slot> producerSlotToConsumerSlot) {

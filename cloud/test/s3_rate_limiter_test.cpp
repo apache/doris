@@ -29,6 +29,10 @@
 
 using namespace doris::cloud;
 
+namespace doris {
+extern bvar::Adder<int64_t> s3_put_rate_limit_rejected_count;
+} // namespace doris
+
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";
     if (!doris::cloud::config::init(conf_file, true)) {
@@ -107,18 +111,79 @@ TEST(S3RateLimiterTest, ExceedLimit) {
 }
 
 TEST(S3RateLimiterHolderTest, BvarMetric) {
-    bvar::Adder<int64_t> rate_limit_ns("rate_limit_ns");
-    bvar::Adder<int64_t> rate_limit_exceed_req_num("rate_limit_exceed_req_num");
+    bvar::Adder<int64_t> rate_limit_sleep_ns("rate_limit_sleep_ns");
+    bvar::Adder<int64_t> rate_limit_sleep_count("rate_limit_sleep_count");
+    bvar::Adder<int64_t> rate_limit_rejected_count("rate_limit_rejected_count");
 
     auto rate_limiter_holder = doris::S3RateLimiterHolder(
-            125, 250, 500, doris::metric_func_factory(rate_limit_ns, rate_limit_exceed_req_num));
+            125, 250, 251,
+            doris::metric_func_factory(rate_limit_sleep_ns, rate_limit_sleep_count,
+                                       &rate_limit_rejected_count));
     int64_t sleep_time = rate_limiter_holder.add(250);
     EXPECT_EQ(sleep_time, 0);
-    EXPECT_EQ(rate_limit_ns.get_value(), 0);
-    EXPECT_EQ(rate_limit_exceed_req_num.get_value(), 0);
+    EXPECT_EQ(rate_limit_sleep_ns.get_value(), 0);
+    EXPECT_EQ(rate_limit_sleep_count.get_value(), 0);
+    EXPECT_EQ(rate_limit_rejected_count.get_value(), 0);
 
     sleep_time = rate_limiter_holder.add(1);
-    EXPECT_GT(rate_limit_ns.get_value(), 0);
-    EXPECT_EQ(rate_limit_exceed_req_num.get_value(), 1);
     EXPECT_GT(sleep_time, 0);
+    EXPECT_GT(rate_limit_sleep_ns.get_value(), 0);
+    EXPECT_EQ(rate_limit_sleep_count.get_value(), 1);
+    EXPECT_EQ(rate_limit_rejected_count.get_value(), 0);
+
+    sleep_time = rate_limiter_holder.add(1);
+    EXPECT_EQ(sleep_time, -1);
+    EXPECT_EQ(rate_limit_rejected_count.get_value(), 1);
+}
+
+TEST(S3RateLimiterHolderTest, ApplyS3RateLimitRecordsRejectedMetric) {
+    auto rate_limiter_holder = doris::S3RateLimiterHolder(
+            125, 250, 1, doris::s3_rate_limiter_metric_func(doris::S3RateLimitType::PUT));
+    auto rejected_count = doris::s3_put_rate_limit_rejected_count.get_value();
+
+    int64_t sleep_time =
+            doris::apply_s3_rate_limit(doris::S3RateLimitType::PUT, &rate_limiter_holder, 1);
+    EXPECT_EQ(sleep_time, 0);
+    EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count);
+
+    sleep_time = doris::apply_s3_rate_limit(doris::S3RateLimitType::PUT, &rate_limiter_holder, 1);
+    EXPECT_EQ(sleep_time, -1);
+    EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count + 1);
+}
+
+TEST(S3RateLimiterHolderTest, ConcurrentResetReturnsConsistentConfig) {
+    constexpr size_t config_a_speed = 101;
+    constexpr size_t config_a_burst = 102;
+    constexpr size_t config_a_limit = 103;
+    constexpr size_t config_b_speed = 201;
+    constexpr size_t config_b_burst = 202;
+    constexpr size_t config_b_limit = 203;
+
+    doris::S3RateLimiterHolder rate_limiter_holder(config_a_speed, config_a_burst, config_a_limit,
+                                                   [](int64_t) {});
+    std::atomic<bool> start {false};
+    std::thread reset_thread([&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        for (size_t i = 0; i < 10000; ++i) {
+            if (i % 2 == 0) {
+                rate_limiter_holder.reset(config_b_speed, config_b_burst, config_b_limit);
+            } else {
+                rate_limiter_holder.reset(config_a_speed, config_a_burst, config_a_limit);
+            }
+        }
+    });
+
+    start.store(true, std::memory_order_release);
+    for (size_t i = 0; i < 10000; ++i) {
+        auto result = rate_limiter_holder.add_with_config(0);
+        bool is_config_a = result.max_speed == config_a_speed &&
+                           result.max_burst == config_a_burst && result.limit == config_a_limit;
+        bool is_config_b = result.max_speed == config_b_speed &&
+                           result.max_burst == config_b_burst && result.limit == config_b_limit;
+        EXPECT_TRUE(is_config_a || is_config_b);
+    }
+
+    reset_thread.join();
 }

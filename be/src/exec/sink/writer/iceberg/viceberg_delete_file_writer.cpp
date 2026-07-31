@@ -19,12 +19,28 @@
 
 #include <fmt/format.h>
 
+#include "format/table/iceberg/schema.h"
+#include "format/table/iceberg/types.h"
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_transformer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+
+// Iceberg reserved field IDs for position delete files.
+constexpr int POSITION_DELETE_FILE_PATH_ID = 2147483546;
+constexpr int POSITION_DELETE_POS_ID = 2147483545;
+
+std::unique_ptr<iceberg::Schema> build_position_delete_schema() {
+    std::vector<iceberg::NestedField> fields;
+    fields.reserve(2);
+    fields.emplace_back(false, POSITION_DELETE_FILE_PATH_ID, "file_path",
+                        std::make_unique<iceberg::StringType>(), std::nullopt);
+    fields.emplace_back(false, POSITION_DELETE_POS_ID, "pos", std::make_unique<iceberg::LongType>(),
+                        std::nullopt);
+    return std::make_unique<iceberg::Schema>(std::move(fields));
+}
 
 VIcebergDeleteFileWriter::VIcebergDeleteFileWriter(TFileContent::type delete_type,
                                                    const std::string& output_path,
@@ -46,6 +62,7 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
     if (_delete_type != TFileContent::POSITION_DELETES) {
         return Status::NotSupported("Iceberg delete file writer only supports position deletes");
     }
+    _position_delete_schema = build_position_delete_schema();
 
     _state = state;
 
@@ -76,6 +93,10 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
         case TFileCompressType::ZSTD:
             parquet_compression_type = TParquetCompressionType::ZSTD;
             break;
+        case TFileCompressType::LZ4BLOCK:
+            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
+            break;
         default:
             return Status::InternalError("Unsupported compress type {} with parquet",
                                          to_string(_compress_type));
@@ -83,15 +104,15 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
 
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, false};
-        _file_format_transformer.reset(new VParquetTransformer(state, _file_writer.get(),
-                                                               output_exprs, column_names, false,
-                                                               parquet_options, nullptr, nullptr));
+        _file_format_transformer.reset(new VParquetTransformer(
+                state, _file_writer.get(), output_exprs, column_names, false, parquet_options,
+                nullptr, _position_delete_schema.get()));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer.reset(new VOrcTransformer(state, _file_writer.get(), output_exprs,
                                                            "", column_names, false, _compress_type,
-                                                           nullptr));
+                                                           _position_delete_schema.get()));
         return _file_format_transformer->open();
     }
     default:

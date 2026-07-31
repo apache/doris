@@ -368,7 +368,15 @@ protected:
 
     void block_create(TabletSchemaSPtr tablet_schema, Block* block) {
         block->clear();
-        Schema schema(tablet_schema);
+        size_t num_columns = tablet_schema->num_columns();
+        if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
+            --num_columns;
+        }
+        std::vector<ColumnId> schema_column_ids(num_columns);
+        for (uint32_t cid = 0; cid < num_columns; ++cid) {
+            schema_column_ids[cid] = cid;
+        }
+        Schema schema(tablet_schema->columns(), schema_column_ids);
         const auto& column_ids = schema.column_ids();
         for (size_t i = 0; i < schema.num_column_ids(); ++i) {
             auto column_desc = schema.column(column_ids[i]);

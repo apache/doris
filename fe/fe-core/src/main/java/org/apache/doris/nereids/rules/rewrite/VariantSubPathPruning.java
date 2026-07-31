@@ -386,7 +386,8 @@ public class VariantSubPathPruning implements CustomRewriter {
                                     .withChildren(context.elementAtToSlotMap.get(child));
                         } else {
                             addOthers = false;
-                            newProjection = projection;
+                            newProjection = (NamedExpression) projection
+                                    .withChildren(ExpressionUtils.replace(child, context.elementAtToSlotMap));
 
                             // try push element_at on this slot
                             if (extractSlotToSubPathPair((ElementAt) child) == null) {

@@ -29,7 +29,9 @@ suite("test_stream_consumption_schema") {
         DUPLICATE KEY(`sid`)
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
 
@@ -37,7 +39,6 @@ suite("test_stream_consumption_schema") {
         CREATE STREAM `s1` ON TABLE tbl1
         COMMENT 'test stream 1'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
@@ -46,7 +47,6 @@ suite("test_stream_consumption_schema") {
         CREATE STREAM `s2` ON TABLE tbl1
         COMMENT 'test stream 2'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'false'
         );
     """
@@ -66,7 +66,9 @@ suite("test_stream_consumption_schema") {
         )    
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
 
@@ -78,7 +80,6 @@ suite("test_stream_consumption_schema") {
         CREATE STREAM `s3` ON TABLE tbl2
         COMMENT 'test stream 3'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
@@ -87,7 +88,6 @@ suite("test_stream_consumption_schema") {
         CREATE STREAM `s4` ON TABLE tbl2
         COMMENT 'test stream 4'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'false'
         );
     """
@@ -106,7 +106,9 @@ suite("test_stream_consumption_schema") {
         )    
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
 
@@ -118,7 +120,6 @@ suite("test_stream_consumption_schema") {
         CREATE STREAM `s5` ON TABLE tbl3
         COMMENT 'test stream 5'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
@@ -127,11 +128,10 @@ suite("test_stream_consumption_schema") {
         CREATE STREAM `s6` ON TABLE tbl3
         COMMENT 'test stream 6'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'false'
         );
     """
 
-    qt_sql "select DB_NAME,STREAM_NAME,UNIT,CONSUMPTION_STATUS,LAG,LAST_CONSUMPTION_TIME from information_schema.table_stream_consumption where DB_NAME = 'test_stream_consumption_db' order by STREAM_NAME, UNIT;"
+    qt_sql "select DB_NAME,STREAM_NAME,UNIT,LAG,LAST_CONSUMPTION_TIME from information_schema.table_stream_consumption where DB_NAME = 'test_stream_consumption_db' order by STREAM_NAME, UNIT;"
     sql "DROP DATABASE IF EXISTS test_stream_consumption_db"
 }

@@ -17,12 +17,20 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.util.StreamingJobUtils;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -223,5 +231,359 @@ public class DataSourceConfigValidatorTest {
             props.put(DataSourceConfigKeys.SLOT_NAME, valid);
             DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
         }
+    }
+
+    @Test
+    public void testSnapshotSplitSizeAcceptsPositiveInteger() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, "8192");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testSnapshotSplitSizeRejectsNonNumeric() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, "abc");
+        assertReject(props);
+    }
+
+    @Test
+    public void testSnapshotSplitSizeRejectsZeroAndNegative() {
+        for (String v : new String[]{"0", "-1"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+            props.put(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE, v);
+            assertReject(props);
+        }
+    }
+
+    @Test
+    public void testSnapshotParallelismAcceptsPositiveInteger() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "4");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testSnapshotParallelismRejectsNonNumeric() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "abc");
+        assertReject(props);
+    }
+
+    @Test
+    public void testSnapshotParallelismRejectsZeroAndNegative() {
+        for (String v : new String[]{"0", "-2"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+            props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, v);
+            assertReject(props);
+        }
+    }
+
+    // ─── server_id ────────────────────────────────────────────────────────────
+
+    private static Map<String, String> serverIdInput(String value) {
+        Map<String, String> input = new HashMap<>();
+        input.put(DataSourceConfigKeys.SERVER_ID, value);
+        return input;
+    }
+
+    @Test
+    public void testServerIdAcceptsSingleValue() {
+        DataSourceConfigValidator.validateSource(serverIdInput("5400"), DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdAcceptsRange() {
+        DataSourceConfigValidator.validateSource(
+                serverIdInput("5400-5408"), DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdAcceptsRangeWithSpaces() {
+        DataSourceConfigValidator.validateSource(
+                serverIdInput("  5400 - 5408 "), DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdRejectsMalformed() {
+        // Each entry trips a different code path in parseServerIdRange.
+        String[] invalids = {
+                "abc",       // not numeric
+                "5400-",     // missing end
+                "-5408",     // missing start
+                "5400--",    // empty after second dash split
+                "5400-abc",  // non-numeric end
+                " ",         // blank
+                ""           // empty
+        };
+        for (String invalid : invalids) {
+            try {
+                DataSourceConfigValidator.validateSource(
+                        serverIdInput(invalid), DataSourceType.MYSQL.name());
+                Assert.fail("Expected IllegalArgumentException for server_id='" + invalid + "'");
+            } catch (IllegalArgumentException expected) {
+                Assert.assertTrue(
+                        "Error message should reference server_id, got: " + expected.getMessage(),
+                        expected.getMessage().contains("server_id"));
+            }
+        }
+    }
+
+    @Test
+    public void testServerIdRejectsZero() {
+        try {
+            DataSourceConfigValidator.validateSource(serverIdInput("0"), DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for server_id='0'");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdRejectsBackwardRange() {
+        try {
+            DataSourceConfigValidator.validateSource(
+                    serverIdInput("5408-5400"), DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for server_id='5408-5400'");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdRejectsNegative() {
+        try {
+            DataSourceConfigValidator.validateSource(serverIdInput("-5"), DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for server_id='-5'");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdCrossFieldWidthRejected() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400-5402");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "8");
+        try {
+            DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+            Assert.fail("Expected IllegalArgumentException for range size 3 < parallelism 8");
+        } catch (IllegalArgumentException expected) {
+            String msg = expected.getMessage();
+            Assert.assertTrue("Message should reference snapshot_parallelism: " + msg,
+                    msg.contains("snapshot_parallelism"));
+            Assert.assertTrue("Message should reference server_id: " + msg,
+                    msg.contains("server_id"));
+        }
+    }
+
+    @Test
+    public void testServerIdCrossFieldWidthSinglePassesWhenParallelismOne() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400");
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "1");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdCrossFieldUsesDefaultParallelism() {
+        // No snapshot_parallelism set -> default ("1"). Single-value server_id passes.
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SERVER_ID, "5400");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testServerIdOptional() {
+        // server_id is optional; absence must not trip cross-field check.
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "4");
+        DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testOceanBaseAcceptsMysqlJdbcUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://localhost:2883/test_db");
+
+        DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
+    }
+
+    @Test
+    public void testOceanBaseAllowsPartialPropertiesWithoutJdbcUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+
+        DataSourceConfigValidator.validateSource(props, DataSourceType.OCEANBASE.name());
+    }
+
+    @Test
+    public void testOceanBaseRejectsNonMysqlJdbcUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:oceanbase://localhost:2883/test_db");
+
+        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                () -> DataSourceConfigValidator.validateSource(
+                        props, DataSourceType.OCEANBASE.name()));
+
+        Assert.assertTrue(exception.getMessage().contains("jdbc:mysql://"));
+    }
+
+    @Test
+    public void testOceanBaseRejectsPostgresProperties() {
+        for (String key : new String[] {
+                DataSourceConfigKeys.SCHEMA,
+                DataSourceConfigKeys.SLOT_NAME,
+                DataSourceConfigKeys.PUBLICATION_NAME}) {
+            Map<String, String> props = new HashMap<>();
+            props.put(key, "value");
+
+            IllegalArgumentException exception = Assert.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> DataSourceConfigValidator.validateSource(
+                            props, DataSourceType.OCEANBASE.name()));
+            Assert.assertTrue(exception.getMessage().contains(key));
+        }
+    }
+
+    @Test
+    public void testOceanBaseDoesNotExposeSchemaChangeEnabled() {
+        Map<String, String> props = new HashMap<>();
+        props.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
+
+        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                () -> DataSourceConfigValidator.validateSource(
+                        props, DataSourceType.OCEANBASE.name()));
+
+        Assert.assertTrue(exception.getMessage().contains(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED));
+    }
+
+    @Test
+    public void testOceanBaseSupportsEarliestOffset() {
+        Assert.assertTrue(DataSourceConfigValidator.isValidOffset(
+                DataSourceConfigKeys.OFFSET_EARLIEST, DataSourceType.OCEANBASE.name()));
+        Assert.assertFalse(DataSourceConfigValidator.isValidOffset(
+                DataSourceConfigKeys.OFFSET_EARLIEST, DataSourceType.POSTGRES.name()));
+    }
+
+    @Test
+    public void testCompatibilityModePreflightIsNoopForExistingSources() throws Exception {
+        DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                DataSourceType.MYSQL, new HashMap<>());
+        DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                DataSourceType.POSTGRES, new HashMap<>());
+    }
+
+    @Test
+    public void testOceanBaseMysqlCompatibilityModePasses() throws Exception {
+        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(true, "MYSQL");
+
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(
+                            Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
+                    .thenReturn(jdbcClient);
+
+            DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                    DataSourceType.OCEANBASE, new HashMap<>());
+        }
+
+        Mockito.verify(jdbcClient).closeClient();
+    }
+
+    @Test
+    public void testOceanBaseOracleCompatibilityModeIsRejected() throws Exception {
+        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(true, "ORACLE");
+
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(
+                            Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
+                    .thenReturn(jdbcClient);
+
+            JobException exception = Assert.assertThrows(JobException.class,
+                    () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                            DataSourceType.OCEANBASE, new HashMap<>()));
+            Assert.assertTrue(exception.getMessage().contains("Oracle compatibility mode"));
+        }
+
+        Mockito.verify(jdbcClient).closeClient();
+    }
+
+    @Test
+    public void testOceanBaseUnknownCompatibilityModeIsRejected() throws Exception {
+        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(true, "UNKNOWN");
+
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(
+                            Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
+                    .thenReturn(jdbcClient);
+
+            JobException exception = Assert.assertThrows(JobException.class,
+                    () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                            DataSourceType.OCEANBASE, new HashMap<>()));
+            Assert.assertTrue(exception.getMessage().contains("UNKNOWN"));
+        }
+
+        Mockito.verify(jdbcClient).closeClient();
+    }
+
+    @Test
+    public void testOceanBaseEmptyCompatibilityModeResultIsRejected() throws Exception {
+        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(false, null);
+
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(
+                            Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
+                    .thenReturn(jdbcClient);
+
+            JobException exception = Assert.assertThrows(JobException.class,
+                    () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                            DataSourceType.OCEANBASE, new HashMap<>()));
+            Assert.assertTrue(exception.getMessage().contains("Failed to determine"));
+        }
+
+        Mockito.verify(jdbcClient).closeClient();
+    }
+
+    @Test
+    public void testOceanBaseCompatibilityModeQueryFailurePreservesCause() throws Exception {
+        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
+        Connection connection = Mockito.mock(Connection.class);
+        Mockito.when(jdbcClient.getConnection()).thenReturn(connection);
+        Mockito.when(connection.createStatement()).thenThrow(new IllegalStateException("query failed"));
+
+        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+            utils.when(() -> StreamingJobUtils.getJdbcClient(
+                            Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
+                    .thenReturn(jdbcClient);
+
+            JobException exception = Assert.assertThrows(JobException.class,
+                    () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                            DataSourceType.OCEANBASE, new HashMap<>()));
+            Assert.assertTrue(exception.getMessage().contains("query failed"));
+            Assert.assertNotNull(exception.getCause());
+        }
+
+        Mockito.verify(jdbcClient).closeClient();
+    }
+
+    private JdbcClient mockOceanBaseCompatibilityMode(boolean hasResult, String mode)
+            throws Exception {
+        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
+        Connection connection = Mockito.mock(Connection.class);
+        Statement statement = Mockito.mock(Statement.class);
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        Mockito.when(jdbcClient.getConnection()).thenReturn(connection);
+        Mockito.when(connection.createStatement()).thenReturn(statement);
+        Mockito.when(statement.executeQuery("SHOW VARIABLES LIKE 'ob_compatibility_mode'"))
+                .thenReturn(resultSet);
+        Mockito.when(resultSet.next()).thenReturn(hasResult);
+        Mockito.when(resultSet.getString(2)).thenReturn(mode);
+        return jdbcClient;
     }
 }

@@ -330,11 +330,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             doPartitionTable();
         } else {
             Map<String, String> params = buildSqlParams();
-            params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
-            params.put("subStringColName", getStringTypeColName(col));
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+            if (shouldCollectHotValue()) {
+                params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+                params.put("subStringColName", getStringTypeColName(col));
+                params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+                runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
+            } else {
+                runQuery(stringSubstitutor.replace(FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE));
+            }
         }
     }
 

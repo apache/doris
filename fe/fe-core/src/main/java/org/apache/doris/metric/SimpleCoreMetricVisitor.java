@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 /*
@@ -126,6 +127,11 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
                 String.format("%.0f", snapshot.get95thPercentile()))).append("\n");
         sb.append(Joiner.on(" ").join(prefix + name + "_99", CORE_METRICS.get(name),
                 String.format("%.0f", snapshot.get99thPercentile()))).append("\n");
+    }
+
+    @Override
+    public void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels) {
+        visitHistogram(prefix, name, histogram);
     }
 
     @Override

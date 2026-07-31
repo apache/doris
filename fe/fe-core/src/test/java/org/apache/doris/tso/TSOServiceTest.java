@@ -53,7 +53,7 @@ public class TSOServiceTest {
     private int originalMaxGetTSORetryCount;
     private int originalMaxUpdateRetryCount;
     private int originalUpdateIntervalMs;
-    private boolean originalEnableTsoPersistJournal;
+    private boolean originalEnableFeatureBinlog;
     private long originalClockBackwardThresholdMs;
 
     @Before
@@ -63,13 +63,13 @@ public class TSOServiceTest {
         originalMaxGetTSORetryCount = Config.tso_max_get_retry_count;
         originalMaxUpdateRetryCount = Config.tso_max_update_retry_count;
         originalUpdateIntervalMs = Config.tso_service_update_interval_ms;
-        originalEnableTsoPersistJournal = Config.enable_tso_persist_journal;
+        originalEnableFeatureBinlog = Config.enable_feature_binlog;
         originalClockBackwardThresholdMs = Config.tso_clock_backward_startup_threshold_ms;
 
         Config.tso_max_get_retry_count = 1;
         Config.tso_max_update_retry_count = 1;
         Config.tso_service_update_interval_ms = 1;
-        Config.enable_tso_persist_journal = true;
+        Config.enable_feature_binlog = true;
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
@@ -84,7 +84,7 @@ public class TSOServiceTest {
         Config.tso_max_get_retry_count = originalMaxGetTSORetryCount;
         Config.tso_max_update_retry_count = originalMaxUpdateRetryCount;
         Config.tso_service_update_interval_ms = originalUpdateIntervalMs;
-        Config.enable_tso_persist_journal = originalEnableTsoPersistJournal;
+        Config.enable_feature_binlog = originalEnableFeatureBinlog;
         Config.tso_clock_backward_startup_threshold_ms = originalClockBackwardThresholdMs;
     }
 
@@ -104,9 +104,9 @@ public class TSOServiceTest {
 
     @Test
     public void testGetTSOThrowsWhenEnvNotReady() {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(false);
             try {
@@ -116,15 +116,15 @@ public class TSOServiceTest {
                 Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
             }
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testGetTSOThrowsWhenNotCalibrated() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
             try {
@@ -134,15 +134,15 @@ public class TSOServiceTest {
                 Assert.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testGetTSOThrowsOnLogicalOverflow() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -157,15 +157,15 @@ public class TSOServiceTest {
                 Assert.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
             }
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testGetTSOAcceptsLogicalCounterUpperBound() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -173,16 +173,16 @@ public class TSOServiceTest {
             long tso = tsoService.getTSO();
             Assert.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadySetsIntervalTo50WhenDisabled() {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
             setInitializedFlag(tsoService, true);
-            Config.enable_tso_feature = false;
+            Config.enable_feature_binlog = false;
             tsoService.runAfterCatalogReady();
             Assert.assertEquals(1L, tsoService.getInterval());
             try {
@@ -192,31 +192,30 @@ public class TSOServiceTest {
                 Assert.assertTrue(e.getMessage().contains("feature is disabled"));
             }
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyDoesNotResetFatalClockBackwardFlagWhenDisabled() {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = false;
+            Config.enable_feature_binlog = false;
             setFatalClockBackwardReportedFlag(tsoService, true);
 
             tsoService.runAfterCatalogReady();
 
             Assert.assertTrue(getFatalClockBackwardReportedFlag(tsoService));
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyUsesAtLeastOneRetryWhenConfigNonPositive() {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
-            Config.enable_tso_persist_journal = true;
+            Config.enable_feature_binlog = true;
             Config.tso_max_update_retry_count = 0;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -224,17 +223,17 @@ public class TSOServiceTest {
             tsoService.runAfterCatalogReady();
             Assert.assertTrue(tsoService.getTSO() > 0);
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyUpdateFailureDoesNotTouchMetricWhenNotInit() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         boolean originalMetricInit = MetricRepo.isInit;
         LongCounterMetric originalUpdateFailedMetric = MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             setInitializedFlag(tsoService, true);
             setGlobalTimestamp(tsoService, 100L, 1L);
             MetricRepo.isInit = false;
@@ -243,7 +242,7 @@ public class TSOServiceTest {
             Mockito.when(env.isMaster()).thenThrow(new RuntimeException("injected update failure"));
             tsoService.runAfterCatalogReady();
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
             MetricRepo.isInit = originalMetricInit;
             MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = originalUpdateFailedMetric;
         }
@@ -257,12 +256,10 @@ public class TSOServiceTest {
     }
 
     @Test
-    public void testSaveTSOPersistsWindowEndWhenFeatureDisabled() throws IOException {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
-        boolean originalEnableTsoCheckpointModule = Config.enable_tso_checkpoint_module;
+    public void testSaveTSOPersistsWindowEndWhenBinlogEnabled() throws IOException {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = false;
-            Config.enable_tso_checkpoint_module = true;
+            Config.enable_feature_binlog = true;
             long windowEnd = 12345L;
             tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
 
@@ -274,16 +271,15 @@ public class TSOServiceTest {
             Assert.assertEquals(windowEnd, checksum);
             Assert.assertEquals(windowEnd, recoveredService.getWindowEndTSO());
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
-            Config.enable_tso_checkpoint_module = originalEnableTsoCheckpointModule;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testSaveTSOSkipsWhenWindowEndIsZero() throws IOException {
-        boolean originalEnableTsoCheckpointModule = Config.enable_tso_checkpoint_module;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_checkpoint_module = true;
+            Config.enable_feature_binlog = true;
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             long checksum;
@@ -294,15 +290,15 @@ public class TSOServiceTest {
             Assert.assertEquals(7L, checksum);
             Assert.assertEquals(0, out.size());
         } finally {
-            Config.enable_tso_checkpoint_module = originalEnableTsoCheckpointModule;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
-    public void testWriteTimestampToBdbJeSkipsWhenEnvNotReady() throws Exception {
-        boolean originalEnableTsoPersistJournal = Config.enable_tso_persist_journal;
+    public void testWriteTimestampToBdbJeSkipsWhenBinlogDisabled() throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_persist_journal = false;
+            Config.enable_feature_binlog = false;
             EditLog editLog = Mockito.mock(EditLog.class);
             Mockito.when(env.isReady()).thenReturn(false);
             Mockito.when(env.getEditLog()).thenReturn(editLog);
@@ -310,7 +306,7 @@ public class TSOServiceTest {
             invokeWriteTimestampToBdbJe(tsoService, 123L);
             Mockito.verifyNoInteractions(editLog);
         } finally {
-            Config.enable_tso_persist_journal = originalEnableTsoPersistJournal;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
@@ -323,14 +319,12 @@ public class TSOServiceTest {
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(editLog.getJournal()).thenReturn(journal);
 
-        Config.enable_tso_persist_journal = true;
         invokeWriteTimestampToBdbJe(tsoService, 123L);
         Mockito.verify(editLog).logTSOTimestampWindowEnd(Mockito.any(TSOTimestamp.class));
     }
 
     @Test
     public void testWriteTimestampToBdbJeThrowsWhenEnabledAndEnvNotReady() throws Exception {
-        Config.enable_tso_persist_journal = true;
         Mockito.when(env.isReady()).thenReturn(false);
         try {
             invokeWriteTimestampToBdbJe(tsoService, 123L);
@@ -342,10 +336,9 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampThrowsWhenPersistWriteFailsAndKeepNotInitialized() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
-            Config.enable_tso_persist_journal = true;
+            Config.enable_feature_binlog = true;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
             Mockito.when(env.getEditLog()).thenReturn(null);
@@ -366,13 +359,12 @@ public class TSOServiceTest {
                 Assert.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testCalibrateTimestampThrowsWhenClockBackwardExceedsThreshold() throws Exception {
-        Config.enable_tso_persist_journal = true;
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long now = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
@@ -388,7 +380,6 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampResetsFatalClockBackwardReportedOnSuccess() throws Exception {
-        Config.enable_tso_persist_journal = true;
         setFatalClockBackwardReportedFlag(tsoService, true);
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
@@ -400,16 +391,11 @@ public class TSOServiceTest {
     }
 
     @Test
-    public void testCalibrateTimestampThrowsWhenPersistJournalDisabled() throws Exception {
-        Config.enable_tso_persist_journal = false;
-        Mockito.when(env.isReady()).thenReturn(true);
-        Mockito.when(env.isMaster()).thenReturn(true);
-        try {
-            invokeCalibrateTimestamp(tsoService);
-            Assert.fail();
-        } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("enable_tso_persist_journal=true"));
-        }
+    public void testRunAfterCatalogReadySkipsWhenBinlogDisabled() throws Exception {
+        Config.enable_feature_binlog = false;
+        setInitializedFlag(tsoService, true);
+        tsoService.runAfterCatalogReady();
+        Assert.assertEquals(0L, tsoService.getCurrentTSO());
     }
 
     @Test
@@ -427,23 +413,23 @@ public class TSOServiceTest {
 
     @Test
     public void testGenerateTSOReturnsZeroWhenDisabledOrNotInitialized() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
             setGlobalTimestamp(tsoService, 100L, 1L);
 
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             setInitializedFlag(tsoService, false);
             Pair<Long, Long> pairWhenNotInitialized = invokeGenerateTSO(tsoService);
             Assert.assertEquals(0L, (long) pairWhenNotInitialized.first);
             Assert.assertEquals(0L, (long) pairWhenNotInitialized.second);
 
-            Config.enable_tso_feature = false;
+            Config.enable_feature_binlog = false;
             setInitializedFlag(tsoService, true);
             Pair<Long, Long> pairWhenDisabled = invokeGenerateTSO(tsoService);
             Assert.assertEquals(0L, (long) pairWhenDisabled.first);
             Assert.assertEquals(0L, (long) pairWhenDisabled.second);
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 

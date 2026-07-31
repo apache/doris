@@ -43,7 +43,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -381,6 +381,9 @@ public class AnalysisManager implements Writable {
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(command.forceFull());
         infoBuilder.setUsingSqlForExternalTable(command.usingSqlForExternalTable());
+        AnalyzeProperties analyzeProperties = command.getAnalyzeProperties();
+        infoBuilder.setCollectHotValue((analyzeProperties.hasCollectHotValue()
+                && analyzeProperties.collectHotValue()) || analysisMethod == AnalysisMethod.SAMPLE);
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
@@ -1478,8 +1481,14 @@ public class AnalysisManager implements Writable {
         if (table instanceof OlapTable) {
             return true;
         }
-        return table instanceof HMSExternalTable
-                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+        // Additive: a flipped plain-hive table is a PluginDrivenExternalTable declaring SUPPORTS_SAMPLE_ANALYZE
+        // per-table (iceberg/hudi-on-HMS and native iceberg/paimon do NOT declare it). Keeps the legacy
+        // HMSExternalTable arm below live for the un-flipped path, like StatisticsUtil.supportAutoAnalyze.
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsSampleAnalyze()) {
+            return true;
+        }
+        return false;
     }
 
 

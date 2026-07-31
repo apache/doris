@@ -172,6 +172,25 @@ TEST_F(PackedFileWriterTest, SwitchToDirectWrite) {
     EXPECT_GT(inner_writer_ptr->append_calls(), 0);
 }
 
+TEST_F(PackedFileWriterTest, SwitchToDirectWriteReleasesBufferedMemory) {
+    Path file_path("switch_file_release_buffer");
+    auto* inner_writer_ptr = _inner_writer.get();
+    PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);
+
+    const size_t default_capacity = std::string().capacity();
+    std::string small_data(80, 'a');
+    Slice small_slice(small_data);
+    ASSERT_TRUE(writer.appendv(&small_slice, 1).ok());
+    EXPECT_GT(writer.buffer_capacity_for_test(), default_capacity);
+
+    std::string large_data(30, 'b');
+    Slice large_slice(large_data);
+    ASSERT_TRUE(writer.appendv(&large_slice, 1).ok());
+
+    EXPECT_GT(inner_writer_ptr->append_calls(), 0);
+    EXPECT_LE(writer.buffer_capacity_for_test(), default_capacity);
+}
+
 TEST_F(PackedFileWriterTest, CloseAsync) {
     Path file_path("async_file");
     PackedFileWriter writer(std::move(_inner_writer), file_path, _append_info);

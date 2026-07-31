@@ -119,6 +119,14 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     // set user ip
     auth->user_ip.assign(req.remote_host() != nullptr ? req.remote_host() : "");
 
+    auth->cert_pem = req.header(HTTP_HEADER_CLIENT_CERT_PEM);
+    auth->cert_subject = req.header(HTTP_HEADER_CLIENT_CERT_SUBJECT);
+    auth->cert_san = req.header(HTTP_HEADER_CLIENT_CERT_SAN);
+    auth->cert_issuer = req.header(HTTP_HEADER_CLIENT_CERT_ISSUER);
+    auth->cert_cipher = req.header(HTTP_HEADER_CLIENT_CERT_CIPHER);
+    auth->cert_validity_not_before = req.header(HTTP_HEADER_CLIENT_CERT_NOT_BEFORE);
+    auth->cert_validity_not_after = req.header(HTTP_HEADER_CLIENT_CERT_NOT_AFTER);
+
     return true;
 }
 

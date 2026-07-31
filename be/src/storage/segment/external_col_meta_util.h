@@ -26,6 +26,8 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "io/io_common.h"
+#include "storage/olap_common.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -79,7 +81,9 @@ public:
     // prefix sums.
     static Status read_col_meta(const io::FileReaderSPtr& file_reader,
                                 const SegmentFooterPB& footer, const ExternalMetaPointers& p,
-                                uint32_t col_id, ColumnMetaPB* out_meta);
+                                uint32_t col_id, ColumnMetaPB* out_meta,
+                                OlapReaderStatistics* stats = nullptr,
+                                const io::IOContext* source_io_ctx = nullptr);
 
     // Write external ColumnMetaPB contiguous region + footer pointers + column_meta_entries.
     // write_cb: a callback that appends slices to the underlying file (e.g., SegmentWriter::_write_raw_data).

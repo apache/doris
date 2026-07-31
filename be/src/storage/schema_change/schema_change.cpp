@@ -34,6 +34,7 @@
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
@@ -43,6 +44,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "exec/common/util.hpp"
 #include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
@@ -91,6 +93,48 @@ using namespace ErrorCode;
 
 constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
 
+namespace {
+
+bool nullable_column_contains_null(const ColumnPtr& column) {
+    const auto* null_map = VectorizedUtils::get_null_map(column);
+    DORIS_CHECK(null_map != nullptr);
+    if (is_column_const(*column)) {
+        return (*null_map)[0];
+    }
+    const auto* data = null_map->data();
+    const size_t rows = column->size();
+    for (size_t i = 0; i < rows; ++i) {
+        if (data[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool nullable_columns_have_different_null_maps(const ColumnPtr& lhs_column,
+                                               const ColumnPtr& rhs_column) {
+    const auto* lhs_null_map = VectorizedUtils::get_null_map(lhs_column);
+    const auto* rhs_null_map = VectorizedUtils::get_null_map(rhs_column);
+    DORIS_CHECK(lhs_null_map != nullptr);
+    DORIS_CHECK(rhs_null_map != nullptr);
+
+    const bool lhs_is_single = is_column_const(*lhs_column);
+    const bool rhs_is_single = is_column_const(*rhs_column);
+    const auto* lhs_data = lhs_null_map->data();
+    const auto* rhs_data = rhs_null_map->data();
+    const size_t rows = lhs_column->size();
+    for (size_t i = 0; i < rows; ++i) {
+        const auto lhs_null = lhs_is_single ? lhs_data[0] : lhs_data[i];
+        const auto rhs_null = rhs_is_single ? rhs_data[0] : rhs_data[i];
+        if (lhs_null != rhs_null) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 class MultiBlockMerger {
 public:
     MultiBlockMerger(BaseTabletSPtr tablet) : _tablet(tablet), _cmp(*tablet) {}
@@ -137,6 +181,10 @@ public:
                                 tablet_schema->column(i).name(),
                                 tablet_schema->column(i).aggregation());
                     }
+                    const auto* column = finalized_block.get_by_position(i).column.get();
+                    const IColumn* function_columns[] = {column};
+                    function->check_input_columns_type(function_columns);
+                    function->check_result_column_type(*column);
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -379,7 +427,7 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
             const auto& value = _schema_mapping[idx].default_value;
             auto column = new_block->get_by_position(idx).column->assert_mutable();
             if (value.is_null()) {
-                DCHECK(column->is_nullable());
+                DCHECK(is_column_nullable(*column));
                 column->insert_many_defaults(row_num);
             } else {
                 column = column->convert_to_predicate_column_if_dictionary();
@@ -396,8 +444,8 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
         auto& ref_col = ref_block->get_by_position(it.first).column;
         auto& new_col = new_block->get_by_position(it.second).column;
 
-        bool ref_col_nullable = ref_col->is_nullable();
-        bool new_col_nullable = new_col->is_nullable();
+        bool ref_col_nullable = is_column_nullable(*ref_col);
+        bool new_col_nullable = is_column_nullable(*new_col);
 
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
@@ -438,45 +486,34 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
 
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
-            const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
-                                               .get_null_map_column()
-                                               .get_data()
-                                               .data();
-
-            bool is_changed = false;
-            for (size_t i = 0; i < input_column->size(); i++) {
-                is_changed |= ref_null_map[i];
-            }
-            if (is_changed) {
+            if (nullable_column_contains_null(input_column)) {
                 return Status::DataQualityError(
                         "some null data is changed to not null, intput_column={}",
                         input_column->get_name());
             }
         } else {
-            const auto& output_nullable = assert_cast<const ColumnNullable&>(*output_column);
-            const auto& null_map_column = output_nullable.get_null_map_column();
-            const auto& nested_column = output_nullable.get_nested_column();
-            const auto* new_null_map = null_map_column.get_data().data();
+            if (const auto* output_nullable =
+                        check_and_get_column<ColumnNullable>(output_column.get())) {
+                const auto& null_map_column = output_nullable->get_null_map_column();
+                const auto& nested_column = output_nullable->get_nested_column();
 
-            if (null_map_column.size() != output_column->size()) {
-                return Status::InternalError(
-                        "null_map_column size mismatch output_column_size, "
-                        "null_map_column_size={}, output_column_size={}; input_column={}",
-                        null_map_column.size(), output_column->size(), input_column->get_name());
+                if (null_map_column.size() != output_column->size()) {
+                    return Status::InternalError(
+                            "null_map_column size mismatch output_column_size, "
+                            "null_map_column_size={}, output_column_size={}; input_column={}",
+                            null_map_column.size(), output_column->size(),
+                            input_column->get_name());
+                }
+
+                if (nested_column.size() != output_column->size()) {
+                    return Status::InternalError(
+                            "nested_column size is changed, nested_column_size={}, "
+                            "ouput_column_size={}; input_column={}",
+                            nested_column.size(), output_column->size(), input_column->get_name());
+                }
             }
 
-            if (nested_column.size() != output_column->size()) {
-                return Status::InternalError(
-                        "nested_column size is changed, nested_column_size={}, "
-                        "ouput_column_size={}; input_column={}",
-                        nested_column.size(), output_column->size(), input_column->get_name());
-            }
-
-            bool is_changed = false;
-            for (size_t i = 0; i < input_column->size(); i++) {
-                is_changed |= new_null_map[i];
-            }
-            if (is_changed) {
+            if (nullable_column_contains_null(output_column)) {
                 return Status::DataQualityError(
                         "some not null data is changed to null, intput_column={}",
                         input_column->get_name());
@@ -485,20 +522,7 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
     }
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
-        const auto* ref_null_map = assert_cast<const ColumnNullable&>(*input_column)
-                                           .get_null_map_column()
-                                           .get_data()
-                                           .data();
-        const auto* new_null_map = assert_cast<const ColumnNullable&>(*output_column)
-                                           .get_null_map_column()
-                                           .get_data()
-                                           .data();
-
-        bool is_changed = false;
-        for (size_t i = 0; i < input_column->size(); i++) {
-            is_changed |= (ref_null_map[i] != new_null_map[i]);
-        }
-        if (is_changed) {
+        if (nullable_columns_have_different_null_maps(input_column, output_column)) {
             return Status::DataQualityError(
                     "null map is changed after calculation, input_column={}",
                     input_column->get_name());
@@ -958,7 +982,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         std::lock_guard new_tablet_lock(_new_tablet->get_push_lock());
         std::lock_guard base_tablet_wlock(_base_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        std::lock_guard<std::shared_mutex> new_tablet_wlock(_new_tablet->get_header_lock());
+        std::lock_guard new_tablet_wlock(_new_tablet->get_header_lock());
 
         do {
             RowsetSharedPtr max_rowset;
@@ -1154,7 +1178,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
         } else {
             // set state to ready
-            std::lock_guard<std::shared_mutex> new_wlock(_new_tablet->get_header_lock());
+            std::lock_guard new_wlock(_new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             res = _new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {

@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_bitmap_function") {
+    def low_bitmap = "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32"
+    def overlap_bitmap = "32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64"
+    def disjoint_bitmap = "33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65"
+    def high_bitmap = "4294967296,4294967297,4294967298,4294967299,4294967300,4294967301,4294967302,4294967303,4294967304,4294967305,4294967306,4294967307,4294967308,4294967309,4294967310,4294967311,4294967312,4294967313,4294967314,4294967315,4294967316,4294967317,4294967318,4294967319,4294967320,4294967321,4294967322,4294967323,4294967324,4294967325,4294967326,4294967327,4294967328"
+    def two_map_bitmap = "${low_bitmap},${high_bitmap}"
+
     // BITMAP_AND
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt """
     qt_sql """ select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt """
@@ -39,10 +45,17 @@ suite("test_bitmap_function") {
     // BITMAP_HAS_ANY
     qt_sql """ select bitmap_has_any(to_bitmap(1),to_bitmap(2)) cnt """
     qt_sql """ select bitmap_has_any(to_bitmap(1),to_bitmap(1)) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${overlap_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${disjoint_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${high_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${two_map_bitmap}'), bitmap_from_string('${low_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_any(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${two_map_bitmap}')) cnt """
 
     // BITMAP_HAS_ALL
     qt_sql """ select bitmap_has_all(bitmap_from_string("0, 1, 2"), bitmap_from_string("1, 2")) cnt """
     qt_sql """ select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2")) cnt """
+    qt_sql """ select bitmap_has_all(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${low_bitmap}')) cnt """
+    qt_sql """ select bitmap_has_all(bitmap_from_string('${low_bitmap}'), bitmap_from_string('${overlap_bitmap}')) cnt """
 
     // BITMAP_HASH
     qt_sql_bitmap_hash1 """ select bitmap_count(bitmap_hash('hello')) """
@@ -294,13 +307,17 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_and_count4 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5')) """
     qt_sql_bitmap_and_count5 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),bitmap_empty()) """
     qt_sql_bitmap_and_count6 """ select bitmap_and_count(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL) """
+    qt_sql_bitmap_and_count_nulls """ select bitmap_and_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_and_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_and_count(cast(NULL as bitmap), cast(NULL as bitmap)) """
 
     // bitmap_or_count
     qt_sql_bitmap_or_count1 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_empty()) """
     qt_sql_bitmap_or_count2 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('1,2,3'))"""
     qt_sql_bitmap_or_count3 """ select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) """
+    qt_sql_bitmap_or_count_set_diff_length """ select bitmap_or_count(bitmap_from_string('1,2'), bitmap_from_string('2,3,4,5')) """
     qt_sql_bitmap_or_count4 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty()) """
     qt_sql_bitmap_or_count5 """ select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) """
+    qt_sql_bitmap_or_count_nulls """ select bitmap_or_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_or_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_or_count(cast(NULL as bitmap), cast(NULL as bitmap)) """
+    qt_sql_bitmap_or_count_nulls_multi """ select bitmap_or_count(cast(NULL as bitmap), bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), cast(NULL as bitmap)) """
 
     // BITMAP_XOR
     qt_sql """ select bitmap_count(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))) cnt """
@@ -316,6 +333,88 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_xor_count4 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'))) """
     qt_sql_bitmap_xor_count5 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),bitmap_empty())) """
     qt_sql_bitmap_xor_count6 """ select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'),bitmap_from_string('3,4,5'),NULL)) """
+    qt_sql_bitmap_xor_count_nulls """ select bitmap_xor_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_xor_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_xor_count(cast(NULL as bitmap), cast(NULL as bitmap)) """
+    qt_sql_bitmap_count_rewrite_nullable """ select bitmap_count(bitmap_or(cast(NULL as bitmap), bitmap_from_string('1,2,3'))), bitmap_or_count(cast(NULL as bitmap), bitmap_from_string('1,2,3')), bitmap_count(bitmap_and(bitmap_from_string('1,2,3'), cast(NULL as bitmap))), bitmap_and_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)), bitmap_count(bitmap_xor(bitmap_from_string('1,2,3'), cast(NULL as bitmap))), bitmap_xor_count(bitmap_from_string('1,2,3'), cast(NULL as bitmap)) """
+
+    sql """ DROP TABLE IF EXISTS test_bitmap_op_count_short_circuit """
+    sql """
+        CREATE TABLE test_bitmap_op_count_short_circuit (
+            id BIGINT NOT NULL,
+            lhs BITMAP NOT NULL,
+            rhs BITMAP NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "store_row_column" = "true",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_bitmap_op_count_short_circuit VALUES
+            (1, bitmap_from_string('1,2,3'), bitmap_from_string('3,4'))
+    """
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_short_circuit_query=true"
+    explain {
+        sql """
+            SELECT
+                bitmap_count(bitmap_and(lhs, rhs)),
+                bitmap_count(bitmap_or(lhs, rhs)),
+                bitmap_count(bitmap_xor(lhs, rhs)),
+                bitmap_count(bitmap_and_not(lhs, rhs))
+            FROM test_bitmap_op_count_short_circuit
+            WHERE id = 1
+        """
+        contains "SHORT-CIRCUIT"
+        contains "bitmap_and_count"
+        contains "bitmap_or_count"
+        contains "bitmap_xor_count"
+        contains "bitmap_and_not_count"
+    }
+    def shortCircuitResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, rhs)),
+            bitmap_count(bitmap_or(lhs, rhs)),
+            bitmap_count(bitmap_xor(lhs, rhs)),
+            bitmap_count(bitmap_and_not(lhs, rhs))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    sql "SET enable_short_circuit_query=false"
+    def regularResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, rhs)),
+            bitmap_count(bitmap_or(lhs, rhs)),
+            bitmap_count(bitmap_xor(lhs, rhs)),
+            bitmap_count(bitmap_and_not(lhs, rhs))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    check2_doris(shortCircuitResult, regularResult)
+
+    sql "SET enable_short_circuit_query=true"
+    def shortCircuitNullableResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_or(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_xor(lhs, CAST(NULL AS BITMAP)))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    sql "SET enable_short_circuit_query=false"
+    def regularNullableResult = sql """
+        SELECT
+            bitmap_count(bitmap_and(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_or(lhs, CAST(NULL AS BITMAP))),
+            bitmap_count(bitmap_xor(lhs, CAST(NULL AS BITMAP)))
+        FROM test_bitmap_op_count_short_circuit
+        WHERE id = 1
+    """
+    check2_doris(shortCircuitNullableResult, regularNullableResult)
+    sql "SET enable_short_circuit_query=true"
 
     // bitmap_and_count, bitmap_xor_count, bitmap_and_not_count of all nullable column
     sql """ DROP TABLE IF EXISTS test_bitmap1 """
@@ -777,6 +876,12 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_base64_nereids6 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32")))) """
     qt_sql_bitmap_base64_nereids7 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(bitmap_from_string("0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,4294967296")))) """
     qt_sql_bitmap_base64_nereids8 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(to_bitmap(1)))); """
+    // SET serialization order is not stable because it depends on hash-set iteration order.
+    // These fixed historical bytes verify from_base64 semantics rather than bitmap_to_base64 bytes.
+    qt_sql_bitmap_base64_history_set_v1 """ select bitmap_to_string(bitmap_from_base64("BQIBAAAAAAAAAH+WmAAAAAAA")); """
+    qt_sql_bitmap_base64_history_set_v1_reversed """ select bitmap_to_string(bitmap_from_base64("BQJ/lpgAAAAAAAEAAAAAAAAA")); """
+    qt_sql_bitmap_base64_history_set_v2_reversed """ select bitmap_to_string(bitmap_from_base64("CgIAAAB/lpgAAAAAAAEAAAAAAAAA")); """
+    qt_sql_bitmap_base64_history_set_v1_mixed """ select bitmap_to_string(bitmap_from_base64("BQX//////////wAAAAAAAAAAAAAAAAEAAAAHAAAAAAAAAAEAAAAAAAAA")); """
 
     // test nullable
     sql """ DROP TABLE IF EXISTS test_bitmap_base64 """ 

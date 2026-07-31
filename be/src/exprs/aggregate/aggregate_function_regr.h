@@ -496,8 +496,9 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& nullable_column = assert_cast<ColumnNullable&>(to);
-        auto& nested_column = assert_cast<ResultDataType&>(nullable_column.get_nested_column());
+        auto& nullable_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
+        auto& nested_column = assert_cast<ResultDataType&, TypeCheckOnRelease::DISABLE>(
+                nullable_column.get_nested_column());
         const Float64 result = this->data(place).get_result();
         if (std::isnan(result)) {
             nullable_column.get_null_map_data().push_back(1);
@@ -525,7 +526,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& result_column = assert_cast<ResultDataType&>(to);
+        auto& result_column = assert_cast<ResultDataType&, TypeCheckOnRelease::DISABLE>(to);
         result_column.get_data().push_back(this->data(place).get_result());
     }
 };

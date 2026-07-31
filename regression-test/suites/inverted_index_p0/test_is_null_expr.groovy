@@ -20,7 +20,7 @@ suite("test_is_null_expr", "p0, nonConcurrent") {
     // define a sql table
     def testTable = "test_is_null_expr"
 
-    sql """ DROP TABLE IF EXISTS ${testTable} """ 
+    sql """ DROP TABLE IF EXISTS ${testTable} """
     sql """
         CREATE TABLE ${testTable} (
           `k` int(11) NULL COMMENT "",
@@ -52,8 +52,8 @@ suite("test_is_null_expr", "p0, nonConcurrent") {
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql " set inverted_index_skip_threshold = 0 "
-          sql " set enable_common_expr_pushdown_for_inverted_index = true"
-          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_segment_limit_pushdown = true"
+          sql " set enable_segment_limit_pushdown = true"
           sql " set enable_parallel_scan = false"
           sql "sync"
           sql "${sqlQuery}"
@@ -62,7 +62,7 @@ suite("test_is_null_expr", "p0, nonConcurrent") {
           GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
       }
     }
-    
+
     queryAndCheck (" select * from ${testTable} where v2 is not null; ", 0)
     queryAndCheck (" select * from ${testTable} where v2 is not null or v3 = 'c'; ", 0)
     queryAndCheck (" select * from ${testTable} where v2 is null or v3 = 'c'; ", 2)

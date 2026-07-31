@@ -20,9 +20,12 @@ package org.apache.doris.backup;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -30,7 +33,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
@@ -108,7 +111,7 @@ public class BackupJobTest {
     private EditLog editLog = Mockito.mock(EditLog.class);
 
     private Repository repo = Mockito.spy(new Repository(repoId, "repo", false, "my_repo",
-            BrokerProperties.of("broker", Maps.newHashMap())));
+            StorageAdapter.ofBroker("broker", Maps.newHashMap())));
 
     private MockedStatic<Env> mockedEnvStatic;
     private MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor;
@@ -350,6 +353,32 @@ public class BackupJobTest {
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.FINISHED, job.getState());
+    }
+
+    @Test
+    public void testBackupCopyTableWithDirtyDynamicPartitionStorageMedium() {
+        Map<String, String> dirtyProperties = Maps.newHashMap();
+        dirtyProperties.put(DynamicPartitionProperty.STORAGE_MEDIUM, "hdd");
+        table2.setTableProperty(new TableProperty(dirtyProperties));
+
+        Assert.assertFalse(table2.dynamicPartitionExists());
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertNotNull(copied);
+        Assert.assertFalse(copied.dynamicPartitionExists());
+        Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
+    }
+
+    @Test
+    public void testBackupCopyTableWithDirtyDynamicPartitionStoragePolicy() {
+        Map<String, String> dirtyProperties = Maps.newHashMap();
+        dirtyProperties.put(DynamicPartitionProperty.STORAGE_POLICY, "test_policy");
+        table2.setTableProperty(new TableProperty(dirtyProperties));
+
+        Assert.assertFalse(table2.dynamicPartitionExists());
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertNotNull(copied);
+        Assert.assertFalse(copied.dynamicPartitionExists());
+        Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
     }
 
     /**

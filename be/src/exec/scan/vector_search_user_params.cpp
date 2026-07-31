@@ -23,13 +23,31 @@ namespace doris {
 bool VectorSearchUserParams::operator==(const VectorSearchUserParams& other) const {
     return hnsw_ef_search == other.hnsw_ef_search &&
            hnsw_check_relative_distance == other.hnsw_check_relative_distance &&
-           hnsw_bounded_queue == other.hnsw_bounded_queue && ivf_nprobe == other.ivf_nprobe;
+           hnsw_bounded_queue == other.hnsw_bounded_queue && ivf_nprobe == other.ivf_nprobe &&
+           ann_index_candidate_rows_threshold == other.ann_index_candidate_rows_threshold &&
+           ann_index_candidate_rows_percent_threshold ==
+                   other.ann_index_candidate_rows_percent_threshold;
+}
+
+bool VectorSearchUserParams::should_fallback_ann_index_by_small_candidate(
+        size_t candidate_rows, size_t rows_of_segment) const {
+    bool reach_absolute_threshold =
+            ann_index_candidate_rows_threshold > 0 &&
+            candidate_rows < static_cast<size_t>(ann_index_candidate_rows_threshold);
+    bool reach_percent_threshold = ann_index_candidate_rows_percent_threshold > 0 &&
+                                   static_cast<double>(candidate_rows) <
+                                           static_cast<double>(rows_of_segment) *
+                                                   ann_index_candidate_rows_percent_threshold;
+    return reach_absolute_threshold || reach_percent_threshold;
 }
 
 std::string VectorSearchUserParams::to_string() const {
     return fmt::format(
             "hnsw_ef_search: {}, hnsw_check_relative_distance: {}, "
-            "hnsw_bounded_queue: {}, ivf_nprobe: {}",
-            hnsw_ef_search, hnsw_check_relative_distance, hnsw_bounded_queue, ivf_nprobe);
+            "hnsw_bounded_queue: {}, ivf_nprobe: {}, "
+            "ann_index_candidate_rows_threshold: {}, "
+            "ann_index_candidate_rows_percent_threshold: {}",
+            hnsw_ef_search, hnsw_check_relative_distance, hnsw_bounded_queue, ivf_nprobe,
+            ann_index_candidate_rows_threshold, ann_index_candidate_rows_percent_threshold);
 }
 } // namespace doris

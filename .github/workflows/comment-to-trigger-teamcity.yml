@@ -234,6 +234,12 @@ jobs:
         # Matches .sh files under regression-test/pipeline/ but excludes files under conf/ subdirectories.
         source regression-test/pipeline/common/github-utils.sh
 
+        if [[ ! -f all_files ]]; then
+          echo "WARNING: all_files not found (GitHub API call likely failed in previous step)."
+          echo "Skipping sensitive check — previous step already defaulted to trigger-all."
+          exit 0
+        fi
+
         changed_sensitive=false
         while IFS= read -r f; do
           if [[ "${f}" == regression-test/pipeline/*.sh ||

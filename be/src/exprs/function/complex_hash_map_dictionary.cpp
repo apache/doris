@@ -146,7 +146,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
     std::vector<const ColumnNullable*> nullable_key_raw_columns;
     for (const auto& column : key_columns) {
         key_raw_columns.push_back(remove_nullable(column).get());
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             key_hash_nullable = true;
             nullable_key_raw_columns.push_back(assert_cast<const ColumnNullable*>(column.get()));
         }

@@ -38,8 +38,9 @@ public:
     }
 
     void set_partition_value(const std::string& col_name, const std::string& value,
-                             const SlotDescriptor* slot_desc) {
+                             const SlotDescriptor* slot_desc, bool is_null = false) {
         _fill_partition_values[col_name] = {value, slot_desc};
+        _fill_partition_value_is_null[col_name] = is_null;
     }
 };
 

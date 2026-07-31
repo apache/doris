@@ -480,7 +480,8 @@ private:
             /// If the probe key is null
             if constexpr (has_null_map) {
                 if (null_map[probe_idx]) {
-                    probe_idx++;
+                    build_idx = 0;
+                    picking_null_keys = false;
                     break;
                 }
             }

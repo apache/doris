@@ -62,9 +62,7 @@ public:
         auto* src_data_type_array =
                 assert_cast<const DataTypeArray*>(remove_nullable(src_data_type).get());
 
-        auto result_column_offsets = assert_cast<const ColumnArray::ColumnOffsets&>(
-                                             src_column_array_ptr->get_offsets_column())
-                                             .clone();
+        auto result_column_offsets = src_column_array_ptr->get_offsets_column().clone();
         auto* offsets = assert_cast<ColumnArray::ColumnOffsets*>(result_column_offsets.get())
                                 ->get_data()
                                 .data();

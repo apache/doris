@@ -26,6 +26,7 @@
 #include "core/column/column_vector.h"
 #include "core/cow.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/typeid_cast.h"
@@ -57,6 +58,7 @@ private:
     ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_);
     struct SharedTag {};
     ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_);
+    ColumnNullable(MutableColumnPtr&& nested_column_, ColumnUInt8::MutablePtr&& null_map_);
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
@@ -66,6 +68,11 @@ public:
     using Base = COWHelper<IColumn, ColumnNullable>;
     static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
         return Base::create(SharedTag {}, nested_column_, null_map_);
+    }
+
+    static MutablePtr create(MutableColumnPtr&& nested_column_,
+                             ColumnUInt8::MutablePtr&& null_map_) {
+        return Base::create(std::move(nested_column_), std::move(null_map_));
     }
 
     template <typename... Args>
@@ -84,8 +91,6 @@ public:
         }
         _nested_column->sanity_check();
     }
-
-    void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return _nested_column->is_variable_length(); }
 
@@ -207,7 +212,8 @@ public:
 
     size_t filter(const Filter& filter) override;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
@@ -244,20 +250,24 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        callback(_nested_column);
-        callback(_null_map);
+    void mutate_subcolumns() override {
+        mutate_subcolumn(_nested_column);
+        mutate_subcolumn<ColumnUInt8>(_null_map);
+    }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const IColumn::Ptr&>(_nested_column));
+        callback(*static_cast<const ColumnUInt8::Ptr&>(_null_map));
     }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (const auto* rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
+        if (const auto* rhs_nullable = check_and_get_column<ColumnNullable>(&rhs)) {
             return _nested_column->structure_equals(*rhs_nullable->_nested_column);
         }
         return false;
     }
 
     bool is_nullable() const override { return true; }
-    bool is_concrete_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {
@@ -380,16 +390,16 @@ public:
     }
 
     // return the column that represents the byte map. if want use null_map, just call this.
-    const ColumnPtr& get_null_map_column_ptr() const { return _null_map; }
-    const ColumnUInt8& get_null_map_column() const {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
-    }
+    const ColumnUInt8::Ptr& get_null_map_column_ptr() const { return _null_map; }
+    const ColumnUInt8& get_null_map_column() const { return *_null_map; }
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
-    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assert_mutable(); }
-    ColumnUInt8& get_null_map_column() {
-        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
+    ColumnUInt8::MutablePtr get_null_map_column_ptr() {
+        auto null_map = _null_map->assert_mutable();
+        return ColumnUInt8::cast_to_column_mutptr(
+                assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get()));
     }
+    ColumnUInt8& get_null_map_column() { return *_null_map; }
     NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
 
     // push not null value wouldn't change the nullity. no need to update _has_null
@@ -403,8 +413,8 @@ private:
     template <bool negative>
     void apply_null_map_impl(const ColumnUInt8& map);
 
-    WrappedPtr _nested_column;
-    WrappedPtr _null_map;
+    IColumn::WrappedPtr _nested_column;
+    ColumnUInt8::WrappedPtr _null_map;
 };
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);

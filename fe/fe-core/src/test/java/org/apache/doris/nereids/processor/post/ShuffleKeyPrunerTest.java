@@ -60,6 +60,7 @@ class ShuffleKeyPrunerTest extends TestWithFeService {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setParallelResultSink(false);
         connectContext.getSessionVariable().enableShuffleKeyPrune = true;
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `a` int(11) NULL,\n"

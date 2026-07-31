@@ -127,7 +127,7 @@ template <PrimitiveType T, typename Name, bool is_stddev>
 struct PopData : BaseData<T, is_stddev>, Name {
     using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColVecResult&>(to);
+        auto& col = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to);
         if constexpr (is_decimal(T)) {
             col.get_data().push_back(this->get_pop_result().value());
         } else {
@@ -146,7 +146,7 @@ template <PrimitiveType T, typename Name, bool is_stddev>
 struct SampData : BaseData<T, is_stddev>, Name {
     using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
-        auto& col = assert_cast<ColVecResult&>(to);
+        auto& col = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to);
         if (this->count == 1 || this->count == 0) {
             col.insert_default();
         } else {

@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_adjust_nullable') {
+    sql "set parallel_pipeline_task_num=2"
     // test AjustNullable not throw exception:
     // 'AdjustNullable convert slot xx from not-nullable to nullable. You can disable check by set fe_debug = false.'
     // NOTICE: the pipeline need set global fe_debug = true

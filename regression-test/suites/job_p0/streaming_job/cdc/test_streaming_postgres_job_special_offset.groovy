@@ -95,13 +95,13 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         sql """drop table if exists ${currentDb}.${table1} force"""
 
         // ===== Test 2: CREATE with initial, then ALTER with JSON LSN offset =====
-        // Pre-create a DUPLICATE KEY table so duplicate rows from re-consuming are visible
+        // UNIQUE KEY table: dedup at-least-once re-consume; this case only verifies ALTER offset LSN filtering.
         sql """
             CREATE TABLE IF NOT EXISTS ${currentDb}.${table1} (
                 `id` int NULL,
                 `name` varchar(100) NULL
             ) ENGINE=OLAP
-            DUPLICATE KEY(`id`)
+            UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
@@ -126,7 +126,7 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
             """
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1}"""
-            return result[0][0] >= 2
+            return result[0][0] >= 3
         })
         qt_select_after_create """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
@@ -143,6 +143,37 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             return jobStatus[0][0] == "PAUSED"
         })
+
+        // PAUSE cancels the FE task but does NOT stop the in-flight cdc_client reader started before
+        // the pause: it keeps polling up to max_interval (default 10s) and would stream-load whatever
+        // rows we insert next, defeating the ALTER-offset reposition (this is the historical source of
+        // flakiness). No new reader is dispatched while PAUSED, so drain the lingering one
+        // deterministically: insert a disposable probe row, then wait until the row count stays stable
+        // for a window longer than max_interval. An active reader would have loaded the probe within
+        // max_interval, so a stable window proves no reader is consuming anymore. Finally delete the
+        // probe from both sides so it never pollutes the before/after-mark assertions or the .out.
+        def probeId = 10
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (${probeId}, 'drain_probe')"""
+        }
+        int stablePolls = 0
+        long lastCnt = -1L
+        Awaitility.await().atMost(120, SECONDS).pollInterval(3, SECONDS).until({
+            long c = sql("""SELECT count(*) FROM ${currentDb}.${table1}""")[0][0] as long
+            if (c == lastCnt) {
+                stablePolls++
+            } else {
+                stablePolls = 0
+                lastCnt = c
+            }
+            // 5 * 3s = 15s stable > max_interval (10s) => the lingering reader has fully drained.
+            return stablePolls >= 5
+        })
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE id = ${probeId}"""
+        }
+        sql """DELETE FROM ${currentDb}.${table1} WHERE id = ${probeId}"""
+
         def alterLsn = ""
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // insert data BEFORE the LSN mark
@@ -169,8 +200,11 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
         // After ALTER to LSN mark, only data AFTER that LSN (id 30,31) should be synced
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def result = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (30, 31)"""
-            return result[0][0] >= 2
+            return result[0][0] == 2
         })
+        // mark LSN sits between 21 and 30; before-mark rows must never be read.
+        def beforeMark = sql """SELECT count(*) FROM ${currentDb}.${table1} WHERE id IN (20, 21)"""
+        assert beforeMark[0][0] == 0 : "rows before ALTER LSN must be skipped, found ${beforeMark[0][0]}"
         qt_select_after_alter """ SELECT * FROM ${currentDb}.${table1} ORDER BY id """
 
         // Step 3: ALTER with named mode should fail for CDC

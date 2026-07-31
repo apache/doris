@@ -25,6 +25,7 @@ Use this when you need to review code, whether it is code you just completed or 
 ### 1.1 Core Invariants
 
 Always focus on the following core invariants during review:
+
 1. **Data Correctness**: Data from any committed transaction must be visible to subsequent queries and not lost; data from uncommitted transactions must not be visible
 2. **Version Consistency**: Partition visible version is the sole standard for data visibility; BE must strictly read data not exceeding this version
 3. **Delete Bitmap Consistency** (MoW tables): delete bitmap must be strictly aligned with rowset versions; sentinel marks and `TEMP_VERSION`-style placeholders must be replaced with actual versions before use
@@ -39,6 +40,32 @@ Always focus on the following core invariants during review:
 - **Performance First**: All obviously redundant operations should be optimized away, all obvious performance optimizations must be applied, and obvious anti-patterns must be eliminated.
 - **Evidence Speaks**: All issues with code itself (not memory or environment) must be clearly identified as either having problems or not. For any erroneous situation, if it cannot be confirmed locally, you must provide the specific path or logic where the error occurs. That is, if you believe that if A then B, you must specify a clear scenario where A occurs.
 - **Review Holistically**: For any new feature or modification, you must analyze its upstream and downstream code to understand the real invocation chain. Identify all implicit assumptions and constraints throughout the flow, then verify carefully that the current change works correctly within the entire end-to-end process. Also determine whether a seemingly problematic local pattern is actually safe due to strong guarantees from upstream or downstream, or whether a conventional local implementation fails to achieve optimal performance because it does not leverage additional information available from the surrounding context.
+
+### 1.2.1 Optimizer/Nereids Review Output Style
+
+When reviewing optimizer rules, plan rewrites, expression rewrites, slot/ExprId handling, predicate movement, join rewrites, TopN/sort/project rewrites, materialization, or other Nereids planner behavior, findings should be explained around a concrete plan tree whenever possible.
+
+Prefer this structure for each optimizer finding:
+
+1. Show a minimal input plan tree that triggers the issue.
+2. Mark the critical expressions, slots, ExprIds, order keys, join conditions, or nullable sides in the tree.
+3. Explain the rewrite steps using the actual local function names, for example `collectFromNode`, `simplifyProject`, `addUpperProject`, `replace`, `infer`, or `pushDown`.
+4. Show the incorrect rewritten tree or the key wrong expression produced by the rewrite.
+5. State the semantic difference: wrong rows, wrong nullability, invalid child output, missed error, duplicated evaluation, changed volatile behavior, wrong join semantics, or missed optimization.
+6. Then give the concise fix direction.
+
+Avoid long prose-only descriptions when a plan tree can make the issue concrete. For example, instead of only writing that "a replacement map bypasses canPullUp for aliases that were intentionally rejected", write:
+
+```text
+TopN(order by id)
+  Project(id, assert_true(x > 0) AS c)
+    Project(id, a + 1 AS x)
+      Scan(id, a)
+```
+
+Then explain that `c` is not pullable because it contains `NoneMovableFunction`, but `x` is pullable. If `collectFromNode` records both `c -> assert_true(x > 0)` and `x -> a + 1`, `simplifyProject` can remove `x` below TopN and `addUpperProject` can synthesize `assert_true(a + 1 > 0) AS c` above TopN. That moves a non-movable expression above TopN and may suppress errors for rows discarded by TopN. The fix direction is to let non-forwarding aliases that cannot be synthesized above TopN block their input slots, while keeping simple forwarding aliases available for chain resolution.
+
+The plan tree does not need to be fully executable SQL, but it must preserve the relevant output slots and operator dependencies. If the exact tree is unknown, state that it is a reduced tree inferred from the code path.
 
 ### 1.3 Critical Checkpoints (Review Priority)
 
@@ -108,7 +135,7 @@ If it involves the judgment of concurrent scenarios, it is necessary to find the
 
 - [ ] **Reservation**: `try_reserve()` before large allocations, with guaranteed release on every exit path
 - [ ] **Allocator-aware ownership**: In BE code, for memory-owning containers or buffers that should be tracked by Doris memory accounting, prefer allocator-aware types from `be/src/core/custom_allocator.h` such as `DorisVector`, `DorisMap`, and `DorisUniqueBufferPtr` instead of `std::vector`, `std::map`, and `std::unique_ptr`
-- [ ] **Ownership**: See `be/src/runtime/AGENTS.md` for cache-handle, shared_ptr-cycle, and factory-creator rules
+- [ ] **Ownership**: See `be/src/runtime/AGENTS.md` for cache-handle, shared_ptr-cycle, and factory-creator rules. See `be/src/core/AGENTS.md` for Proper application of the cow mechanism related to `IColumn`, `Block`...
 
 #### 1.3.4 Data Correctness (High Priority)
 
@@ -120,6 +147,15 @@ If it involves the judgment of concurrent scenarios, it is necessary to find the
 
 - [ ] Are critical new paths observable with appropriate log levels and metrics?
 - [ ] Do distributed operations include enough identifiers for tracing?
+
+#### 1.3.6 BE Null And Nullable Handling (High Priority)
+
+- [ ] Only after `is_column_nullable()` and `check_and_get_column<ColumnNullable>` can an `IColumn` be safely converted to `ColumnNullable` without checking. If `is_nullable()` is used to check and then the corresponding column is treated as `ColumnNullable`, is there a clear comment explaining why it cannot be a `ColumnConst`?
+- [ ] Is `is_null_at()` called only for objects that have been syntactically parsed as `ColumnNullable`?
+- [ ] If `ColumnConst(ColumnNullable(...))` can reach this code, is it handled explicitly or materialized once at a documented boundary with `convert_to_full_column_if_const()` before row-by-row logic?
+- [ ] If `ColumnConst(ColumnNullable(...))` cannot reach this code, is the upstream/downstream materialization invariant identified, asserted with `DORIS_CHECK`/`DCHECK` where appropriate, and documented on both sides of the dependency?
+- [ ] Does every `remove_nullable(column)` call account for its const-preserving behavior? `ColumnNullable(T)` becomes `T`, while `ColumnConst(ColumnNullable(T))` becomes `ColumnConst(T)`; if downstream needs row-aligned concrete storage, materialize intentionally after removing nullable.
+- [ ] Is null handling consistent with the no-defensive-programming rule: no speculative `if` branches for impossible shapes, and invariant violations fail loudly instead of silently continuing?
 
 ### 1.4 Test Coverage Principles
 

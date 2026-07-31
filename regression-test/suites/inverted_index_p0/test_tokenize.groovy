@@ -96,6 +96,18 @@ suite("test_tokenize"){
 
     qt_tokenize_sql """SELECT TOKENIZE('GET /images/hm_bg.jpg HTTP/1.0 test:abc=bcd','"parser"="unicode","char_filter_type" = "char_replace","char_filter_pattern" = "._=:,","char_filter_replacement" = " "');"""
     qt_tokenize_sql """SELECT TOKENIZE('GET /images/hm_bg.jpg HTTP/1.0 test:abc=bcd', '"parser"="unicode","char_filter_type" = "char_replace", "char_filter_pattern" = "._=:,", "char_filter_replacement" = " "');"""
+    test {
+        sql """SELECT TOKENIZE('a.b.c', '"parser"="english","char_filter_type"="char_replace","char_filter_pattern"=".","char_filter_replacement"="xyz"');"""
+        exception "'char_filter_replacement' must be a single non-empty character"
+    }
+    test {
+        sql """SELECT TOKENIZE('a.b.c', '"parser"="english","char_filter_type"="char_replace","char_filter_pattern"=".","char_filter_replacement"=""');"""
+        exception "'char_filter_replacement' must be a single non-empty character"
+    }
+    test {
+        sql """SELECT TOKENIZE('a.b.c', '"parser"="english","char_filter_type"="char_replace","char_filter_pattern"=".","char_filter_replacement"="é"');"""
+        exception "'char_filter_replacement' must contain only ASCII characters"
+    }
 
     qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="unicode"');"""
     qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="unicode","stopwords" = "none"');"""

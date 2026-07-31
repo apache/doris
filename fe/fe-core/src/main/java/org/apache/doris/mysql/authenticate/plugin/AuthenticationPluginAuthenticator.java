@@ -147,8 +147,8 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
-            return new AuthenticateResponse(true, userIdentities.get(0), false,
-                    principal, result.getGrantedRoles());
+            return withCredentialExpiration(new AuthenticateResponse(true, userIdentities.get(0), false,
+                    principal, result.getGrantedRoles()), result);
         }
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication plugin '{}' authenticated user '{}' but JIT is disabled",
@@ -156,8 +156,13 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             return AuthenticateResponse.failedResponse;
         }
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
-        return new AuthenticateResponse(true, tempUserIdentity, true,
-                principal, result.getGrantedRoles());
+        return withCredentialExpiration(new AuthenticateResponse(true, tempUserIdentity, true,
+                principal, result.getGrantedRoles()), result);
+    }
+
+    private AuthenticateResponse withCredentialExpiration(AuthenticateResponse response, AuthenticationResult result) {
+        result.getCredentialExpiresAtMillis().ifPresent(response::setCredentialExpiresAtMillis);
+        return response;
     }
 
     private AuthenticationRequest toPluginRequest(AuthenticateRequest request) {
@@ -211,8 +216,12 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                     AuthenticationFailureType.MISCONFIGURED);
         }
         if (!pluginManager.hasFactory(pluginType)) {
+            // Same reasoning as AuthenticationIntegrationRuntime#ensurePluginFactoryLoaded: without the
+            // hint, a plugin refused on its declared API version is indistinguishable from one that was
+            // never installed.
             throw new AuthenticationException(
-                    "No AuthenticationPluginFactory found for plugin: " + pluginType,
+                    "No AuthenticationPluginFactory found for plugin: " + pluginType
+                            + pluginManager.apiVersionRejectionHint(),
                     AuthenticationFailureType.MISCONFIGURED);
         }
     }

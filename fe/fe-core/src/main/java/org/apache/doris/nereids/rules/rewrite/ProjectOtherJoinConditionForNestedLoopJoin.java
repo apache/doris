@@ -26,8 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -55,9 +53,6 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
                 .when(join -> join.getHashJoinConjuncts().isEmpty()
                         && !join.isMarkJoin()
                         && !join.getOtherJoinConjuncts().isEmpty())
-                .whenNot(join -> ConnectContext.get() != null
-                        && ConnectContext.get().getSessionVariable()
-                        .allowedRuntimeFilterType(TRuntimeFilterType.BITMAP))
                 .then(join -> {
                     List<Expression> otherConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> newOtherConjuncts = new ArrayList<>();
@@ -113,6 +108,14 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
             Set<Slot> input = expression.getInputSlots();
             if (input.isEmpty() || expression instanceof Slot) {
                 return expression;
+            }
+            // A mixed expression like `t1.a + rand() > t2.b` has inputSlots={t1.a}; if we alias
+            // it into a child Project, rand()'s evaluation granularity changes from "per join
+            // pair" to "per row of that child", which silently changes results. Keep such
+            // expressions inline in otherJoinConjuncts, but still recurse to extract deterministic
+            // child expressions.
+            if (expression.containsVolatileExpression()) {
+                return super.visit(expression, ctx);
             }
             if (ctx.leftSlots.containsAll(input)) {
                 Alias alias = ctx.aliasMap.computeIfAbsent(expression, o -> new Alias(o));

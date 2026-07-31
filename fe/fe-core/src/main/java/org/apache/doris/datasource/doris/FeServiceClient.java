@@ -67,6 +67,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -266,18 +267,10 @@ public class FeServiceClient {
         request.setPasswd(password);
         request.setVersion(FeConstants.meta_version);
         for (Partition partition : partitions) {
-            TPartitionMeta meta = new TPartitionMeta();
-            meta.setId(partition.getId());
-            meta.setVisibleVersion(partition.getVisibleVersion());
-            meta.setVisibleVersionTime(partition.getVisibleVersionTime());
-            request.addToPartitions(meta);
+            request.addToPartitions(buildPartitionMeta(partition));
         }
         for (Partition partition : tempPartitions) {
-            TPartitionMeta meta = new TPartitionMeta();
-            meta.setId(partition.getId());
-            meta.setVisibleVersion(partition.getVisibleVersion());
-            meta.setVisibleVersionTime(partition.getVisibleVersionTime());
-            request.addToTempPartitions(meta);
+            request.addToTempPartitions(buildPartitionMeta(partition));
         }
         String msg = String.format("failed to get table meta from remote doris:%s", name);
         return randomCallWithRetry(client -> {
@@ -291,13 +284,17 @@ public class FeServiceClient {
                 remoteOlapTable = RemoteOlapTable.fromOlapTable(olapTable);
             }
             List<Partition> updatedPartitions = new ArrayList<>(result.getUpdatedPartitionsSize());
+            List<String> updatedPartitionChecksums = result.isSetUpdatedPartitionChecksums()
+                    ? result.getUpdatedPartitionChecksums() : Collections.emptyList();
             if (result.getUpdatedPartitionsSize() > 0) {
-                for (ByteBuffer buffer : result.getUpdatedPartitions()) {
+                for (int i = 0; i < result.getUpdatedPartitionsSize(); i++) {
+                    ByteBuffer buffer = result.getUpdatedPartitions().get(i);
                     try (ByteArrayInputStream in =
                             new ByteArrayInputStream(buffer.array(), buffer.position(), buffer.remaining());
                             DataInputStream dataInputStream = new DataInputStream(in)) {
                         String partitionStr = Text.readString(dataInputStream);
                         Partition partition = GsonUtils.GSON.fromJson(partitionStr, Partition.class);
+                        setRemoteMetaChecksum(partition, updatedPartitionChecksums, i);
                         updatedPartitions.add(partition);
                     }
                 }
@@ -308,25 +305,49 @@ public class FeServiceClient {
             }
             remoteOlapTable.rebuildPartitions(partitions, updatedPartitions, removedPartitions);
             // rebuild temp partitions
+            List<Partition> updatedTempPartitions = new ArrayList<>();
             if (result.isSetUpdatedTempPartitions() && result.getUpdatedTempPartitionsSize() > 0) {
-                updatedPartitions = new ArrayList<>(result.getUpdatedTempPartitionsSize());
-                for (ByteBuffer buffer : result.getUpdatedTempPartitions()) {
+                List<String> updatedTempPartitionChecksums = result.isSetUpdatedTempPartitionChecksums()
+                        ? result.getUpdatedTempPartitionChecksums() : Collections.emptyList();
+                for (int i = 0; i < result.getUpdatedTempPartitionsSize(); i++) {
+                    ByteBuffer buffer = result.getUpdatedTempPartitions().get(i);
                     try (ByteArrayInputStream in =
                             new ByteArrayInputStream(buffer.array(), buffer.position(), buffer.remaining());
                             DataInputStream dataInputStream = new DataInputStream(in)) {
                         String partitionStr = Text.readString(dataInputStream);
                         Partition partition = GsonUtils.GSON.fromJson(partitionStr, Partition.class);
-                        updatedPartitions.add(partition);
+                        setRemoteMetaChecksum(partition, updatedTempPartitionChecksums, i);
+                        updatedTempPartitions.add(partition);
                     }
                 }
             }
-            removedPartitions = result.getRemovedTempPartitions();
-            if (removedPartitions == null) {
-                removedPartitions = new ArrayList<>();
+            List<Long> removedTempPartitions = result.getRemovedTempPartitions();
+            if (removedTempPartitions == null) {
+                removedTempPartitions = new ArrayList<>();
             }
-            remoteOlapTable.rebuildTempPartitions(tempPartitions, updatedPartitions, removedPartitions);
+            remoteOlapTable.rebuildTempPartitions(tempPartitions, updatedTempPartitions, removedTempPartitions);
             return remoteOlapTable;
         }, msg, timeoutMs);
+    }
+
+    private TPartitionMeta buildPartitionMeta(Partition partition) {
+        TPartitionMeta meta = new TPartitionMeta();
+        meta.setId(partition.getId());
+        meta.setVisibleVersion(partition.getVisibleVersion());
+        meta.setVisibleVersionTime(partition.getVisibleVersionTime());
+        String remoteMetaChecksum = partition.getRemoteMetaChecksum();
+        if (remoteMetaChecksum == null) {
+            remoteMetaChecksum = partition.getMetaChecksum();
+            partition.setRemoteMetaChecksum(remoteMetaChecksum);
+        }
+        meta.setMetaChecksum(remoteMetaChecksum);
+        return meta;
+    }
+
+    private void setRemoteMetaChecksum(Partition partition, List<String> checksums, int index) {
+        if (index < checksums.size()) {
+            partition.setRemoteMetaChecksum(checksums.get(index));
+        }
     }
 
     public TBeginRemoteTxnResult beginRemoteTxn(TBeginRemoteTxnRequest request) throws Exception {

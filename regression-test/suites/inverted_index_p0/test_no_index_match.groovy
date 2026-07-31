@@ -41,11 +41,11 @@ suite("test_no_index_match", "p0") {
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -84,7 +84,7 @@ suite("test_no_index_match", "p0") {
       sql """ INSERT INTO ${testTable} VALUES (1, '1', '', 1, 1); """
 
       sql 'sync'
-      sql """ set enable_common_expr_pushdown = true """
+      sql """ set enable_segment_limit_pushdown = true """
 
       try {
           qt_sql """ select count() from ${testTable} where (request match_any 'hm bg');  """

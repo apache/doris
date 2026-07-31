@@ -223,6 +223,7 @@ struct TWarmUpTabletsRequest {
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
     5: optional TWarmUpEventType event
+    6: optional list<i64> table_ids
 }
 
 struct TWarmUpTabletsResponse {
@@ -310,7 +311,10 @@ enum TWorkloadMetricType {
     QUERY_TIME = 0,
     BE_SCAN_ROWS = 1,
     BE_SCAN_BYTES = 2,
-    QUERY_BE_MEMORY_BYTES = 3
+    QUERY_BE_MEMORY_BYTES = 3,
+    USERNAME = 4,
+    // Append the new enum value to keep existing metric ids stable across versions.
+    BE_SCAN_BYTES_FROM_REMOTE_STORAGE = 5
 }
 
 enum TCompareOperator {

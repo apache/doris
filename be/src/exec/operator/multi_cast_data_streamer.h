@@ -97,8 +97,7 @@ private:
     void _set_ready_for_read(int sender_idx);
     void _block_reading(int sender_idx);
 
-    Status _copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
-                       MultiCastBlock& multi_cast_block);
+    Status _finish_pull(RuntimeState* state, MultiCastBlock& multi_cast_block);
 
     Status _start_spill_task(RuntimeState* state, SpillFileSPtr spill_file) REQUIRES(_mutex);
 

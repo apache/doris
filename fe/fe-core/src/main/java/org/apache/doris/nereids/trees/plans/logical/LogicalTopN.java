@@ -61,6 +61,11 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_TOP_N, groupExpression, logicalProperties, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
+        // limit/offset are always non-negative ("no limit" is represented by Long.MAX_VALUE). A
+        // negative value here means limit + offset overflowed somewhere upstream and would produce an
+        // illegal plan that hangs in BE; fail fast instead.
+        Preconditions.checkArgument(limit >= 0 && offset >= 0,
+                "LogicalTopN limit and offset must be non-negative, but got limit=%s, offset=%s", limit, offset);
         this.limit = limit;
         this.offset = offset;
         this.expressions = Suppliers.memoize(() -> {
@@ -128,7 +133,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return expressions.get();
     }
 
-    public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {
+    public LogicalTopN<CHILD_TYPE> withOrderKeys(List<OrderKey> orderKeys) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalTopN<>(orderKeys, limit, offset,
                 Optional.empty(), Optional.of(getLogicalProperties()), child()));

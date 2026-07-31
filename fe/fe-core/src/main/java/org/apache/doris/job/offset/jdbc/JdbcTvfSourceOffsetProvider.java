@@ -27,6 +27,7 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJdbcUrlNormalizer;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -105,6 +106,8 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         // Populate default slot/pub into sourceProperties so cleanMeta -> /api/close
         // carries the resolved names for cdcclient ownership-based cleanup.
         Map<String, String> effective = new HashMap<>(originTvfProps);
+        effective.put(DataSourceConfigKeys.JDBC_URL, StreamingJdbcUrlNormalizer.normalize(
+                resolvedType, effective.get(DataSourceConfigKeys.JDBC_URL)));
         StreamingJobUtils.populateDefaultSourceProperties(resolvedType, effective, String.valueOf(jobId));
         // Always refresh fields that may be updated via ALTER JOB (e.g. credentials, parallelism).
         this.sourceProperties = effective;
@@ -260,15 +263,15 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      * adds it to finishedSplits. During txn replay remainingSplits is empty so removeIf returns
      * false naturally — chunkHighWatermarkMap is still updated for replayIfNeed to use later.
      *
-     * <p>Binlog: currentOffset is set above. Also mirror startingOffset into binlogOffsetPersist
-     * so it survives FE checkpoint via image (currentOffset has no @SerializedName).
+     * <p>Binlog: mirror startingOffset into binlogOffsetPersist so it survives FE checkpoint via
+     * image (currentOffset has no @SerializedName).
      */
     @Override
     public void updateOffset(Offset offset) {
-        this.currentOffset = (JdbcOffset) offset;
-        if (currentOffset.snapshotSplit()) {
+        JdbcOffset newOffset = (JdbcOffset) offset;
+        if (newOffset.snapshotSplit()) {
             synchronized (splitsLock) {
-                for (AbstractSourceSplit split : currentOffset.getSplits()) {
+                for (AbstractSourceSplit split : newOffset.getSplits()) {
                     SnapshotSplit ss = (SnapshotSplit) split;
                     boolean removed = remainingSplits.removeIf(v -> {
                         if (v.getSplitId().equals(ss.getSplitId())) {
@@ -288,13 +291,19 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 }
             }
         } else {
-            // Mirror binlog offset into bop so it survives FE checkpoint
-            BinlogSplit bs = (BinlogSplit) currentOffset.getSplits().get(0);
-            if (MapUtils.isNotEmpty(bs.getStartingOffset())) {
-                binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
-                binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            synchronized (splitsLock) {
+                // Mirror binlog offset into bop so it survives FE checkpoint
+                BinlogSplit bs = (BinlogSplit) newOffset.getSplits().get(0);
+                if (MapUtils.isNotEmpty(bs.getStartingOffset())) {
+                    binlogOffsetPersist = new HashMap<>(bs.getStartingOffset());
+                    binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                }
+                currentOffset = newOffset;
+                hasMoreData = true;
             }
+            return;
         }
+        this.currentOffset = newOffset;
     }
 
     /**

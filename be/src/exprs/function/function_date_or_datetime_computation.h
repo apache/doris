@@ -1493,7 +1493,7 @@ private:
         if (UNLIKELY(dtv1.day() == days_in_month1 && dtv2.day() == days_in_month2)) {
             days_between = 0;
         } else {
-            days_between = (dtv1.day() - dtv2.day()) / (double)31.0;
+            days_between = (dtv1.day() - dtv2.day()) / 31.0;
         }
 
         // calculate months between

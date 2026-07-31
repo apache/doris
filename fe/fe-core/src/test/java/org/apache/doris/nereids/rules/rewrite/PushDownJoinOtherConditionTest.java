@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -249,5 +251,32 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
                 logicalJoin(
                         logicalOlapScan(),
                         logicalOlapScan()));
+    }
+
+    @Test
+    void doNotPushUniqueFunctionConjunct() {
+        // Volatile predicates must not be pushed to children, because that changes
+        // their evaluation granularity from per joined row to per input row.
+        Expression deterministic = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression uniqueFn = new GreaterThan(new Random(), Literal.of(0.5));
+        Expression sideSpecificUniqueFn = new GreaterThan(
+                new Add(rScoreSlots.get(2), new Random()), Literal.of(0.5));
+        List<Expression> condition = ImmutableList.of(deterministic, uniqueFn, sideSpecificUniqueFn);
+
+        LogicalPlan root = new LogicalPlanBuilder(rStudent)
+                .join(rScore, JoinType.INNER_JOIN, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
+
+        // Deterministic conjunct is pushed to left; unique-function conjuncts stay in join.
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOtherCondition())
+                .matches(
+                        logicalJoin(
+                                logicalFilter().when(
+                                        filter -> filter.getConjuncts().equals(ImmutableSet.of(deterministic))),
+                                logicalOlapScan())
+                                .when(join -> join.getOtherJoinConjuncts().equals(
+                                        ImmutableList.of(uniqueFn, sideSpecificUniqueFn))));
     }
 }

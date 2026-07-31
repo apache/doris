@@ -62,6 +62,13 @@ import java.util.stream.Stream;
 public class Utils {
     public static final boolean enableAssert;
 
+    /**
+     * Check whether two objects are non-null and have the same concrete class.
+     */
+    public static boolean isSameClass(Object left, Object right) {
+        return left != null && right != null && left.getClass() == right.getClass();
+    }
+
     static {
         boolean enabled = false;
         // if run jvm with -ea or -enableassertions, the assert statement will be executed
@@ -128,6 +135,22 @@ public class Utils {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether {@code a + b} overflows the signed long range. {@code a} and {@code b} are expected to
+     * be non-negative (e.g. a limit and an offset).
+     *
+     * <p>When combining a {@code limit} and an {@code offset} into the number of rows a child must
+     * keep (e.g. pushing a TopN/Limit down, or building a two-phase sort), the raw {@code limit +
+     * offset} can exceed the long range when both are close to {@code BIGINT_MAX}; it then wraps to a
+     * negative number, which is an illegal limit and produces a broken plan. Overflow here means the
+     * child would need more rows than any relation can hold (no relation exceeds {@code
+     * Long.MAX_VALUE} rows), so the optimization cannot reduce anything: callers should skip the
+     * rewrite and fall back to the correct unoptimized execution.
+     */
+    public static boolean addOverflows(long a, long b) {
+        return a > Long.MAX_VALUE - b;
     }
 
     /**

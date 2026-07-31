@@ -42,6 +42,9 @@ suite("test_streaming_insert_job_alter") {
     // Create a job, let it have data quality errors, modify the schema, and resume it
     sql """
        CREATE JOB ${jobName}  
+       PROPERTIES (
+            "session.enable_strict_cast" = true
+       )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
         (
@@ -85,6 +88,7 @@ suite("test_streaming_insert_job_alter") {
        ALTER JOB ${jobName}
        PROPERTIES(
         "session.enable_insert_strict" = false,
+        "session.enable_strict_cast" = false,
         "session.insert_max_filter_ratio" = 1
        )
         """
@@ -93,7 +97,7 @@ suite("test_streaming_insert_job_alter") {
         select status,properties from jobs("type"="insert") where Name='${jobName}'
     """
     assert alterJobProperties.get(0).get(0) == "PAUSED"
-    assert alterJobProperties.get(0).get(1) == "{\"session.enable_insert_strict\":\"false\",\"session.insert_max_filter_ratio\":\"1\"}"
+    assert alterJobProperties.get(0).get(1) == "{\"session.enable_strict_cast\":\"false\",\"session.enable_insert_strict\":\"false\",\"session.insert_max_filter_ratio\":\"1\"}"
 
     // modify column c2 to varchar(3), Exceeding the limit will be automatically truncated
     sql """

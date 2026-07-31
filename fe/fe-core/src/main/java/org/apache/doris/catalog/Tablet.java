@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TTabletCopyType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
@@ -729,5 +730,27 @@ public abstract class Tablet {
 
     public void setLastCheckTime(long lastCheckTime) {
         throw new UnsupportedOperationException("setLastCheckTime is not supported in Tablet");
+    }
+
+    public static class CopyType {
+        public static final int DEFAULT = TTabletCopyType.DATA.getValue()
+                | TTabletCopyType.CCR_BINLOG.getValue();
+
+        public static boolean has(int copyType, TTabletCopyType type) {
+            return (copyType & type.getValue()) != 0;
+        }
+
+        public static void validate(int copyType) {
+            if (copyType <= 0 || (copyType & ~allTypes()) != 0) {
+                throw new IllegalArgumentException(
+                        "invalid copy_type bitmask: " + copyType + ", valid bits: " + allTypes());
+            }
+        }
+
+        private static int allTypes() {
+            return TTabletCopyType.DATA.getValue()
+                    | TTabletCopyType.ROW_BINLOG.getValue()
+                    | TTabletCopyType.CCR_BINLOG.getValue();
+        }
     }
 }

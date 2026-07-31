@@ -33,7 +33,6 @@
 #include "common/status.h"
 #include "core/block/column_numbers.h"
 #include "core/column/column_string.h"
-#include "core/column/predicate_column.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"

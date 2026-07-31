@@ -150,6 +150,71 @@ suite("test_copy_into", "p0") {
             }
             assertTrue(false, "should not come here")
         }
+
+        def csvStageName = "test_copy_into_csv"
+        try_sql """drop stage if exists ${csvStageName}"""
+        sql """
+            create stage if not exists ${csvStageName}
+            properties ('endpoint' = '${getS3Endpoint()}' ,
+            'region' = '${getS3Region()}' ,
+            'bucket' = '${getS3BucketName()}' ,
+            'prefix' = 'regression' ,
+            'ak' = '${getS3AK()}' ,
+            'sk' = '${getS3SK()}' ,
+            'provider' = '${getS3Provider()}',
+            'access_type' = 'aksk',
+            'default.file.column_separator' = "|");
+        """
+
+        sql """ DROP TABLE IF EXISTS copy_into_select_placeholder; """
+        sql """
+            CREATE TABLE copy_into_select_placeholder (
+                    p_partkey     int NOT NULL DEFAULT "1",
+                    p_name        VARCHAR(55) NOT NULL DEFAULT "2",
+                    p_mfgr        VARCHAR(25) NOT NULL DEFAULT "3"
+                    )ENGINE=OLAP
+            DUPLICATE KEY(`p_partkey`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 3;
+        """
+
+        result = sql """
+            copy into copy_into_select_placeholder
+            from (select \$1, \$2, \$3 from @${csvStageName}('tpch/sf1/part.csv.split00.gz'))
+            properties ('file.type' = 'csv', 'file.column_separator' = '|',
+                    'file.compression' = 'gz', 'copy.async' = 'false');
+            """
+        logger.info("copy select placeholder result: " + result)
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][1].equals("FINISHED"),
+                "Finish copy into, state=" + result[0][1] + ", expected state=FINISHED")
+        def selectPlaceholderCount = sql """ SELECT COUNT(*) FROM copy_into_select_placeholder; """
+        assertTrue((selectPlaceholderCount[0][0] as long) > 0)
+
+        sql """ DROP TABLE IF EXISTS copy_into_filter_placeholder; """
+        sql """
+            CREATE TABLE copy_into_filter_placeholder (
+                    p_partkey     int NOT NULL DEFAULT "1"
+                    )ENGINE=OLAP
+            DUPLICATE KEY(`p_partkey`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 3;
+        """
+
+        result = sql """
+            copy into copy_into_filter_placeholder (p_partkey)
+            from (select 1 from @${csvStageName}('tpch/sf1/part.csv.split00.gz') where \$1 is not null)
+            properties ('file.type' = 'csv', 'file.column_separator' = '|',
+                    'file.compression' = 'gz', 'copy.async' = 'false');
+            """
+        logger.info("copy filter placeholder result: " + result)
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][1].equals("FINISHED"),
+                "Finish copy into, state=" + result[0][1] + ", expected state=FINISHED")
+        def filterPlaceholderCount = sql """ SELECT COUNT(*) FROM copy_into_filter_placeholder; """
+        assertTrue((filterPlaceholderCount[0][0] as long) > 0)
+
+        try_sql """drop stage if exists ${csvStageName}"""
         try_sql """drop stage if exists ${externalStageName}"""
     }
 }

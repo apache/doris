@@ -19,7 +19,6 @@
 
 #include "common/status.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
-#include "exec/operator/spill_utils.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
@@ -53,50 +52,50 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 }
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
+        return 0;
+    }
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+    if (!sort_writer) {
         return 0;
     }
 
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-    if (!sort_writer || !sort_writer->sorter()) {
-        return 0;
-    }
-
-    return sort_writer->sorter()->get_reserve_mem_size(state, eos);
+    return sort_writer->get_reserve_mem_size(state, eos);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
+        return 0;
+    }
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+    if (!sort_writer) {
         return 0;
     }
 
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-    if (!sort_writer || !sort_writer->sorter()) {
-        return 0;
-    }
-
-    return sort_writer->sorter()->data_size();
+    return sort_writer->data_size();
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
-    if (!_writer || !_writer->current_writer()) {
+    RETURN_IF_CANCELLED(state);
+    if (!_writer) {
+        return Status::OK();
+    }
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
+    if (!sort_writer) {
         return Status::OK();
     }
 
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-
-    if (!sort_writer || !sort_writer->sorter()) {
-        return Status::OK();
-    }
-
-    auto exception_catch_func = [sort_writer]() {
+    auto exception_catch_func = [current_writer, sort_writer]() {
         auto status = [&]() {
             RETURN_IF_CATCH_EXCEPTION({ return sort_writer->trigger_spill(); });
         }();
         return status;
     };
 
-    return run_spill_task(state, exception_catch_func);
+    return exception_catch_func();
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
@@ -119,7 +118,7 @@ Status SpillIcebergTableSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -170,7 +169,6 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileCount", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
-    ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
 }
 
 } // namespace doris

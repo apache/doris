@@ -351,13 +351,13 @@ protected:
                 : value(std::forward<std::initializer_list<U>>(arg)) {}
 
         const T* get() const { return value.get(); }
-        T* get() { return &value->assert_mutable_ref(); }
+        T* get() { return &static_cast<T&>(value->assert_mutable_ref()); }
 
         const T* operator->() const { return get(); }
         T* operator->() { return get(); }
 
         const T& operator*() const { return *value; }
-        T& operator*() { return value->assert_mutable_ref(); }
+        T& operator*() { return static_cast<T&>(value->assert_mutable_ref()); }
 
         operator const immutable_ptr<T>&() const { return value; }
         operator immutable_ptr<T>&() { return value; }
@@ -419,6 +419,7 @@ public:
     static_assert(std::is_base_of_v<doris::IColumn, Base>, "COWHelper only use in IColumn");
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
+    using WrappedPtr = typename Base::template chameleon_ptr<Derived>;
 
 #include "common/compile_check_avoid_begin.h"
 

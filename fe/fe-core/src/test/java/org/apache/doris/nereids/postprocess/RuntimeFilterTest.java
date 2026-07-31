@@ -28,12 +28,19 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -41,20 +48,25 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -134,6 +146,25 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(2, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("s_suppkey", "c_custkey"), Pair.of("c_custkey", "lo_custkey")));
+    }
+
+    @Test
+    public void testDoNotPushDownNonNullPropagatingRuntimeFilterThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier on coalesce(c_custkey, 0) = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testPushDownNullPropagatingRuntimeFilterThroughOuterJoin() {
+        String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
+                + " inner join supplier on c_custkey = s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("c_custkey", "lo_custkey"),
+                Pair.of("s_suppkey", "c_custkey")));
     }
 
     @Test
@@ -598,6 +629,40 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
+    public void testPushSharedCteRuntimeFilterOnlyForSameProducerTargetExpression() {
+        CTEId cteId = new CTEId(1);
+        SlotReference src = new SlotReference("src", IntegerType.INSTANCE);
+        SlotReference producerPk = new SlotReference("pk", IntegerType.INSTANCE);
+        SlotReference consumerPk1 = new SlotReference("pk", IntegerType.INSTANCE);
+        SlotReference consumerPk2 = new SlotReference("pk", IntegerType.INSTANCE);
+
+        List<RuntimeFilter> sameTargetFilters = ImmutableList.of(
+                newCteConsumerRuntimeFilter(src, consumerPk1, consumerPk1, producerPk, cteId),
+                newCteConsumerRuntimeFilter(src, consumerPk2, consumerPk2, producerPk, cteId));
+        Assertions.assertTrue(RuntimeFilterGenerator.canPushDownRuntimeFiltersIntoCTEProducer(
+                sameTargetFilters, cteId));
+
+        List<RuntimeFilter> differentTargetFilters = ImmutableList.of(
+                newCteConsumerRuntimeFilter(src, consumerPk1,
+                        new Add(consumerPk1, new IntegerLiteral(6)), producerPk, cteId),
+                newCteConsumerRuntimeFilter(src, consumerPk2,
+                        new Subtract(consumerPk2, new IntegerLiteral(1)), producerPk, cteId));
+        Assertions.assertFalse(RuntimeFilterGenerator.canPushDownRuntimeFiltersIntoCTEProducer(
+                differentTargetFilters, cteId));
+    }
+
+    private RuntimeFilter newCteConsumerRuntimeFilter(Expression src, Slot targetSlot,
+            Expression targetExpression, Slot producerSlot, CTEId cteId) {
+        PhysicalCTEConsumer consumer = Mockito.mock(PhysicalCTEConsumer.class);
+        Mockito.when(consumer.getCteId()).thenReturn(cteId);
+        Mockito.when(consumer.getProducerSlot(targetSlot)).thenReturn(producerSlot);
+        AbstractPhysicalPlan builder = Mockito.mock(AbstractPhysicalPlan.class);
+        return new RuntimeFilter(RuntimeFilterId.createGenerator().getNextId(), src, targetSlot, targetExpression,
+                TRuntimeFilterType.IN_OR_BLOOM, 0, builder, -1L, true,
+                TMinMaxRuntimeFilterType.MIN_MAX, consumer);
+    }
+
+    @Test
     public void testRuntimeFilterBlockByRecCte() {
         String sql = new StringBuilder().append("with recursive xx as (\n").append("  select\n")
                 .append("    c_custkey as c1\n").append("  from\n").append("    customer\n").append("  union\n")
@@ -617,4 +682,50 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(0, filters.size());
     }
+
+    @Test
+    public void testDecoupledRuntimeFilter() {
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        // join1(c_custkey=s_suppkey) probe=join2(lo_custkey=c_custkey)
+        // Standard RFs: c_custkey→lo_custkey (join2), s_suppkey→c_custkey (join1)
+        // Decoupled RF: c_custkey→s_suppkey (builder=join2, pushed to supplier scan).
+        // Add a visible filter on customer so the decoupled RF is not pruned by the
+        // "unknown stats + no filter on builder right side" heuristic.
+        String sql = "select * "
+                + "from lineorder join customer on lo_custkey = c_custkey "
+                + "join supplier on c_custkey = s_suppkey "
+                + "where customer.c_region = 'ASIA'";
+
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+        RuntimeFilterContext rfCtx = checker.getCascadesContext().getRuntimeFilterContext();
+        List<RuntimeFilter> filters = rfCtx.getNereidsRuntimeFilter();
+
+        List<RuntimeFilter> decoupledRFs = filters.stream()
+                .filter(f -> f.getExprOrder() == -1)
+                .collect(Collectors.toList());
+        Assertions.assertFalse(decoupledRFs.isEmpty(),
+                "Expected at least one decoupled RF with exprOrder == -1");
+
+        RuntimeFilter decoupled = decoupledRFs.get(0);
+        // Decoupled RF should target the build side of the condition join
+        Assertions.assertTrue(decoupled.getTargetSlots().stream()
+                        .anyMatch(s -> s.getName().equals("s_suppkey")),
+                "Decoupled RF target should include s_suppkey");
+
+        // Standard RF s_suppkey→c_custkey should still exist (not removed)
+        List<RuntimeFilter> standardRFs = filters.stream()
+                .filter(f -> f.getExprOrder() >= 0)
+                .collect(Collectors.toList());
+        Assertions.assertFalse(standardRFs.isEmpty(),
+                "Standard RFs should still be present alongside non-blocking decoupled RF");
+
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+    }
+
 }

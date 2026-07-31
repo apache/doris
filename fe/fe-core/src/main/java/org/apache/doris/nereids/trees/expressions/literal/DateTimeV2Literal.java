@@ -64,6 +64,36 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         roundMicroSecond(dateType.getScale());
     }
 
+    /** Date difference rounded toward zero by time part. */
+    public static long dateDiffInDaysRoundToZeroByTime(DateLiteral lhs, DateLiteral rhs) {
+        long days = DateV2Literal.dateDiffInDays(lhs, rhs);
+        long microSecondDiff = timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
+        if (days > 0 && microSecondDiff < 0) {
+            days--;
+        } else if (days < 0 && microSecondDiff > 0) {
+            days++;
+        }
+        return days;
+    }
+
+    /** Datetime difference in seconds rounded toward zero by microsecond part. */
+    public static long datetimeDiffInSecondsRoundToZeroByMicroSecond(DateLiteral lhs, DateLiteral rhs) {
+        return datetimeDiffInMicroSeconds(lhs, rhs) / 1000L / 1000L;
+    }
+
+    /** Datetime difference in microseconds. */
+    public static long datetimeDiffInMicroSeconds(DateLiteral lhs, DateLiteral rhs) {
+        return DateV2Literal.dateDiffInDays(lhs, rhs) * 24L * 60L * 60L * 1000L * 1000L
+                + timePartToMicroSecond(lhs) - timePartToMicroSecond(rhs);
+    }
+
+    private static long timePartToMicroSecond(DateLiteral date) {
+        if (date instanceof DateTimeLiteral) {
+            return ((DateTimeLiteral) date).timePartToMicroSecond();
+        }
+        return 0;
+    }
+
     @Override
     public DateTimeV2Type getDataType() throws UnboundException {
         return (DateTimeV2Type) super.getDataType();
@@ -379,7 +409,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
-    public Expression plusMicroSeconds(long microSeconds) {
+    public DateTimeV2Literal plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
@@ -444,7 +474,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     /**
      * convert java LocalDateTime object to DateTimeV2Literal object.
      */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());

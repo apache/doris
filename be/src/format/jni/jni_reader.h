@@ -120,6 +120,8 @@ public:
     }
 
 protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
+    Status on_after_read_block(Block* block, size_t* read_rows) override;
     void _collect_profile_before_close() override;
 
     /**
@@ -140,6 +142,7 @@ protected:
 private:
     static const std::vector<SlotDescriptor*> _s_empty_slot_descs;
 
+    Status _fill_partition_columns(Block* block, size_t num_rows);
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
@@ -185,6 +188,9 @@ private:
 
     // Column name to block index map, passed from FileScanner to avoid repeated map creation
     const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_values;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
 
     void _set_meta(long meta_addr) { _table_meta.set_meta(meta_addr); }
 };

@@ -45,6 +45,7 @@ suite('test_peer_read_async_warmup', 'docker') {
         'sys_log_verbose_modules=*',
         'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
+        'skip_writing_empty_rowset_metadata=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -74,6 +75,9 @@ suite('test_peer_read_async_warmup', 'docker') {
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
+        def valueRows = { start, end ->
+            (start..end).collect { "(${it}, '${it}')" }.join(", ")
+        }
         sql """CREATE TABLE $table (
             `k1` int(11) NULL,
             `v1` VARCHAR(2048)
@@ -86,10 +90,10 @@ suite('test_peer_read_async_warmup', 'docker') {
             );
         """
         sql """
-            insert into $table values (10, '1'), (20, '2')
+            insert into $table values ${valueRows(10, 29)}
         """
         sql """
-            insert into $table values (30, '3'), (40, '4')
+            insert into $table values ${valueRows(30, 49)}
         """
 
         // before add be
@@ -119,14 +123,14 @@ suite('test_peer_read_async_warmup', 'docker') {
         } 
 
         sql """
-            insert into $table values (50, '4'), (60, '6')
+            insert into $table values ${valueRows(50, 69)}
         """
         // version 4, in new be, but not in old be
         def beforeCacheDirVersion4 = getTabletFileCacheDirFromBe(msHttpPort, table, 4)
         logger.info("cache dir version 4 {}", beforeCacheDirVersion4)
 
         sql """
-            insert into $table values (70, '7'), (80, '8')
+            insert into $table values ${valueRows(70, 89)}
         """
         // version 5, in new be, but not in old be
         def beforeCacheDirVersion5 = getTabletFileCacheDirFromBe(msHttpPort, table, 5)
@@ -146,6 +150,8 @@ suite('test_peer_read_async_warmup', 'docker') {
         // warm up task blocked by debug point, so old be should not have version 4,5 cache file
         assertFalse(afterMerged2345CacheDir[oldBe.Host].containsAll(newAddBeCacheDir), "old be should not have version 4,5 cache file")
 
+        def peerReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read")
+
         // The query triggers reading the file cache from the peer
         profile("test_peer_read_async_warmup_profile") {
             sql """ set enable_profile = true;"""
@@ -161,16 +167,37 @@ suite('test_peer_read_async_warmup', 'docker') {
                 def matcher = (profileString =~ /-  NumPeerIOTotal:\s+(\d+)/)
                 def total = 0
                 while (matcher.find()) {
-                    total += matcher.group(1).toInteger()
-                    logger.info("NumPeerIOTotal: {}", matcher.group(1))
+                    def peerIoTotal = matcher.group(1).toInteger()
+                    total += peerIoTotal
+                    logger.info("NumPeerIOTotal: {}", peerIoTotal)
+                }
+                def remoteMatcher = (profileString =~ /-  NumRemoteIOTotal:\s+(\d+)/)
+                def remoteTotal = 0
+                while (remoteMatcher.find()) {
+                    def remoteIoTotal = remoteMatcher.group(1).toInteger()
+                    remoteTotal += remoteIoTotal
+                    logger.info("NumRemoteIOTotal: {}", remoteIoTotal)
                 }
                 assertTrue(total > 0)
+                assertEquals(0, remoteTotal)
+
+                def sameCgMatcher = (profileString =~ /SameCGPeerIOTotal:\s+(\d+)/)
+                def sameCgTotal = 0
+                while (sameCgMatcher.find()) {
+                    sameCgTotal += sameCgMatcher.group(1).toInteger()
+                    logger.info("SameCGPeerIOTotal: {}", sameCgMatcher.group(1))
+                }
+                assertTrue(sameCgTotal > 0, "SameCGPeerIOTotal must be > 0 in profile")
+
+                def nodesMatcher = (profileString =~ /PeerCacheNodes:\s*(.+)/)
+                assertTrue(nodesMatcher.find(), "Profile must contain PeerCacheNodes info")
+                logger.info("PeerCacheNodes found: {}", nodesMatcher.group(1))
             } 
         }
 
-        // peer read cache, so it should read version 2,3 cache file from old be, not s3
-        assertTrue(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"), "new add be should have peer read cache")
-        assertTrue(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"), "new add be should not have s3 read cache")
+        // peer read cache, so it should read version 2,3 cache file from old be
+        assertTrue(getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read") > peerReadBeforeQuery,
+                "new add be should have peer read cache")
     }
 
     docker(options) {

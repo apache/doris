@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_number.h"
@@ -39,6 +40,51 @@ TEST(ColumnConstTest, TestCreate) {
     EXPECT_EQ(column_const2->size(), 12);
 
     EXPECT_TRUE(!is_column_const(column_const2->get_data_column()));
+}
+
+TEST(ColumnConstTest, ConstNullableIsSemanticallyNullable) {
+    auto nullable_data = ColumnHelper::create_nullable_column<DataTypeInt64>({7}, {0});
+    auto const_nullable = ColumnConst::create(nullable_data, 3);
+    auto const_not_nullable =
+            ColumnConst::create(ColumnHelper::create_column<DataTypeInt64>({7}), 3);
+
+    EXPECT_TRUE(nullable_data->is_nullable());
+    EXPECT_TRUE(is_column_nullable(*nullable_data));
+    EXPECT_TRUE(const_nullable->is_nullable());
+    EXPECT_FALSE(is_column_nullable(*const_nullable));
+    EXPECT_EQ(nullptr, check_and_get_column<ColumnNullable>(const_nullable.get()));
+
+    const auto* nested_nullable = check_and_get_column_with_const<ColumnNullable>(*const_nullable);
+    ASSERT_NE(nullptr, nested_nullable);
+    EXPECT_FALSE(nested_nullable->is_null_at(0));
+
+    EXPECT_FALSE(const_not_nullable->is_nullable());
+    EXPECT_FALSE(is_column_nullable(*const_not_nullable));
+    EXPECT_EQ(nullptr, check_and_get_column_with_const<ColumnNullable>(*const_not_nullable));
+}
+
+TEST(ColumnConstTest, ConstNullableNullValueKeepsNullSemantics) {
+    auto nullable_data = ColumnHelper::create_nullable_column<DataTypeInt64>({7}, {1});
+    auto const_null = ColumnConst::create(nullable_data, 5);
+
+    EXPECT_TRUE(const_null->is_nullable());
+    EXPECT_FALSE(is_column_nullable(*const_null));
+    EXPECT_TRUE(const_null->is_null_at(0));
+    EXPECT_TRUE(const_null->is_null_at(4));
+    EXPECT_TRUE(const_null->only_null());
+}
+
+TEST(ColumnConstTest, clone_resized_clones_nested_data) {
+    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
+    auto column_const = ColumnConst::create(column_data, 3);
+
+    auto cloned = column_const->clone_resized(5);
+    const auto& cloned_const = assert_cast<const ColumnConst&>(*cloned);
+
+    EXPECT_EQ(cloned_const.size(), 5);
+    EXPECT_EQ(cloned_const.get_data_column_ptr()->size(), 1);
+    EXPECT_EQ(cloned_const.get_data_column().get_int(0), 7);
+    EXPECT_NE(column_const->get_data_column_ptr().get(), cloned_const.get_data_column_ptr().get());
 }
 
 TEST(ColumnConstTest, TestFilter) {

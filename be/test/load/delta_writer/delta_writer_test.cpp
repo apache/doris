@@ -71,6 +71,19 @@ class OlapMeta;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
+static std::shared_ptr<Schema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
+    size_t num_columns = tablet_schema->num_columns();
+    if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
+        --num_columns;
+    }
+
+    std::vector<ColumnId> column_ids(num_columns);
+    for (uint32_t cid = 0; cid < num_columns; ++cid) {
+        column_ids[cid] = cid;
+    }
+    return std::make_shared<Schema>(tablet_schema->columns(), column_ids);
+}
+
 static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -672,7 +685,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
         block.set_columns(std::move(columns));
-        res = delta_writer->write(&block, {0});
+        res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
     }
 
@@ -762,11 +775,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     }
 
     generate_data(&block, 123, 456, 100);
-    res = delta_writer->write(&block, {0});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
     ASSERT_TRUE(res.ok());
 
     generate_data(&block, 123, 456, 90);
-    res = delta_writer->write(&block, {1});
+    res = delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
     ASSERT_TRUE(res.ok());
 
     res = delta_writer->close();
@@ -824,7 +837,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
+    std::shared_ptr<Schema> schema = create_full_schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
@@ -885,11 +898,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 100);
-        res = delta_writer1->write(&block, {0});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 100);
-        res = delta_writer1->write(&block, {1});
+        res = delta_writer1->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer1->close();
@@ -914,11 +927,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         }
 
         generate_data(&block, 10, 123, 110);
-        res = delta_writer2->write(&block, {0});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {0}});
         ASSERT_TRUE(res.ok());
 
         generate_data(&block, 20, 123, 90);
-        res = delta_writer2->write(&block, {1});
+        res = delta_writer2->write(&block, TabletAddRowsPayload {.row_idxs = {1}});
         ASSERT_TRUE(res.ok());
 
         res = delta_writer2->close();
@@ -1032,7 +1045,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset1->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
-        std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset1->tablet_schema());
+        std::shared_ptr<Schema> schema = create_full_schema(rowset1->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
         static_cast<void>(((BetaRowset*)rowset1.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
@@ -1060,7 +1073,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset2->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
-        std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset2->tablet_schema());
+        std::shared_ptr<Schema> schema = create_full_schema(rowset2->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
         static_cast<void>(((BetaRowset*)rowset2.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);

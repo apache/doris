@@ -25,11 +25,11 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -65,7 +65,13 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            long ttlSeconds = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+            long ttlSeconds;
+            try {
+                ttlSeconds = PropertyAnalyzer.analyzeFileCacheTtlSeconds(
+                        properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
             olapTable.readLock();
             try {
                 if (ttlSeconds == olapTable.getTTLSeconds()) {
@@ -112,7 +118,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
-                add(PropertyAnalyzer.PROPERTIES_ENABLE_TSO);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
                 add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
@@ -131,13 +136,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
-
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
-                && !(olapTable.getPartitionInfo().enableAutomaticPartition()
-                        && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException("Only AUTO RANGE PARTITION table could set "
-                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
-        }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
@@ -163,7 +161,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitMode, olapTable.getGroupCommitMode());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -178,7 +175,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitIntervalMs, olapTable.getGroupCommitIntervalMs());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -193,7 +189,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitDataBytes, olapTable.getGroupCommitDataBytes());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -356,16 +351,15 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     throw new UserException("enable_mow_light_delete property is "
                             + "not supported for unique merge-on-read table");
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
             param.enableMowLightDelete = enableMowLightDelete;
             param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
-            // Do nothing.
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
             // Do nothing.
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            // Retention count only changes FE table properties and scheduler registration below.
         } else if (properties.containsKey(
                 PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
             int verticalCompactionNumColumnsPerGroup = Integer.parseInt(properties.get(
@@ -389,6 +383,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
         olapTable.writeLockOrDdlException();
         try {
+            checkPartitionRetentionCount(olapTable, properties);
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();

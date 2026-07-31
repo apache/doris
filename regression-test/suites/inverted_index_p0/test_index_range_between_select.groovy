@@ -117,7 +117,7 @@ suite("test_index_range_between_select", "inverted_index_select"){
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
         }
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // case1: test simple between case
         // case1.0: test data index colume select in specific between condition
@@ -267,17 +267,17 @@ suite("test_index_range_between_select", "inverted_index_select"){
         qt_sql """
             select * from ${indexTbName1}
             where
-                ${varchar_colume1} between 'li sisi' and 'zhang san yi' and 
-                ${varchar_colume2} between 'grade 5' and 'grade 6' or 
+                ${varchar_colume1} between 'li sisi' and 'zhang san yi' and
+                ${varchar_colume2} between 'grade 5' and 'grade 6' or
                 ${varchar_colume3} between "li liuliu" and  "zhang yi"
             order by name;
             """
         qt_sql """
             select * from ${indexTbName1}
             where
-                ${varchar_colume1} between 'li sisi' and 'zhang san yi' and 
+                ${varchar_colume1} between 'li sisi' and 'zhang san yi' and
                 ${string_colume1} between "A quiet little boy" and "good at handiwork and beaty" and
-                ${char_colume1} between "tall:150cm, weight: 40kg, hobbies: sing, dancing, running" and "tall:100cm, weight: 30kg, hobbies:" or 
+                ${char_colume1} between "tall:150cm, weight: 40kg, hobbies: sing, dancing, running" and "tall:100cm, weight: 30kg, hobbies:" or
                 ${text_colume1} between "i just want go outside" and "learn makes me happy"
             order by name;
             """
@@ -285,9 +285,9 @@ suite("test_index_range_between_select", "inverted_index_select"){
         qt_sql """
             select * from ${indexTbName1}
             where
-                ${date_colume1} between "2016-10-01" and "2018-10-01" and 
-                ${int_colume1} between 11 and 9 or 
-                ${varchar_colume3} between "li liuliu" and  "zhang yi" or 
+                ${date_colume1} between "2016-10-01" and "2018-10-01" and
+                ${int_colume1} between 11 and 9 or
+                ${varchar_colume3} between "li liuliu" and  "zhang yi" or
                 ${string_colume1} between "A quiet little boy" and "good at handiwork and beaty"
             order by name;
             """

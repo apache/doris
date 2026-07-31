@@ -354,4 +354,3 @@ public class PartitionPrunerTest extends TestWithFeService {
         return new ListPartitionItem(partitionKeys.build());
     }
 }
-

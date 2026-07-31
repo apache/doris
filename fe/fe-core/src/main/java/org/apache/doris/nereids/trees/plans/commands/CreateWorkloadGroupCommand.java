@@ -96,23 +96,31 @@ public class CreateWorkloadGroupCommand extends Command implements ForwardWithSy
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
 
-        if (StringUtils.isEmpty(computeGroup)) {
-            computeGroup = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME
-                    : Tag.DEFAULT_BACKEND_TAG.value;
-        } else if (Config.isNotCloudMode()) {
-            try {
-                FeNameFormat.checkCommonName("Workload group's compute group", computeGroup);
-            } catch (AnalysisException e) {
-                throw new DdlException("Compute group's format is illegal: " + computeGroup);
-            }
-        }
-
         if (Config.isCloudMode()) {
+            if (StringUtils.isEmpty(computeGroup)) {
+                throw new UserException("Must specify compute group via 'FOR <compute_group>' "
+                        + "in cloud mode.");
+            }
             String originStr = computeGroup;
             computeGroup = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
                     computeGroup);
             if (StringUtils.isEmpty(computeGroup)) {
                 throw new UserException("Can not find compute group " + originStr + ".");
+            }
+        } else {
+            // In non-cloud mode, 'FOR <compute_group>' is also supported syntactically, but
+            // the value here actually refers to a resource group (Tag) — there are no real
+            // compute groups in non-cloud mode. The grammar is shared with cloud mode purely
+            // for consistency. When the clause is omitted, fall back to the default resource
+            // group Tag.VALUE_DEFAULT_TAG.
+            if (StringUtils.isEmpty(computeGroup)) {
+                computeGroup = Tag.VALUE_DEFAULT_TAG;
+            } else {
+                try {
+                    FeNameFormat.checkCommonName("Workload group's compute group", computeGroup);
+                } catch (AnalysisException e) {
+                    throw new DdlException("Compute group's format is illegal: " + computeGroup);
+                }
             }
         }
 

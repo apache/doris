@@ -42,6 +42,12 @@ under the License.
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
             <version>${maxcompute.version}</version>

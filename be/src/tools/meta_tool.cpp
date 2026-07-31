@@ -63,6 +63,7 @@
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/types.h"
 #include "util/coding.h"
+#include "util/unaligned.h"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -472,7 +473,8 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
             // LargeInt is stored as Int128
             const StringRef& data = column.get_data_at(row);
             if (data.size == sizeof(__int128)) {
-                __int128 val = *reinterpret_cast<const __int128*>(data.data);
+                // data.data may not be 16-byte aligned; use unaligned_load to avoid UB.
+                __int128 val = unaligned_load<__int128>(data.data);
                 return doris::LargeIntValue::to_string(val);
             }
             return "<invalid largeint>";
@@ -556,7 +558,8 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
         case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
             const StringRef& data = column.get_data_at(row);
             if (data.size == sizeof(__int128)) {
-                __int128 val = *reinterpret_cast<const __int128*>(data.data);
+                // data.data may not be 16-byte aligned; use unaligned_load to avoid UB.
+                __int128 val = unaligned_load<__int128>(data.data);
                 return doris::LargeIntValue::to_string(val);
             }
             return "<invalid decimal>";
@@ -648,7 +651,7 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
         return;
     }
 
-    MutableColumnPtr dst_column = data_type->create_column();
+    doris::MutableColumnPtr dst_column = data_type->create_column();
 
     // Determine how many rows to display (max 10 rows for readability)
     const size_t max_display_rows = 10;
@@ -675,11 +678,11 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
     for (size_t i = 0; i < rows_read; ++i) {
         std::cout << indent << "  [" << i << "] ";
         if (column_meta.is_nullable()) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*dst_column);
+            const auto& nullable_col = assert_cast<const doris::ColumnNullable&>(*dst_column);
             if (nullable_col.is_null_at(i)) {
                 std::cout << "NULL";
             } else {
-                const IColumn& nested_col = nullable_col.get_nested_column();
+                const doris::IColumn& nested_col = nullable_col.get_nested_column();
                 std::cout << format_column_value(nested_col, i, field_type);
             }
         } else {
@@ -781,11 +784,12 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
 }
 
 // Register hijacked accessors
-ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv, segment_v2::EncodingInfoResolver*,
-                     _encoding_info_resolver);
-ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv, std::shared_ptr<MemTrackerLimiter>,
-                     _orphan_mem_tracker);
-ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, std::atomic_bool, _s_tracking_memory);
+ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, doris::ExecEnv,
+                     doris::segment_v2::EncodingInfoResolver*, _encoding_info_resolver);
+ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, doris::ExecEnv,
+                     std::shared_ptr<doris::MemTrackerLimiter>, _orphan_mem_tracker);
+ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, doris::ExecEnv, std::atomic_bool,
+                            _s_tracking_memory);
 
 void show_segment_data(const std::string& file_name) {
     // Initialize ExecEnv components needed for ColumnReader
@@ -803,7 +807,7 @@ void show_segment_data(const std::string& file_name) {
     if (exec_env->mem_tracker_limiter_pool.empty()) {
         exec_env->mem_tracker_limiter_pool.resize(doris::MEM_TRACKER_GROUP_NUM,
                                                   doris::TrackerLimiterGroup());
-        (*tracking_memory).store(true, std::memory_order_release);
+        tracking_memory->store(true, std::memory_order_release);
         exec_env->*mem_tracker = doris::MemTrackerLimiter::create_shared(
                 doris::MemTrackerLimiter::Type::GLOBAL, "Orphan");
     }

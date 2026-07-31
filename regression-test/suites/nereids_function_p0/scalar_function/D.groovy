@@ -55,6 +55,119 @@ suite("nereids_scalar_fn_D") {
 	qt_sql_datediff_DateTimeV2_DateTime_notnull "select datediff(kdtmv2s1, kdtm) from fn_test_not_nullable order by kdtmv2s1, kdtm"
 	qt_sql_datediff_DateV2_DateTime "select datediff(kdtv2, kdtm) from fn_test order by kdtv2, kdtm"
 	qt_sql_datediff_DateV2_DateTime_notnull "select datediff(kdtv2, kdtm) from fn_test_not_nullable order by kdtv2, kdtm"
+	def timeZoneOrigValue = sql("select @@time_zone")
+	try {
+		sql "set time_zone = '+00:00'"
+		qt_sql_nullable_date_diff_utc """
+			select
+				datediff('2021-12-31 12:23:34', '0000-01-01 00:00:00'),
+				datediff('2021-12-31 12:23:34', nullable('0000-01-01 00:00:00')),
+				datediff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				days_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				weeks_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				months_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				years_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				hours_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				minutes_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				seconds_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				milliseconds_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				microseconds_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				timediff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00'))
+		"""
+		sql "set time_zone = '+08:00'"
+		qt_sql_nullable_date_diff_shanghai """
+			select
+				datediff('2021-12-31 12:23:34', '0000-01-01 00:00:00'),
+				datediff('2021-12-31 12:23:34', nullable('0000-01-01 00:00:00')),
+				datediff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				days_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				weeks_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				months_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				years_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				hours_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				minutes_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				seconds_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				milliseconds_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				microseconds_diff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00')),
+				timediff(nullable('2021-12-31 12:23:34'), nullable('0000-01-01 00:00:00'))
+		"""
+		sql "set time_zone = '+00:00'"
+		qt_sql_timestamptz_date_diff_utc """
+			select
+				datediff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				datediff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				days_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				days_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				weeks_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				weeks_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				months_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				months_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				quarters_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				quarters_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				years_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				years_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				hours_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				hours_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				minutes_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				minutes_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				seconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				seconds_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				milliseconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				milliseconds_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				microseconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				microseconds_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00'))
+		"""
+		sql "set time_zone = '+08:00'"
+		qt_sql_timestamptz_date_diff_shanghai """
+			select
+				datediff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				datediff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				days_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				days_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				weeks_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				weeks_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				months_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				months_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				quarters_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				quarters_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				years_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				years_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				hours_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				hours_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				minutes_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				minutes_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				seconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				seconds_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				milliseconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				milliseconds_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00')),
+				microseconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				microseconds_diff(nullable('2021-12-31 00:30:00+08:00'), nullable('2021-12-30 23:30:00+08:00'))
+		"""
+		testFoldConst """
+			select
+				datediff('2021-12-31 12:23:34', '0000-01-01 00:00:00'),
+				days_diff('2021-12-31 12:23:34', '0000-01-01 00:00:00')
+		"""
+		testFoldConst """
+			select month_floor('2023-07-13 22:28:18.4567', 5)
+		"""
+		testFoldConst """
+			select
+				datediff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				days_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				weeks_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				months_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				quarters_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				years_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				hours_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				minutes_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				seconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				milliseconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00'),
+				microseconds_diff('2021-12-31 00:30:00+08:00', '2021-12-30 23:30:00+08:00')
+		"""
+	} finally {
+		sql "set time_zone = '${timeZoneOrigValue[0][0]}'"
+	}
 	qt_sql_datev2_DateTimeV2 "select datev2(kdtmv2s1) from fn_test order by kdtmv2s1"
 	qt_sql_datev2_DateTimeV2_notnull "select datev2(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
 	qt_sql_day_ceil_DateTime "select day_ceil(kdtm) from fn_test order by kdtm"

@@ -155,6 +155,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
 [[maybe_unused]] HttpResponse process_get_cluster_status(MetaServiceImpl* service,
                                                          brpc::Controller* ctrl);
 
+[[maybe_unused]] HttpResponse process_set_rpc_rate_limit_whitelist(MetaServiceImpl* service,
+                                                                   brpc::Controller* ctrl);
+
+[[maybe_unused]] HttpResponse process_get_rpc_rate_limit_whitelist(MetaServiceImpl* service,
+                                                                   brpc::Controller* ctrl);
+
 [[maybe_unused]] HttpResponse process_txn_lazy_commit(MetaServiceImpl* service,
                                                       brpc::Controller* ctrl);
 

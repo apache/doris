@@ -33,7 +33,7 @@ import java.util.Optional;
 /**
  * delete from unique key table.
  */
-public class DeleteFromUsingCommand extends DeleteFromCommand {
+public class DeleteFromUsingCommand extends DeleteFromCommand implements SupportProfile {
     private final Optional<LogicalPlan> cte;
     private final boolean hasOrderByLimit;
 
@@ -73,6 +73,11 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
      */
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
+    }
+
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return nameParts;
     }
 
     @Override

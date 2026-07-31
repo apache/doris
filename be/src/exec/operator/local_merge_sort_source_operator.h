@@ -83,7 +83,7 @@ public:
     LocalMergeSortSourceOperatorX() : _merge_by_exchange(false), _offset(0) {}
 #endif
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;

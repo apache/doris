@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference
 // under the License.
 
 suite("query_cache_with_context") {
+    sql "set parallel_pipeline_task_num=2"
     multi_sql """
         set enable_sql_cache=false;
         set enable_query_cache=false;

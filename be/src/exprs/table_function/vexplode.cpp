@@ -138,8 +138,8 @@ void VExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, int l
             assert_cast<ColumnNullable*>(column.get())
                     ->get_nested_column_ptr()
                     ->insert_many_from(*_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(
-                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnNullable*>(column.get())
+                    ->get_null_map_column_ptr()
                     ->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_detail.nested_col, pos, length);
@@ -157,8 +157,7 @@ int VExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_range_from(*_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);

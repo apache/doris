@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_agg_skew_hint") {
+    sql "set parallel_pipeline_task_num=2"
     sql "set runtime_filter_mode=OFF"
     sql "set disable_join_reorder=true;"
     sql "drop table if exists test_skew_hint"

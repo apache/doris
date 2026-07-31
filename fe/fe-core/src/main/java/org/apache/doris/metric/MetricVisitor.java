@@ -21,6 +21,8 @@ import org.apache.doris.monitor.jvm.JvmStats;
 
 import com.codahale.metrics.Histogram;
 
+import java.util.List;
+
 /*
  * MetricVisitor will visit the metrics in metric repo and print them in StringBuilder
  */
@@ -41,6 +43,8 @@ public abstract class MetricVisitor {
     public abstract void visit(String prefix, Metric metric);
 
     public abstract void visitHistogram(String prefix, String name, Histogram histogram);
+
+    public abstract void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels);
 
     public abstract void visitNodeInfo();
 

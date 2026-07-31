@@ -111,7 +111,7 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     const auto& data_column = assert_cast<const ColumnHLL&>(column);
     auto& hll_value = data_column.get_element(row_num);
     auto size = hll_value.max_serialized_size();
-    auto* ptr = reinterpret_cast<char*>(arena.alloc(size));
+    auto* ptr = arena.alloc(size);
     size_t actual_size = hll_value.serialize((uint8_t*)ptr);
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
@@ -131,15 +131,14 @@ Status DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const Null
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
         } else {
             auto& hll_value = col.get_element(string_i);
             std::string memory_buffer(hll_value.max_serialized_size(), '0');
             hll_value.serialize((uint8_t*)memory_buffer.data());
             RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
-                    column.get_name(), array_builder->type()->name()));
+                    column, *array_builder));
         }
     }
     return Status::OK();

@@ -22,7 +22,7 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
-    sql """ DROP TABLE IF EXISTS ${testTable} """ 
+    sql """ DROP TABLE IF EXISTS ${testTable} """
     sql """
         CREATE TABLE ${testTable} (
           `k` int(11) NULL COMMENT "",
@@ -54,8 +54,8 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql " set inverted_index_skip_threshold = 0 "
-          sql "set enable_common_expr_pushdown = true"
-          sql "set enable_common_expr_pushdown_for_inverted_index = true"
+          sql "set enable_segment_limit_pushdown = true"
+          sql "set enable_segment_limit_pushdown = true"
           sql "sync"
           sql "${sqlQuery}"
       } finally {
@@ -63,7 +63,7 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
           GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
       }
     }
-    
+
     queryAndCheck (" select * from ${testTable} where v['int1'] is not null; ", 2)
     queryAndCheck (" select * from ${testTable} where v['int1'] is null; ", 1)
     queryAndCheck (" select * from ${testTable} where v['string1'] is not null; ", 2)

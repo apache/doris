@@ -17,7 +17,6 @@
 
 #include "exec/common/variant_util.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -73,6 +72,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
@@ -101,8 +101,47 @@
 #include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
+#include "util/jsonb_utils.h"
 
 namespace doris::variant_util {
+
+namespace {
+
+PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::string_view path) {
+    if (!path.empty()) {
+        return PathInData(parent_column->name_lower_case() + "." + std::string(path));
+    }
+
+    // Keep the empty JSON key as a real path part. The variant root is `parts.empty()`;
+    // an empty key is `parts.size() == 1 && parts[0].key.empty()` after popping root.
+    PathInDataBuilder builder;
+    return builder.append(parent_column->name_lower_case(), false).append("", false).build();
+}
+
+void append_empty_key_subcolumn_from_stats(TabletSchema::PathsSetInfo& paths_set_info,
+                                           const TabletColumnPtr& parent_column,
+                                           TabletSchemaSPtr& output_schema) {
+    if (!paths_set_info.sub_path_set.contains("") || paths_set_info.sparse_path_set.contains("") ||
+        paths_set_info.subcolumn_indexes.contains("")) {
+        return;
+    }
+
+    auto column_name = parent_column->name_lower_case() + ".";
+    auto column_path = make_full_subcolumn_path(parent_column, "");
+
+    TabletColumn subcolumn;
+    subcolumn.set_name(column_name);
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    subcolumn.set_parent_unique_id(parent_column->unique_id());
+    subcolumn.set_path_info(column_path);
+    subcolumn.set_aggregation_method(parent_column->aggregation());
+    subcolumn.set_variant_max_subcolumns_count(parent_column->variant_max_subcolumns_count());
+    subcolumn.set_variant_enable_doc_mode(parent_column->variant_enable_doc_mode());
+    subcolumn.set_is_nullable(true);
+    output_schema->append_column(subcolumn);
+}
+
+} // namespace
 
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
@@ -349,13 +388,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
             return Status::OK();
         }
         // set variant root column/type to from column/type
-        CHECK(arg.column->is_nullable());
+        CHECK(is_column_nullable(*arg.column));
         auto to_type = remove_nullable(type);
         const auto& data_type_object = assert_cast<const DataTypeVariant&>(*to_type);
         auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count(),
                                              data_type_object.enable_doc_mode());
 
-        variant->create_root(arg.type, std::move(*arg.column).mutate());
+        variant->create_root(arg.type, IColumn::mutate(arg.column));
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
                 assert_cast<const ColumnNullable*>(arg.column.get())->get_null_map_column_ptr());
@@ -397,6 +436,37 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
                               arg.column->get_name(), (*result)->get_name());
     return Status::OK();
+}
+
+ColumnPtr jsonb_root_to_json_string_column(const IColumn& root) {
+    auto root_column = root.convert_to_full_column_if_const();
+    const IColumn* jsonb_column = root_column.get();
+    const NullMap* null_map = nullptr;
+    if (root_column->is_nullable()) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*root_column);
+        jsonb_column = &nullable.get_nested_column();
+        null_map = &nullable.get_null_map_data();
+    }
+
+    const auto& column = assert_cast<const ColumnString&>(*jsonb_column);
+    auto result = ColumnString::create();
+    result->reserve(column.size());
+    for (size_t i = 0; i < column.size(); ++i) {
+        if (null_map != nullptr && (*null_map)[i]) {
+            result->insert_default();
+            continue;
+        }
+
+        const auto jsonb = column.get_data_at(i);
+        if (jsonb.size == 0) {
+            result->insert_default();
+            continue;
+        }
+
+        const auto json = JsonbToJson::jsonb_to_json_string(jsonb.data, jsonb.size);
+        result->insert_data(json.data(), json.size());
+    }
+    return result->get_ptr();
 }
 
 void get_column_by_type(const DataTypePtr& data_type, const std::string& name, TabletColumn& column,
@@ -1163,7 +1233,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
     // append subcolumns
     for (const auto& subpath : sorted_subpaths) {
         auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
-        auto column_path = PathInData(column_name);
+        auto column_path = make_full_subcolumn_path(parent_column,
+                                                    std::string_view(subpath.data, subpath.size));
 
         const auto& find_data_types = path_to_data_types.find(PathInData(subpath));
 
@@ -1230,7 +1301,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
-        auto column_path = PathInData(column_name);
+        auto column_path = make_full_subcolumn_path(parent_column, path.get_path());
         TabletColumn sub_column =
                 get_column_by_type(data_type, column_name,
                                    ExtraInfo {.unique_id = -1,
@@ -1245,6 +1316,10 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
                    << data_type->get_name();
     }
+    // The data-type map can contain the variant root as PathInData(), while an empty JSON key
+    // only appears in path stats as "". If stats selected it as a materialized path, append it
+    // with an explicit empty path part so it does not collide with root.
+    append_empty_key_subcolumn_from_stats(paths_set_info, parent_column, output_schema);
 }
 
 // Build the temporary schema for compaction.
@@ -1828,26 +1903,26 @@ static void append_field_to_binary_chars(const Field& field, ColumnString::Chars
     }
     case PrimitiveType::TYPE_BOOLEAN: {
         append_binary_type(chars,
-                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BOOLEAN));
+                           primitive_type_to_storage_field_type(PrimitiveType::TYPE_BOOLEAN));
         const auto v = static_cast<UInt8>(field.get<PrimitiveType::TYPE_BOOLEAN>());
         append_binary_bytes(chars, &v, sizeof(UInt8));
         return;
     }
     case PrimitiveType::TYPE_BIGINT: {
-        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_BIGINT));
+        append_binary_type(chars, primitive_type_to_storage_field_type(PrimitiveType::TYPE_BIGINT));
         const auto v = field.get<PrimitiveType::TYPE_BIGINT>();
         append_binary_bytes(chars, &v, sizeof(Int64));
         return;
     }
     case PrimitiveType::TYPE_LARGEINT: {
         append_binary_type(chars,
-                           TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_LARGEINT));
+                           primitive_type_to_storage_field_type(PrimitiveType::TYPE_LARGEINT));
         const auto v = field.get<PrimitiveType::TYPE_LARGEINT>();
         append_binary_bytes(chars, &v, sizeof(int128_t));
         return;
     }
     case PrimitiveType::TYPE_DOUBLE: {
-        append_binary_type(chars, TabletColumn::get_field_type_by_type(PrimitiveType::TYPE_DOUBLE));
+        append_binary_type(chars, primitive_type_to_storage_field_type(PrimitiveType::TYPE_DOUBLE));
         const auto v = field.get<PrimitiveType::TYPE_DOUBLE>();
         append_binary_bytes(chars, &v, sizeof(Float64));
         return;
@@ -1988,7 +2063,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
         break;
     case ParseConfig::ParseTo::OnlyDocValueColumn: {
-        CHECK(column_variant.enable_doc_mode()) << "OnlyDocValueColumn requires doc mode enabled";
         std::vector<size_t> doc_item_indexes;
         doc_item_indexes.reserve(paths.size());
         phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
@@ -1998,6 +2072,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
             FieldInfo field_info;
             get_field_info(values[i], &field_info);
             if (paths[i].empty()) {
+                // Plain non-doc VARIANT can use doc-value KV as writer-side staging. An
+                // invalid root entry from JSON object/array is neither a scalar root value nor
+                // a doc KV path, so leave this row's doc offset empty. Doc-mode and valid scalar
+                // roots still populate the root subcolumn below.
+                if (!column_variant.enable_doc_mode() &&
+                    field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
+                    continue;
+                }
                 auto* subcolumn = column_variant.get_subcolumn(paths[i]);
                 DCHECK(subcolumn != nullptr);
                 flush_defaults(subcolumn);
@@ -2145,14 +2227,14 @@ Status _parse_and_materialize_variant_columns(Block& block,
                                               const std::vector<ParseConfig>& configs) {
     for (size_t i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
-        bool is_nullable = column_ref->is_nullable();
-        MutableColumnPtr owner_column = std::move(*column_ref).mutate();
+        bool is_nullable = is_column_nullable(*column_ref);
+        MutableColumnPtr owner_column = IColumn::mutate(std::move(column_ref));
         ColumnPtr nullable_null_map;
         MutableColumnPtr var_column;
         if (is_nullable) {
             const auto& nullable = assert_cast<const ColumnNullable&>(*owner_column);
             nullable_null_map = nullable.get_null_map_column_ptr();
-            var_column = std::move(*nullable.get_nested_column_ptr()).mutate();
+            var_column = IColumn::mutate(nullable.get_nested_column_ptr());
         } else {
             var_column = std::move(owner_column);
         }
@@ -2168,21 +2250,11 @@ Status _parse_and_materialize_variant_columns(Block& block,
         VLOG_DEBUG << "parse scalar variant column: " << var.get_root_type()->get_name();
         ColumnPtr scalar_root_column;
         if (var.get_root_type()->get_primitive_type() == TYPE_JSONB) {
-            // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
-            // json str and parse them into variant
-            RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
-                                        var.get_root()->is_nullable()
-                                                ? make_nullable(std::make_shared<DataTypeString>())
-                                                : std::make_shared<DataTypeString>(),
-                                        &scalar_root_column));
-            if (scalar_root_column->is_nullable()) {
-                scalar_root_column = assert_cast<const ColumnNullable*>(scalar_root_column.get())
-                                             ->get_nested_column_ptr();
-            }
+            scalar_root_column = jsonb_root_to_json_string_column(*var.get_root());
         } else {
             const auto& root = *var.get_root();
             scalar_root_column =
-                    root.is_nullable()
+                    is_column_nullable(root)
                             ? assert_cast<const ColumnNullable&>(root).get_nested_column_ptr()
                             : var.get_root();
         }
@@ -2217,6 +2289,49 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
             { return _parse_and_materialize_variant_columns(block, variant_pos, configs); });
 }
 
+namespace {
+
+ParseConfig::ParseTo select_storage_variant_parse_target(const TabletColumn& column,
+                                                         const ParseConfig& config) {
+    // NestedGroup consumes the parse-time subcolumn tree to build nested storage structures, so it
+    // must not go through doc-value staging.
+    if (column.variant_enable_nested_group()) {
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    }
+
+    // Persistent doc mode owns doc-value bucket columns in VariantDocWriter. Keep it separate from
+    // the plain non-doc staging optimization, even when typed paths or parent indexes exist.
+    if (column.variant_enable_doc_mode()) {
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
+
+    // Deprecated flatten-nested still consumes parse-time subcolumns. Predefined typed paths and
+    // parent inverted indexes are handled later by regular doc-value staging: typed paths are
+    // forced into the materialized set unless typed-to-sparse is enabled, and materialized dynamic
+    // subcolumns inherit parent indexes while sparse payloads stay unindexed.
+    if (config.deprecated_enable_flatten_nested) {
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    }
+
+    // Plain dynamic non-doc VARIANT can avoid eagerly creating thousands of parse-time subcolumns.
+    // The segment writer will pick the materialized/sparse split from this doc-value KV staging.
+    // Keep a BE switch so tests and rollouts can compare the old parse-time path with staging under
+    // the same writer and schema.
+    switch (config::variant_storage_parse_mode) {
+    case 0:
+    case 2:
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    case 1:
+        return ParseConfig::ParseTo::OnlySubcolumns;
+    default:
+        CHECK(false) << "invalid variant_storage_parse_mode: "
+                     << config::variant_storage_parse_mode;
+        return ParseConfig::ParseTo::OnlyDocValueColumn;
+    }
+}
+
+} // namespace
+
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
                                              const std::vector<uint32_t>& column_pos) {
     std::vector<uint32_t> variant_column_pos;
@@ -2247,13 +2362,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
         }
-        // if doc mode is not enabled, no need to parse to doc value column
-        if (!column.variant_enable_doc_mode()) {
-            configs[i].parse_to = ParseConfig::ParseTo::OnlySubcolumns;
-            continue;
-        }
-
-        configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        configs[i].parse_to = select_storage_variant_parse_target(column, configs[i]);
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));

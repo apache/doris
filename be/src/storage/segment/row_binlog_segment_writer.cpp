@@ -17,6 +17,9 @@
 
 #include "storage/segment/row_binlog_segment_writer.h"
 
+#include <algorithm>
+#include <iterator>
+
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "core/block/column_with_type_and_name.h"
@@ -65,12 +68,18 @@ Status RowBinlogSegmentWriter::init() {
         return Status::InternalError("binlog<row> writer missing source_tablet_schema");
     }
 
-    int lsn_col_id = _tablet_schema->field_index(std::string(kRowBinlogLsnColName));
-    CHECK(lsn_col_id >= 0) << "binlog<row> schema missing __DORIS_BINLOG_LSN__";
-    _binlog_col_start_id = static_cast<uint32_t>(lsn_col_id);
-    _normal_col_start_id = lsn_col_id == 0 ? BINLOG_COLNUM : 0;
+    int tso_col_id = _tablet_schema->binlog_tso_col_idx();
+    int lsn_col_id = _tablet_schema->binlog_lsn_col_idx();
+    int op_col_id = _tablet_schema->binlog_op_col_idx();
+    DCHECK(tso_col_id >= 0) << "binlog<row> schema missing " << BINLOG_TSO_COL;
+    DCHECK(lsn_col_id >= 0) << "binlog<row> schema missing " << BINLOG_LSN_COL;
+    DCHECK(op_col_id >= 0) << "binlog<row> schema missing " << BINLOG_OP_COL;
+    _binlog_tso_col_id = static_cast<uint32_t>(tso_col_id);
+    _binlog_lsn_col_id = static_cast<uint32_t>(lsn_col_id);
+    _binlog_op_col_id = static_cast<uint32_t>(op_col_id);
+    _normal_col_start_id = tso_col_id == 0 ? BINLOG_COLNUM : 0;
 
-    uint32_t normal_col_num = cast_set<uint32_t>(source_schema->num_visible_columns());
+    uint32_t normal_col_num = cast_set<uint32_t>(_source_data_writer->normal_column_count());
     _before_col_start_id = _normal_col_start_id + normal_col_num;
 
     if (!_write_before && _tablet_schema->num_columns() > normal_col_num + BINLOG_COLNUM) {
@@ -111,6 +120,7 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     if (UNLIKELY(source_schema == nullptr)) {
         return Status::InternalError("binlog<row> writer missing source_tablet_schema");
     }
+    const size_t normal_column_count = _source_data_writer->normal_column_count();
 
     bool is_partial_update = _binlog_opts.source.partial_update_info &&
                              _binlog_opts.source.partial_update_info->is_partial_update() &&
@@ -119,6 +129,7 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     std::vector<uint32_t> partial_cids =
             is_partial_update ? _binlog_opts.source.partial_update_info->update_cids
                               : std::vector<uint32_t>();
+    std::vector<uint32_t> row_binlog_partial_cids = partial_cids;
     if (is_partial_update) {
         if (block->columns() <= source_schema->num_key_columns() ||
             block->columns() >= source_schema->num_columns()) {
@@ -129,11 +140,12 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
                     _tablet_schema->num_columns()));
         }
 
-        // binlog don't need invisible column
-        auto erase_invisible_col = std::remove_if(
-                partial_cids.begin(), partial_cids.end(),
-                [&](uint32_t cid) { return cid >= source_schema->num_visible_columns(); });
-        partial_cids.erase(erase_invisible_col, partial_cids.end());
+        // Partial update lists source cids. Row-binlog writes visible columns and hidden key
+        // columns, so hidden non-key source columns are skipped.
+        auto erase_non_normal_col = std::remove_if(
+                row_binlog_partial_cids.begin(), row_binlog_partial_cids.end(),
+                [&](uint32_t cid) { return !_source_data_writer->is_normal_column(cid); });
+        row_binlog_partial_cids.erase(erase_non_normal_col, row_binlog_partial_cids.end());
     }
 
     // get delete_sign_column from source block if has
@@ -175,9 +187,9 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
                                                                 row_pos, num_rows));
     }
 
-    size_t max_normal_col_id = _normal_col_start_id + source_schema->num_visible_columns();
-    RETURN_IF_ERROR(_source_data_writer->fill_normal_columns(_column_writers, _normal_col_start_id,
-                                                             max_normal_col_id, partial_cids));
+    size_t max_normal_col_id = _normal_col_start_id + normal_column_count;
+    RETURN_IF_ERROR(_source_data_writer->fill_normal_columns(
+            _column_writers, _normal_col_start_id, max_normal_col_id, row_binlog_partial_cids));
 
     // We read historical rows only when we really need them:
     // 1. partial update: build the full AFTER row.
@@ -197,9 +209,14 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
 
     if (is_partial_update) {
         std::vector<uint32_t> row_binlog_missing_column_ids;
-        _source_data_writer->filter_source_ids(
-                _binlog_opts.source.partial_update_info->missing_cids,
-                row_binlog_missing_column_ids);
+        row_binlog_missing_column_ids.reserve(
+                _binlog_opts.source.partial_update_info->missing_cids.size());
+        // Missing cids are source cids too. Only normal columns have AFTER writers.
+        for (uint32_t cid : _binlog_opts.source.partial_update_info->missing_cids) {
+            if (_source_data_writer->is_normal_column(cid)) {
+                row_binlog_missing_column_ids.emplace_back(cid);
+            }
+        }
 
         // build AFTER block (fill missing columns in full_block)
         RETURN_IF_ERROR(_historical_data_writer->build_after_block(&full_block, row_pos, num_rows));
@@ -209,7 +226,8 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
         RETURN_IF_ERROR(after_convertor->set_source_content_with_specifid_columns(
                 &full_block, row_pos, num_rows, row_binlog_missing_column_ids));
         for (auto cid : row_binlog_missing_column_ids) {
-            auto converted_cid = _normal_col_start_id + cid;
+            auto converted_cid =
+                    _normal_col_start_id + _source_data_writer->normal_column_ordinal(cid);
             auto converted_result = after_convertor->convert_column_data(cid);
             if (!converted_result.first.ok()) {
                 return converted_result.first;
@@ -224,9 +242,9 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     DCHECK(!_tablet_schema->has_sequence_col());
     // _converted_key_columns must be resized before fill binlog columns
     _converted_key_columns.resize(_tablet_schema->num_key_columns());
-    for (size_t i = _normal_col_start_id; i < _tablet_schema->num_key_columns(); i++) {
-        _converted_key_columns[i] = _source_data_writer->get_converted_column(
-                cast_set<uint32_t>(i - _normal_col_start_id));
+    const auto& source_key_columns = _source_data_writer->source_key_columns();
+    for (size_t i = 0; i < source_key_columns.size(); ++i) {
+        _converted_key_columns[_normal_col_start_id + i] = source_key_columns[i];
     }
 
     std::vector<int64_t> no_operators = std::vector<int64_t> {};
@@ -294,25 +312,32 @@ Status RowBinlogSegmentWriter::_append_direct_block(const Block* block, size_t r
 
 Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
                                                     const std::vector<int64_t>& op_types) {
-    std::vector<uint32_t> binlog_cids = {_binlog_col_start_id, _binlog_col_start_id + 1,
-                                         _binlog_col_start_id + 2};
+    std::vector<uint32_t> binlog_cids = {_binlog_tso_col_id, _binlog_lsn_col_id, _binlog_op_col_id};
     Block binlog_prefix_block = _tablet_schema->create_block_by_cids(binlog_cids);
     {
         auto binlog_prefix_columns_guard = binlog_prefix_block.mutate_columns_scoped();
         auto& binlog_prefix_columns = binlog_prefix_columns_guard.mutable_columns();
+        // We can't get the real commit tso here (only known after publish). The tso column
+        // is replaced with the real commit_tso at read time
+        // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
+        // Write a NULL placeholder.
+        IColumn* ts_col_ptr = binlog_prefix_columns[0].get();
+        auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
+        DCHECK(ts_nullable_column != nullptr);
+        ts_nullable_column->insert_many_defaults(num_rows);
+
         // we can't get correct lsn number before commit, because we can't get the version before commit,
         // but we can fill auto-inc lsn to ensure the order first, then fill version when read single rowset.
-        IColumn* lsn_col_ptr = binlog_prefix_columns[0].get();
+        IColumn* lsn_col_ptr = binlog_prefix_columns[1].get();
         CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
         for (int i = 0; i < num_rows; i++) {
-            assert_cast<ColumnInt128*>(lsn_col_ptr)
-                    ->insert_value(static_cast<int128_t>(_lsn_ids->at(i)));
+            assert_cast<ColumnInt64*>(lsn_col_ptr)->insert_value(_lsn_ids->at(i));
         }
 
         // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
-        const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
-        IColumn* op_col_ptr = binlog_prefix_columns[1].get();
-        auto* op_nullable_column = typeid_cast<ColumnNullable*>(op_col_ptr);
+        const FieldType op_col_type = _tablet_schema->column(binlog_cids[2]).type();
+        IColumn* op_col_ptr = binlog_prefix_columns[2].get();
+        auto* op_nullable_column = check_and_get_column<ColumnNullable>(op_col_ptr);
         IColumn* op_nested_column = op_nullable_column != nullptr
                                             ? &op_nullable_column->get_nested_column()
                                             : op_col_ptr;
@@ -326,25 +351,10 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
             op_int64_column->insert_value(op_types[i]);
         }
 
-        // we can't get correct timestamp when commit
-        IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
-        auto timestamp = UnixMillis();
-        auto* ts_nullable_column = typeid_cast<ColumnNullable*>(ts_col_ptr);
-        if (ts_nullable_column != nullptr) {
-            assert_cast<ColumnInt64*>(&ts_nullable_column->get_nested_column())
-                    ->insert_many_vals(timestamp, num_rows);
-        } else {
-            assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_vals(timestamp, num_rows);
-        }
-
-        // finally update null map
+        // finally update null map for op column (tso null map set by insert_many_defaults)
         for (int i = 0; i < num_rows; i++) {
-            //lsn_column->get_null_map_data().emplace_back(0);
             if (op_nullable_column != nullptr) {
                 op_nullable_column->get_null_map_data().emplace_back(0);
-            }
-            if (ts_nullable_column != nullptr) {
-                ts_nullable_column->get_null_map_data().emplace_back(0);
             }
         }
     }
@@ -376,7 +386,14 @@ Status RowBinlogSegmentWriter::_fill_before_columns(size_t num_rows) {
     if (UNLIKELY(source_schema == nullptr)) {
         return Status::InternalError("row binlog writer missing source_tablet_schema");
     }
-    size_t value_column_num = source_schema->num_visible_value_columns();
+    std::vector<uint32_t> value_cids;
+    for (uint32_t cid = 0; cid < source_schema->num_columns(); ++cid) {
+        const auto& column = source_schema->column(cid);
+        if (column.visible() && !column.is_key()) {
+            value_cids.emplace_back(cid);
+        }
+    }
+    size_t value_column_num = value_cids.size();
     if (value_column_num == 0) {
         // No BEFORE columns in row binlog schema.
         return Status::OK();
@@ -403,13 +420,6 @@ Status RowBinlogSegmentWriter::_fill_before_columns(size_t num_rows) {
     } else {
         DCHECK(_historical_data_writer != nullptr);
 
-        std::vector<uint32_t> value_cids;
-        uint32_t value_start = cast_set<uint32_t>(source_schema->num_key_columns());
-        uint32_t value_end = cast_set<uint32_t>(source_schema->num_visible_columns());
-        for (uint32_t cid = value_start; cid < value_end; ++cid) {
-            value_cids.emplace_back(cid);
-        }
-
         DCHECK_EQ(before_cids.size(), value_cids.size());
         RETURN_IF_ERROR(_historical_data_writer->build_before_block(&before_block, value_cids, 0,
                                                                     num_rows));
@@ -431,18 +441,35 @@ Status RowBinlogSegmentWriter::_fill_before_columns(size_t num_rows) {
     return Status::OK();
 }
 
+bool RowBinlogSourceDataWriter::is_normal_column(uint32_t source_cid) const {
+    return std::find(_normal_column_ids.begin(), _normal_column_ids.end(), source_cid) !=
+           _normal_column_ids.end();
+}
+
+size_t RowBinlogSourceDataWriter::normal_column_ordinal(uint32_t source_cid) const {
+    auto it = std::find(_normal_column_ids.begin(), _normal_column_ids.end(), source_cid);
+    DCHECK(it != _normal_column_ids.end()) << source_cid;
+    return cast_set<size_t>(std::distance(_normal_column_ids.begin(), it));
+}
+
 Status RowBinlogSourceDataWriter::init() {
     _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    // _normal_column_ids: the columns which we need to write into binlog from source block
     if (UNLIKELY(_opt.source.tablet_schema == nullptr)) {
         return Status::InternalError("row binlog writer missing source_tablet_schema");
     }
-    for (uint32_t i = 0; i < _opt.source.tablet_schema->num_visible_columns(); i++) {
-        _normal_column_ids.emplace_back(i);
+
+    const auto& source_schema = _opt.source.tablet_schema;
+    _normal_column_ids.clear();
+    for (uint32_t cid = 0; cid < source_schema->num_columns(); ++cid) {
+        const auto& column = source_schema->column(cid);
+        if (!column.visible() && !column.is_key()) {
+            continue;
+        }
+        _normal_column_ids.emplace_back(cid);
     }
-    _olap_data_convertor->reserve(_opt.source.tablet_schema->num_columns());
-    for (size_t cid = 0; cid < _opt.source.tablet_schema->num_columns(); cid++) {
-        _olap_data_convertor->add_column_data_convertor(_opt.source.tablet_schema->column(cid));
+    _olap_data_convertor->reserve(source_schema->num_columns());
+    for (size_t cid = 0; cid < source_schema->num_columns(); cid++) {
+        _olap_data_convertor->add_column_data_convertor(source_schema->column(cid));
     }
     return Status::OK();
 }
@@ -450,31 +477,43 @@ Status RowBinlogSourceDataWriter::init() {
 Status RowBinlogSourceDataWriter::prepare_by_source_block(
         const Block* block, size_t row_pos, size_t num_rows,
         std::vector<uint32_t>& partial_source_cids, Block* full_block) {
-    _converted_columns.resize(_normal_column_ids.size());
+    TabletSchemaSPtr tablet_schema = _opt.source.tablet_schema;
+    // OlapBlockDataConvertor and historical lookup are indexed by source cid, so keep
+    // converted columns sparse over the source schema instead of row-binlog normal order.
+    _converted_columns.assign(tablet_schema->num_columns(), nullptr);
 
     // LOG(INFO) << block->dump_data(0, num_rows);
 
     // convert column data from engine format to storage layer format
     size_t col_pos_in_block = 0;
-    TabletSchemaSPtr tablet_schema = _opt.source.tablet_schema;
-    const auto& including_cids =
-            partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
-    for (auto& cid : including_cids) {
-        const ColumnWithTypeAndName& col = block->get_by_position(col_pos_in_block++);
+    const bool is_partial_update = !partial_source_cids.empty();
+    const size_t column_count =
+            is_partial_update ? partial_source_cids.size() : _normal_column_ids.size();
+    for (size_t ordinal = 0; ordinal < column_count; ++ordinal) {
+        const uint32_t source_cid =
+                is_partial_update ? partial_source_cids[ordinal] : _normal_column_ids[ordinal];
+        DCHECK_LT(source_cid, tablet_schema->num_columns());
+        const ColumnWithTypeAndName& col =
+                block->get_by_position(is_partial_update ? col_pos_in_block++ : source_cid);
 
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                col, row_pos, num_rows, cid));
+                col, row_pos, num_rows, source_cid));
         // olap data convertor alway start from id = 0
-        auto converted_result = _olap_data_convertor->convert_column_data(cid);
+        auto converted_result = _olap_data_convertor->convert_column_data(source_cid);
         if (!converted_result.first.ok()) {
             return converted_result.first;
         }
-        _converted_columns[cid] = converted_result.second;
+        _converted_columns[source_cid] = converted_result.second;
 
-        if (cid < tablet_schema->num_key_columns()) {
-            _key_columns.push_back(converted_result.second);
+        full_block->replace_by_position(source_cid, col.column);
+    }
+    for (uint32_t cid : _normal_column_ids) {
+        if (!tablet_schema->column(cid).is_key()) {
+            continue;
         }
-        full_block->replace_by_position(cid, col.column);
+        DCHECK_LT(cid, _converted_columns.size());
+        DCHECK(_converted_columns[cid] != nullptr);
+        _key_columns.push_back(_converted_columns[cid]);
     }
     _num_rows = num_rows;
 
@@ -499,15 +538,20 @@ Status RowBinlogSourceDataWriter::fill_normal_columns(
         std::vector<uint32_t>& partial_source_cids) {
     DCHECK_EQ(end - start, _normal_column_ids.size());
 
-    const auto& including_cids =
-            partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
-    for (size_t cid : including_cids) {
-        DCHECK(column_writers[start + cid]->get_column()->type() ==
+    const bool is_partial_update = !partial_source_cids.empty();
+    const size_t column_count =
+            is_partial_update ? partial_source_cids.size() : _normal_column_ids.size();
+    for (size_t ordinal = 0; ordinal < column_count; ++ordinal) {
+        uint32_t cid =
+                is_partial_update ? partial_source_cids[ordinal] : _normal_column_ids[ordinal];
+        size_t normal_ordinal = is_partial_update ? normal_column_ordinal(cid) : ordinal;
+        DCHECK(column_writers[start + normal_ordinal]->get_column()->type() ==
                _opt.source.tablet_schema->columns()[cid]->type())
                 << cid;
-        RETURN_IF_ERROR(column_writers[start + cid]->append(_converted_columns[cid]->get_nullmap(),
-                                                            _converted_columns[cid]->get_data(),
-                                                            _num_rows));
+        DCHECK(_converted_columns[cid] != nullptr);
+        RETURN_IF_ERROR(column_writers[start + normal_ordinal]->append(
+                _converted_columns[cid]->get_nullmap(), _converted_columns[cid]->get_data(),
+                _num_rows));
     }
 
     return Status::OK();

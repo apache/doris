@@ -23,8 +23,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -64,6 +65,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     private boolean isWarmUpWithTable;
     private List<Triple<String, String, String>> tables = new ArrayList<>();
     private Map<String, String> properties = new HashMap<>();
+    private List<TableFilterRule> onTablesRules = new ArrayList<>();
 
     /**
      * WarmUpClusterCommand
@@ -87,8 +89,20 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                                 boolean isForce,
                                 boolean isWarmUpWithTable,
                                 Map<String, String> properties) {
+        this(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties,
+                new ArrayList<>());
+    }
+
+    public WarmUpClusterCommand(List<WarmUpItem> warmUpItems,
+                                String srcCluster,
+                                String dstCluster,
+                                boolean isForce,
+                                boolean isWarmUpWithTable,
+                                Map<String, String> properties,
+                                List<TableFilterRule> onTablesRules) {
         this(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable);
-        this.properties = properties;
+        this.properties = properties == null ? new HashMap<>() : properties;
+        this.onTablesRules = onTablesRules == null ? new ArrayList<>() : onTablesRules;
     }
 
     public List<WarmUpItem> getWarmUpItems() {
@@ -115,6 +129,10 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         return tables;
     }
 
+    public List<TableFilterRule> getOnTablesRules() {
+        return onTablesRules;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
@@ -123,7 +141,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
 
     private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
         if (!Strings.isNullOrEmpty(srcCluster)) {
-            ComputeGroup srcCg = cloudSys.getComputeGroupByName(srcCluster);
+            CloudComputeGroupMeta srcCg = cloudSys.getComputeGroupByName(srcCluster);
             if (srcCg != null && srcCg.isVirtual()) {
                 throw new AnalysisException("The srcClusterName " + srcCluster
                     + " is a virtual compute group, not support");
@@ -131,7 +149,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         }
 
         if (!Strings.isNullOrEmpty(dstCluster)) {
-            ComputeGroup dstCg = cloudSys.getComputeGroupByName(dstCluster);
+            CloudComputeGroupMeta dstCg = cloudSys.getComputeGroupByName(dstCluster);
             if (dstCg != null && dstCg.isVirtual()) {
                 throw new AnalysisException("The dstClusterName " + dstCluster
                     + " is a virtual compute group, not support");
@@ -140,10 +158,16 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
 
         if (!Strings.isNullOrEmpty(srcCluster) && !Strings.isNullOrEmpty(dstCluster)) {
             String srcMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcCluster);
-            String dstMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcCluster);
-            if (srcMayOwnedVcg != null && srcMayOwnedVcg.equals(dstMayOwnedVcg)) {
-                throw new AnalysisException("The srcClusterName " + srcCluster + " dstClusterName " + dstCluster
-                    + " is owned by virtual compute group " + srcMayOwnedVcg + " not support");
+            String dstMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(dstCluster);
+            if (srcMayOwnedVcg != null && Objects.equals(srcMayOwnedVcg, dstMayOwnedVcg)) {
+                StringBuilder message = new StringBuilder("Cannot create warm up job from source compute group '")
+                        .append(srcCluster).append("' to destination compute group '").append(dstCluster)
+                        .append("': ");
+                message.append("source compute group '").append(srcCluster)
+                        .append("' and destination compute group '").append(dstCluster)
+                        .append("' are both owned by virtual compute group '").append(srcMayOwnedVcg)
+                        .append("', not support");
+                throw new AnalysisException(message.toString());
             }
         }
     }
@@ -180,6 +204,11 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 + " is same with srcClusterName: " + srcCluster);
         }
 
+        boolean hasOnTablesRules = onTablesRules != null && !onTablesRules.isEmpty();
+        if (hasOnTablesRules && isWarmUpWithTable) {
+            throw new AnalysisException("ON TABLES clause cannot be used with WITH TABLE warmup");
+        }
+
         if (isWarmUpWithTable) {
             for (WarmUpItem warmUpItem : warmUpItems) {
                 TableNameInfo tableNameInfo = warmUpItem.getTableNameInfo();
@@ -201,6 +230,24 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("The partition " + partitionName + " doesn't exist");
                 }
                 tables.add(Triple.of(dbName, tableNameInfo.getTbl(), partitionName));
+            }
+        }
+
+        if (hasOnTablesRules) {
+            boolean hasInclude = onTablesRules.stream()
+                    .anyMatch(r -> r.getRuleType() == TableFilterRule.RuleType.INCLUDE);
+            if (!hasInclude) {
+                throw new AnalysisException("ON TABLES clause must contain at least one INCLUDE rule");
+            }
+            for (TableFilterRule rule : onTablesRules) {
+                if (!rule.getRawPattern().contains(".")) {
+                    throw new AnalysisException("ON TABLES pattern must be in 'db.table' format: '"
+                            + rule.getRawPattern() + "'");
+                }
+            }
+            String syncMode = properties.get("sync_mode");
+            if (!"event_driven".equals(syncMode)) {
+                throw new AnalysisException("ON TABLES clause is only supported with event_driven sync_mode");
             }
         }
     }

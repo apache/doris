@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
+#include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "recycler/s3_accessor.h"
@@ -41,6 +42,10 @@ namespace doris::cloud {
 
 [[maybe_unused]] static Aws::Client::AWSError<Aws::S3::S3Errors> s3_error_factory() {
     return {Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
+}
+
+void record_s3_request_failed(const Aws::S3::S3Error& error) {
+    doris::record_object_request_failed(static_cast<int>(error.GetResponseCode()));
 }
 
 template <typename Func>
@@ -55,7 +60,9 @@ auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     if (!config::enable_s3_rate_limiter) {
         return callback();
     }
-    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(op)->add(1);
+    auto sleep_duration =
+            doris::apply_s3_rate_limit(op, AccessorRateLimiter::instance().rate_limiter(op),
+                                       config::s3_rate_limiter_log_interval);
     if (sleep_duration < 0) {
         return T(s3_error_factory());
     }
@@ -118,6 +125,7 @@ public:
                 return false;
             }
 
+            record_s3_request_failed(outcome.GetError());
             LOG_WARNING("failed to list objects")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", req_.GetBucket())
@@ -210,6 +218,7 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
         return s3_client_->PutObject(request);
     });
     if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
         LOG_WARNING("failed to put object")
                 .tag("endpoint", endpoint_)
                 .tag("bucket", path.bucket)
@@ -237,6 +246,7 @@ ObjectStorageResponse S3ObjClient::head_object(ObjectStoragePathRef path, Object
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return 1;
     } else {
+        record_s3_request_failed(outcome.GetError());
         LOG_WARNING("failed to head object")
                 .tag("endpoint", endpoint_)
                 .tag("bucket", path.bucket)
@@ -276,6 +286,7 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
             return s3_client_->DeleteObjects(delete_request);
         });
         if (!delete_outcome.IsSuccess()) {
+            record_s3_request_failed(delete_outcome.GetError());
             LOG_WARNING("failed to delete objects")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", bucket)
@@ -326,6 +337,10 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
     });
     TEST_SYNC_POINT_CALLBACK("S3ObjClient::delete_object", &outcome);
     if (!outcome.IsSuccess()) {
+        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+            return {ObjectStorageResponse::NOT_FOUND, outcome.GetError().GetMessage()};
+        }
+        record_s3_request_failed(outcome.GetError());
         LOG_WARNING("failed to delete object")
                 .tag("endpoint", endpoint_)
                 .tag("bucket", path.bucket)
@@ -334,9 +349,6 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
                 .tag("error", outcome.GetError().GetMessage())
                 .tag("exception", outcome.GetError().GetExceptionName())
                 .tag("request_id", outcome.GetError().GetRequestId());
-        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-            return {ObjectStorageResponse::NOT_FOUND, outcome.GetError().GetMessage()};
-        }
         return {ObjectStorageResponse::UNDEFINED, outcome.GetError().GetMessage()};
     }
     return {ObjectStorageResponse::OK};
@@ -365,6 +377,7 @@ ObjectStorageResponse S3ObjClient::get_life_cycle(const std::string& bucket,
             }
         }
     } else {
+        record_s3_request_failed(outcome.GetError());
         LOG_WARNING("Err for check interval: failed to get bucket lifecycle")
                 .tag("endpoint", endpoint_)
                 .tag("bucket", bucket)
@@ -397,6 +410,7 @@ ObjectStorageResponse S3ObjClient::check_versioning(const std::string& bucket) {
             return -1;
         }
     } else {
+        record_s3_request_failed(outcome.GetError());
         LOG_WARNING("Err for check interval: failed to get status of bucket versioning")
                 .tag("endpoint", endpoint_)
                 .tag("bucket", bucket)
@@ -414,6 +428,10 @@ ObjectStorageResponse S3ObjClient::abort_multipart_upload(ObjectStoragePathRef p
     request.WithBucket(path.bucket).WithKey(path.key).WithUploadId(upload_id);
     auto outcome = s3_put_rate_limit([&]() { return s3_client_->AbortMultipartUpload(request); });
     if (!outcome.IsSuccess()) {
+        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
+            return {ObjectStorageResponse::OK};
+        }
+        record_s3_request_failed(outcome.GetError());
         LOG_WARNING("failed to abort multipart upload")
                 .tag("endpoint", endpoint_)
                 .tag("bucket", path.bucket)
@@ -423,9 +441,6 @@ ObjectStorageResponse S3ObjClient::abort_multipart_upload(ObjectStoragePathRef p
                 .tag("error", outcome.GetError().GetMessage())
                 .tag("exception", outcome.GetError().GetExceptionName())
                 .tag("request_id", outcome.GetError().GetRequestId());
-        if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-            return {ObjectStorageResponse::OK};
-        }
         return {ObjectStorageResponse::UNDEFINED, outcome.GetError().GetMessage()};
     }
     return {ObjectStorageResponse::OK};

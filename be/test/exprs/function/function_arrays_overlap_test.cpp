@@ -152,4 +152,26 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
     }
 }
 
+TEST(function_arrays_overlap_test, const_arguments) {
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_ARRAY}, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
+        TestArray left = {Int32(1), Null(), Int32(3)};
+        TestArray right = {Int32(4), Null()};
+        DataSet data_set = {{{left, right}, UInt8(1)}};
+        static_cast<void>(
+                check_function<DataTypeUInt8, true>("arrays_overlap", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_ARRAY},
+                                    PrimitiveType::TYPE_VARCHAR};
+        TestArray left = {std::string("abc"), std::string("def")};
+        TestArray right = {std::string("xyz"), std::string("abc")};
+        DataSet data_set = {{{left, right}, UInt8(1)}};
+        static_cast<void>(
+                check_function<DataTypeUInt8, true>("arrays_overlap", input_types, data_set));
+    }
+}
+
 } // namespace doris

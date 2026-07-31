@@ -32,7 +32,7 @@ import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.FileCacheAdmissionManager;
+import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -42,9 +42,12 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
-import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tls.server.FeServerStarterFactory;
+import org.apache.doris.tls.server.ServerStarter;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
@@ -87,6 +90,8 @@ public class DorisFE {
     private static String LOCK_FILE_PATH;
 
     private static final String LOCK_FILE_NAME = "process.lock";
+    private static final String LOCAL_RESOURCE_GROUP_ENV = "DORIS_LOCAL_RESOURCE_GROUP";
+    private static String effectiveLocalResourceGroupSource = "DEFAULT";
     private static FileChannel processLockFileChannel;
     private static FileLock processFileLock;
 
@@ -95,6 +100,8 @@ public class DorisFE {
 
     // HTTP server instance, used for graceful shutdown
     private static HttpServer httpServer;
+    private static ServerStarter thriftServerStarter;
+    private static QeService qeService;
 
     public static void main(String[] args) {
         // Every doris version should have a final meta version, it should not change
@@ -132,7 +139,8 @@ public class DorisFE {
             return;
         }
 
-        CommandLineOptions cmdLineOpts = parseArgs(args);
+        CommandLine commandLine = parseArgs(args);
+        CommandLineOptions cmdLineOpts = buildCommandLineOptions(commandLine);
 
         try {
             // init config
@@ -141,6 +149,9 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
+
+            // The command line value overrides fe.conf, so this can only run once Config is loaded.
+            resolveLocalResourceGroup(commandLine);
 
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
@@ -160,11 +171,25 @@ public class DorisFE {
                 Log4jConfig.foreground = true;
             }
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
+            LOG.info("effective local_resource_group={}, source={}",
+                    Config.local_resource_group, effectiveLocalResourceGroupSource);
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
                 serverReady.set(false);
                 gracefulShutdown();
+
+                if (qeService != null) {
+                    qeService.stop();
+                }
+
+                if (thriftServerStarter != null) {
+                    try {
+                        thriftServerStarter.stop();
+                    } catch (Exception e) {
+                        LOG.warn("stop FE thrift starter failed", e);
+                    }
+                }
 
                 // Shutdown HTTP server after main process graceful shutdown is complete
                 if (httpServer != null) {
@@ -234,10 +259,10 @@ public class DorisFE {
 
             // init and start:
             // 1. HttpServer for HTTP Server
-            // 2. FeServer for Thrift Server
+            // 2. FE thrift server starter
             // 3. QeService for MySQL Server
-            FeServer feServer = new FeServer(Config.rpc_port);
-            feServer.start();
+            thriftServerStarter = FeServerStarterFactory.createThriftServerStarter(Config.rpc_port);
+            thriftServerStarter.start();
 
             if (options.enableHttpServer) {
                 httpServer = new HttpServer();
@@ -251,7 +276,8 @@ public class DorisFE {
                 httpServer.setKeyStorePassword(Config.key_store_password);
                 httpServer.setKeyStoreType(Config.key_store_type);
                 httpServer.setKeyStoreAlias(Config.key_store_alias);
-                httpServer.setEnableHttps(Config.enable_https);
+                httpServer.setEnableHttps(Config.enable_https
+                        && !(Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.HTTP)));
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
@@ -262,8 +288,8 @@ public class DorisFE {
             SimpleScheduler.init();
 
             if (options.enableQeService) {
-                QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
-                                                    ExecuteEnv.getInstance().getScheduler());
+                qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
+                        ExecuteEnv.getInstance().getScheduler());
                 qeService.start();
             }
 
@@ -344,7 +370,7 @@ public class DorisFE {
      *              Specify the meta version to decode log value
      *
      */
-    private static CommandLineOptions parseArgs(String[] args) {
+    private static CommandLine parseArgs(String[] args) {
         CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
         options.addOption("v", "version", false, "Print the version of Doris Frontend");
@@ -365,6 +391,8 @@ public class DorisFE {
         options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
         options.addOption(Option.builder().longOpt(FeConstants.DROP_BACKENDS_KEY)
                 .desc("When this FE becomes MASTER, drop all backends from cluster metadata (destructive)").build());
+        options.addOption(null, "local_resource_group", true,
+                "Specify the local resource group for the current FE");
 
         CommandLine cmd = null;
         try {
@@ -375,6 +403,12 @@ public class DorisFE {
             System.exit(-1);
         }
 
+        return cmd;
+    }
+
+    // Keeps the original decision order: the version / helper / image modes return before the
+    // recovery and drop-backends system properties are applied, so those flags stay ignored there.
+    private static CommandLineOptions buildCommandLineOptions(CommandLine cmd) {
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
             return new CommandLineOptions(true, "", null, "");
@@ -475,6 +509,34 @@ public class DorisFE {
 
         // helper node is null, means no helper node is specified
         return new CommandLineOptions(false, null, null, "");
+    }
+
+    // Precedence: command line option, environment variable, fe.conf.
+    private static void resolveLocalResourceGroup(CommandLine cmd) {
+        String localResourceGroup = Strings.nullToEmpty(Config.local_resource_group);
+        String source = localResourceGroup.isEmpty() ? "DEFAULT" : "FE_CONF";
+        if (System.getenv().containsKey(LOCAL_RESOURCE_GROUP_ENV)) {
+            localResourceGroup = Strings.nullToEmpty(System.getenv(LOCAL_RESOURCE_GROUP_ENV));
+            source = "ENV";
+        }
+        if (cmd.hasOption("local_resource_group")) {
+            localResourceGroup = Strings.nullToEmpty(cmd.getOptionValue("local_resource_group"));
+            source = "CMDLINE";
+        }
+
+        Config.local_resource_group = localResourceGroup;
+        if (!localResourceGroup.isEmpty()) {
+            try {
+                // Must be a valid tag.location value, it is matched against the backends' location tag.
+                Tag.create(Tag.TYPE_LOCATION, localResourceGroup);
+            } catch (Exception e) {
+                // Logging is not initialized yet at this point, so report on stderr.
+                System.err.println("Invalid local_resource_group: " + localResourceGroup + ", " + e.getMessage());
+                System.exit(-1);
+            }
+        }
+        // Logging is initialized later; the effective value is logged there.
+        effectiveLocalResourceGroupSource = source;
     }
 
     private static void printVersion() {
@@ -639,8 +701,8 @@ public class DorisFE {
             return;
         }
 
-        Config.max_hive_partition_cache_num = Util.getRandomLong(0, 10, 10000);
-        Config.max_hive_partition_table_cache_num = Util.getRandomLong(0, 10, 10000);
+        Config.max_hive_partition_cache_num = Util.getRandomLong(0, 10, 10000, 100000);
+        Config.max_hive_partition_table_cache_num = Util.getRandomLong(0, 10, 1000, 10000);
         Config.external_cache_expire_time_seconds_after_access = Util.getRandomLong(0, 1, 10, 86400);
         Config.external_cache_refresh_time_minutes = Util.getRandomLong(1, 10);
         Config.max_external_cache_loader_thread_pool_size = Util.getRandomInt(1, 10, 64);

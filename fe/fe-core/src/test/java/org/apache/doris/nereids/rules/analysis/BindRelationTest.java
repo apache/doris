@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,6 +89,43 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         Assertions.assertEquals(
                 ImmutableList.of("internal", DEFAULT_CLUSTER_PREFIX + DB1, "t"),
                 ((LogicalOlapScan) plan).qualified());
+    }
+
+    @Test
+    void rejectIncrementalReadWithoutRowBinlog() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT a, b, __DORIS_BINLOG_OP__ "
+                                + "FROM db1.t@incr(\"incrementType\" = \"DETAIL\")"));
+
+        Assertions.assertEquals("INCR query requires ROW binlog enabled on base table.", exception.getMessage());
+    }
+
+    @Test
+    void rejectOptionsOnUnsupportedTableType() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("SELECT * FROM db1.t@options('scan.snapshot-id'='1')"));
+
+        // WHY the wording differs from upstream ("only supported for Paimon tables"): post-cutover the gate
+        // is a CONNECTOR CAPABILITY (SUPPORTS_SCAN_PARAM_OPTIONS), not a table class, so any connector may
+        // declare it and naming paimon would be wrong. The rejection itself is what matters and must stay:
+        // @options only reaches a connector through the MVCC pin path, so a table that never enters it would
+        // silently drop the clause and answer a historical query with latest data.
+        // MUTATION: dropping validateOptionsTarget -> no exception -> red.
+        Assertions.assertEquals(
+                "OPTIONS scan params are not supported for table t.", exception.getMessage());
+    }
+
+    @Test
+    void rejectOptionsOnCteReference() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("WITH c AS (SELECT * FROM db1.t) "
+                                + "SELECT * FROM c@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertEquals(
+                "Table scan parameters are not supported on CTE references.", exception.getMessage());
     }
 
     @Test

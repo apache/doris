@@ -21,7 +21,7 @@ suite("test_inverted_index", "inverted_index") {
         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
         return jobStateResult[0][9]
     }
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1} (
@@ -245,7 +245,7 @@ suite("test_inverted_index", "inverted_index") {
             )
             UNIQUE KEY(k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11)
             DISTRIBUTED BY HASH(k1) BUCKETS 5
-            PROPERTIES ( 
+            PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true"
             );

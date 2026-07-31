@@ -22,9 +22,12 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <list>
 #include <map>
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
@@ -111,13 +114,15 @@ public:
 /// mtime is older than the file's current mtime.
 class FileHandleCache {
 private:
+    using CacheKey = std::pair<hdfsFS, std::pair<std::string, int64_t>>;
+
     /// Each partition operates independently, and thus has its own thread-safe cache.
     /// To avoid contention on the lock_ due to false sharing the partitions are
     /// aligned to cache line boundaries.
     struct FileHandleCachePartition : public CacheLineAligned {
-        // Cache key is a pair of filename and mtime
-        // Using std::pair to spare boilerplate of hash function
-        typedef LruMultiCache<std::pair<std::string, int64_t>, CachedHdfsFileHandle> CacheType;
+        // The same HDFS path can be opened through different hdfsFS instances with
+        // different authentication contexts, so the filesystem handle is part of the key.
+        typedef LruMultiCache<CacheKey, CachedHdfsFileHandle> CacheType;
         CacheType cache;
     };
 
@@ -176,7 +181,17 @@ public:
                            int64_t file_size, bool require_new_handle, Accessor* accessor,
                            bool* cache_hit) WARN_UNUSED_RESULT;
 
+#ifdef BE_TEST
+    static bool same_cache_key_for_test(const hdfsFS& lhs_fs, const std::string& lhs_fname,
+                                        int64_t lhs_mtime, const hdfsFS& rhs_fs,
+                                        const std::string& rhs_fname, int64_t rhs_mtime);
+#endif
+
 private:
+    static CacheKey make_cache_key(const hdfsFS& fs, const std::string& fname, int64_t mtime) {
+        return {fs, {fname, mtime}};
+    }
+
     /// Periodic check to evict unused file handles. Only executed by _eviction_thread.
     void _evict_handles_loop();
 

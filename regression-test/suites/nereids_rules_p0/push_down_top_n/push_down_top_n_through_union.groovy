@@ -312,4 +312,31 @@ suite("push_down_top_n_through_union") {
     ORDER BY logTimestamp desc
     LIMIT 8;
     """
+
+    // When limit + offset overflows the long range (e.g. LIMIT and OFFSET both at BIGINT_MAX),
+    // the planner reports an error instead of silently producing a broken plan. Both the TopN path
+    // (ORDER BY + LIMIT/OFFSET) and the Limit path (LIMIT/OFFSET without ORDER BY) are covered.
+    test {
+        sql """
+            select count(*) as c from (
+                select id from (
+                    select 1 as id union all select 2 as id union all select 3 as id
+                ) t
+                order by id limit 9223372036854775807 offset 9223372036854775807
+            ) s;
+        """
+        exception "limit + offset overflows"
+    }
+
+    test {
+        sql """
+            select count(*) as c from (
+                select id from (
+                    select 1 as id union all select 2 as id union all select 3 as id
+                ) t
+                limit 9223372036854775807 offset 9223372036854775807
+            ) s;
+        """
+        exception "limit + offset overflows"
+    }
 }

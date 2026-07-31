@@ -210,12 +210,15 @@ public:
         auto& vec_null_map_to = col_null_map_to->get_data();
 
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
-        const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
+        const auto& [unpacked_column, col_const] = unpack_if_const(left_arg.column);
+        ColumnPtr materialized_column = unpacked_column;
+        if (in_state->use_set && col_const) {
+            materialized_column = left_arg.column->convert_to_full_column_if_const();
+        }
 
         if (in_state->use_set) {
-            if (materialized_column->is_nullable()) {
-                const auto* null_col_ptr =
-                        assert_cast<const ColumnNullable*>(materialized_column.get());
+            if (const auto* null_col_ptr =
+                        check_and_get_column<ColumnNullable>(materialized_column.get())) {
                 const auto& null_map = null_col_ptr->get_null_map_column().get_data();
                 const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 

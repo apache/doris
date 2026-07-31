@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -35,6 +36,11 @@ import org.apache.doris.nereids.util.DateUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -109,15 +115,27 @@ public class FromUnixtime extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        if (1 == arity()) {
-            return true;
-        }
-        Expression format = child(1);
-        if (!(format instanceof StringLikeLiteral)) {
+        if (arity() == 2 && !isMonotonicFormat()) {
             return false;
         }
-        String str = ((StringLikeLiteral) format).getValue();
-        return DateUtils.monoFormat.contains(str);
+        ZoneId timeZone;
+        try {
+            timeZone = DateUtils.getTimeZone();
+        } catch (DateTimeException e) {
+            return false;
+        }
+        if (timeZone.getRules().isFixedOffset()) {
+            return true;
+        }
+        if (lower == null || upper == null) {
+            return false;
+        }
+        Instant lowerInstant = toInstant(lower);
+        Instant upperInstant = toInstant(upper);
+        if (lowerInstant == null || upperInstant == null || upperInstant.isBefore(lowerInstant)) {
+            return false;
+        }
+        return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
     }
 
     @Override
@@ -136,5 +154,33 @@ public class FromUnixtime extends ScalarFunction
             return new FromUnixtime(literal);
         }
         return new FromUnixtime(literal, child(1));
+    }
+
+    private boolean isMonotonicFormat() {
+        Expression format = child(1);
+        if (!(format instanceof StringLikeLiteral)) {
+            return false;
+        }
+        return DateUtils.monoFormat.contains(((StringLikeLiteral) format).getValue());
+    }
+
+    private Instant toInstant(Literal literal) {
+        if (!(literal instanceof NumericLiteral)) {
+            return null;
+        }
+        BigDecimal value = ((NumericLiteral) literal).getBigDecimalValue();
+        if (value.signum() < 0) {
+            return null;
+        }
+        try {
+            long seconds = value.setScale(0, RoundingMode.DOWN).longValueExact();
+            long nanos = value.subtract(BigDecimal.valueOf(seconds))
+                    .movePointRight(9)
+                    .setScale(0, RoundingMode.DOWN)
+                    .longValueExact();
+            return Instant.ofEpochSecond(seconds, nanos);
+        } catch (ArithmeticException | DateTimeException e) {
+            return null;
+        }
     }
 }

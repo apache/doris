@@ -126,14 +126,26 @@ public class TypeTest {
         fields4.add(new VariantField("a", Type.INT, ""));
         VariantType v4 = new VariantType(fields4);
         Assert.assertFalse(Type.matchExactType(v1, v4, false));
+
+        VariantType differentMaxSubcolumns = new VariantType(fields1, 2048, false, 10000, 1,
+                false, 0L, 64, false);
+        Assert.assertFalse(Type.matchExactType(v1, differentMaxSubcolumns, false));
+
+        VariantType docMode = new VariantType(fields1, 0, false, 10000, 1,
+                true, 0L, 64, false);
+        Assert.assertFalse(Type.matchExactType(v1, docMode, false));
+
+        VariantType computeV2 = new VariantType(fields1, 0, false, 10000, 1,
+                false, 0L, 64, false, true);
+        Assert.assertFalse(Type.matchExactType(v1, computeV2, false));
     }
 
     @Test
-    public void testVariantToSqlDoesNotSerializeUnsupportedNestedGroupProperty() {
+    public void testVariantToSqlSerializesNestedGroupProperty() {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
                 false, 0L, 64, true);
 
-        Assert.assertFalse(variantType.toSql().contains("variant_enable_nested_group"));
+        Assert.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
     }
 
     // ===================== Mixed Nesting & Precision =====================

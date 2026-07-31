@@ -39,33 +39,31 @@ class EvHttpServer {
 public:
     EvHttpServer(int port, int num_workers = 1);
     EvHttpServer(const std::string& host, int port, int num_workers = 1);
-    ~EvHttpServer();
+    virtual ~EvHttpServer();
 
     // register handler for an a path-method pair
     bool register_handler(const HttpMethod& method, const std::string& path, HttpHandler* handler);
 
     void register_static_file_handler(HttpHandler* handler);
 
-    void start();
-    void stop();
-    void join();
+    virtual void start();
+    virtual void stop();
+    virtual void join();
 
     // callback
-    int on_header(struct evhttp_request* ev_req);
+    virtual int on_header(struct evhttp_request* ev_req);
 
     // get real port
     int get_real_port() const { return _real_port; }
 
-    std::vector<std::shared_ptr<event_base>> get_event_bases() {
+    virtual std::vector<std::shared_ptr<event_base>> get_event_bases() {
         std::lock_guard lock(_event_bases_lock);
         return _event_bases;
     }
 
-private:
+protected:
     Status _bind();
     HttpHandler* _find_handler(HttpRequest* req);
-
-private:
     // input param
     std::string _host;
     int _port;

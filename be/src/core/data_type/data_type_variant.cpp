@@ -61,14 +61,16 @@ bool DataTypeVariant::equals(const IDataType& rhs) const {
 
 int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
-    const auto& column_variant = assert_cast<const ColumnVariant&>(column);
-    if (!column_variant.is_finalized()) {
-        // Icolumn originates from MutablePtr or block, and therefore can be modified.
-        // todo: We should reconsider the logic here, why are we using finalize() in this context?
-        const_cast<ColumnVariant&>(column_variant).finalize();
+    const auto* column_variant = assert_cast<const ColumnVariant*>(&column);
+    MutableColumnPtr finalized_column;
+    if (!column_variant->is_finalized()) {
+        // Local exchange can share the same block across downstream tasks. Serialize a private
+        // finalized copy so serialization never mutates shared variant columns.
+        finalized_column = column_variant->clone_finalized();
+        column_variant = assert_cast<const ColumnVariant*>(finalized_column.get());
     }
 
-    const auto& subcolumns = column_variant.get_subcolumns();
+    const auto& subcolumns = column_variant->get_subcolumns();
     size_t size = 0;
 
     size += sizeof(uint32_t);
@@ -95,26 +97,28 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
     // sparse column
     // TODO make compability with sparse column
     size += ColumnVariant::get_binary_column_type()->get_uncompressed_serialized_bytes(
-            *column_variant.get_sparse_column(), be_exec_version);
+            *column_variant->get_sparse_column(), be_exec_version);
 
     size += ColumnVariant::get_binary_column_type()->get_uncompressed_serialized_bytes(
-            *column_variant.get_doc_value_column(), be_exec_version);
+            *column_variant->get_doc_value_column(), be_exec_version);
     return size;
 }
 
 char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    const auto& column_variant = assert_cast<const ColumnVariant&>(column);
-    if (!column_variant.is_finalized()) {
-        // Icolumn originates from block, and therefore can be modified.
-        // todo: We should reconsider the logic here, why are we using finalize() in this context?
-        const_cast<ColumnVariant&>(column_variant).finalize();
+    const auto* column_variant = assert_cast<const ColumnVariant*>(&column);
+    MutableColumnPtr finalized_column;
+    if (!column_variant->is_finalized()) {
+        // Local exchange can share the same block across downstream tasks. Serialize a private
+        // finalized copy so serialization never mutates shared variant columns.
+        finalized_column = column_variant->clone_finalized();
+        column_variant = assert_cast<const ColumnVariant*>(finalized_column.get());
     }
 #ifndef NDEBUG
     // DCHECK size
-    column_variant.check_consistency();
+    column_variant->check_consistency();
 #endif
 
-    const auto& subcolumns = column_variant.get_subcolumns();
+    const auto& subcolumns = column_variant->get_subcolumns();
 
     char* size_pos = buf;
     buf += sizeof(uint32_t);
@@ -147,15 +151,15 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     // Safe case
     unaligned_store<uint32_t>(size_pos, static_cast<UInt32>(num_of_columns));
     // serialize num of rows, only take effect when subcolumns empty
-    unaligned_store<uint32_t>(buf, static_cast<UInt32>(column_variant.rows()));
+    unaligned_store<uint32_t>(buf, static_cast<UInt32>(column_variant->rows()));
     buf += sizeof(uint32_t);
 
     // serialize sparse column
     // TODO make compability with sparse column
-    buf = ColumnVariant::get_binary_column_type()->serialize(*column_variant.get_sparse_column(),
+    buf = ColumnVariant::get_binary_column_type()->serialize(*column_variant->get_sparse_column(),
                                                              buf, be_exec_version);
-    buf = ColumnVariant::get_binary_column_type()->serialize(*column_variant.get_doc_value_column(),
-                                                             buf, be_exec_version);
+    buf = ColumnVariant::get_binary_column_type()->serialize(
+            *column_variant->get_doc_value_column(), buf, be_exec_version);
     return buf;
 }
 

@@ -70,6 +70,6 @@ public:
     void _do_tokenize_none(const ColumnString& src_column_string,
                            const MutableColumnPtr& dest_column_ptr) const;
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/) const override;
+                        uint32_t result, size_t input_rows_count) const override;
 };
 } // namespace doris

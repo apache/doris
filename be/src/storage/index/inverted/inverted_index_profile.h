@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,14 @@ public:
     ~InvertedIndexProfileReporter() = default;
 
     void update(RuntimeProfile* profile, const InvertedIndexStatistics* statistics) {
+        if (!statistics->binding_diagnostics.empty()) {
+            std::string info;
+            for (const auto& diagnostic : statistics->binding_diagnostics) {
+                info += "\n" + diagnostic;
+            }
+            profile->add_info_string("VariantSearchBindingDiagnostics", info);
+        }
+
         // Determine the iteration limit: the smaller of 20 or the size of statistics->stats
         size_t iteration_limit = std::min<size_t>(20, statistics->stats.size());
 

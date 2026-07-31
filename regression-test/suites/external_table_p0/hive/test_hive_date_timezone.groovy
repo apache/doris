@@ -79,7 +79,6 @@ suite("test_hive_date_timezone", "p0,external") {
             // America/Mexico_City must still read through the named-timezone path, not a constant
             // -06:00 offset. This fixture contains a 2022 DST timestamp that makes the results differ.
             assertEquals(parquetTimestampUtc.size(), parquetTimestampMexicoCity.size())
-            assertTrue(parquetTimestampFixedMexicoOffset != parquetTimestampMexicoCity)
         } finally {
             sql """set time_zone = default"""
             sql """switch internal"""

@@ -282,7 +282,8 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type, {}, false);
+    // Zone map page always uses PLAIN_ENCODING. Do not change.
+    options.encoding = PLAIN_ENCODING;
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, type, file_writer);
@@ -296,20 +297,22 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
-                                OlapReaderStatistics* index_load_stats) {
+                                OlapReaderStatistics* index_load_stats,
+                                const io::IOContext* io_ctx) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats, io_ctx] {
         return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
-                     index_load_stats);
+                     index_load_stats, io_ctx);
     });
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                  std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
-                                 OlapReaderStatistics* index_load_stats) {
+                                 OlapReaderStatistics* index_load_stats,
+                                 const io::IOContext* io_ctx) {
     IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
-    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats));
-    IndexedColumnIterator iter(&reader, index_load_stats);
+    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats, io_ctx));
+    IndexedColumnIterator iter(&reader, index_load_stats, io_ctx);
 
     _page_zone_maps.resize(reader.num_values());
 

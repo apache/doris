@@ -162,6 +162,8 @@ suite("test_analyze_long_string", "nonConcurrent") {
     sql """insert into test_analyze_long_string_sample values(4, 'dd', 'short3')"""
     sql """insert into test_analyze_long_string_sample values(5, 'ee', 'short4')"""
 
+    waitRowCountReady("test_analyze_long_string", "test_analyze_long_string_sample", 5)
+
     setFeConfigTemporary([statistics_max_string_column_length: 1024]) {
         sql """analyze table test_analyze_long_string_sample with sample percent 100"""
         def jobId = findJobId("internal", "test_analyze_long_string", "test_analyze_long_string_sample")
@@ -232,10 +234,12 @@ suite("test_analyze_long_string", "nonConcurrent") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
     sql """insert into test_analyze_long_string_duj1 values(1, 'aa', repeat('z', 2048))"""
-    sql """insert into test_analyze_long_string_duj1 values(2, 'bb', 'short1')"""
-    sql """insert into test_analyze_long_string_duj1 values(3, 'cc', 'short2')"""
-    sql """insert into test_analyze_long_string_duj1 values(4, 'dd', 'short3')"""
-    sql """insert into test_analyze_long_string_duj1 values(5, 'ee', 'short4')"""
+    sql """insert into test_analyze_long_string_duj1 values(2, 'bb', repeat('z', 2048))"""
+    sql """insert into test_analyze_long_string_duj1 values(3, 'cc', repeat('z', 2048))"""
+    sql """insert into test_analyze_long_string_duj1 values(4, 'dd', repeat('z', 2048))"""
+    sql """insert into test_analyze_long_string_duj1 values(5, 'ee', repeat('z', 2048))"""
+
+    waitRowCountReady("test_analyze_long_string", "test_analyze_long_string_duj1", 5)
 
     setFeConfigTemporary([statistics_max_string_column_length: 1024]) {
         GetDebugPoint().enableDebugPointForAllFEs('OlapAnalysisTask.useDUJ1Template')

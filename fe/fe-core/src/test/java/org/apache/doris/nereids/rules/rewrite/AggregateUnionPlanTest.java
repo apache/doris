@@ -24,6 +24,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -35,6 +36,7 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
     protected void runBeforeAll() throws Exception {
         createDatabase("test_agg_union");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
 
         // Tables with RANDOM distribution: no PhysicalDistribute needed in union inputs
         createTable("CREATE TABLE test_agg_union.t1_random ("
@@ -59,6 +61,19 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
                 + "  a INT NULL, b INT NULL"
                 + ") ENGINE=OLAP DUPLICATE KEY(a, b)"
                 + " DISTRIBUTED BY HASH(a) BUCKETS 3"
+                + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
+        createTable("CREATE TABLE test_agg_union.bitmap_tbl ("
+                + "  id INT,"
+                + "  tag INT,"
+                + "  user_id BITMAP BITMAP_UNION"
+                + ") ENGINE=OLAP AGGREGATE KEY(id, tag)"
+                + " DISTRIBUTED BY HASH(id) BUCKETS 1"
+                + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
+        createTable("CREATE TABLE test_agg_union.decimal_tbl ("
+                + "  f1 DECIMALV3(30, 5) NULL,"
+                + "  f2 DECIMALV3(10, 6) NULL"
+                + ") ENGINE=OLAP DUPLICATE KEY(f1)"
+                + " DISTRIBUTED BY HASH(f1) BUCKETS 1"
                 + " PROPERTIES ('replication_allocation' = 'tag.location.default: 1');");
     }
 
@@ -98,6 +113,59 @@ public class AggregateUnionPlanTest extends TestWithFeService implements MemoPat
                                     .when(agg -> agg.getAggMode() == AggMode.BUFFER_TO_RESULT)
                     ));
         });
+    }
+
+    @Test
+    public void testNestedSetOperationDistinctUnionSingleInstance() {
+        int beNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int parallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        connectContext.getSessionVariable().setBeNumberForTest(1);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        try {
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT * FROM (SELECT 1 a INTERSECT SELECT 1 a) t1"
+                            + " UNION "
+                            + "SELECT * FROM (SELECT 2 a EXCEPT SELECT 3 a) t2");
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(beNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = parallelPipelineTaskNum;
+        }
+    }
+
+    @Test
+    public void testTwoPhaseOnlyAggregateSingleInstance() {
+        int beNumberForTest = connectContext.getSessionVariable().getBeNumberForTest();
+        int parallelPipelineTaskNum = connectContext.getSessionVariable().parallelPipelineTaskNum;
+        connectContext.getSessionVariable().setBeNumberForTest(1);
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 1;
+        try {
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT orthogonal_bitmap_expr_calculate(user_id, tag, '(100&200)')"
+                            + " FROM test_agg_union.bitmap_tbl");
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT orthogonal_bitmap_expr_calculate_count(user_id, tag, '(100&200)')"
+                            + " FROM test_agg_union.bitmap_tbl");
+        } finally {
+            connectContext.getSessionVariable().setBeNumberForTest(beNumberForTest);
+            connectContext.getSessionVariable().parallelPipelineTaskNum = parallelPipelineTaskNum;
+        }
+    }
+
+    @Test
+    public void testDecimal256GuardOnDistinctAggregateWithoutGroupBy() throws Exception {
+        connectContext.getSessionVariable().enableDecimal256 = true;
+        try {
+            dropView("DROP VIEW IF EXISTS test_agg_union.v_decimal_distinct_sum");
+            createView("CREATE VIEW test_agg_union.v_decimal_distinct_sum AS "
+                    + "SELECT sum(DISTINCT f1 * f2) AS col_sum FROM test_agg_union.decimal_tbl");
+        } finally {
+            connectContext.getSessionVariable().enableDecimal256 = false;
+        }
+
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT * FROM test_agg_union.v_decimal_distinct_sum");
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(
+                "EXPLAIN SELECT * FROM test_agg_union.v_decimal_distinct_sum").contains("PLAN FRAGMENT"));
     }
 
     /**

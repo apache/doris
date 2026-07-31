@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
@@ -36,8 +37,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ExponentialMovingAverage;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
@@ -56,9 +59,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -94,6 +99,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
@@ -127,6 +133,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(AnyValue.class, "any", "any_value"),
                 agg(ArrayAgg.class, "array_agg"),
                 agg(Avg.class, "avg"),
+                agg(AvgMap.class, "avg_map"),
                 agg(AvgWeighted.class, "avg_weighted"),
                 agg(BitmapAgg.class, "bitmap_agg"),
                 agg(BitmapIntersect.class, "bitmap_intersect"),
@@ -143,6 +150,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(ExponentialMovingAverage.class, "exponential_moving_average"),
                 agg(Count.class, "count"),
                 agg(CountByEnum.class, "count_by_enum"),
+                agg(CountMap.class, "count_map"),
                 agg(Covar.class, "covar", "covar_pop"),
                 agg(CovarSamp.class, "covar_samp"),
                 agg(GroupArrayIntersect.class, "group_array_intersect"),
@@ -155,6 +163,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Histogram.class, "hist", "histogram"),
                 agg(HllUnion.class, "hll_raw_agg", "hll_union"),
                 agg(HllUnionAgg.class, "hll_union_agg"),
+                agg(DataSketchesHllUnionAgg.class, "datasketches_hll_union_agg",
+                    "ds_hll_estimate", "datasketches_hll_estimate"),
                 agg(IntersectCount.class, "intersect_count"),
                 agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
                 agg(LinearHistogram.class, "linear_histogram"),
@@ -162,9 +172,11 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(MapAggV2.class, "map_agg_v2", "map_agg"),
                 agg(Max.class, "max"),
                 agg(MaxBy.class, "max_by"),
+                agg(MaxMap.class, "max_map"),
                 agg(Median.class, "median"),
                 agg(Min.class, "min"),
                 agg(MinBy.class, "min_by"),
+                agg(MinMap.class, "min_map"),
                 agg(MultiDistinctCount.class, "multi_distinct_count"),
                 agg(MultiDistinctGroupConcat.class, "multi_distinct_group_concat"),
                 agg(MultiDistinctSum.class, "multi_distinct_sum"),
@@ -199,6 +211,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(StddevSamp.class, "stddev_samp"),
                 agg(Sum.class, "sum"),
                 agg(Sum0.class, "sum0"),
+                agg(SumMap.class, "sum_map"),
                 agg(TopN.class, "topn"),
                 agg(TopNArray.class, "topn_array"),
                 agg(TopNWeighted.class, "topn_weighted"),

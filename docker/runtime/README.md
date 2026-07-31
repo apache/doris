@@ -59,7 +59,6 @@ amd64(avx2) platform:
 |     fe     |              apache-doris-3.0.2-bin-x64/fe               |                runtime/fe/resource/amd64/apache-doris-3.0.2-bin-x64/fe                 |
 |     be     |              apache-doris-3.0.2-bin-x64/be               |                runtime/be/resource/amd64/apache-doris-3.0.2-bin-x64/be                 |
 |     ms     |              apache-doris-3.0.2-bin-x64/ms               |                runtime/ms/resource/amd64/apache-doris-3.0.2-bin-x64/ms                 |
-|   broker   | apache-doris-3.0.2-bin-x64/extensions/apache_hdfs_broker | runtime/broker/resource/amd64/apache-doris-3.0.2-bin-x64/extensions/apache_hdfs_broker |
 
 arm64 platform:
 
@@ -68,7 +67,6 @@ arm64 platform:
 |     fe     |              apache-doris-3.0.2-bin-arm64/fe               |                runtime/fe/resource/arm64/apache-doris-3.0.2-bin-arm64/fe                 |
 |     be     |              apache-doris-3.0.2-bin-arm64/be               |                runtime/be/resource/arm64/apache-doris-3.0.2-bin-arm64/be                 |
 |     ms     |              apache-doris-3.0.2-bin-arm64/ms               |                runtime/ms/resource/arm64/apache-doris-3.0.2-bin-arm64/ms                 |
-|   broker   | apache-doris-3.0.2-bin-arm64/extensions/apache_hdfs_broker | runtime/broker/resource/arm64/apache-doris-3.0.2-bin-arm64/extensions/apache_hdfs_broker |
 
 **NOTICE**
 
@@ -106,7 +104,6 @@ as the following commands, Docker will automatically confirm the architecture
 $ cd doris/runtime/fe && docker build . -t doris.fe:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
 $ cd doris/runtime/be && docker build . -t doris.be:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
 $ cd doris/runtime/ms && docker build . -t doris.ms:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
-$ cd doris/runtime/broker && docker build . -t doris.broker:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
 ```
 
 ### Latest update time

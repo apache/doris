@@ -117,6 +117,28 @@ suite("test_pythonudf_file_protocol") {
         FROM file_protocol_test_table
         ORDER BY id;
         """
+
+        // Inline code must take precedence over FILE. Use a missing FILE path so the
+        // test fails if FE or BE tries to validate/load it as a module.
+        sql """ DROP FUNCTION IF EXISTS py_file_inline_precedence(INT); """
+        sql """
+        CREATE FUNCTION py_file_inline_precedence(INT)
+        RETURNS INT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "file" = "file://${context.file.parent}/udf_scripts/missing_inline_precedence.zip",
+            "symbol" = "evaluate",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+def evaluate(arg):
+    if arg is None:
+        return None
+    return int(arg + 1000)
+\$\$;
+        """
+
+        qt_select_file_inline_precedence """ SELECT py_file_inline_precedence(7) AS result; """
         
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_file_int_add(INT);")

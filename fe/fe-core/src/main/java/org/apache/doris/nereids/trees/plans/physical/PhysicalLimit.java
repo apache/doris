@@ -64,6 +64,11 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
             LimitPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_LIMIT, groupExpression, logicalProperties, child);
+        // limit/offset are always non-negative ("no limit" is represented by Long.MAX_VALUE). A
+        // negative value here means limit + offset overflowed somewhere upstream and would produce an
+        // illegal plan that hangs in BE; fail fast instead.
+        Preconditions.checkArgument(limit >= 0 && offset >= 0,
+                "PhysicalLimit limit and offset must be non-negative, but got limit=%s, offset=%s", limit, offset);
         this.limit = limit;
         this.offset = offset;
         this.phase = phase;
@@ -82,6 +87,11 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
             Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_LIMIT, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
+        // limit/offset are always non-negative ("no limit" is represented by Long.MAX_VALUE). A
+        // negative value here means limit + offset overflowed somewhere upstream and would produce an
+        // illegal plan that hangs in BE; fail fast instead.
+        Preconditions.checkArgument(limit >= 0 && offset >= 0,
+                "PhysicalLimit limit and offset must be non-negative, but got limit=%s, offset=%s", limit, offset);
         this.limit = limit;
         this.offset = offset;
         this.phase = phase;

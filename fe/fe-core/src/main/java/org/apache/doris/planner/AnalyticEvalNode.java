@@ -27,6 +27,10 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -176,7 +180,85 @@ public class AnalyticEvalNode extends PlanNode {
      * all data should be input in this node to ensure the global ordering by colB.
      */
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return partitionExprs.isEmpty();
+    }
+
+    /**
+     * Mirrors BE's
+     * {@code AnalyticSinkOperatorX::is_shuffled_operator() = !_partition_by_eq_expr_ctxs.empty()}
+     * (be/src/exec/operator/analytic_sink_operator.h:226). With PARTITION BY, input must be
+     * hash-partitioned by partition keys, so downstream UnionNode / SetOperationNode under
+     * us must pre-shuffle their branches to match — the framework propagates this through
+     * {@link PlanTranslatorContext#hasShuffleForCorrectnessAncestor}.
+     */
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        return !partitionExprs.isEmpty();
+    }
+
+    @Override
+    protected List<Expr> getSemanticPartitionExprs() {
+        return partitionExprs;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType = null;
+        if (partitionExprs.isEmpty()) {
+            // Serial AnalyticEval (OVER() with no PARTITION BY):
+            // Must NOT have any LocalExchange between AnalyticEval and its child.
+            // On BE, AnalyticSink and AnalyticSource share state (source_deps/sink_deps).
+            // A LocalExchange below would restore the AnalyticSink pipeline to _num_instances
+            // tasks while the serial AnalyticSource pipeline stays at 1 task.
+            //
+            // Use enforceRequire with noRequire to traverse children, then strip any
+            // LocalExchange the child inserted (e.g., Exchange wrapping itself with PASSTHROUGH).
+            Pair<PlanNode, LocalExchangeType> enforceResult
+                    = enforceRequire(translatorContext, children.get(0), 0, LocalExchangeTypeRequire.noRequire());
+            PlanNode newChild = enforceResult.first;
+            if (newChild instanceof LocalExchangeNode) {
+                newChild = newChild.getChild(0);
+            }
+            children = Lists.newArrayList(newChild);
+            // Return NOOP: the serial AnalyticSource pipeline has 1 task, we don't provide
+            // fan-out ourselves. The parent's enforceRequire framework-level serial check
+            // will see our serial status and insert PASSTHROUGH LE above us if needed.
+            return Pair.of(this, LocalExchangeType.NOOP);
+        } else if (orderByElements.isEmpty()) {
+            if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireHash();
+                outputType = AddLocalExchange.resolveExchangeType(
+                        LocalExchangeTypeRequire.requireHash());
+            } else {
+                // Non-colocated analytic with PARTITION BY but no ORDER BY:
+                // The parent SortNode (mergeByExchange) will insert PASSTHROUGH above us,
+                // which is what BE does natively. Don't force a hash exchange here.
+                requireChild = LocalExchangeTypeRequire.noRequire();
+                outputType = LocalExchangeType.NOOP;
+            }
+        } else if (children.get(0).isSerialOperatorOnBe(translatorContext.getConnectContext())) {
+            // BE base class: _child->is_serial_operator() ? PASSTHROUGH : NOOP
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else {
+            requireChild = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceRequire(translatorContext, children.get(0), 0, requireChild);
+        children = Lists.newArrayList(enforceResult.first);
+        if (outputType == null) {
+            outputType = enforceResult.second;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

@@ -150,7 +150,7 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
         desc.setTable(rowBinlogTableWrapper);
         OlapScanNode olapScanNode = new OlapScanNode(id, desc, "OlapScanNode",
                 ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
-        olapScanNode.setSelectedIndexInfo(rowBinlogTableWrapper.getBaseIndexId(), false, "binlog<row> read");
+        olapScanNode.setSelectedIndexInfo(rowBinlogTableWrapper.getBaseIndexId(), true, "binlog<row> read");
         if (specifiedTabletIds != null && !specifiedTabletIds.isEmpty()) {
             olapScanNode.setSpecifiedTabletIds(specifiedTabletIds);
         }

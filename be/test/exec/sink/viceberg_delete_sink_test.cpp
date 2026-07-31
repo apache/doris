@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "format/table/deletion_vector.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/runtime_state.h"
@@ -505,6 +506,19 @@ TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
     ObjectPool pool;
     Status status = sink->init_properties(&pool);
     ASSERT_FALSE(status.ok());
+}
+
+TEST_F(VIcebergDeleteSinkTest, TestValidateDeletionVectorContentSize) {
+    constexpr size_t max_bitmap_size = static_cast<size_t>(MAX_ICEBERG_DELETION_VECTOR_BYTES) -
+                                       ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES;
+    int64_t content_size = 0;
+    ASSERT_TRUE(
+            calculate_iceberg_deletion_vector_content_size(max_bitmap_size, &content_size).ok());
+    ASSERT_EQ(MAX_ICEBERG_DELETION_VECTOR_BYTES, content_size);
+
+    const auto unsupported_status =
+            calculate_iceberg_deletion_vector_content_size(max_bitmap_size + 1, &content_size);
+    ASSERT_TRUE(unsupported_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << unsupported_status;
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {

@@ -526,6 +526,10 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         }
         explain {
             sql "insert into ${auto_default_t}(name,dt) select col1,col12 from ex_tb15;"
+            // P6.3-T02: jdbc now writes through the unified plan-provider sink, but the connector
+            // restores its write detail in EXPLAIN via ConnectorWritePlanProvider.appendExplainInfo,
+            // so the generated INSERT SQL is still shown (the leading "WRITE TYPE: JDBC_WRITE" line
+            // is the only sink-label change). Covered at unit level by JdbcWritePlanProviderTest.
             contains "INSERT SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
         }
         order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""

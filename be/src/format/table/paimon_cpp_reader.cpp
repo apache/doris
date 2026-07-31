@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <mutex>
+#include <tuple>
+#include <unordered_map>
 #include <utility>
 
 #include "arrow/c/bridge.h"
@@ -27,6 +29,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "format/table/paimon_doris_file_system.h"
+#include "format/table/partition_column_filler.h"
 #include "paimon/defs.h"
 #include "paimon/memory/memory_pool.h"
 #include "paimon/read_context.h"
@@ -61,6 +64,49 @@ PaimonCppReader::PaimonCppReader(const std::vector<SlotDescriptor*>& file_slot_d
 }
 
 PaimonCppReader::~PaimonCppReader() = default;
+
+Status PaimonCppReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _partition_values.clear();
+    _partition_value_is_null.clear();
+    if (ctx->range == nullptr || ctx->tuple_descriptor == nullptr ||
+        !ctx->range->__isset.columns_from_path_keys) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(ctx->range->__isset.columns_from_path);
+    DORIS_CHECK(ctx->range->columns_from_path.size() == ctx->range->columns_from_path_keys.size());
+    const bool has_null_flags = ctx->range->__isset.columns_from_path_is_null;
+    if (has_null_flags) {
+        DORIS_CHECK(ctx->range->columns_from_path_is_null.size() ==
+                    ctx->range->columns_from_path_keys.size());
+    }
+
+    std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
+    for (auto* slot : ctx->tuple_descriptor->slots()) {
+        name_to_slot.emplace(slot->col_name(), slot);
+    }
+    for (size_t i = 0; i < ctx->range->columns_from_path_keys.size(); ++i) {
+        const auto& key = ctx->range->columns_from_path_keys[i];
+        auto slot_it = name_to_slot.find(key);
+        if (slot_it == name_to_slot.end()) {
+            continue;
+        }
+        _partition_values.emplace(
+                key, std::make_tuple(ctx->range->columns_from_path[i], slot_it->second));
+        _partition_value_is_null.emplace(
+                key, has_null_flags ? ctx->range->columns_from_path_is_null[i] : false);
+    }
+    return Status::OK();
+}
+
+Status PaimonCppReader::on_after_read_block(Block* block, size_t* read_rows) {
+    if (_column_descs == nullptr || _partition_values.empty() || *read_rows == 0 ||
+        _push_down_agg_type == TPushAggOp::type::COUNT) {
+        return Status::OK();
+    }
+    return _fill_partition_columns(block, *read_rows);
+}
 
 Status PaimonCppReader::init_reader() {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
@@ -151,6 +197,37 @@ Status PaimonCppReader::_get_columns_impl(
         std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
+    }
+    return Status::OK();
+}
+
+Status PaimonCppReader::_fill_partition_columns(Block* block, size_t num_rows) {
+    if (_col_name_to_block_idx.empty()) {
+        _col_name_to_block_idx = block->get_name_to_pos_map();
+    }
+
+    for (const auto& desc : *_column_descs) {
+        if (desc.category != ColumnCategory::PARTITION_KEY) {
+            continue;
+        }
+        auto value_it = _partition_values.find(desc.name);
+        if (value_it == _partition_values.end()) {
+            continue;
+        }
+        auto col_it = _col_name_to_block_idx.find(desc.name);
+        if (col_it == _col_name_to_block_idx.end()) {
+            return Status::InternalError("Missing partition column {} in block {}", desc.name,
+                                         block->dump_structure());
+        }
+
+        auto& column_with_type_and_name = block->get_by_position(col_it->second);
+        auto mutable_column = std::move(*column_with_type_and_name.column).mutate();
+        const auto& [value, slot_desc] = value_it->second;
+        auto null_it = _partition_value_is_null.find(desc.name);
+        DORIS_CHECK(null_it != _partition_value_is_null.end());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(*mutable_column, *slot_desc, value,
+                                                              num_rows, null_it->second));
+        column_with_type_and_name.column = std::move(mutable_column);
     }
     return Status::OK();
 }

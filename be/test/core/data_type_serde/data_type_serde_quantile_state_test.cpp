@@ -151,4 +151,75 @@ TEST(QuantileStateSerdeTest, serializeColumnToJson) {
               quantile_state_res_1.get_value_by_percentile(1));
     std::cout << "test serialize/deserialize_column_from_json_vector" << std::endl;
 }
+
+TEST(QuantileStateSerdeTest, DeserializeColumnFromJsonVector) {
+    auto quantile_state_serde = std::make_shared<DataTypeQuantileStateSerDe>(1);
+    QuantileState quantile_state;
+    quantile_state.add_value(123);
+
+    std::string memory_buffer(quantile_state.get_serialized_size(), '0');
+    quantile_state.serialize(reinterpret_cast<uint8_t*>(memory_buffer.data()));
+
+    std::vector<Slice> slices;
+    slices.emplace_back(memory_buffer.data(), memory_buffer.size());
+    uint64_t num_deserialized = 0;
+    auto column_quantile_state = ColumnQuantileState::create();
+    DataTypeSerDe::FormatOptions options;
+
+    auto st = quantile_state_serde->deserialize_column_from_json_vector(
+            *column_quantile_state, slices, &num_deserialized, options);
+
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(num_deserialized, 1);
+    ASSERT_EQ(column_quantile_state->size(), 1);
+    EXPECT_EQ(column_quantile_state->get_element(0).get_value_by_percentile(1), 123);
+}
+
+TEST(QuantileStateSerdeTest, ArrowMysqlAndToStringPaths) {
+    auto quantile_state_serde = std::make_shared<DataTypeQuantileStateSerDe>(2);
+    auto column_quantile_state = ColumnQuantileState::create();
+    QuantileState quantile_state;
+    quantile_state.add_value(123);
+    column_quantile_state->insert_value(quantile_state);
+    column_quantile_state->insert_value(QuantileState());
+
+    DataTypeSerDe::FormatOptions options;
+    auto serialized_column = ColumnString::create();
+    VectorBufferWriter writer(*serialized_column);
+    EXPECT_TRUE(quantile_state_serde
+                        ->serialize_one_cell_to_json(*column_quantile_state, 0, writer, options)
+                        .ok());
+    writer.commit();
+    EXPECT_EQ(serialized_column->get_data_at(0).to_string(), "null");
+
+    auto string_column = ColumnString::create();
+    VectorBufferWriter string_writer(*string_column);
+    quantile_state_serde->to_string(*column_quantile_state, 0, string_writer, options);
+    string_writer.commit();
+    EXPECT_EQ(string_column->get_data_at(0).size, quantile_state.get_serialized_size());
+
+    arrow::BinaryBuilder builder;
+    NullMap null_map;
+    null_map.push_back(0);
+    null_map.push_back(1);
+    EXPECT_TRUE(quantile_state_serde
+                        ->write_column_to_arrow(*column_quantile_state, &null_map, &builder, 0, 2,
+                                                cctz::utc_time_zone())
+                        .ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+    EXPECT_FALSE(array->IsNull(0));
+    EXPECT_TRUE(array->IsNull(1));
+
+    EXPECT_FALSE(quantile_state_serde
+                         ->read_column_from_arrow(*column_quantile_state, nullptr, 0, 0,
+                                                  cctz::utc_time_zone())
+                         .ok());
+
+    MysqlRowBinaryBuffer mysql_buffer;
+    EXPECT_FALSE(quantile_state_serde
+                         ->write_column_to_mysql_binary(*column_quantile_state, mysql_buffer, 0,
+                                                        false, options)
+                         .ok());
+}
 } // namespace doris

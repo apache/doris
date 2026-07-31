@@ -132,7 +132,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         // TODO(zhangzhengyu): is it enough for a context?
         _reader_context.reader_type = read_params.reader_type;
         _reader_context.need_ordered_result = true; // TODO: should it be?
-        _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+        _reader_context.is_unique = _tablet_schema->keys_type() == UNIQUE_KEYS;
         _reader_context.is_key_column_group = read_params.is_key_column_group;
         _reader_context.record_rowids = read_params.record_rowids;
     }
@@ -141,19 +141,18 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     auto ori_return_col_size = _return_columns.size();
     if (read_params.is_key_column_group) {
         uint32_t seq_col_idx = -1;
-        if (read_params.tablet->tablet_schema()->has_sequence_col() &&
-            read_params.tablet->tablet_schema()->cluster_key_uids().empty()) {
-            seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
+        if (_tablet_schema->has_sequence_col() && _tablet_schema->cluster_key_uids().empty()) {
+            seq_col_idx = _tablet_schema->sequence_col_idx();
         }
-        if (read_params.tablet->tablet_schema()->num_key_columns() == 0) {
+        if (_tablet_schema->num_key_columns() == 0) {
             _vcollect_iter = new_vertical_fifo_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
-                    ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
+                    ori_return_col_size, _tablet_schema->keys_type(), seq_col_idx,
                     _row_sources_buffer);
         } else {
             _vcollect_iter = new_vertical_heap_merge_iterator(
                     std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
-                    ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
+                    ori_return_col_size, _tablet_schema->keys_type(), seq_col_idx,
                     _row_sources_buffer, read_params.key_group_cluster_key_idxes);
         }
     } else {
@@ -163,13 +162,14 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     // init collect iterator
     StorageReadOptions opts;
     opts.record_rowids = read_params.record_rowids;
+    opts.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
     if (read_params.batch_size > 0) {
         opts.block_row_max = cast_set<int>(read_params.batch_size);
     }
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
 
     // In agg keys value columns compact, get first row for _init_agg_state
-    if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
+    if (!read_params.is_key_column_group && _tablet_schema->keys_type() == KeysType::AGG_KEYS) {
         auto st = _vcollect_iter->next_row(&_next_row);
         if (!st.ok() && !st.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to init first row for agg key";
@@ -199,6 +199,10 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
                         .get_aggregate_function(AGG_READER_SUFFIX,
                                                 read_params.get_be_exec_version());
         DCHECK(function != nullptr);
+        const auto* column_ptr = _stored_data_columns[idx].get();
+        const IColumn* columns[] = {column_ptr};
+        function->check_input_columns_type(columns);
+        function->check_result_column_type(*column_ptr);
         _agg_functions.push_back(function);
         // create aggregate data
         auto* place = new char[function->size_of_data()];
@@ -235,12 +239,12 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         return status;
     }
 
-    switch (tablet()->keys_type()) {
+    switch (_tablet_schema->keys_type()) {
     case KeysType::DUP_KEYS:
         _next_block_func = &VerticalBlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
+        if (_tablet_schema->cluster_key_uids().empty()) {
             _next_block_func = &VerticalBlockReader::_unique_key_next_block;
             if (_filter_delete) {
                 _delete_filter_column = ColumnUInt8::create();
@@ -256,7 +260,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         }
         break;
     default:
-        DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
+        DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
 
@@ -633,7 +637,7 @@ void VerticalBlockReader::_prepare_sparse_columns(MutableColumns& columns, size_
 
     for (size_t col_idx = 0; col_idx < column_count; ++col_idx) {
         auto& col = columns[col_idx];
-        if (col->is_nullable()) {
+        if (is_column_nullable(*col)) {
             auto* nullable_col =
                     assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(col.get());
             nullable_dst_cols[col_idx] = nullable_col;

@@ -143,7 +143,7 @@ private:
         static const double min = 0.0;
         static const double max = 1.0;
         auto res_column = ColumnFloat64::create(input_rows_count);
-        auto& res_data = static_cast<ColumnFloat64&>(*res_column).get_data();
+        auto& res_data = res_column->get_data();
 
         auto* generator = reinterpret_cast<std::mt19937_64*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));

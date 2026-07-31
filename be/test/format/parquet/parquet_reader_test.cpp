@@ -212,6 +212,7 @@ public:
         scan_range.size = 1000;
         scan_range.__set_columns_from_path_keys({"part_col"});
         scan_range.__set_columns_from_path({"1"});
+        scan_range.__set_columns_from_path_is_null({false});
         auto q_options = TQueryOptions();
         q_options.__set_enable_adjust_conjunct_order_by_cost(true);
         RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
@@ -235,6 +236,11 @@ public:
         pq_ctx.slot_id_to_filter_conjuncts = &slot_id_to_expr_ctxs;
         pq_ctx.params = &scan_params;
         pq_ctx.range = &scan_range;
+        if constexpr (filter_all && enable_lazy) {
+            // Exercise row-level lazy filtering instead of eliminating the row group from
+            // min/max or page-index metadata before a RowGroupReader is created.
+            pq_ctx.filter_groups = false;
+        }
         st = p_reader->init_reader(&pq_ctx);
         EXPECT_TRUE(st.ok()) << st;
 
@@ -273,6 +279,22 @@ public:
             EXPECT_EQ(total_rows, 0);
         } else {
             EXPECT_EQ(total_rows, 10000);
+        }
+
+        if constexpr (filter_all && enable_lazy) {
+            EXPECT_EQ(p_reader->reader_statistics().lazy_read_filtered_rows, 10000);
+            ASSERT_NE(p_reader->_current_group_reader, nullptr);
+
+            const auto follower_statistics =
+                    p_reader->_current_group_reader->_column_readers.at("string_col")
+                            ->column_statistics();
+            EXPECT_EQ(follower_statistics.page_read_counter, 0);
+            EXPECT_EQ(follower_statistics.parse_page_header_num, 0);
+
+            const auto predicate_statistics =
+                    p_reader->_current_group_reader->_column_readers.at("value_col")
+                            ->column_statistics();
+            EXPECT_GT(predicate_statistics.page_read_counter, 0);
         }
     }
 };
@@ -984,6 +1006,7 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     scan_range.size = 1000;
     scan_range.__set_columns_from_path_keys({"part_col"});
     scan_range.__set_columns_from_path({"1"});
+    scan_range.__set_columns_from_path_is_null({false});
     auto q_options = TQueryOptions();
     q_options.__set_enable_adjust_conjunct_order_by_cost(true);
     RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());

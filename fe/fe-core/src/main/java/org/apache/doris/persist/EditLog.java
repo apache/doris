@@ -60,13 +60,13 @@ import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -831,6 +831,11 @@ public class EditLog {
                     Env.getCurrentEnv().replayCreateFunction(function);
                     break;
                 }
+                case OperationType.OP_ADD_FUNCTIONS: {
+                    final CreateFunctionInfo info = (CreateFunctionInfo) journal.getData();
+                    Env.getCurrentEnv().replayCreateFunctions(info);
+                    break;
+                }
                 case OperationType.OP_DROP_FUNCTION: {
                     FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
                     Env.getCurrentEnv().replayDropFunction(function);
@@ -998,6 +1003,12 @@ public class EditLog {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
                     env.getBinlogManager().addModifyTableProperty(log, logId);
+                    break;
+                }
+                case OperationType.OP_TABLE_STREAM_CLEANUP: {
+                    TableStreamCleanupInfo info =
+                            (TableStreamCleanupInfo) journal.getData();
+                    env.replayTableStreamCleanup(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
@@ -2129,6 +2140,10 @@ public class EditLog {
         logEdit(OperationType.OP_ADD_FUNCTION, function);
     }
 
+    public void logAddFunctions(List<Function> functions) {
+        logEdit(OperationType.OP_ADD_FUNCTIONS, new CreateFunctionInfo(functions));
+    }
+
     public void logAddGlobalFunction(Function function) {
         logEdit(OperationType.OP_ADD_GLOBAL_FUNCTION, function);
     }
@@ -2283,6 +2298,10 @@ public class EditLog {
         logModifyTableProperty(OperationType.OP_DYNAMIC_PARTITION, info);
     }
 
+    public void logTableStreamCleanup(TableStreamCleanupInfo info) {
+        logEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
+    }
+
     public long logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
         return logModifyTableProperty(OperationType.OP_MODIFY_REPLICATION_NUM, info);
     }
@@ -2393,10 +2412,6 @@ public class EditLog {
 
     public void logDropRoleMapping(DropRoleMappingOperationLog log) {
         logEdit(OperationType.OP_DROP_ROLE_MAPPING, log);
-    }
-
-    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
     public void logCreatePolicy(Policy policy) {

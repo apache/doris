@@ -17,12 +17,52 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-1. How to build
+# logstash-output-doris
 
-	`gem build logstash-output-doris.gemspec`
+A Logstash output plugin that ships events to Doris via stream load.
 
-2. How to use
+Docs: <https://doris.apache.org/docs/dev/ecosystem/logstash>
 
-   `https://doris.apache.org/zh-CN/docs/dev/ecosystem/logstash`
-   `https://doris.apache.org/docs/dev/ecosystem/logstash`
+## Build
 
+Prerequisites: JRuby (>= 9.4 with Java 21, or 9.2 with Java 8/11) and the
+`jar-dependencies` gem (`jruby -S gem install jar-dependencies`).
+
+```bash
+# 1. Vendor HttpClient4 + transitive jars into lib/ and generate the loader.
+#    Reads the 'jar' entry from logstash-output-doris.gemspec.
+jruby -e "require 'jars/installer'; Jars::Installer.new.vendor_jars"
+
+# 2. Build the gem.
+jruby -S gem build logstash-output-doris.gemspec
+```
+
+Produces `logstash-output-doris-<version>-java.gem`.
+
+## Install
+
+The jars are already vendored inside the gem, so the install hook does not
+need to talk to Maven — pass `JARS_SKIP=true` to skip the lookup:
+
+```bash
+JARS_SKIP=true $LS_HOME/bin/logstash-plugin install \
+    logstash-output-doris-<version>-java.gem
+```
+
+### Air-gapped install (offline pack)
+
+For a Logstash host without internet access, build an offline pack on a
+connected host first:
+
+```bash
+# On a connected host (same Logstash major version as the target):
+JARS_SKIP=true $LS_HOME/bin/logstash-plugin install \
+    logstash-output-doris-<version>-java.gem
+$LS_HOME/bin/logstash-plugin prepare-offline-pack \
+    --output logstash-output-doris-<version>-offline-pack.zip \
+    logstash-output-doris
+
+# Then on the air-gapped target:
+$LS_HOME/bin/logstash-plugin install \
+    file:///path/to/logstash-output-doris-<version>-offline-pack.zip
+```

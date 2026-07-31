@@ -20,7 +20,7 @@
 // Covers: array_repeat, array_with_constant, nested function calls, etc.
 suite("ann_const_expr_vector") {
     sql "unset variable all;"
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     def tableName = "ann_const_expr_tbl"
 

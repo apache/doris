@@ -750,6 +750,7 @@ extern bvar::Status<int64_t> g_bvar_fdb_incompatible_connections;
 extern bvar::Status<int64_t> g_bvar_fdb_latency_probe_transaction_start_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_latency_probe_commit_ns;
 extern bvar::Status<int64_t> g_bvar_fdb_latency_probe_read_ns;
+extern bvar::Status<int64_t> g_bvar_fdb_performance_limited_by_name;
 extern bvar::Status<int64_t> g_bvar_fdb_machines_count;
 extern bvar::Status<int64_t> g_bvar_fdb_process_count;
 extern bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns;

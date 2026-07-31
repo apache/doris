@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Pull up Project under Limit.
@@ -42,14 +43,20 @@ public class PullUpProjectUnderLimit extends OneRewriteRuleFactory {
                 .whenNot(p -> p.isAllSlots()))
                 .then(limit -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
-                    Set<Slot> allUsedSlots = project.getProjects().stream().flatMap(ne -> ne.getInputSlots().stream())
+                    Set<Slot> allUsedSlots = project.getProjects().stream()
+                            .flatMap(ne -> ne instanceof Slot ? Stream.of((Slot) ne) : ne.getInputSlots().stream())
                             .collect(Collectors.toSet());
                     Set<Slot> outputSet = project.child().getOutputSet();
+                    if (!outputSet.containsAll(allUsedSlots)) {
+                        return null;
+                    }
                     if (outputSet.size() == allUsedSlots.size()) {
                         Preconditions.checkState(outputSet.equals(allUsedSlots));
                         return project.withChildren(limit.withChildren(project.child()));
                     } else {
-                        Plan columnProject = PlanUtils.projectOrSelf(ImmutableList.copyOf(allUsedSlots),
+                        Plan columnProject = PlanUtils.projectOrSelf(project.child().getOutput().stream()
+                                        .filter(allUsedSlots::contains)
+                                        .collect(ImmutableList.toImmutableList()),
                                 project.child());
                         return project.withChildren(limit.withChildren(columnProject));
                     }

@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
+#include "exprs/function/variant_inverted_index_search.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator_boolean_query.h"
@@ -41,91 +42,6 @@ namespace doris {
 using namespace doris::segment_v2;
 
 class IndexExecContext;
-
-struct FieldReaderBinding {
-    std::string logical_field_name;
-    std::string stored_field_name;
-    std::wstring stored_field_wstr;
-    DataTypePtr column_type;
-    InvertedIndexQueryType query_type;
-    InvertedIndexReaderPtr inverted_reader;
-    std::shared_ptr<lucene::index::IndexReader> lucene_reader;
-    std::map<std::string, std::string> index_properties;
-    std::string binding_key;
-    std::string analyzer_key;
-};
-
-class FieldReaderResolver {
-public:
-    FieldReaderResolver(
-            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
-            const std::unordered_map<std::string, IndexIterator*>& iterators,
-            std::shared_ptr<IndexQueryContext> context,
-            const std::vector<TSearchFieldBinding>& field_bindings = {})
-            : _data_type_with_names(data_type_with_names),
-              _iterators(iterators),
-              _context(std::move(context)),
-              _field_bindings(field_bindings) {
-        // Build lookup maps for quick access
-        for (const auto& binding : _field_bindings) {
-            if (binding.__isset.is_variant_subcolumn && binding.is_variant_subcolumn) {
-                _variant_subcolumn_fields.insert(binding.field_name);
-            }
-            _field_binding_map[binding.field_name] = &binding;
-        }
-    }
-
-    Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
-                   FieldReaderBinding* binding);
-
-    // Check if a field is a variant subcolumn
-    bool is_variant_subcolumn(const std::string& field_name) const {
-        return _variant_subcolumn_fields.count(field_name) > 0;
-    }
-
-    const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers() const {
-        return _readers;
-    }
-
-    const std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>>&
-    reader_bindings() const {
-        return _binding_readers;
-    }
-
-    const std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>&
-    field_readers() const {
-        return _field_readers;
-    }
-
-    const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
-        return _cache;
-    }
-
-    IndexIterator* get_iterator(const std::string& field_name) const {
-        auto it = _iterators.find(field_name);
-        return (it != _iterators.end()) ? it->second : nullptr;
-    }
-
-private:
-    std::string binding_key_for(const std::string& stored_field_name,
-                                InvertedIndexQueryType query_type) const {
-        return stored_field_name + "#" + std::to_string(static_cast<int>(query_type));
-    }
-
-    const std::unordered_map<std::string, IndexFieldNameAndTypePair>& _data_type_with_names;
-    const std::unordered_map<std::string, IndexIterator*>& _iterators;
-    std::shared_ptr<IndexQueryContext> _context;
-    std::vector<TSearchFieldBinding> _field_bindings;
-    std::unordered_map<std::string, const TSearchFieldBinding*> _field_binding_map;
-    std::unordered_set<std::string> _variant_subcolumn_fields;
-    std::unordered_map<std::string, FieldReaderBinding> _cache;
-    std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
-    std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> _binding_readers;
-    std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>> _field_readers;
-    // Keep searcher cache handles alive for the resolver's lifetime.
-    // This pins cached IndexSearcher entries so extracted IndexReaders remain valid.
-    std::vector<segment_v2::InvertedIndexCacheHandle> _searcher_cache_handles;
-};
 
 class FunctionSearch : public IFunction {
 public:
@@ -177,13 +93,6 @@ public:
             const std::unordered_map<std::string, int>& field_name_to_column_id,
             const std::shared_ptr<IndexQueryContext>& index_query_context = nullptr) const;
 
-    Status evaluate_nested_query(
-            const TSearchParam& search_param, const TSearchClause& nested_clause,
-            const std::shared_ptr<IndexQueryContext>& context, FieldReaderResolver& resolver,
-            uint32_t num_rows, const IndexExecContext* index_exec_ctx,
-            const std::unordered_map<std::string, int>& field_name_to_column_id,
-            std::shared_ptr<roaring::Roaring>& result_bitmap) const;
-
     // Public methods for testing
     enum class ClauseTypeCategory {
         NON_TOKENIZED, // TERM, PREFIX, WILDCARD, REGEXP, RANGE, LIST - no tokenization, use EQUAL_QUERY
@@ -204,14 +113,14 @@ public:
                                  const std::shared_ptr<IndexQueryContext>& context,
                                  FieldReaderResolver& resolver,
                                  inverted_index::query_v2::QueryPtr* out, std::string* binding_key,
-                                 const std::string& default_operator,
-                                 int32_t minimum_should_match) const;
+                                 const std::string& default_operator, int32_t minimum_should_match,
+                                 uint32_t num_rows = 0) const;
 
     Status build_leaf_query(const TSearchClause& clause,
                             const std::shared_ptr<IndexQueryContext>& context,
                             FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
                             std::string* binding_key, const std::string& default_operator,
-                            int32_t minimum_should_match) const;
+                            int32_t minimum_should_match, uint32_t num_rows = 0) const;
 };
 
 } // namespace doris

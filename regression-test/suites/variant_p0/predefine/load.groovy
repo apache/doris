@@ -272,7 +272,6 @@ suite("regression_test_variant_predefine_schema", "p0"){
     "store_row_column" = "true",
     "row_store_page_size" = "16384",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
     "group_commit_data_bytes" = "134217728"
     );

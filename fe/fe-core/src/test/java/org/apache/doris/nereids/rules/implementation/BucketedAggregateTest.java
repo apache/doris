@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -123,6 +124,7 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = true;
         ctx.getSessionVariable().setBeNumberForTest(1);
+        ctx.getSessionVariable().parallelPipelineTaskNum = 2;
         ctx.getSessionVariable().bucketedAggMinInputRows = 0;
         ctx.getSessionVariable().bucketedAggMaxGroupKeys = 0;
         ctx.getSessionVariable().bucketedAggHighCardThreshold = 1.0;
@@ -131,6 +133,26 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
                 .deriveStats()
                 .applyImplementation(splitAggWithoutDistinctRule())
                 .matches(physicalBucketedHashAggregate());
+    }
+
+    @Test
+    public void testSingleExecutionInstanceOnlyGeneratesOnePhaseAgg() {
+        Plan root = buildAggregateWithGroupBy();
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.getSessionVariable().enableBucketedHashAgg = true;
+        ctx.getSessionVariable().setBeNumberForTest(1);
+        ctx.getSessionVariable().parallelPipelineTaskNum = 1;
+        ctx.getSessionVariable().bucketedAggMinInputRows = 0;
+        ctx.getSessionVariable().bucketedAggMaxGroupKeys = 0;
+        ctx.getSessionVariable().bucketedAggHighCardThreshold = 1.0;
+
+        PlanChecker.from(ctx, root)
+                .deriveStats()
+                .applyImplementation(splitAggWithoutDistinctRule())
+                .matches(physicalHashAggregate()
+                        .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL)))
+                .nonMatch(physicalHashAggregate(physicalHashAggregate()))
+                .nonMatch(physicalBucketedHashAggregate());
     }
 
     @Test

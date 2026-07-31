@@ -78,9 +78,10 @@ public class QueryProfileController extends BaseController {
     }
 
     private void addFinishedQueryInfo(Map<String, Object> result) {
-        List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
         List<String> columnHeaders = Lists.newLinkedList();
         columnHeaders.addAll(SummaryProfile.SUMMARY_CAPTIONS);
+        columnHeaders.add(SummaryProfile.PROFILE_COMPLETION_STATE);
+        List<List<String>> finishedQueries = ProfileManager.getInstance().getQueryInfoByColumnNameList(columnHeaders);
 
         result.put("column_names", columnHeaders);
         // The first column is profile id, which is also a href column

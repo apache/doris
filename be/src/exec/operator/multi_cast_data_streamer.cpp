@@ -30,7 +30,6 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/multi_cast_data_stream_source.h"
-#include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
@@ -121,9 +120,8 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
             };
 
             l.unlock();
-            // spill is synchronous; the profile passed to the runnable was only
-            // used for counters that are now tracked externally, so call helper
-            return run_spill_task(state, catch_exception_func);
+            RETURN_IF_CANCELLED(state);
+            return catch_exception_func();
         }
 
         auto& pos_to_pull = _sender_pos_to_read[sender_idx];
@@ -151,16 +149,10 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
         }
     }
 
-    return _copy_block(state, sender_idx, block, *multi_cast_block);
+    return _finish_pull(state, *multi_cast_block);
 }
 
-Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
-                                          MultiCastBlock& multi_cast_block) {
-    const auto rows = block->rows();
-    for (int i = 0; i < block->columns(); ++i) {
-        block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
-    }
-
+Status MultiCastDataStreamer::_finish_pull(RuntimeState* state, MultiCastBlock& multi_cast_block) {
     LockGuard l(_mutex);
     multi_cast_block._un_finish_copy--;
     auto copying_count = _copying_count.fetch_sub(1) - 1;
@@ -285,7 +277,8 @@ Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillFileSP
         return status;
     };
 
-    return run_spill_task(state, exception_catch_func);
+    RETURN_IF_CANCELLED(state);
+    return exception_catch_func();
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::Block* block, bool eos) {

@@ -118,9 +118,10 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
-        ColumnNullable& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
-        ResultCol* dst_column =
-                assert_cast<ResultCol*>(&(dst_column_with_nullable.get_nested_column()));
+        ColumnNullable& dst_column_with_nullable =
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
+        ResultCol* dst_column = assert_cast<ResultCol*, TypeCheckOnRelease::DISABLE>(
+                &(dst_column_with_nullable.get_nested_column()));
 
         switch (kind) {
         case STATISTICS_FUNCTION_KIND::SKEW_POP: {

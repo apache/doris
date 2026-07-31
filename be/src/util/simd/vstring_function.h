@@ -27,6 +27,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "core/string_ref.h"
 #include "util/simd/lower_upper_impl.h"
@@ -343,6 +344,21 @@ public:
             ++char_len;
         }
         return char_len;
+    }
+
+    static inline void get_utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
+        offsets.clear();
+        offsets.reserve(ref.size);
+        get_char_len(ref.data, ref.size, offsets);
+    }
+
+    static inline bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
+                                       const StringRef& right, size_t right_off,
+                                       size_t right_next) {
+        const size_t left_len = left_next - left_off;
+        const size_t right_len = right_next - right_off;
+        return left_len == right_len &&
+               std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
     }
 
     // utf8-encoding:

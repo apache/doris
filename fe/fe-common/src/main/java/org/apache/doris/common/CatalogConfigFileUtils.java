@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.io.File;
 import java.util.function.BiConsumer;
@@ -29,14 +28,13 @@ import java.util.function.Supplier;
 public class CatalogConfigFileUtils {
 
     /**
-     * Generic method to load configuration files (e.g., Hadoop or Hive) from a directory.
+     * Generic method to load Hadoop-style configuration files from a directory.
      *
      * @param resourcesPath     Comma-separated list of resource file names to be loaded.
      * @param configDir         Directory prefix where the configuration files reside.
-     * @param configSupplier    Supplier that creates a new configuration object
-     *                          (e.g., new Configuration or new HiveConf).
+     * @param configSupplier    Supplier that creates a new configuration object.
      * @param addResourceMethod Method to add a resource file to the configuration object.
-     * @param <T>               Type of the configuration (e.g., Configuration or HiveConf).
+     * @param <T>               Type of the configuration.
      * @return A configuration object loaded with the given resource files.
      * @throws IllegalArgumentException if the resourcesPath is empty or if any file does not exist.
      */
@@ -82,22 +80,6 @@ public class CatalogConfigFileUtils {
                 Config.hadoop_config_dir,
                 Configuration::new,
                 Configuration::addResource
-        );
-    }
-
-    /**
-     * Loads a HiveConf object from a list of files under the specified config directory.
-     *
-     * @param resourcesPath Comma-separated list of file names to be loaded.
-     * @return A HiveConf object.
-     * @throws IllegalArgumentException if the input is invalid or files are missing.
-     */
-    public static HiveConf loadHiveConfFromHiveConfDir(String resourcesPath) {
-        return loadConfigFromDir(
-                resourcesPath,
-                Config.hadoop_config_dir,
-                HiveConf::new,
-                HiveConf::addResource
         );
     }
 }

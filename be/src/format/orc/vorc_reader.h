@@ -53,6 +53,7 @@
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
+#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -197,6 +198,10 @@ public:
         _position_delete_ordered_rowids = delete_rows;
     }
 
+    void set_deletion_vector(const roaring::Roaring64Map* deletion_vector) {
+        _deletion_vector = deletion_vector;
+    }
+
     void set_delete_rows(const AcidRowIDSet* delete_rows) { _delete_rows = delete_rows; }
 
     Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
@@ -260,6 +265,7 @@ public:
     bool has_delete_operations() const override {
         return (_position_delete_ordered_rowids != nullptr &&
                 !_position_delete_ordered_rowids->empty()) ||
+               (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) ||
                (_delete_rows != nullptr && !_delete_rows->empty());
     }
 
@@ -671,6 +677,7 @@ private:
                                      const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
+    void _block_dict_filter_for_slots(const VExprSPtr& expr);
     bool _can_filter_by_dict(int slot_id);
 
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -819,7 +826,7 @@ private:
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
-    bool _disable_dict_filter = false;
+    std::unordered_set<int> _dict_filter_blocked_slot_ids;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::unique_ptr<ObjectPool> _obj_pool;
@@ -831,6 +838,7 @@ private:
 
     //support iceberg position delete .
     const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    const roaring::Roaring64Map* _deletion_vector = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
@@ -904,9 +912,10 @@ public:
             : _file_name(file_name),
               _inner_reader(inner_reader),
               _file_reader(inner_reader),
-              _tracing_file_reader(io_ctx ? std::make_shared<io::TracingFileReader>(
-                                                    _file_reader, io_ctx->file_reader_stats)
-                                          : _file_reader),
+              _tracing_file_reader(io_ctx && io_ctx->file_reader_stats
+                                           ? std::make_shared<io::TracingFileReader>(
+                                                     _file_reader, io_ctx->file_reader_stats)
+                                           : _file_reader),
               _orc_once_max_read_bytes(orc_once_max_read_bytes),
               _orc_max_merge_distance_bytes(orc_max_merge_distance_bytes),
               _io_ctx(io_ctx),

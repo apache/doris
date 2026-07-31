@@ -22,6 +22,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
 #include <cassert>
 #include <memory>
 #include <ostream>
@@ -40,6 +41,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -66,6 +68,7 @@
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/historical_row_retriever.h"
 #include "storage/segment/page_io.h"
@@ -83,7 +86,6 @@
 namespace doris::segment_v2 {
 
 using namespace ErrorCode;
-using namespace KeyConsts;
 
 static constexpr const char* k_segment_magic = "D0R1";
 static constexpr uint32_t k_segment_magic_length = 4;
@@ -114,45 +116,11 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
           _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
+          _key_encoder(*_tablet_schema, _is_mow()),
           _mow_context(std::move(opts.mow_ctx)),
           _block_aggregator(*this) {
     CHECK_NOTNULL(file_writer);
-    _num_sort_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
-    if (!_is_mow_with_cluster_key()) {
-        DCHECK(_num_sort_key_columns >= _num_short_key_columns)
-                << ", table_id=" << _tablet_schema->table_id()
-                << ", num_key_columns=" << _num_sort_key_columns
-                << ", num_short_key_columns=" << _num_short_key_columns
-                << ", cluster_key_columns=" << _tablet_schema->cluster_key_uids().size();
-    }
-    for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
-        const auto& column = _tablet_schema->column(cid);
-        _key_coders.push_back(get_key_coder(column.type()));
-        _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
-    }
-    // encode the sequence id into the primary key index
-    if (_is_mow()) {
-        if (_tablet_schema->has_sequence_col()) {
-            const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
-            _seq_coder = get_key_coder(column.type());
-        }
-        // encode the rowid into the primary key index
-        if (_is_mow_with_cluster_key()) {
-            _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
-            // primary keys
-            _primary_key_coders.swap(_key_coders);
-            // cluster keys
-            _key_coders.clear();
-            _key_index_size.clear();
-            _num_sort_key_columns = _tablet_schema->cluster_key_uids().size();
-            for (auto cid : _tablet_schema->cluster_key_uids()) {
-                const auto& column = _tablet_schema->column_by_uid(cid);
-                _key_coders.push_back(get_key_coder(column.type()));
-                _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
-            }
-        }
-    }
 }
 
 VerticalSegmentWriter::~VerticalSegmentWriter() {
@@ -160,11 +128,12 @@ VerticalSegmentWriter::~VerticalSegmentWriter() {
 }
 
 void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
-                                              const TabletColumn& column) {
+                                              const TabletColumn& column,
+                                              const ColumnWriterOptions& opts) {
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
     meta->set_length(cast_set<int32_t>(column.length()));
-    meta->set_encoding(DEFAULT_ENCODING);
+    meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     meta->set_default_value(column.default_value());
@@ -176,7 +145,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
+        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i), opts);
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
@@ -191,8 +160,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
                                                     const TabletSchemaSPtr& tablet_schema) {
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
+    opts.storage_format = tablet_schema->storage_format();
 
-    _init_column_meta(opts.meta, cid, column);
+    _init_column_meta(opts.meta, cid, column, opts);
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
@@ -298,16 +268,11 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         }
     })
     if (column.is_row_store_column()) {
-        // smaller page size for row store column
+        // smaller page size for row store column; encoding is already set to PLAIN /
+        // PLAIN_V2 by _init_column_meta via resolve_default_encoding().
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
-        // Row store data is already serialized as a single blob. Keep it on plain pages
-        // to avoid introducing dictionary pages for the hidden row store column.
-        opts.meta->set_encoding(_tablet_schema->binary_plain_encoding_default_impl() ==
-                                                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                                        ? PLAIN_ENCODING_V2
-                                        : PLAIN_ENCODING);
     }
 
     opts.rowset_ctx = _opts.rowset_ctx;
@@ -316,10 +281,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
 
-    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
-                                        _tablet_schema->integer_type_default_use_plain_encoding(),
-                                .binary_plain_encoding_default_impl =
-                                        _tablet_schema->binary_plain_encoding_default_impl()};
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -370,31 +331,43 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(Block& block) {
-    if (block.rows() == 0) {
-        return;
+Status VerticalSegmentWriter::_append_row_store_column(const Block& block, size_t row_pos,
+                                                       size_t num_rows, uint32_t cid) {
+    DCHECK(_tablet_schema->column(cid).is_row_store_column());
+    if (num_rows == 0) {
+        return Status::OK();
     }
-    MonotonicStopWatch watch;
-    watch.start();
-    int row_column_id = 0;
-    for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
-        if (_tablet_schema->column(i).is_row_store_column()) {
-            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
-            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
-            DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
-            std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
-                                                       _tablet_schema->row_columns_uids().end());
-            JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                               cast_set<int>(_tablet_schema->num_columns()), serdes,
-                                               row_store_cids_set);
-            block.replace_by_position(i, std::move(row_store_column_ptr));
-            break;
-        }
-    }
+    DCHECK_LE(row_pos + num_rows, block.rows());
 
-    VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
-               << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
-               << watch.elapsed_time() / 1000;
+    auto serdes = create_data_type_serdes(block.get_data_types());
+    std::unordered_set<int32_t> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
+                                                   _tablet_schema->row_columns_uids().end());
+    size_t end_pos = row_pos + num_rows;
+    size_t batch_rows = _opts.num_rows_per_block;
+    static constexpr size_t kRowStoreBatchBytes = 4 * 1024 * 1024;
+    DCHECK_GT(batch_rows, 0);
+    for (size_t pos = row_pos; pos < end_pos;) {
+        size_t max_rows = std::min(batch_rows, end_pos - pos);
+        auto row_column = ColumnString::create();
+        auto* row_store_column = row_column.get();
+        size_t rows = JsonbSerializeUtil::block_to_jsonb(
+                *_tablet_schema, block, *row_store_column,
+                cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set, pos,
+                max_rows, kRowStoreBatchBytes);
+        DCHECK_GT(rows, 0);
+
+        auto typed_column = block.get_by_position(cid);
+        typed_column.column = std::move(row_column);
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                typed_column, 0, rows, cid));
+        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(
+                _column_writers[cid]->append(column->get_nullmap(), column->get_data(), rows));
+        _olap_data_convertor->clear_source_content(cid);
+        pos += rows;
+    }
+    return Status::OK();
 }
 
 Status VerticalSegmentWriter::_probe_key_for_mow(
@@ -458,6 +431,15 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
         _mow_context->delete_bitmap->add(
                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         ++stats.num_rows_updated;
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_check_column_writer_disk_capacity(size_t cid) {
+    if (_data_dir != nullptr &&
+        _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
+                                                        _data_dir->path_hash());
     }
     return Status::OK();
 }
@@ -561,7 +543,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         if (!status.ok()) {
             return status;
         }
-        if (cid < _num_sort_key_columns) {
+        if (cid < _key_encoder.num_sort_key_columns()) {
             key_columns.push_back(column);
         } else if (_tablet_schema->has_sequence_col() &&
                    cid == _tablet_schema->sequence_col_idx()) {
@@ -572,9 +554,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                                      data.num_rows));
         RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
         // Don't clear source content for key columns and sequence column here,
-        // as they will be used later in _full_encode_keys() and _generate_primary_key_index().
+        // as they will be used later for key encoding and _generate_primary_key_index().
         // They will be cleared at the end of this method.
-        bool is_key_column = (cid < _num_sort_key_columns);
+        bool is_key_column = (cid < _key_encoder.num_sort_key_columns());
         bool is_seq_column = (_tablet_schema->has_sequence_col() &&
                               cid == _tablet_schema->sequence_col_idx() && have_input_seq_column);
         if (!is_key_column && !is_seq_column) {
@@ -607,10 +589,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         // here row_pos = 2, num_rows = 4.
         size_t delta_pos = block_pos - data.row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
-        std::string key = _full_encode_keys(key_columns, delta_pos);
+        std::string key = _key_encoder.full_encode(key_columns, delta_pos);
         _maybe_invalid_row_cache(key);
         if (have_input_seq_column) {
-            _encode_seq_column(seq_column, delta_pos, &key);
+            _key_encoder.append_seq_suffix(&key, seq_column, delta_pos);
         }
         // If the table have sequence column, and the include-cids don't contain the sequence
         // column, we need to update the primary key index builder at the end of this method.
@@ -625,8 +607,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         auto not_found_cb = [&]() {
             return _opts.rowset_ctx->partial_update_info->handle_new_key(
                     *_tablet_schema, [&]() -> std::string {
-                        return data.block->dump_one_line(block_pos,
-                                                         cast_set<int>(_num_sort_key_columns));
+                        return data.block->dump_one_line(
+                                block_pos, cast_set<int>(_key_encoder.num_sort_key_columns()));
                     });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
@@ -655,14 +637,15 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                 full_block, *_tablet_schema, _opts.rowset_ctx->partial_update_info->missing_cids));
     }
 
-    // row column should be filled here
-    // convert block to row store format
-    _serialize_block_to_row_column(full_block);
-
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     for (auto cid : missing_cids) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+        if (_tablet_schema->column(cid).is_row_store_column()) {
+            RETURN_IF_ERROR(_append_row_store_column(full_block, data.row_pos, data.num_rows, cid));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+            continue;
+        }
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -699,8 +682,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     "index builder num rows: {}",
                     _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
         }
-        RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
-                                                    data.num_rows, false));
+        RETURN_IF_ERROR(_generate_primary_key_index(key_columns, seq_column, data.num_rows, false));
     }
 
     _num_rows_written += data.num_rows;
@@ -819,7 +801,16 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     // this column is not needed in read path for merge-on-write table
 
     // 7. fill row store column
-    _serialize_block_to_row_column(full_block);
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
+        if (!_tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
+        RETURN_IF_ERROR(_create_column_writer(cast_set<uint32_t>(cid), _tablet_schema->column(cid),
+                                              _tablet_schema));
+        RETURN_IF_ERROR(_append_row_store_column(full_block, data.row_pos, data.num_rows,
+                                                 cast_set<uint32_t>(cid)));
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+    }
 
     std::vector<uint32_t> column_ids;
     for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
@@ -833,6 +824,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
 
     // 8. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
+        if (_tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
         if (cid != _tablet_schema->sequence_col_idx()) {
             RETURN_IF_ERROR(_create_column_writer(cast_set<uint32_t>(cid),
                                                   _tablet_schema->column(cid), _tablet_schema));
@@ -869,8 +863,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     }
 
     // 9. build primary key index
-    RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column, data.num_rows,
-                                                false));
+    RETURN_IF_ERROR(_generate_primary_key_index(key_columns, seq_column, data.num_rows, false));
 
     _num_rows_written += data.num_rows;
     DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
@@ -905,7 +898,7 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         return status;
     }
     // include marker
-    _encode_seq_column(column, 0, encoded_value);
+    _key_encoder.append_seq_suffix(encoded_value, column, 0);
     return Status::OK();
 }
 
@@ -930,12 +923,12 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         size_t segment_pos = segment_start_pos + delta_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
 
-        std::string key = _full_encode_keys(key_columns, delta_pos);
+        std::string key = _key_encoder.full_encode(key_columns, delta_pos);
         _maybe_invalid_row_cache(key);
         bool row_has_sequence_col =
                 (schema_has_sequence_col && !skip_bitmap.contains(seq_col_unique_id));
         if (row_has_sequence_col) {
-            _encode_seq_column(seq_column, delta_pos, &key);
+            _key_encoder.append_seq_suffix(&key, seq_column, delta_pos);
         }
 
         // mark key with delete sign as deleted.
@@ -946,8 +939,8 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
             return _opts.rowset_ctx->partial_update_info->handle_new_key(
                     *_tablet_schema,
                     [&]() -> std::string {
-                        return data.block->dump_one_line(block_pos,
-                                                         cast_set<int>(_num_sort_key_columns));
+                        return data.block->dump_one_line(
+                                block_pos, cast_set<int>(_key_encoder.num_sort_key_columns()));
                     },
                     &skip_bitmap);
         };
@@ -1013,11 +1006,21 @@ Status VerticalSegmentWriter::write_batch() {
     }
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        for (auto& data : _batched_blocks) {
-            // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*const_cast<Block*>(data.block));
+    bool should_write_row_store_column = _opts.write_type == DataWriteType::TYPE_DIRECT ||
+                                         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE;
+    if (should_write_row_store_column) {
+        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+            if (!_tablet_schema->column(cid).is_row_store_column()) {
+                continue;
+            }
+            RETURN_IF_ERROR(
+                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+            for (auto& data : _batched_blocks) {
+                RETURN_IF_ERROR(
+                        _append_row_store_column(*data.block, data.row_pos, data.num_rows, cid));
+            }
+            RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
         }
     }
 
@@ -1038,6 +1041,9 @@ Status VerticalSegmentWriter::write_batch() {
     // the key is cluster key column unique id
     std::map<uint32_t, IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+        if (should_write_row_store_column && _tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
@@ -1065,11 +1071,7 @@ Status VerticalSegmentWriter::write_batch() {
                                                          data.num_rows));
             _olap_data_convertor->clear_source_content();
         }
-        if (_data_dir != nullptr &&
-            _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
-            return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
-                                                            _data_dir->path_hash());
-        }
+        RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
         RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 
@@ -1102,8 +1104,7 @@ Status VerticalSegmentWriter::_generate_key_index(
     }
     if (_is_mow_with_cluster_key()) {
         // 1. generate primary key index
-        RETURN_IF_ERROR(_generate_primary_key_index(_primary_key_coders, key_columns, seq_column,
-                                                    data.num_rows, true));
+        RETURN_IF_ERROR(_generate_primary_key_index(key_columns, seq_column, data.num_rows, true));
         // 2. generate short key index (use cluster key)
         std::vector<IOlapColumnDataAccessor*> short_key_columns;
         for (const auto& cid : _tablet_schema->cluster_key_uids()) {
@@ -1111,8 +1112,7 @@ Status VerticalSegmentWriter::_generate_key_index(
         }
         RETURN_IF_ERROR(_generate_short_key_index(short_key_columns, data.num_rows, short_key_pos));
     } else if (_is_mow()) {
-        RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
-                                                    data.num_rows, false));
+        RETURN_IF_ERROR(_generate_primary_key_index(key_columns, seq_column, data.num_rows, false));
     } else { // other tables
         RETURN_IF_ERROR(_generate_short_key_index(key_columns, data.num_rows, short_key_pos));
     }
@@ -1120,17 +1120,15 @@ Status VerticalSegmentWriter::_generate_key_index(
 }
 
 Status VerticalSegmentWriter::_generate_primary_key_index(
-        const std::vector<const KeyCoder*>& primary_key_coders,
         const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
         IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort) {
     if (!need_sort) { // mow table without cluster key
         std::string last_key;
         for (size_t pos = 0; pos < num_rows; pos++) {
-            // use _key_coders
-            std::string key = _full_encode_keys(primary_key_columns, pos);
+            std::string key = _key_encoder.full_encode(primary_key_columns, pos);
             _maybe_invalid_row_cache(key);
             if (_tablet_schema->has_sequence_col()) {
-                _encode_seq_column(seq_column, pos, &key);
+                _key_encoder.append_seq_suffix(&key, seq_column, pos);
             }
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
@@ -1142,12 +1140,12 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
         // 1. generate primary keys in memory
         std::vector<std::string> primary_keys;
         for (uint32_t pos = 0; pos < num_rows; pos++) {
-            std::string key = _full_encode_keys(primary_key_coders, primary_key_columns, pos);
+            std::string key = _key_encoder.full_encode_primary_keys(primary_key_columns, pos);
             _maybe_invalid_row_cache(key);
             if (_tablet_schema->has_sequence_col()) {
-                _encode_seq_column(seq_column, pos, &key);
+                _key_encoder.append_seq_suffix(&key, seq_column, pos);
             }
-            _encode_rowid(pos, &key);
+            _key_encoder.append_rowid_suffix(&key, pos);
             primary_keys.emplace_back(std::move(key));
         }
         // 2. sort primary keys
@@ -1168,9 +1166,8 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
 Status VerticalSegmentWriter::_generate_short_key_index(
         std::vector<IOlapColumnDataAccessor*>& key_columns, size_t num_rows,
         const std::vector<size_t>& short_key_pos) {
-    // use _key_coders
-    _set_min_key(_full_encode_keys(key_columns, 0));
-    _set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+    _set_min_key(_key_encoder.full_encode(key_columns, 0));
+    _set_max_key(_key_encoder.full_encode(key_columns, num_rows - 1));
     DCHECK(Slice(_max_key.data(), _max_key.size())
                    .compare(Slice(_min_key.data(), _min_key.size())) >= 0)
             << "key is not sorted! min key: " << _min_key << ", max key: " << _max_key;
@@ -1178,89 +1175,13 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     key_columns.resize(_num_short_key_columns);
     std::string last_key;
     for (const auto pos : short_key_pos) {
-        std::string key = _encode_keys(key_columns, pos);
+        std::string key = _key_encoder.encode_short_keys(key_columns, pos);
         DCHECK(key.compare(last_key) >= 0)
                 << "key is not sorted! current key: " << key << ", last key: " << last_key;
         RETURN_IF_ERROR(_short_key_index_builder->add_item(key));
         last_key = std::move(key);
     }
     return Status::OK();
-}
-
-void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
-    encoded_keys->push_back(KEY_NORMAL_MARKER);
-    _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
-}
-
-std::string VerticalSegmentWriter::_full_encode_keys(
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
-    assert(_key_index_size.size() == _num_sort_key_columns);
-    if (!(key_columns.size() == _num_sort_key_columns &&
-          _key_coders.size() == _num_sort_key_columns)) {
-        LOG_INFO("key_columns.size()={}, _key_coders.size()={}, _num_sort_key_columns={}, ",
-                 key_columns.size(), _key_coders.size(), _num_sort_key_columns);
-    }
-    assert(key_columns.size() == _num_sort_key_columns &&
-           _key_coders.size() == _num_sort_key_columns);
-    return _full_encode_keys(_key_coders, key_columns, pos);
-}
-
-std::string VerticalSegmentWriter::_full_encode_keys(
-        const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
-    assert(key_columns.size() == key_coders.size());
-
-    std::string encoded_keys;
-    size_t cid = 0;
-    for (const auto& column : key_columns) {
-        auto field = column->get_data_at(pos);
-        if (UNLIKELY(!field)) {
-            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            ++cid;
-            continue;
-        }
-        encoded_keys.push_back(KEY_NORMAL_MARKER);
-        DCHECK(key_coders[cid] != nullptr);
-        key_coders[cid]->full_encode_ascending(field, &encoded_keys);
-        ++cid;
-    }
-    return encoded_keys;
-}
-
-void VerticalSegmentWriter::_encode_seq_column(const IOlapColumnDataAccessor* seq_column,
-                                               size_t pos, std::string* encoded_keys) {
-    const auto* field = seq_column->get_data_at(pos);
-    // To facilitate the use of the primary key index, encode the seq column
-    // to the minimum value of the corresponding length when the seq column
-    // is null
-    if (UNLIKELY(!field)) {
-        encoded_keys->push_back(KEY_NULL_FIRST_MARKER);
-        size_t seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length();
-        encoded_keys->append(seq_col_length, KEY_MINIMAL_MARKER);
-        return;
-    }
-    encoded_keys->push_back(KEY_NORMAL_MARKER);
-    _seq_coder->full_encode_ascending(field, encoded_keys);
-}
-
-std::string VerticalSegmentWriter::_encode_keys(
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
-    assert(key_columns.size() == _num_short_key_columns);
-
-    std::string encoded_keys;
-    size_t cid = 0;
-    for (const auto& column : key_columns) {
-        auto field = column->get_data_at(pos);
-        if (UNLIKELY(!field)) {
-            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            ++cid;
-            continue;
-        }
-        encoded_keys.push_back(KEY_NORMAL_MARKER);
-        _key_coders[cid]->encode_ascending(field, _key_index_size[cid], &encoded_keys);
-        ++cid;
-    }
-    return encoded_keys;
 }
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
@@ -1283,6 +1204,9 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
+    // Record the common index range for cloud index-only file-cache preload.
+    // This VerticalSegmentWriter path is used when cloud load, compaction, or schema change flushes
+    // a whole block through SegmentCreator with enable_vertical_segment_writer enabled.
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_inverted_index());
@@ -1304,6 +1228,8 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
         RETURN_IF_ERROR(_write_short_key_index());
         *index_size = _file_writer->bytes_appended() - index_start;
     }
+    uint64_t file_index_end = _file_writer->bytes_appended();
+    _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
 
     // reset all column writers and data_conveter
     clear();
@@ -1311,18 +1237,28 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size) {
+Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size,
+                                              SegmentIndexFileCacheInfo* index_file_cache_info) {
+    uint64_t footer_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
+    // The closed size completes the preload range recorded above. SegmentIndexFileCacheLoader
+    // later decides whether this is a remote cloud rowset that should actually be preloaded.
+    _index_file_cache_info.segment_file_size = *segment_file_size;
+    _index_file_cache_info.add_index_range(footer_start, *segment_file_size - footer_start);
+    if (index_file_cache_info != nullptr) {
+        *index_file_cache_info = _index_file_cache_info;
+    }
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                                       SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
@@ -1336,7 +1272,7 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer(segment_file_size, index_file_cache_info));
 
     if (timer.elapsed_time() > 5000000000L) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
@@ -1410,7 +1346,7 @@ Status VerticalSegmentWriter::_write_footer() {
 
     // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
 
-    if (_tablet_schema->is_external_segment_column_meta_used()) {
+    if (_tablet_schema->storage_format() == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3) {
         _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
         VLOG_DEBUG << "use external column meta";
         // External ColumnMetaPB writing (optional)
@@ -1475,14 +1411,6 @@ void VerticalSegmentWriter::_set_min_key(const Slice& key) {
 void VerticalSegmentWriter::_set_max_key(const Slice& key) {
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
-}
-
-inline bool VerticalSegmentWriter::_is_mow() {
-    return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
-}
-
-inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 
 } // namespace doris::segment_v2

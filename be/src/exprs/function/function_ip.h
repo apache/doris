@@ -231,11 +231,11 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        ColumnPtr column = block.get_by_position(arguments[0]).column;
+        ColumnPtr column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
-        if (column->is_nullable()) {
-            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+        if (const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get())) {
             column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
             null_map = &column_nullable->get_null_map_data();
@@ -526,12 +526,12 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        ColumnPtr column = block.get_by_position(arguments[0]).column;
+        ColumnPtr column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
 
-        if (column->is_nullable()) {
-            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+        if (const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get())) {
             column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
             null_map = &column_nullable->get_null_map_data();
@@ -1345,10 +1345,10 @@ public:
                 unpack_if_const(ipv6_column_with_type_and_name.column);
         const auto* ipv6_addr_column = assert_cast<const ColumnString*>(ipv6_column.get());
         // result is nullable column
-        auto col_res = ColumnNullable::create(ColumnIPv6::create(input_rows_count, 0),
-                                              ColumnUInt8::create(input_rows_count, 1));
-        auto& col_res_data = assert_cast<ColumnIPv6*>(&col_res->get_nested_column())->get_data();
-        auto& res_null_map_data = col_res->get_null_map_data();
+        auto col_res_nested = ColumnIPv6::create(input_rows_count, 0);
+        auto col_res_null_map = ColumnUInt8::create(input_rows_count, 1);
+        auto& col_res_data = col_res_nested->get_data();
+        auto& res_null_map_data = col_res_null_map->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             IPv6 ipv6 = 0;
@@ -1364,7 +1364,8 @@ public:
             }
         }
 
-        block.replace_by_position(result, std::move(col_res));
+        block.replace_by_position(result, ColumnNullable::create(std::move(col_res_nested),
+                                                                 std::move(col_res_null_map)));
         return Status::OK();
     }
 };

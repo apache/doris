@@ -84,6 +84,7 @@ public:
 
             agg_columns.push_back(column.get());
         }
+        _agg_function->check_input_columns_type(agg_columns.data());
         _agg_function->streaming_agg_serialize_to_column(agg_columns.data(), col, input_rows_count,
                                                          context->get_arena());
         block.replace_by_position(result, std::move(col));

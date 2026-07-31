@@ -24,6 +24,10 @@ import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.FloatType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -31,6 +35,59 @@ import java.util.List;
  * Executable functions for array operations.
  */
 public class ArrayArithmetic {
+
+    /**
+     * Compute the cross product between two 3D float arrays.
+     */
+    @ExecFunction(name = "array_cross_product")
+    public static Expression arrayCrossProduct(ArrayLiteral array1, ArrayLiteral array2) {
+        return crossProduct("array_cross_product", array1, array2);
+    }
+
+    /**
+     * Alias for array_cross_product.
+     */
+    @ExecFunction(name = "cross_product")
+    public static Expression crossProduct(ArrayLiteral array1, ArrayLiteral array2) {
+        return crossProduct("cross_product", array1, array2);
+    }
+
+    private static Expression crossProduct(String functionName, ArrayLiteral array1, ArrayLiteral array2) {
+        List<Literal> items1 = array1.getValue();
+        List<Literal> items2 = array2.getValue();
+        if (items1.size() != 3 || items2.size() != 3) {
+            throw new AnalysisException("function " + functionName
+                    + " requires both input arrays to have exactly 3 elements, got "
+                    + items1.size() + " and " + items2.size());
+        }
+        validateNoNull(functionName, items1);
+        validateNoNull(functionName, items2);
+
+        float x0 = floatValue(items1.get(0));
+        float x1 = floatValue(items1.get(1));
+        float x2 = floatValue(items1.get(2));
+        float y0 = floatValue(items2.get(0));
+        float y1 = floatValue(items2.get(1));
+        float y2 = floatValue(items2.get(2));
+
+        return new ArrayLiteral(ImmutableList.of(
+                new FloatLiteral(x1 * y2 - x2 * y1),
+                new FloatLiteral(x2 * y0 - x0 * y2),
+                new FloatLiteral(x0 * y1 - x1 * y0)),
+                ArrayType.of(FloatType.INSTANCE));
+    }
+
+    private static void validateNoNull(String functionName, List<Literal> items) {
+        for (Literal item : items) {
+            if (item instanceof NullLiteral) {
+                throw new AnalysisException("function " + functionName + " cannot have null");
+            }
+        }
+    }
+
+    private static float floatValue(Literal literal) {
+        return ((Number) literal.getValue()).floatValue();
+    }
 
     /**
      * Compute cosine similarity between two float arrays.

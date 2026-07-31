@@ -73,22 +73,15 @@ bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
 bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 }; // namespace s3_bvar
 
-bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
-bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
-bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
-bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
-
 AccessorRateLimiter::AccessorRateLimiter()
-        : _rate_limiters(
-                  {std::make_unique<S3RateLimiterHolder>(
-                           config::s3_get_token_per_second, config::s3_get_bucket_tokens,
-                           config::s3_get_token_limit,
-                           metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
-                   std::make_unique<S3RateLimiterHolder>(
-                           config::s3_put_token_per_second, config::s3_put_bucket_tokens,
-                           config::s3_put_token_limit,
-                           metric_func_factory(put_rate_limit_ns,
-                                               put_rate_limit_exceed_req_num))}) {}
+        : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                                  config::s3_get_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::GET)),
+                          std::make_unique<S3RateLimiterHolder>(
+                                  config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                                  config::s3_put_token_limit,
+                                  s3_rate_limiter_metric_func(S3RateLimitType::PUT))}) {}
 
 S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
@@ -237,13 +230,14 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
             }
         }
 
+        if (obj_info.has_cred_provider_type()) {
+            s3_conf.cred_provider_type = cred_provider_type_from_pb(obj_info.cred_provider_type());
+        }
+
         if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
             s3_conf.role_arn = obj_info.role_arn();
             s3_conf.external_id = obj_info.external_id();
-            if (obj_info.has_cred_provider_type()) {
-                s3_conf.cred_provider_type =
-                        cred_provider_type_from_pb(obj_info.cred_provider_type());
-            } else {
+            if (!obj_info.has_cred_provider_type()) {
                 s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
             }
         }
@@ -393,7 +387,6 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
@@ -405,7 +398,7 @@ int S3Accessor::init() {
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
-        // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
+        // Therefore, the policy can record retries after the RetryPolicy has handled the response.
         options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
@@ -438,8 +431,9 @@ int S3Accessor::init() {
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
+        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry /*scaleFactor = 25*/);
+                config::max_s3_client_retry, /*retry_slow_down=*/false);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
@@ -448,6 +442,11 @@ int S3Accessor::init() {
         if (!_ca_cert_file_path.empty()) {
             aws_config.caFile = _ca_cert_file_path;
         }
+        // Mirror BE PR #49315: default ClientConfiguration leaves requestTimeoutMs=3000,
+        // which the vendored aws-sdk-cpp maps to CURLOPT_LOW_SPEED_TIME=3 and causes
+        // curl error 28 on slow/large S3 DeleteObjects (OVH cold vault).
+        aws_config.requestTimeoutMs = 30000;
+        aws_config.connectTimeoutMs = 5000;
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,

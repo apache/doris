@@ -62,6 +62,9 @@ public:
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&WorkThreadPool::work_thread), this, i));
         }
+        LOG(INFO) << fmt::format("{} '{}' initialized: num_threads={}, queue_size={}",
+                                 (Priority ? "PriorityThreadPool" : "WorkThreadPool"), _name,
+                                 num_threads, queue_size);
     }
 
     // Destructor ensures that all threads are terminated before this object is freed

@@ -169,6 +169,52 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
                                                           -1, -1, true));
 }
 
+TEST(FunctionJsonbTEST, JsonbParseConstNullableInputWithNonConstDefaultMultiRows) {
+    auto input_type = make_nullable(std::make_shared<DataTypeString>());
+    auto default_type = std::make_shared<DataTypeJsonb>();
+    auto return_type = make_nullable(std::make_shared<DataTypeJsonb>());
+    constexpr size_t rows = 1024;
+    const std::string json = R"({"a":1})";
+
+    // Before const-aware null map merging this used row indexes on the one-row const null map.
+    auto str_col = ColumnString::create();
+    str_col->insert_data(json.data(), json.size());
+    auto nullable_col = ColumnNullable::create(std::move(str_col), ColumnUInt8::create(1, false));
+
+    Block block;
+    block.insert({ColumnConst::create(std::move(nullable_col), rows), input_type, "json"});
+    block.insert({create_jsonb_column(rows), default_type, "default_value"});
+
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "json_parse_error_to_value", block.get_columns_with_type_and_name(), return_type);
+    DORIS_CHECK(func != nullptr);
+
+    FunctionUtils fn_utils(return_type, {input_type, default_type}, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+    block.insert({nullptr, return_type, "result"});
+    auto result = block.columns() - 1;
+    auto st = func->execute(fn_ctx, block, {0, 1}, result, rows);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto expected_col = return_type->create_column();
+    for (size_t i = 0; i < rows; ++i) {
+        ASSERT_TRUE(insert_cell(expected_col, return_type, STRING(R"({"a":1})")));
+    }
+
+    const auto result_col = block.get_by_position(result).column->convert_to_full_column_if_const();
+    ASSERT_EQ(result_col->size(), rows);
+    for (size_t i = 0; i < rows; ++i) {
+        EXPECT_FALSE(result_col->is_null_at(i));
+        EXPECT_EQ(0, result_col->compare_at(i, i, *expected_col, 1));
+    }
+
+    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+}
+
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
     std::string func_name = "json_parse_error_to_null";
     InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
@@ -984,6 +1030,30 @@ TEST(FunctionJsonbTEST, JsonContains) {
     auto result = block.columns() - 1;
     st = func->execute(fn_ctx, block, {0, 1, 2}, result, 1);
     ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
+}
+
+TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_JSONB};
+
+    {
+        DataSet data_set = {
+                {{STRING("{}"), STRING("$.a"), STRING("1")}, STRING(R"({"a":1})")},
+                {{STRING(R"({"a":{}})"), STRING("$.a.b"), STRING("2")}, STRING(R"({"a":{"b":2}})")},
+                {{STRING(R"({"a":[1]})"), STRING("$.a[1]"), STRING("2")}, STRING(R"({"a":[1,2]})")},
+        };
+        static_cast<void>(
+                check_function<DataTypeJsonb, true>("jsonb_insert", input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {
+                {{STRING("{}"), STRING("$.a"), STRING("1")}, STRING(R"({"a":1})")},
+                {{STRING(R"({"a":{}})"), STRING("$.a.b"), STRING("2")}, STRING(R"({"a":{"b":2}})")},
+                {{STRING(R"({"a":[1]})"), STRING("$.a[1]"), STRING("2")}, STRING(R"({"a":[1,2]})")},
+        };
+        static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, data_set));
+    }
 }
 
 } // namespace doris

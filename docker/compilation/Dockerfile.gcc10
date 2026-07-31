@@ -40,9 +40,9 @@ RUN wget -q ${NINJA_BASE_URL}/ninja-linux.zip -O /tmp/ninja-linux.zip && \
     unzip /tmp/ninja-linux.zip -d /usr/bin/ && \
     rm /tmp/ninja-linux.zip
 
-# install maven 3.6.3
-ARG MAVEN_VERSION=3.6.3
-ARG MAVEN_BASE_URL=https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries
+# install maven 3.9.9
+ARG MAVEN_VERSION=3.9.9
+ARG MAVEN_BASE_URL=https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
     wget -q -O /tmp/apache-maven.tar.gz ${MAVEN_BASE_URL}/apache-maven-${MAVEN_VERSION}-bin.tar.gz && \
     tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \

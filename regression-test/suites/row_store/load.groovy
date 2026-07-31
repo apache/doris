@@ -35,8 +35,7 @@ suite("test_row_store", "p0") {
         "storage_format" = "V2",
         "light_schema_change" = "true",
         "store_row_column" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
     """ 
     sql "insert into ${testTable} (tag,tag_value,user_ids) values ('10001','23',34.234),('10001','23',34.234);"
@@ -60,8 +59,7 @@ suite("test_row_store", "p0") {
         "storage_format" = "V2",
         "light_schema_change" = "true",
         "store_row_column" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false"
+        "disable_auto_compaction" = "false"
         );
     """
     sql "insert into ${testTable} (tag,tag_value,user_ids) values ('10001','23',34.234),('10001','23',34.234);"

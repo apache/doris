@@ -16,6 +16,7 @@
 // under the License.
 
 suite("sum0_cte") {
+    sql "set parallel_pipeline_task_num=2"
     sql 'use regression_test_nereids_function_p0'
     sql "set ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     qt_sum0_cte """with tmp as (select * from fn_test)

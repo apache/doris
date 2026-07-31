@@ -37,15 +37,22 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
 
     private ThriftServer thriftServer;
 
-    private static ThreadLocal<ThriftServerContext> connectionContext;
+    private static final ThreadLocal<ThriftServerContext> connectionContext = new ThreadLocal<>();
 
     public ThriftServerEventProcessor(ThriftServer thriftServer) {
         this.thriftServer = thriftServer;
-        connectionContext = new ThreadLocal<>();
     }
 
     public static ThriftServerContext getConnectionContext() {
         return connectionContext.get();
+    }
+
+    public static void setConnectionContext(ThriftServerContext thriftServerContext) {
+        connectionContext.set(thriftServerContext);
+    }
+
+    public static void clearConnectionContext() {
+        connectionContext.remove();
     }
 
     @Override
@@ -109,7 +116,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         Preconditions.checkState(serverContext instanceof ThriftServerContext);
         ThriftServerContext thriftServerContext = (ThriftServerContext) serverContext;
         TNetworkAddress clientAddress = thriftServerContext.getClient();
-        connectionContext.remove();
+        clearConnectionContext();
         thriftServer.removeConnect(clientAddress);
         if (LOG.isDebugEnabled()) {
             LOG.debug("delete thrift context. client: {}, server type: {}", clientAddress, thriftServer.getType());
@@ -124,6 +131,6 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
 
         ThriftServerContext thriftServerContext = (ThriftServerContext) serverContext;
         TNetworkAddress clientAddress = thriftServerContext.getClient();
-        connectionContext.set(new ThriftServerContext(clientAddress));
+        setConnectionContext(new ThriftServerContext(clientAddress));
     }
 }

@@ -638,6 +638,30 @@ TEST_F(CdcClientMgrTest, StartWithPreExistingResultStatus) {
     EXPECT_EQ(result.status().status_code(), 999);
 }
 
+// Verify _adopted_external defaults to false and start_cdc_client (BE_TEST
+// short-circuit) does not alter it.
+TEST_F(CdcClientMgrTest, AdoptedExternalDefaultFalse) {
+    CdcClientMgr mgr;
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+
+    PRequestCdcClientResult result;
+    Status status = mgr.start_cdc_client(&result);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+}
+
+// Verify the _adopted_external flag round-trips through the setter/getter.
+TEST_F(CdcClientMgrTest, AdoptedExternalSetterRoundTrip) {
+    CdcClientMgr mgr;
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+
+    mgr.set_adopted_external_for_test(true);
+    EXPECT_TRUE(mgr.get_adopted_external_for_test());
+
+    mgr.set_adopted_external_for_test(false);
+    EXPECT_FALSE(mgr.get_adopted_external_for_test());
+}
+
 // Test send_request_to_cdc_client with empty API
 TEST_F(CdcClientMgrTest, SendRequestEmptyApi) {
     CdcClientMgr mgr;

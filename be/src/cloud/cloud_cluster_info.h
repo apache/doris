@@ -85,12 +85,15 @@ public:
     // Check if this cluster should skip compaction for the given tablet
     // Returns true if should skip (i.e., another cluster should do the compaction)
     bool should_skip_compaction(CloudTablet* tablet) const;
+    const std::string& cloud_compute_group_id() const { return _cloud_compute_group_id; }
+    void set_cloud_compute_group_id(const std::string& id) { _cloud_compute_group_id = id; }
 
 private:
     void _bg_worker_func();
     void _refresh_cluster_status();
 
     bool _is_in_standby = false;
+    std::string _cloud_compute_group_id;
 
     mutable std::shared_mutex _mutex;
     std::string _my_cluster_id;

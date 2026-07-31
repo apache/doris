@@ -17,11 +17,17 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -44,6 +50,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Properties;
 import java.util.ServiceLoader;
 
@@ -63,6 +70,8 @@ public class AuthenticatorManager {
     static final String OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE =
             "Authentication failed because no configured authentication method succeeded due to service "
                     + "or configuration issues; check FE logs for details";
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
 
     private static volatile Authenticator defaultAuthenticator = null;
     private static volatile Authenticator authTypeAuthenticator = null;
@@ -163,6 +172,23 @@ public class AuthenticatorManager {
                                 MysqlHandshakePacket handshakePacket) throws IOException {
 
         String remoteIp = context.getMysqlChannel().getRemoteIp();
+        CertificateAuthDecision certDecision = CERT_RUNTIME_AUTH_SERVICE.authenticateLive(
+                userName, remoteIp, channel.getClientCertificate());
+        if (certDecision.isReject()) {
+            context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+                    certDecision.getErrorMessage() == null ? "TLS certificate verification failed"
+                            : certDecision.getErrorMessage());
+            MysqlProto.sendResponsePacket(context);
+            return false;
+        }
+        if (certDecision.shouldSkipPasswordVerification()) {
+            context.setCurrentUserIdentity(certDecision.getUserIdentity());
+            context.setRemoteIP(remoteIp);
+            context.setIsTempUser(false);
+            return true;
+        }
+        UserIdentity preferredUserIdentity = certDecision.isVerified() ? certDecision.getUserIdentity() : null;
+
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
         boolean debugEnabled = LOG.isDebugEnabled();
         long resolveStart = 0L;
@@ -178,6 +204,9 @@ public class AuthenticatorManager {
         }
 
         AuthenticateRequest request = primaryRequest.get();
+        if (preferredUserIdentity != null) {
+            request = request.withUserIdentity(preferredUserIdentity);
+        }
         if (debugEnabled) {
             long resolveElapsed = System.currentTimeMillis() - resolveStart;
             LOG.debug("resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
@@ -225,6 +254,7 @@ public class AuthenticatorManager {
         context.setIsTempUser(response.isTemp());
         context.setAuthenticatedPrincipal(response.getPrincipal());
         context.setAuthenticatedRoles(response.getAuthenticatedRoles());
+        context.setSessionContext(SessionContext.of(response.getDelegatedCredential()));
     }
 
     private Optional<AuthenticateRequest> resolveAuthenticateRequest(Authenticator authenticator,
@@ -240,7 +270,38 @@ public class AuthenticatorManager {
 
     private AuthenticateResponse authenticateWith(Authenticator authenticator,
             AuthenticateRequest request) throws IOException {
-        return authenticator.authenticate(request);
+        AuthenticateResponse response = authenticator.authenticate(request);
+        attachDelegatedCredential(response, request);
+        return response;
+    }
+
+    private void attachDelegatedCredential(AuthenticateResponse response, AuthenticateRequest request) {
+        if (!response.isSuccess() || request.getCredential() == null || response.getDelegatedCredential() != null) {
+            return;
+        }
+        DelegatedCredential.Type type = delegatedCredentialType(request.getCredentialType());
+        if (type == null) {
+            return;
+        }
+        OptionalLong expiresAtMillis = response.getCredentialExpiresAtMillis();
+        response.setDelegatedCredential(new DelegatedCredential(type,
+                new String(request.getCredential(), StandardCharsets.UTF_8), expiresAtMillis));
+    }
+
+    private DelegatedCredential.Type delegatedCredentialType(String credentialType) {
+        if (CredentialType.OAUTH_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.ACCESS_TOKEN;
+        }
+        if (CredentialType.OIDC_ID_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.ID_TOKEN;
+        }
+        if (CredentialType.JWT_TOKEN.equals(credentialType)) {
+            return DelegatedCredential.Type.JWT;
+        }
+        if (CredentialType.SAML_ASSERTION.equals(credentialType)) {
+            return DelegatedCredential.Type.SAML;
+        }
+        return null;
     }
 
     private boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,

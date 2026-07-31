@@ -32,6 +32,7 @@ private:
     static const char* PARQUET_FIELD_ID;
     static const char* ORIGINAL_TYPE;
     static const char* MAP_TYPE_VALUE;
+    static const char* UUID_TYPE_VALUE;
 
     static Status convert_to(const iceberg::NestedField& field,
                              std::shared_ptr<arrow::Field>* arrow_field,

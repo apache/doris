@@ -21,6 +21,7 @@ suite("eliminate_inner") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET disable_join_reorder=true"
+    sql "SET disable_nereids_rules=INFER_SET_OPERATOR_DISTINCT"
 
     sql """
         DROP TABLE IF EXISTS pkt
@@ -95,7 +96,7 @@ suite("eliminate_inner") {
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select fkt_not_null1.* from fkt_not_null as fkt_not_null1 join fkt_not_null as fkt_not_null2 on fkt_not_null1.fk = fkt_not_null2.fk) fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select fkt_not_null1.* from fkt_not_null as fkt_not_null1 join fkt_not_null as fkt_not_null2 on fkt_not_null1.fk = fkt_not_null2.fk where fkt_not_null1.fk > 1) fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select fkt_not_null1.fk from fkt_not_null as fkt_not_null1 group by fkt_not_null1.fk) fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
-    check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select * from fkt_not_null union select * from fkt_not_null) fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
+    check_shape_res("select /*+ SET_VAR(agg_phase=2) */ fkt_not_null.*, pkt.pk from pkt inner join (select * from fkt_not_null union select * from fkt_not_null) fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select fk, ROW_NUMBER() OVER (PARTITION BY fk ORDER BY fk) AS RowNum from fkt_not_null) fkt_not_null on pkt.pk = fkt_not_null.fk;", "fk with window")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select fk from fkt_not_null order by fk limit 1) fkt_not_null on pkt.pk = fkt_not_null.fk;", "fk with limit")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join fkt_not_null on pkt.pk = fkt_not_null.fk where pkt.pk = 1 and fkt_not_null.fk = 1;", "pk with filter that same as fk")
@@ -108,7 +109,7 @@ suite("eliminate_inner") {
     check_shape_res("select fkt.*, pkt.pk from pkt inner join (select fkt1.* from fkt as fkt1 join fkt as fkt2 on fkt1.fk = fkt2.fk) fkt on pkt.pk = fkt.fk;", "with_pk_col")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join (select fkt1.* from fkt as fkt1 join fkt as fkt2 on fkt1.fk = fkt2.fk where fkt1.fk > 1) fkt on pkt.pk = fkt.fk;", "with_pk_col")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join (select fkt1.fk from fkt as fkt1 group by fkt1.fk) fkt on pkt.pk = fkt.fk;", "with_pk_col")
-    check_shape_res("select fkt.*, pkt.pk from pkt inner join (select * from fkt union select * from fkt) fkt on pkt.pk = fkt.fk;", "with_pk_col")
+    check_shape_res("select /*+ SET_VAR(agg_phase=2) */ fkt.*, pkt.pk from pkt inner join (select * from fkt union select * from fkt) fkt on pkt.pk = fkt.fk;", "with_pk_col")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join (select fk, ROW_NUMBER() OVER (PARTITION BY fk ORDER BY fk) AS RowNum from fkt) fkt on pkt.pk = fkt.fk;", "fk with window")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join (select fk from fkt order by fk limit 1 ) fkt on pkt.pk = fkt.fk;", "fk with limit")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join fkt on pkt.pk = fkt.fk where pkt.pk = 1 and fkt.fk = 1;", "pk with filter that same as fk")
