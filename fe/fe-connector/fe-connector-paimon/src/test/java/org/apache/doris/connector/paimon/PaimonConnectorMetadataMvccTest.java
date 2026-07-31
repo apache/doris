@@ -147,6 +147,19 @@ public class PaimonConnectorMetadataMvccTest {
         return handle;
     }
 
+    @Test
+    public void explicitStartupSelectorDoesNotUseStatementLatestFence() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonConnectorMetadata metadata = metadataWith(ops);
+        PaimonTableHandle handle = normalHandle(ops);
+
+        Assertions.assertTrue(metadata.usesStatementSnapshotForOptions(
+                null, handle, Collections.singletonMap("scan.plan-sort-partition", "true")));
+        Assertions.assertFalse(metadata.usesStatementSnapshotForOptions(
+                null, handle, Collections.singletonMap("scan.snapshot-id", "7")),
+                "an explicit selector owns its version and must skip the latest fence");
+    }
+
     // ==================== beginQuerySnapshot ====================
 
     @Test

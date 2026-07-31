@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
@@ -26,6 +27,7 @@ import org.apache.paimon.options.Options;
 import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -152,6 +154,27 @@ public class PaimonBackendBoundTableTest {
         Assertions.assertEquals(feWrapper.rowType(), forBackend.rowType());
         Assertions.assertTrue(forBackend.rowType().getFieldNames().contains("c2"),
                 "the BE must see the generation the FE planned with");
+    }
+
+    @Test
+    public void runtimeCapDoesNotReapplyInheritedSnapshotToSystemTable(@TempDir Path warehouse)
+            throws Exception {
+        FileStoreTable firstGeneration = commit(newRealTable(warehouse, "runtime_cap_schema"), 1);
+        new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
+        FileStoreTable latestGeneration = FileStoreTableFactory.create(
+                firstGeneration.fileIO(), firstGeneration.location());
+        Map<String, String> inheritedOptions = new HashMap<>();
+        inheritedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), "1");
+        inheritedOptions.put(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1");
+        FileStoreTable statementSource = latestGeneration.copyWithoutTimeTravel(inheritedOptions);
+        Table systemTable = SystemTableLoader.load("audit_log", statementSource);
+
+        Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
+                "audit_log", systemTable, statementSource, Collections.emptyMap());
+
+        Assertions.assertTrue(safe.rowType().getFieldNames().contains("c2"),
+                "lowering an execution bound must not time-travel the bound system-table schema");
     }
 
     @Test

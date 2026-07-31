@@ -24,7 +24,9 @@ import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.SystemTableLoader;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -204,18 +206,28 @@ public final class PaimonReaderOptions {
     }
 
     public static Table runtimeSafeSystemTable(
-            Table systemTable, Table sourceTable, Map<String, String> scanOptions) {
+            String systemTableType, Table systemTable, Table sourceTable, Map<String, String> scanOptions) {
         Table effectiveSource = runtimeSafeSystemSource(sourceTable, scanOptions);
         validateEffectiveTable(effectiveSource);
         OptionalInt parallelism = runtimeSafeManifestParallelism(effectiveSource);
         if (!parallelism.isPresent()) {
             return systemTable;
         }
-        // Paimon system wrappers keep the real FileStoreTable in a private field and expose empty
-        // outer options, so copy the cap onto the wrapper that will actually perform planning.
-        return systemTable.copy(Collections.singletonMap(
+        Map<String, String> cap = Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(),
-                String.valueOf(parallelism.getAsInt())));
+                String.valueOf(parallelism.getAsInt()));
+        if (effectiveSource instanceof FileStoreTable) {
+            // Copying a system wrapper replays inherited time-travel options and can rewind a
+            // schema-only ALTER; cap the source without time travel, then rebuild the same wrapper.
+            FileStoreTable cappedSource = ((FileStoreTable) effectiveSource).copyWithoutTimeTravel(cap);
+            Table rebuilt = SystemTableLoader.load(systemTableType, cappedSource);
+            if (rebuilt == null) {
+                throw new IllegalArgumentException("Unsupported Paimon system table '"
+                        + systemTableType + "'");
+            }
+            return rebuilt;
+        }
+        return systemTable.copy(cap);
     }
 
     public static Table runtimeSafeSystemSource(Table sourceTable, Map<String, String> scanOptions) {

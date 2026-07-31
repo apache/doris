@@ -119,6 +119,30 @@ public class PaimonJniScannerTest {
     }
 
     @Test
+    public void testOldFeSerializedAsyncThresholdIsRejectedInEveryChild() throws Exception {
+        Table visible = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class[] {Table.class}, new SerializableTableHandler(
+                        Collections.singletonMap(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), "0 B")));
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.FILE_READER_ASYNC_THRESHOLD.key(), "2 GB"));
+        for (Table configuredTable : Arrays.asList(visible, new FallbackReadFileStoreTable(main, fallback))) {
+            Map<String, String> params = createBaseParams();
+            params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    InstantiationUtil.serializeObject(configuredTable)));
+            PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+            Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+            initTable.setAccessible(true);
+
+            InvocationTargetException failure = Assert.assertThrows(
+                    InvocationTargetException.class, () -> initTable.invoke(scanner));
+            Assert.assertTrue(failure.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(failure.getCause().getMessage()
+                    .contains(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
+        }
+    }
+
+    @Test
     public void testBackendManifestCapReachesHiddenFallbackPlanner() {
         FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
         FileStoreTable fallback = serializableFileStoreTable(
@@ -129,6 +153,19 @@ public class PaimonJniScannerTest {
 
         Assert.assertTrue(safe instanceof FallbackReadFileStoreTable);
         Assert.assertEquals("4", ((FallbackReadFileStoreTable) safe).fallback()
+                .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testAdvertisedFeCapStillChecksSerializedChildren() {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "200"));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                new FallbackReadFileStoreTable(main, fallback), "32", 64);
+
+        Assert.assertEquals("32", ((FallbackReadFileStoreTable) safe).fallback()
                 .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
     }
 

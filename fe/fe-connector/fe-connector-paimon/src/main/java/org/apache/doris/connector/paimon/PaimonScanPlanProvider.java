@@ -357,7 +357,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 dataTable = catalogOps.getTable(
                         Identifier.create(handle.getDatabaseName(), handle.getTableName()));
             }
-            return PaimonReaderOptions.runtimeSafeSystemTable(systemTable, dataTable, scanOptions);
+            return PaimonReaderOptions.runtimeSafeSystemTable(
+                    handle.getSysTableName(), systemTable, dataTable, scanOptions);
         } catch (Catalog.TableNotExistException e) {
             throw new DorisConnectorException("Failed to validate Paimon system table source", e);
         }

@@ -567,6 +567,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).build());
     }
 
+    @Override
+    public boolean usesStatementSnapshotForOptions(
+            ConnectorSession session, ConnectorTableHandle handle, Map<String, String> options) {
+        // Explicit Paimon selectors own their version and must not be overwritten by a latest fence.
+        return PaimonScanParams.usesStatementSnapshot(options);
+    }
+
     /**
      * Resolves an explicit time-travel {@code spec} into a pinned {@link ConnectorMvccSnapshot},
      * owning ALL paimon-specific parsing (snapshot-id lookup, datetime parse, tag resolution). This
@@ -1531,7 +1538,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             dataTable = catalogOps.getTable(
                     Identifier.create(handle.getDatabaseName(), handle.getTableName()));
         }
-        return PaimonReaderOptions.runtimeSafeSystemTable(systemTable, dataTable, scanOptions);
+        return PaimonReaderOptions.runtimeSafeSystemTable(
+                handle.getSysTableName(), systemTable, dataTable, scanOptions);
     }
 
     /**

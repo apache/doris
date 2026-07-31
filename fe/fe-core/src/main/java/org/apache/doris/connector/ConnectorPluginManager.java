@@ -40,9 +40,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,31 +126,42 @@ public class ConnectorPluginManager {
 
     /** Classloader seam used to verify embedded/classpath providers with their own defining jars. */
     void loadBuiltins(ClassLoader classLoader) {
-        ServiceLoader.load(ConnectorProvider.class, classLoader)
-                .forEach(p -> {
-                    String rejection = API_VERSION_GATE.rejectionReasonForClass(p.getClass());
-                    if (rejection != null) {
-                        // Classpath discovery must not bypass the major gate used for directory plugins;
-                        // otherwise an old provider silently inherits new SPI default methods.
-                        LOG.warn("Skip built-in connector provider {}: {}", p.getClass().getName(), rejection);
-                        return;
-                    }
-                    try {
-                        // Snapshot self-reported metadata before publishing the provider
-                        // so one throwing implementation is rejected cleanly instead of
-                        // aborting startup or being active without an inventory row.
-                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                    } catch (RuntimeException e) {
-                        LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
-                                p.getClass().getName(), e);
-                        return;
-                    }
-                    // Deliberately outside that catch: registerDiscovered's fail-loud
-                    // IllegalStateException reports a build error, not a "skip this one" condition.
-                    if (registerDiscovered(p, true)) {
-                        LOG.info("Registered built-in connector provider: {}", p.getType());
-                    }
-                });
+        Iterator<ServiceLoader.Provider<ConnectorProvider>> providers =
+                ServiceLoader.load(ConnectorProvider.class, classLoader).stream().iterator();
+        while (providers.hasNext()) {
+            ServiceLoader.Provider<ConnectorProvider> descriptor = providers.next();
+            Class<? extends ConnectorProvider> providerClass = descriptor.type();
+            String rejection = API_VERSION_GATE.rejectionReasonForClass(providerClass);
+            if (rejection != null) {
+                // Gate the descriptor before get(): an incompatible provider constructor may have
+                // side effects or link against an API that this FE must never execute.
+                LOG.warn("Skip built-in connector provider {}: {}", providerClass.getName(), rejection);
+                continue;
+            }
+            ConnectorProvider provider;
+            try {
+                provider = descriptor.get();
+            } catch (ServiceConfigurationError | RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: construction failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            try {
+                // Snapshot self-reported metadata before publishing the provider
+                // so one throwing implementation is rejected cleanly instead of
+                // aborting startup or being active without an inventory row.
+                PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
+            } catch (RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            // Deliberately outside that catch: registerDiscovered's fail-loud
+            // IllegalStateException reports a build error, not a "skip this one" condition.
+            if (registerDiscovered(provider, true)) {
+                LOG.info("Registered built-in connector provider: {}", provider.getType());
+            }
+        }
     }
 
     /**

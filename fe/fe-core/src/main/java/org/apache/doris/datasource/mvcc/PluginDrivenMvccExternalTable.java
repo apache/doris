@@ -129,6 +129,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * at LATEST).
      */
     private PluginDrivenMvccSnapshot materializeLatest() {
+        return materializeLatest(Optional.empty());
+    }
+
+    private PluginDrivenMvccSnapshot materializeLatest(
+            Optional<ConnectorMvccSnapshot> existingFence) {
         makeSureInitialized();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
@@ -157,8 +162,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         ConnectorTableHandle handle = handleOpt.get();
 
         // An empty (no-snapshot) connector still pins: fall back to a snapshot id of -1.
-        ConnectorMvccSnapshot connectorSnapshot =
-                metadata.beginQuerySnapshot(session, handle).orElseGet(this::emptySnapshot);
+        ConnectorMvccSnapshot connectorSnapshot = existingFence.orElseGet(
+                () -> metadata.beginQuerySnapshot(session, handle).orElseGet(this::emptySnapshot));
 
         // Range-view path (e.g. iceberg): thread the query's pin onto the handle FIRST (applySnapshot), so
         // the partition/freshness enumeration stays consistent with the data-scan pin, then ask the connector
@@ -166,6 +171,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // legacy listPartitions/LIST/timestamp path below (byte-unchanged; the no-op applySnapshot for the
         // latest pin is side-effect-free for both paimon and iceberg).
         ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
+        // Fence hydration must list the pinned version; the ordinary latest path keeps its legacy
+        // base-handle partition semantics for connectors whose applySnapshot is scan-only.
+        ConnectorTableHandle partitionHandle = existingFence.isPresent() ? pinnedHandle : handle;
         Optional<ConnectorMvccPartitionView> viewOpt =
                 metadata.getMvccPartitionView(session, pinnedHandle);
         if (viewOpt.isPresent()) {
@@ -183,7 +191,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !getPartitionColumns().isEmpty()) {
                 Map<String, PartitionItem> listItems = Maps.newHashMap();
                 Map<String, Long> listLastModifiedMillis = Maps.newHashMap();
-                listLatestPartitions(metadata, session, handle, listItems, listLastModifiedMillis);
+                listLatestPartitions(metadata, session, partitionHandle, listItems, listLastModifiedMillis);
                 return new PluginDrivenMvccSnapshot(connectorSnapshot, listItems, listLastModifiedMillis,
                         null, PartitionType.UNPARTITIONED, false, 0L);
             }
@@ -192,7 +200,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
-        listLatestPartitions(metadata, session, handle, nameToPartitionItem, nameToLastModifiedMillis);
+        listLatestPartitions(metadata, session, partitionHandle, nameToPartitionItem, nameToLastModifiedMillis);
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
                 nameToLastModifiedMillis);
     }
@@ -351,9 +359,41 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     @Override
+    public MvccSnapshot loadLatestSnapshotFence() {
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return new PluginDrivenMvccSnapshot(emptySnapshot(),
+                    Collections.emptyMap(), Collections.emptyMap());
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
+        ConnectorMvccSnapshot fence = handle.isPresent()
+                ? metadata.beginQuerySnapshot(session, handle.get()).orElseGet(this::emptySnapshot)
+                : emptySnapshot();
+        // A fence carries version identity only; raw partitions may be invalid for relation options.
+        return new PluginDrivenMvccSnapshot(fence, Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    @Override
     public boolean requiresLatestSnapshotFence(
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        return !tableSnapshot.isPresent() && scanParams.isPresent() && scanParams.get().isOptions();
+        if (tableSnapshot.isPresent() || !scanParams.isPresent() || !scanParams.get().isOptions()) {
+            return false;
+        }
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return false;
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
+        return handle.isPresent() && metadata.usesStatementSnapshotForOptions(
+                session, handle.get(), scanParams.get().getMapParams());
     }
 
     @Override
@@ -370,7 +410,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             Optional<MvccSnapshot> latestSnapshotFence) {
         if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
             // B5a implicit query-begin (latest) pin.
-            return materializeLatest();
+            return latestSnapshotFence.isPresent()
+                    ? materializeLatest(Optional.of(((PluginDrivenMvccSnapshot)
+                            latestSnapshotFence.get()).getConnectorSnapshot()))
+                    : materializeLatest();
         }
         // Mutual exclusion — parity with legacy PaimonScanNode.getProcessedTable:891-892.
         if (tableSnapshot.isPresent() && scanParams.isPresent()) {

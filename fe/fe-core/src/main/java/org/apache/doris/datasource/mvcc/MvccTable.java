@@ -36,6 +36,14 @@ public interface MvccTable extends TableIf {
     MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams);
 
     /**
+     * Load only the latest version identity used to fence relation-specific projections.
+     * Implementations may avoid materializing partitions; the default preserves compatibility.
+     */
+    default MvccSnapshot loadLatestSnapshotFence() {
+        return loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    /**
      * Whether this relation projection needs the table's statement-scoped latest snapshot as its
      * version fence. Implementations keep projection identity separate from version identity.
      */

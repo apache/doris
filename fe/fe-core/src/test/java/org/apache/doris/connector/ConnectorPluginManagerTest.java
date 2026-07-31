@@ -59,6 +59,9 @@ import java.util.jar.Manifest;
  */
 public class ConnectorPluginManagerTest {
 
+    private static final String CLASSPATH_PROVIDER_CONSTRUCTED =
+            "doris.test.connector.classpath-provider-constructed";
+
     private ConnectorPluginManager manager;
     private ConnectorContext testContext;
 
@@ -252,6 +255,21 @@ public class ConnectorPluginManagerTest {
     }
 
     @Test
+    void incompatibleClasspathProviderIsRejectedBeforeConstruction(@TempDir Path tempDir) throws Exception {
+        System.clearProperty(CLASSPATH_PROVIDER_CONSTRUCTED);
+        try {
+            Path apiOneJar = createClasspathProviderJar(tempDir.resolve("api-one-constructor.jar"), "1.0");
+            try (URLClassLoader loader = providerClassLoader(apiOneJar)) {
+                new ConnectorPluginManager().loadBuiltins(loader);
+            }
+            Assertions.assertNull(System.getProperty(CLASSPATH_PROVIDER_CONSTRUCTED),
+                    "the API-major gate must run before untrusted provider construction");
+        } finally {
+            System.clearProperty(CLASSPATH_PROVIDER_CONSTRUCTED);
+        }
+    }
+
+    @Test
     void duplicateCreateTableEngineNameIsRefused() {
         // Engine names route CREATE TABLE ... ENGINE= the same way type names route CREATE CATALOG. Two
         // plugins answering to one engine name would make the statement mean whichever registered first, so
@@ -319,6 +337,10 @@ public class ConnectorPluginManagerTest {
     }
 
     public static class ClasspathProvider implements ConnectorProvider {
+        public ClasspathProvider() {
+            System.setProperty(CLASSPATH_PROVIDER_CONSTRUCTED, "true");
+        }
+
         @Override
         public String getType() {
             return "classpath-test";
