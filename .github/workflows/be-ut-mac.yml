@@ -127,11 +127,17 @@ jobs:
           fi
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
 
-          # Rebuild the Arrow/Paimon stack when its dedicated inputs or shared
-          # download/build entry points change.
-          # The shared source bundle can predate vars in the PR, so explicitly
-          # fetch Arrow's bundled source dependencies before the targeted build.
-          if [[ "${{ steps.filter.outputs.arrow_paimon_changes }}" == "true" ]]; then
+          # Rebuild the Arrow/Paimon stack when its inputs change or the shared
+          # prebuilt predates the selected Arrow version/component closure.
+          # The artifact check also covers scheduled and later BE-only builds,
+          # where Paths Filter is skipped or reports no Arrow/Paimon changes.
+          arrow_major="$(
+            awk '$1 == "#define" && $2 == "ARROW_VERSION_MAJOR" { print $3; exit }' \
+              installed/include/arrow/util/config.h
+          )"
+          if [[ "${{ steps.filter.outputs.arrow_paimon_changes }}" == "true" ||
+                "${arrow_major}" != "24" ||
+                ! -f installed/lib64/libarrow_compute.a ]]; then
             curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
               -o doris-thirdparty-source.tgz
             tar -zxvf doris-thirdparty-source.tgz
