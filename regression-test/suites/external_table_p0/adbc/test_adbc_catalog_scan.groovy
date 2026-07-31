@@ -95,6 +95,11 @@ suite("test_adbc_catalog_scan", "p0,external") {
     """
     sql """INSERT INTO ${dbName}.t1 VALUES (1, 'alice', 1.5), (2, 'bob', 2.5), (3, NULL, 3.5)"""
 
+    // Exists only to be absent below. A Doris source is the one that does NOT honour the base-table
+    // filter the connector sends -- its Flight SQL endpoint recognises the literal "VIEW" and answers
+    // anything else with every object it has -- so this is the source that has to prove views stay out.
+    sql """CREATE VIEW ${dbName}.v1 AS SELECT id, name FROM ${dbName}.t1"""
+
     sql """
         CREATE CATALOG ${catalogName} PROPERTIES (
             "type" = "adbc",
@@ -111,6 +116,13 @@ suite("test_adbc_catalog_scan", "p0,external") {
     qt_show_databases """SHOW DATABASES FROM ${catalogName} LIKE '${dbName}'"""
     qt_show_tables """SHOW TABLES FROM ${catalogName}.${dbName}"""
     qt_desc """DESC ${catalogName}.${dbName}.t1"""
+
+    // Spelled out as well as baselined: the baseline above would also stay green if SHOW TABLES broke
+    // the other way and returned nothing, and a leaked view is the failure that hides -- it reads fine
+    // through ADBC, so a catalog offering one looks entirely healthy.
+    def tableNames = sql("""SHOW TABLES FROM ${catalogName}.${dbName}""").collect { it[0] } as Set
+    assertTrue(tableNames.contains("t1"), "t1 missing from ${tableNames}")
+    assertFalse(tableNames.contains("v1"), "the view v1 was surfaced as a table: ${tableNames}")
 
     // ---- scan ----
 

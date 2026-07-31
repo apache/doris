@@ -54,7 +54,11 @@ import java.util.function.Supplier;
  */
 public class AdbcConnectorMetadata implements ConnectorMetadata {
 
-    /** Only base tables are surfaced; ADBC catalogs expose no views in Doris. */
+    /**
+     * Only base tables are surfaced; ADBC catalogs expose no views in Doris. Asking for the type is not
+     * enough to get it -- a Doris source answers this filter with everything it has -- so what actually
+     * holds the guarantee is {@code AdbcObjectsReader}, which drops whatever the answer calls a view.
+     */
     private static final String[] TABLE_TYPES = {"table"};
 
     private final AdbcClient client;

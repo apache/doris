@@ -112,6 +112,27 @@ class AdbcObjectsReaderTest {
     }
 
     @Test
+    void viewsAreDroppedEvenWhenTheSourceIgnoresTheTypeFilter(@TempDir Path tempDir) {
+        try (AdbcClient client = sqliteClient(tempDir.resolve("objects.db"))) {
+            seed(client);
+            AdbcNamespace main = new AdbcNamespace("main", "");
+
+            // Asking with no type filter reproduces, through a real driver, what a Doris source does to the
+            // filter the connector does send: its Flight SQL endpoint recognises only the literal "VIEW" and
+            // answers "table" with everything. The guarantee has to survive that, so it cannot live in the
+            // request -- v1 must be gone because of the table_type that came back with it.
+            List<String> tables = client.withConnection(connection -> {
+                try (ArrowReader reader = connection.getObjects(
+                        AdbcConnection.GetObjectsDepth.TABLES, null, null, null, null, null)) {
+                    return AdbcObjectsReader.readTableNames(reader, main);
+                }
+            });
+
+            Assertions.assertEquals(List.of("t1", "t2"), tables);
+        }
+    }
+
+    @Test
     void tablesOfOtherNamespacesAreNotListed(@TempDir Path tempDir) {
         try (AdbcClient client = sqliteClient(tempDir.resolve("objects.db"))) {
             seed(client);
@@ -129,6 +150,31 @@ class AdbcObjectsReaderTest {
 
             Assertions.assertEquals(List.of(), tables);
         }
+    }
+
+    @Test
+    void theTypeNamesRealSourcesUseAreClassifiedTheWayTheyMean() {
+        // A Doris source spells a table "BASE TABLE" -- getting that one wrong does not hide a view, it
+        // hides EVERY table of every ADBC catalog pointed at Doris, and the catalog just looks empty.
+        Assertions.assertTrue(AdbcObjectsReader.isBaseTable("BASE TABLE"));
+        // ...and its materialized views come back under the same name, which is right: those are storage
+        // that can be scanned, not a query wearing a table's name.
+        Assertions.assertTrue(AdbcObjectsReader.isBaseTable("table"));
+
+        Assertions.assertFalse(AdbcObjectsReader.isBaseTable("VIEW"));
+        Assertions.assertFalse(AdbcObjectsReader.isBaseTable("view"));
+        // What Doris calls its information_schema tables. Reading one through ADBC is not supported either.
+        Assertions.assertFalse(AdbcObjectsReader.isBaseTable("SYSTEM VIEW"));
+
+        // Dropped, deliberately. The forgiving rule -- keep what is not recognised -- is the wrong one here:
+        // a leaked view scans fine through ADBC, so it never announces itself. A source whose tables land
+        // here lists nothing instead, which does.
+        Assertions.assertFalse(AdbcObjectsReader.isBaseTable("OLAP"));
+
+        // Saying nothing is not the same as saying something unrecognised: a source that omits the column
+        // stays exactly as usable as it was before this filter existed.
+        Assertions.assertTrue(AdbcObjectsReader.isBaseTable(null));
+        Assertions.assertTrue(AdbcObjectsReader.isBaseTable(""));
     }
 
     @Test

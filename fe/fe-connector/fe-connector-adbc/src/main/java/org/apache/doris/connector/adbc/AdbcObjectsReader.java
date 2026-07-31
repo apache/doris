@@ -26,6 +26,7 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -55,6 +56,7 @@ public final class AdbcObjectsReader {
     private static final String DB_SCHEMA_NAME = "db_schema_name";
     private static final String DB_SCHEMA_TABLES = "db_schema_tables";
     private static final String TABLE_NAME = "table_name";
+    private static final String TABLE_TYPE = "table_type";
 
     private AdbcObjectsReader() {
     }
@@ -80,9 +82,10 @@ public final class AdbcObjectsReader {
     }
 
     /**
-     * Table names inside {@code namespace}. Other namespaces in the same result are skipped, because
-     * {@code getObjects} filters are advisory -- a driver may answer a narrower request with everything it
-     * has, and returning those would list tables under the wrong database.
+     * Base table names inside {@code namespace}. Other namespaces in the same result are skipped, and so are
+     * objects the source itself calls something other than a table, because {@code getObjects} filters are
+     * advisory -- a driver may answer a narrower request with everything it has. Returning those would list
+     * tables under the wrong database, or offer a view that {@code DESC} and {@code SELECT} then fail on.
      */
     public static List<String> readTableNames(ArrowReader reader, AdbcNamespace namespace) {
         List<String> tables = new ArrayList<>();
@@ -101,13 +104,41 @@ public final class AdbcObjectsReader {
                 }
                 for (Object table : (List<?>) rawTables) {
                     String name = stringField(table, TABLE_NAME);
-                    if (name != null && !name.isEmpty()) {
+                    if (name != null && !name.isEmpty() && isBaseTable(stringField(table, TABLE_TYPE))) {
                         tables.add(name);
                     }
                 }
             }
         });
         return tables;
+    }
+
+    /**
+     * Whether an object the source reported is a base table, judged by the {@code table_type} it came with
+     * rather than by the type filter the request carried.
+     *
+     * <p>A Doris source is the reason this exists: its Flight SQL endpoint recognises only the literal
+     * {@code "VIEW"} as a type filter and answers every other value -- including the {@code "table"} ADBC
+     * asks with -- by returning ALL objects. Its {@code table_type} column is still right, so the filtering
+     * is done here. Any source that honours the filter simply has nothing left to drop.
+     *
+     * <p>A type this does not recognise is dropped, because the request asked for base tables and an object
+     * the source calls something else is not one. Keeping them would be the more forgiving rule and is the
+     * wrong one: a view leaked into the listing SCANS FINE through ADBC, so nothing ever looks broken and
+     * the catalog quietly offers objects it does not mean to. A source that spells its tables some third
+     * way instead lists nothing at all -- noticed within a minute, and fixed by one name in this method.
+     *
+     * <p>A missing type is not an unrecognised one, and is kept: it says nothing about the object, and a
+     * source that omits the column should stay as usable as it was before this filter existed.
+     */
+    static boolean isBaseTable(String tableType) {
+        if (tableType == null || tableType.trim().isEmpty()) {
+            return true;
+        }
+        String normalized = tableType.trim().toUpperCase(Locale.ROOT);
+        // "BASE TABLE" is what a Doris source answers with, and it covers its materialized views too --
+        // those are storage Doris can scan, unlike a view, whose rows exist only as a query.
+        return normalized.equals("TABLE") || normalized.equals("BASE TABLE");
     }
 
     private static void forEachCatalogRow(ArrowReader reader, CatalogRowConsumer consumer) {
