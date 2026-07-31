@@ -121,6 +121,8 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
+    bool is_exclusive() const override { return IColumn::is_exclusive() && data->is_exclusive(); }
+
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     void resize(size_t new_size) override { s = new_size; }

@@ -469,6 +469,8 @@ public:
 
     bool has_enough_capacity(const IColumn& src) const override { return false; }
 
+    bool is_exclusive() const override;
+
     void for_each_subcolumn(ColumnCallback callback) override;
 
     // Do nothing, call try_insert instead
