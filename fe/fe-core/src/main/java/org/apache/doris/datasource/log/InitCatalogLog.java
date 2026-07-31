@@ -32,6 +32,17 @@ import java.util.List;
 
 @Data
 public class InitCatalogLog implements Writable {
+    /**
+     * Also the type of the persisted {@code ExternalCatalog#logType} field, which is why the per-data-source
+     * values stay even though only PLUGIN / REMOTE_DORIS / TEST are still produced: an image written before
+     * the connector cutover carries one of the old names, and
+     * {@code PluginDrivenExternalCatalog#gsonPostProcess} reads it to backfill the catalog's {@code type}
+     * property for the resource-backed catalogs (es, jdbc) that never persisted one. Deleting a name would
+     * make it deserialize to null and lose that catalog's type on upgrade.
+     *
+     * <p>HUDI is absent because it was never produced: hudi tables have always lived in an hms catalog and
+     * no {@code HudiExternalCatalog} ever existed, so no image can carry it.</p>
+     */
     public enum Type {
         HMS,
         ES,
@@ -39,7 +50,6 @@ public class InitCatalogLog implements Writable {
         ICEBERG,
         PAIMON,
         MAX_COMPUTE,
-        HUDI,
         LAKESOUL,
         TEST,
         TRINO_CONNECTOR,

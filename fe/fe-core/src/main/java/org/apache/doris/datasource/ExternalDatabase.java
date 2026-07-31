@@ -33,7 +33,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.log.InitDatabaseLog;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -84,7 +83,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     private Map<String, String> lowerCaseToTableName = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
-    protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
 
     private MetaCache<T> metaCache;
@@ -99,13 +97,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      * @param name Database name.
      * @param remoteName Remote database name.
      */
-    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName,
-            InitDatabaseLog.Type dbLogType) {
+    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
         this.remoteName = remoteName;
-        this.dbLogType = dbLogType;
     }
 
     public void setExtCatalog(ExternalCatalog extCatalog) {

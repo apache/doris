@@ -764,10 +764,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan viewBody = parseAndAnalyzeDorisView(view, qualifiedTableName, cascadesContext);
                     LogicalView<Plan> logicalView = new LogicalView<>(view, viewBody);
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
-                case PAIMON_EXTERNAL_TABLE:
-                case MAX_COMPUTE_EXTERNAL_TABLE:
-                case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                case LAKESOUl_EXTERNAL_TABLE:
                 case PLUGIN_EXTERNAL_TABLE:
                     if (table instanceof PluginDrivenExternalTable
                             && ((PluginDrivenExternalTable) table).isView()) {
