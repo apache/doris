@@ -526,6 +526,10 @@ public class MTMVTask extends AbstractTask {
             throw new JobException("Cannot use " + request.refreshMode
                     + " refresh on a materialized view without INCREMENTAL capability.");
         }
+        if (mtmv.getIvmInfo().isBinlogBroken()) {
+            return handleIvmFallbackResult(IvmIncrRefreshResult.fallback(
+                    IvmFailureReason.BINLOG_BROKEN, "Stream binlog is marked as broken"), request);
+        }
         // A strict INCREMENTAL request must reach IVM so the stream can establish its initial baseline.
         // Only fallback-enabled requests may rebuild a missing or invalidated snapshot with COMPLETE.
         if (!mtmv.hasRefreshSnapshot() && request.allowFallback) {
@@ -570,10 +574,6 @@ public class MTMVTask extends AbstractTask {
         // Determine which partitions need refresh, same as partition-based flow.
         this.needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(refreshContext,
                 relation.getBaseTablesOneLevelAndFromView());
-        if (mtmv.getIvmInfo().isBinlogBroken()) {
-            return IvmIncrRefreshResult.fallback(
-                    IvmFailureReason.BINLOG_BROKEN, "Stream binlog is marked as broken");
-        }
         if (CollectionUtils.isEmpty(needRefreshPartitions)) {
             LOG.info("IVM incremental refresh skipped for mv={}: all partitions are synced, taskId={}",
                     mtmv.getName(), getTaskId());
