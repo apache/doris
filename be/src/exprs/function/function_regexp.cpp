@@ -153,10 +153,10 @@ struct RegexpExtractEngine {
 
             size_t pos = 0;
             while (pos < size) {
-                const char* str_pos = data + pos;
-                size_t str_size = size - pos;
                 std::vector<re2::StringPiece> matches(max_matches);
-                bool success = re2_regex->Match(re2::StringPiece(str_pos, str_size), 0, str_size,
+                // Search within the original subject starting from pos, so `^` stays
+                // anchored to the beginning of the original string.
+                bool success = re2_regex->Match(re2::StringPiece(data, size), pos, size,
                                                 re2::RE2::UNANCHORED, matches.data(), max_matches);
                 if (!success) {
                     break;
@@ -174,16 +174,21 @@ struct RegexpExtractEngine {
                         results.emplace_back();
                     }
                 }
-                // Move position forward. matches[0] points into the searched string,
-                // so its address gives the exact match offset — no textual find needed.
-                pos += (matches[0].data() - str_pos) + matches[0].size();
+                // Advance past the match via its pointer into the original subject.
+                pos = (matches[0].data() - data) + matches[0].size();
             }
         } else if (is_boost()) {
             const char* search_start = data;
             const char* search_end = data + size;
             boost::match_results<const char*> matches;
 
-            while (boost::regex_search(search_start, search_end, matches, *boost_regex)) {
+            // Keep the original subject start reachable: match_prev_avail lets
+            // look-behind assertions see characters before search_start, and
+            // match_not_bol keeps `^` anchored to the original string.
+            while (boost::regex_search(search_start, search_end, matches, *boost_regex,
+                                       search_start == data
+                                               ? boost::match_default
+                                               : boost::match_prev_avail | boost::match_not_bol)) {
                 if (static_cast<size_t>(index) < matches.size()) {
                     results.emplace_back(matches[index].str());
                 }

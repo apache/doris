@@ -261,6 +261,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
              std::string("['1','22']")},
             // advancing past a match must use the match offset, not a textual find
             {{std::string("ab b"), std::string("\\bb"), (int64_t)0}, std::string("['b']")},
+            // `^` stays anchored to the original subject between matches
+            {{std::string("aa"), std::string("^a"), (int64_t)0}, std::string("['a']")},
             // null
             {{std::string("abc"), Null(), (int64_t)1}, Null()},
             {{Null(), std::string("i([0-9]+)"), (int64_t)1}, Null()}};
