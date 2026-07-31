@@ -999,6 +999,8 @@ private:
     std::string _s3_error_log_file_path;
     // Protects the load error log stream, paths, and first error message.
     mutable std::mutex _load_error_log_lock;
+    // Serializes S3 upload and presigned URL publication.
+    std::mutex _s3_error_log_file_lock;
 
     // used for encoding the global lazy materialize
     std::shared_ptr<IdFileMap> _id_file_map = nullptr;
