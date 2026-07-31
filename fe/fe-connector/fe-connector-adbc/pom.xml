@@ -93,6 +93,21 @@ under the License.
         <finalName>doris-fe-connector-adbc</finalName>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Arrow reads its off-heap buffers through java.nio internals, so a test that
+                         materializes any Arrow data (as opposed to only calling into the driver) needs this
+                         open or it fails with "sun.misc.Unsafe or java.nio.DirectByteBuffer.<init>(long,
+                         int) not available". Same flag conf/fe.conf already passes to the FE process, and
+                         the same one fe-core's surefire config carries. @{argLine} keeps jacoco's
+                         instrumentation argument, which coverage builds inject there. -->
+                    <argLine>
+                        --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
+                    </argLine>
+                </configuration>
+            </plugin>
+            <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>
                     <appendAssemblyId>false</appendAssemblyId>
