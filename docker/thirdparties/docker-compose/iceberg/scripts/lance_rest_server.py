@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Read-only Lance REST Namespace fixture for the external regression environment.
+
+The fixture serves namespace metadata only. Doris still opens the real Lance
+dataset in MinIO after DescribeTable returns its URI and storage credentials.
+
+Additional tables can be exposed without changing this script by setting
+LANCE_REST_TABLES_JSON. Keys are Lance identifiers joined with "$", for example:
+
+    {"all_types": "s3://warehouse/lance/all_types.lance",
+     "doris$items": "s3://warehouse/lance/doris/items.lance"}
+"""
+
+import json
+import os
+import re
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote, urlparse
+
+
+HOST = os.environ.get("LANCE_REST_HOST", "0.0.0.0")
+PORT = int(os.environ.get("LANCE_REST_PORT", "8080"))
+DELIMITER = os.environ.get("LANCE_REST_DELIMITER", "$")
+BEARER_TOKEN = os.environ.get(
+    "LANCE_REST_BEARER_TOKEN", "doris-lance-rest-test-token"
+)
+
+
+def _load_tables() -> dict[tuple[str, ...], str]:
+    raw_tables = os.environ.get(
+        "LANCE_REST_TABLES_JSON",
+        '{"all_types":"s3://warehouse/lance/all_types.lance"}',
+    )
+    tables = json.loads(raw_tables)
+    if not isinstance(tables, dict):
+        raise ValueError("LANCE_REST_TABLES_JSON must be a JSON object")
+
+    result = {}
+    for identifier, table_uri in tables.items():
+        if not isinstance(identifier, str) or not isinstance(table_uri, str):
+            raise ValueError("Lance table identifiers and URIs must be strings")
+        parts = tuple(part for part in identifier.split(DELIMITER) if part)
+        if not parts:
+            raise ValueError("A Lance table identifier cannot be empty")
+        result[parts] = table_uri
+    return result
+
+
+TABLES = _load_tables()
+
+
+def _decode_identifier(identifier: str) -> tuple[str, ...]:
+    identifier = unquote(identifier)
+    if identifier == DELIMITER:
+        return ()
+    return tuple(part for part in identifier.split(DELIMITER) if part)
+
+
+class LanceRestHandler(BaseHTTPRequestHandler):
+    server_version = "DorisLanceRestFixture/1.0"
+
+    def do_GET(self) -> None:
+        path = urlparse(self.path).path.rstrip("/")
+        if path == "/health":
+            self._write_json(200, {"status": "ok"})
+            return
+        if not self._authorized():
+            return
+
+        table_list_match = re.fullmatch(r"/v1/namespace/(.+)/table/list", path)
+        if table_list_match:
+            parent = _decode_identifier(table_list_match.group(1))
+            tables = sorted(
+                identifier[-1]
+                for identifier in TABLES
+                if len(identifier) == len(parent) + 1
+                and identifier[: len(parent)] == parent
+            )
+            self._write_json(200, {"tables": tables})
+            return
+
+        namespace_list_match = re.fullmatch(r"/v1/namespace/(.+)/list", path)
+        if namespace_list_match:
+            parent = _decode_identifier(namespace_list_match.group(1))
+            namespaces = sorted(
+                {
+                    identifier[len(parent)]
+                    for identifier in TABLES
+                    if len(identifier) > len(parent) + 1
+                    and identifier[: len(parent)] == parent
+                }
+            )
+            self._write_json(200, {"namespaces": namespaces})
+            return
+
+        self._write_json(404, {"error": "not found", "code": 4})
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path.rstrip("/")
+        if not self._authorized():
+            return
+        self._read_body()
+
+        describe_match = re.fullmatch(r"/v1/table/(.+)/describe", path)
+        if describe_match:
+            identifier = _decode_identifier(describe_match.group(1))
+            table_uri = TABLES.get(identifier)
+            if table_uri is None:
+                self._write_json(404, {"error": "table not found", "code": 4})
+                return
+            self._write_json(
+                200,
+                {
+                    "table": identifier[-1],
+                    "namespace": list(identifier[:-1]),
+                    "location": table_uri,
+                    "table_uri": table_uri,
+                    "storage_options": {
+                        "aws_access_key_id": os.environ.get(
+                            "LANCE_S3_ACCESS_KEY", "admin"
+                        ),
+                        "aws_secret_access_key": os.environ.get(
+                            "LANCE_S3_SECRET_KEY", "password"
+                        ),
+                        "aws_region": os.environ.get("LANCE_S3_REGION", "us-east-1"),
+                        "aws_virtual_hosted_style_request": "false",
+                    },
+                    "managed_versioning": False,
+                    "is_only_declared": False,
+                },
+            )
+            return
+
+        self._write_json(404, {"error": "not found", "code": 4})
+
+    def _authorized(self) -> bool:
+        if self.headers.get("Authorization") == f"Bearer {BEARER_TOKEN}":
+            return True
+        self._read_body()
+        self._write_json(401, {"error": "unauthorized", "code": 16})
+        return False
+
+    def _read_body(self) -> bytes:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        return self.rfile.read(content_length) if content_length else b""
+
+    def _write_json(self, status: int, body: dict) -> None:
+        response = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+    def log_message(self, message: str, *args: object) -> None:
+        print(f"{self.address_string()} - {message % args}", flush=True)
+
+
+if __name__ == "__main__":
+    print(
+        f"Starting Lance REST Namespace fixture on {HOST}:{PORT} "
+        f"with {len(TABLES)} table(s)",
+        flush=True,
+    )
+    ThreadingHTTPServer((HOST, PORT), LanceRestHandler).serve_forever()

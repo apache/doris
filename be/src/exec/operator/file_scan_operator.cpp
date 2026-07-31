@@ -148,7 +148,8 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
     return query_options.__isset.enable_file_scanner_v2 && query_options.enable_file_scanner_v2 &&
-           !is_load && scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
+           !is_load && scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP &&
+           !is_transactional_hive;
 }
 
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {

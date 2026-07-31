@@ -106,6 +106,37 @@ services:
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
       - org.apache.iceberg.rest.RESTCatalogServer
 
+  lance-rest:
+    image: python:3.11.9-slim-bookworm
+    container_name: doris--lance-rest
+    depends_on:
+      mc:
+        condition: service_completed_successfully
+    ports:
+      - ${LANCE_REST_PORT}:8080
+    volumes:
+      - ./scripts/lance_rest_server.py:/opt/lance-rest/server.py:ro
+    environment:
+      LANCE_REST_BEARER_TOKEN: doris-lance-rest-test-token
+      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance"}'
+      LANCE_S3_ACCESS_KEY: admin
+      LANCE_S3_SECRET_KEY: password
+      LANCE_S3_REGION: us-east-1
+    networks:
+      - doris--iceberg
+    command: ["python3", "/opt/lance-rest/server.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
   trino:
     image: trinodb/trino:482
     container_name: doris--iceberg-trino
