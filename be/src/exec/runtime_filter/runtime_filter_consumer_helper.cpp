@@ -17,6 +17,10 @@
 
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 
+#include <algorithm>
+#include <atomic>
+
+#include "common/check.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "runtime/runtime_profile.h"
 
@@ -67,14 +71,21 @@ Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
                                                            VExprContextSPtrs& conjuncts,
                                                            const RowDescriptor& row_descriptor) {
     SCOPED_TIMER(_acquire_runtime_filter_timer.get());
+    std::vector<int32_t> late_filter_ids;
     std::vector<RuntimeFilterExprPtr> vexprs;
-    for (const auto& consumer : _consumers) {
+    for (size_t i = 0; i < _consumers.size(); ++i) {
+        const auto& consumer = _consumers[i];
         RETURN_IF_ERROR(consumer->acquire_expr(vexprs));
         if (!consumer->is_applied()) {
-            _is_all_rf_applied = false;
+            late_filter_ids.emplace_back(_runtime_filter_descs[i].filter_id);
         }
     }
+
     RETURN_IF_ERROR(_append_rf_into_conjuncts(state, vexprs, conjuncts, row_descriptor));
+
+    DORIS_CHECK(_late_runtime_filter_container == nullptr);
+    _late_runtime_filter_container = std::make_shared<LateRuntimeFilterContainer>(late_filter_ids);
+    _is_all_rf_applied = late_filter_ids.empty();
     return Status::OK();
 }
 
@@ -95,9 +106,22 @@ Status RuntimeFilterConsumerHelper::_append_rf_into_conjuncts(
     return Status::OK();
 }
 
+void RuntimeFilterConsumerHelper::_publish_late_runtime_filter(
+        int32_t filter_id, std::shared_ptr<const LateRuntimeFilterExprGroup> expr_group) {
+    DORIS_CHECK(_late_runtime_filter_container != nullptr);
+    auto& filters = _late_runtime_filter_container->filters;
+    auto entry = std::ranges::find(filters, filter_id, &LateRuntimeFilterEntry::filter_id);
+    DORIS_CHECK(entry != filters.end());
+    DORIS_CHECK(!entry->valid.load(std::memory_order_relaxed));
+
+    entry->expr = std::move(expr_group);
+    entry->valid.store(true, std::memory_order_release);
+    _late_runtime_filter_container->arrived_cnt.fetch_add(1, std::memory_order_release);
+}
+
 Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
         RuntimeState* state, const RowDescriptor& row_descriptor, int& arrived_rf_num,
-        VExprContextSPtrs& arrived_conjuncts) {
+        VExprContextSPtrs& arrived_conjuncts, StorageFilterChecker storage_filter_checker) {
     if (_is_all_rf_applied) {
         arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
         return Status::OK();
@@ -112,16 +136,42 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    std::vector<RuntimeFilterExprPtr> exprs;
     int current_arrived_rf_num = 0;
-    for (const auto& consumer : _consumers) {
+    for (size_t i = 0; i < _consumers.size(); ++i) {
+        std::vector<RuntimeFilterExprPtr> exprs;
+        const auto& consumer = _consumers[i];
         RETURN_IF_ERROR(consumer->acquire_expr(exprs));
         current_arrived_rf_num += consumer->is_applied();
+
+        if (exprs.empty()) {
+            continue;
+        }
+
+        VExprContextSPtrs new_conjuncts;
+        RETURN_IF_ERROR(_append_rf_into_conjuncts(state, exprs, new_conjuncts, row_descriptor));
+
+        if (std::ranges::all_of(exprs, [&](const auto& expr) {
+                return storage_filter_checker(expr->get_impl());
+            })) {
+            // ScanLocalState may execute its copy during partition pruning while storage readers
+            // concurrently use the published group. Publish independent clones: SegmentIterators
+            // clone them again for row-level evaluation, and Segment::new_iterator only runs the
+            // context-free zonemap evaluation on them.
+            auto storage_expr_group = std::make_shared<LateRuntimeFilterExprGroup>();
+            storage_expr_group->reserve(new_conjuncts.size());
+            for (const auto& expr_context : new_conjuncts) {
+                VExprContextSPtr storage_expr_context;
+                RETURN_IF_ERROR(expr_context->clone(state, storage_expr_context));
+                storage_expr_group->emplace_back(std::move(storage_expr_context));
+            }
+
+            _publish_late_runtime_filter(_runtime_filter_descs[i].filter_id,
+                                         std::move(storage_expr_group));
+        }
+        arrived_conjuncts.insert(arrived_conjuncts.end(), new_conjuncts.begin(),
+                                 new_conjuncts.end());
     }
-    // 2. Append unapplied runtime filters to _conjuncts
-    if (!exprs.empty()) {
-        RETURN_IF_ERROR(_append_rf_into_conjuncts(state, exprs, arrived_conjuncts, row_descriptor));
-    }
+
     if (current_arrived_rf_num == _runtime_filter_descs.size()) {
         _is_all_rf_applied = true;
     }
@@ -136,6 +186,11 @@ void RuntimeFilterConsumerHelper::collect_realtime_profile(
     RuntimeProfile::Counter* c = parent_operator_profile->add_counter(
             "AcquireRuntimeFilter", TUnit::TIME_NS, "RuntimeFilterInfo", 2);
     c->update(_acquire_runtime_filter_timer->value());
+    c = parent_operator_profile->add_counter("PublishedLateRuntimeFilters", TUnit::UNIT,
+                                             "RuntimeFilterInfo", 2);
+    if (_late_runtime_filter_container != nullptr) {
+        c->update(_late_runtime_filter_container->arrived_cnt.load(std::memory_order_relaxed));
+    }
 
     for (const auto& consumer : _consumers) {
         consumer->collect_realtime_profile(parent_operator_profile);

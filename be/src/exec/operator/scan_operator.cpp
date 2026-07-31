@@ -78,7 +78,8 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     LockGuard lock(_conjuncts_lock);
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
-            state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts));
+            state, _parent->operator_row_desc_before_projection(), arrived_rf_num, _conjuncts,
+            [this](const VExprSPtr& expr) { return _should_push_down_late_runtime_filter(expr); }));
     VExprContextSPtrs new_conjuncts;
     if (_conjuncts.size() > conjuncts_before) {
         new_conjuncts.assign(_conjuncts.begin() + conjuncts_before, _conjuncts.end());

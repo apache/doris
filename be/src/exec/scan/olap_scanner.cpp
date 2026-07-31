@@ -95,6 +95,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .output_columns {},
                                  .extra_columns {},
                                  .common_expr_ctxs_push_down {},
+                                 .late_runtime_filter_container {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
@@ -364,6 +365,9 @@ Status OlapScanner::_init_tablet_reader_params(
     const bool single_version = _tablet_reader_params.has_single_version();
 
     auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+    _tablet_reader_params.late_runtime_filter_container =
+            olap_local_state->late_runtime_filter_container();
+
     bool read_mor_as_dup = olap_local_state->olap_scan_node().__isset.read_mor_as_dup &&
                            olap_local_state->olap_scan_node().read_mor_as_dup;
     if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
@@ -829,6 +833,14 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_filtered_counter,
                    stats.rows_short_circuit_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_expr_cond_filtered_counter, stats.rows_expr_cond_filtered);
+    COUNTER_UPDATE(local_state->_late_runtime_filters_installed_counter,
+                   stats.late_runtime_filters_installed);
+    COUNTER_UPDATE(local_state->_late_runtime_filters_installed_after_lazy_init_counter,
+                   stats.late_runtime_filters_installed_after_lazy_init);
+    COUNTER_UPDATE(local_state->_rows_late_runtime_filter_row_filtered_counter,
+                   stats.rows_late_runtime_filter_row_filtered);
+    COUNTER_UPDATE(local_state->_rows_late_runtime_filter_zonemap_filtered_counter,
+                   stats.rows_late_runtime_filter_zonemap_filtered);
     COUNTER_UPDATE(local_state->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);

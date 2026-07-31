@@ -110,6 +110,7 @@ private:
             const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr(const VExprSPtr& expr) override;
+    bool _should_push_down_late_runtime_filter(const VExprSPtr& expr) override;
 
     enum class ExprStorageFilterCheckMode { HAS_SEGMENT_EVALUABLE_EXPR, HAS_NON_KEY_SLOT };
     bool _check_expr_storage_filter(const VExprSPtr& expr, ExprStorageFilterCheckMode mode);
@@ -175,6 +176,10 @@ private:
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_expr_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _late_runtime_filters_installed_counter = nullptr;
+    RuntimeProfile::Counter* _late_runtime_filters_installed_after_lazy_init_counter = nullptr;
+    RuntimeProfile::Counter* _rows_late_runtime_filter_row_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _rows_late_runtime_filter_zonemap_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_vec_cond_input_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_input_counter = nullptr;
     RuntimeProfile::Counter* _rows_expr_cond_input_counter = nullptr;
