@@ -1911,11 +1911,11 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
 
         std::unique_ptr<ParquetColumnReader> column_reader;
         RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
-                row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
-                file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
-                file_context.native_page_cache_file_key, true, _scan_profile.column_reader_profile,
-                &column_reader));
+                *column_schema, &col, file_context.native_dictionary_file(),
+                file_context.native_metadata, row_group_idx, _current_selected_ranges,
+                _current_offset_indexes, _timezone, file_context.native_io_ctx, _runtime_state,
+                file_context.native_page_cache_enabled, file_context.native_page_cache_file_key,
+                true, _scan_profile.column_reader_profile, &column_reader));
         MutableColumnPtr dictionary_values;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_read_dict_time);

@@ -2998,7 +2998,7 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateReaderIsSharedOutsideMergeRangeR
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
 }
 
-TEST_F(NewParquetReaderTest, PredicateOnlyDictionaryChunkUsesRowGroupMergeReader) {
+TEST_F(NewParquetReaderTest, PredicateOnlyLocalDictionaryChunkKeepsRawReader) {
     write_single_row_group_dictionary_filter_parquet_file(_file_path);
 
     RuntimeProfile profile("new_parquet_reader_dictionary_only_merge_profile");
@@ -3034,11 +3034,11 @@ TEST_F(NewParquetReaderTest, PredicateOnlyDictionaryChunkUsesRowGroupMergeReader
     EXPECT_EQ(profile.get_counter("DictionaryPredicateFusedSelectionRows")->value(), 6);
     ASSERT_NE(profile.get_counter("DictFilterAdaptiveProbeAcceptedColumns"), nullptr);
     EXPECT_EQ(profile.get_counter("DictFilterAdaptiveProbeAcceptedColumns")->value(), 1);
-    // The dictionary page and its following data pages are one sequential Column Chunk stream.
-    // Routing both through the row-group wrapper is what removes the synchronous probe small read.
+    // A local reader has no remote small-read latency to amortize. Reusing the probed raw reader
+    // avoids paying MergeRange copy/cursor overhead while retaining fused dictionary selection.
     ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
-    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
-    EXPECT_GT(profile.get_counter("MergedBytes")->value(), 0);
+    EXPECT_EQ(profile.get_counter("MergedIO")->value(), 0);
+    EXPECT_EQ(profile.get_counter("MergedBytes")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, DictionaryPredicateWorksWithoutRuntimeProfile) {

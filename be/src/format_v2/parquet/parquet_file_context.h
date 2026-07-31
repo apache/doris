@@ -164,6 +164,13 @@ struct ParquetFileContext {
     const io::FileReaderSPtr& native_data_file() const {
         return native_row_group_file != nullptr ? native_row_group_file : native_file;
     }
+    const io::FileReaderSPtr& native_dictionary_file() const {
+        // MergeRange amortizes remote small reads, but adds copying and cursor bookkeeping to
+        // local warm-cache scans. A probed local reader is already reusable for its data pages.
+        return native_file->get_data_dir_path() == io::FileReader::VIRTUAL_REMOTE_DATA_DIR
+                       ? native_data_file()
+                       : native_file;
+    }
     // Restore native ReadAt() to the base Doris file reader and flush merge-reader counters.
     void reset_random_access_ranges();
     ParquetPageCacheStats page_cache_stats() const;
