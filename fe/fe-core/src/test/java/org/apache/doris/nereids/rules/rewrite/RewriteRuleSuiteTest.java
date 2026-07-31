@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -38,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PartitionColumnFilter;
@@ -53,7 +53,23 @@ import org.mockito.Mockito;
 import java.util.List;
 import java.util.Objects;
 
-class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSupported {
+/**
+ * Rewrite-rule tests that only need the shared {@link SqlTestBase} fixture (database "test" with
+ * tables T0..T4). They are kept in one class on purpose: every extra test class pays a full FE
+ * startup, which dominates the runtime of tests this small.
+ *
+ * <p>Replaces the former standalone classes:
+ * <ul>
+ *   <li>PruneOlapScanTabletTest</li>
+ *   <li>EliminateConstHashJoinConditionTest</li>
+ * </ul>
+ * Add a new section below when moving another shared-fixture rewrite test here.
+ */
+public class RewriteRuleSuiteTest extends SqlTestBase {
+
+    // -------------------------------------------------------------------------
+    // from PruneOlapScanTabletTest
+    // -------------------------------------------------------------------------
 
     @Test
     void testPruneOlapScanTablet() {
@@ -157,6 +173,56 @@ class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSup
                                                 Lists.newArrayList(110L))
                                 )
                         )
+                );
+    }
+
+    // -------------------------------------------------------------------------
+    // from EliminateConstHashJoinConditionTest
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testEliminate() {
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 join T2 on T1.id = T2.id and T1.id = 1",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .matches(
+                        logicalJoin().when(join ->
+                                join.getHashJoinConjuncts().isEmpty() && join.getOtherJoinConjuncts().isEmpty())
+                );
+    }
+
+    @Test
+    void testNotEliminateNonInnerJoin() {
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 left join T2 on T1.id = T2.id where T1.id = 1",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .matches(
+                        logicalJoin().when(join ->
+                                !join.getHashJoinConjuncts().isEmpty())
+                );
+    }
+
+    @Test
+    void testNotEliminateAsofJoin() {
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 asof inner join T2 match_condition(cast(T1.score as datetime) "
+                        + "> cast(T2.score as datetime)) on T1.id = T2.id where T1.id = 1",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .matches(
+                        logicalJoin().when(join ->
+                                !join.getHashJoinConjuncts().isEmpty())
                 );
     }
 }
