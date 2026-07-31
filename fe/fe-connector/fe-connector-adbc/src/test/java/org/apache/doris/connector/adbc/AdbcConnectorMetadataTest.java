@@ -51,9 +51,13 @@ class AdbcConnectorMetadataTest {
                 null, "file:" + dbFile, null, null, Map.of());
     }
 
+    /**
+     * A fresh cache per call, so each test here reads the source rather than the previous test's answers --
+     * what the cache does across statements is {@link AdbcMetadataCacheNativeTest}'s subject, not this one's.
+     */
     private static AdbcConnectorMetadata metadataOn(AdbcClient client) {
         return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), Map.of(),
-                AdbcDialectRegistry::defaultDialect);
+                AdbcDialectRegistry::defaultDialect, new AdbcMetadataCache(Map.of()));
     }
 
     /**

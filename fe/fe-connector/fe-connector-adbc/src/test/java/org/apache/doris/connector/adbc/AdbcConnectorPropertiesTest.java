@@ -117,6 +117,33 @@ class AdbcConnectorPropertiesTest {
         }
     }
 
+    /**
+     * A cache knob is read through {@code CacheSpec}, which answers an unparseable value with the default
+     * rather than an error. Silently caching for ten minutes when the operator wrote {@code ttl-second=6O0}
+     * is exactly the kind of thing nobody notices until the metadata is wrong, so the value has to be
+     * refused where the operator is still looking at it.
+     */
+    @Test
+    void providerRejectsAnUnreadableCacheSettingAtCreateTime() {
+        AdbcConnectorProvider provider = new AdbcConnectorProvider();
+        for (String[] bad : new String[][] {
+                {"meta.cache.adbc.metadata.enable", "no"},
+                {"meta.cache.adbc.metadata.ttl-second", "6O0"},
+                {"meta.cache.adbc.metadata.ttl-second", "-2"},
+                {"meta.cache.adbc.metadata.capacity", "-1"}}) {
+            Map<String, String> props = minimalProperties();
+            props.put(bad[0], bad[1]);
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> provider.validateProperties(props), bad[0] + "=" + bad[1]);
+            Assertions.assertTrue(e.getMessage().contains(bad[0]), e.getMessage());
+        }
+
+        // -1 is the framework's "never expire", not a typo.
+        Map<String, String> noExpiry = minimalProperties();
+        noExpiry.put("meta.cache.adbc.metadata.ttl-second", "-1");
+        Assertions.assertDoesNotThrow(() -> provider.validateProperties(noExpiry));
+    }
+
     @Test
     void providerRejectsAMissingDriverUrlOrUri() {
         AdbcConnectorProvider provider = new AdbcConnectorProvider();

@@ -48,9 +48,10 @@ import java.util.function.Supplier;
 /**
  * Serves {@code SHOW DATABASES} / {@code SHOW TABLES} / {@code DESC} for an ADBC catalog.
  *
- * <p>Created fresh per statement by the engine's metadata funnel, so it holds no cross-statement state; the
- * one piece of knowledge worth keeping longer -- which call a driver answers schemas with -- lives on the
- * connector, because re-probing it per table would cost one failed remote call per table forever.
+ * <p>Created fresh per statement by the engine's metadata funnel, so it holds no cross-statement state.
+ * Everything worth keeping longer lives on the connector and is reached from here: which call a driver
+ * answers schemas with (re-probing it per table would cost one failed remote call per table forever), and
+ * the answers themselves ({@link AdbcMetadataCache}).
  */
 public class AdbcConnectorMetadata implements ConnectorMetadata {
 
@@ -65,17 +66,20 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     private final AdbcSchemaStrategy schemaStrategy;
     private final Map<String, String> properties;
     private final Supplier<AdbcDialect> dialect;
+    private final AdbcMetadataCache cache;
 
     /**
      * @param dialect resolved lazily, because only the {@code executeSchema} fallback needs it and
      *                resolving it can cost a remote call
+     * @param cache   the catalog's, shared with every other statement
      */
     public AdbcConnectorMetadata(AdbcClient client, AdbcSchemaStrategy schemaStrategy,
-            Map<String, String> properties, Supplier<AdbcDialect> dialect) {
+            Map<String, String> properties, Supplier<AdbcDialect> dialect, AdbcMetadataCache cache) {
         this.client = client;
         this.schemaStrategy = schemaStrategy;
         this.properties = properties;
         this.dialect = dialect;
+        this.cache = cache;
     }
 
     // ========= ConnectorSchemaOps =========
@@ -112,7 +116,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
         if (!namespace.isPresent()) {
             return Optional.empty();
         }
-        if (!listTableNames(namespace.get()).contains(tableName)) {
+        if (!tableExists(namespace.get(), tableName)) {
             return Optional.empty();
         }
         return Optional.of(new AdbcTableHandle(namespace.get(), tableName));
@@ -165,6 +169,10 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     // ========= internals =========
 
     private List<AdbcNamespace> listNamespaces() {
+        return cache.namespaces(this::readNamespaces);
+    }
+
+    private List<AdbcNamespace> readNamespaces() {
         return client.withConnection(connection -> {
             try (ArrowReader reader = connection.getObjects(
                     AdbcConnection.GetObjectsDepth.DB_SCHEMAS, null, null, null, null, null)) {
@@ -173,8 +181,24 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
         });
     }
 
+    /**
+     * Resolves a Doris database name, asking the source again before deciding there is no such database.
+     *
+     * <p>The second read is what keeps a cached listing from being able to say "no". Between the two, a
+     * database created remotely since the listing was cached is found rather than denied, and the cost falls
+     * only on the path that was about to fail anyway. {@code SHOW DATABASES} takes the cached listing as it
+     * stands -- a report may lag the source; a lookup that errors may not.
+     */
     private Optional<AdbcNamespace> findNamespace(String dbName) {
-        for (AdbcNamespace namespace : listNamespaces()) {
+        Optional<AdbcNamespace> found = match(listNamespaces(), dbName);
+        if (found.isPresent()) {
+            return found;
+        }
+        return match(cache.reloadNamespaces(this::readNamespaces), dbName);
+    }
+
+    private static Optional<AdbcNamespace> match(List<AdbcNamespace> namespaces, String dbName) {
+        for (AdbcNamespace namespace : namespaces) {
             if (namespace.dorisDatabaseName().equals(dbName)) {
                 return Optional.of(namespace);
             }
@@ -183,6 +207,16 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     private List<String> listTableNames(AdbcNamespace namespace) {
+        return cache.tableNames(namespace, () -> readTableNames(namespace));
+    }
+
+    /** The table-level counterpart of {@link #findNamespace}; same reason, same cost. */
+    private boolean tableExists(AdbcNamespace namespace, String tableName) {
+        return listTableNames(namespace).contains(tableName)
+                || cache.reloadTableNames(namespace, () -> readTableNames(namespace)).contains(tableName);
+    }
+
+    private List<String> readTableNames(AdbcNamespace namespace) {
         return client.withConnection(connection -> {
             try (ArrowReader reader = connection.getObjects(AdbcConnection.GetObjectsDepth.TABLES,
                     emptyToNull(namespace.getRemoteCatalog()), emptyToNull(namespace.getRemoteDbSchema()),
@@ -192,8 +226,14 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
         });
     }
 
+    /**
+     * Two layers, and neither makes the other redundant: the statement scope folds the two SPI calls one
+     * statement makes for the same table ({@code getTableSchema} then {@code getColumnHandles}) into one
+     * lookup, while the catalog cache carries the answer to the next statement.
+     */
     private Schema arrowSchemaOf(ConnectorSession session, AdbcTableHandle handle) {
-        return AdbcStatementScope.sharedTableSchema(session, handle, () -> fetchArrowSchema(handle));
+        return AdbcStatementScope.sharedTableSchema(session, handle,
+                () -> cache.tableSchema(handle, () -> fetchArrowSchema(handle)));
     }
 
     /**

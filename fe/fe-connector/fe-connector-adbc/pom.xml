@@ -55,6 +55,26 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
+        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
+             MetaCacheEntry/CacheFactory), backing AdbcMetadataCache. fe-core does NOT depend on it, so under
+             the parent-first org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD,
+             i.e. they load from this plugin's own bundled jar and link against THIS plugin's Caffeine. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Caffeine: the runtime library the shared meta-cache framework links against. fe-connector-cache
+             declares Caffeine `provided` (compiles against, never bundles), so each consuming plugin must
+             carry its own. Nothing on the ADBC classpath brings one transitively, so declare it here to get
+             it into the plugin zip. Pinned to 2.9.3, the version fe-connector-cache is compiled against. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
+        </dependency>
+
         <!-- ADBC API. adbc-driver-jni bundles the JNI shim for linux x86_64/aarch64 in its jar, but
              Doris ships its own build in fe/lib (the released shim needs GLIBC 2.34 / GLIBCXX 3.4.31,
              which the supported build hosts do not have); conf/fe.conf points at it with

@@ -46,6 +46,7 @@ public class AdbcConnector implements Connector {
     private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
     private final AdbcPartitionedReadSupport partitionedRead = new AdbcPartitionedReadSupport();
     private final AdbcDialectSelector dialectSelector;
+    private final AdbcMetadataCache metadataCache;
 
     private volatile AdbcClient client;
     private volatile boolean closed;
@@ -53,14 +54,45 @@ public class AdbcConnector implements Connector {
     public AdbcConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
         this.context = context;
-        // Reads a property only; the driver is not touched here (see getOrCreateClient).
+        // Both read properties only; the driver is not touched here (see getOrCreateClient).
         this.dialectSelector = new AdbcDialectSelector(properties);
+        this.metadataCache = new AdbcMetadataCache(properties);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy, properties,
-                () -> dialectSelector.select(this::getOrCreateClient));
+                () -> dialectSelector.select(this::getOrCreateClient), metadataCache);
+    }
+
+    /**
+     * The catalog's metadata memory, shared by every statement's {@link AdbcConnectorMetadata} and dropped
+     * by the REFRESH hooks below.
+     */
+    AdbcMetadataCache metadataCache() {
+        return metadataCache;
+    }
+
+    /** {@code REFRESH TABLE}. The names are the remote ones, which for ADBC are the ones Doris shows. */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        metadataCache.invalidateTable(dbName, tableName);
+    }
+
+    /** {@code REFRESH DATABASE}. */
+    @Override
+    public void invalidateDb(String dbName) {
+        metadataCache.invalidateDb(dbName);
+    }
+
+    /**
+     * {@code REFRESH CATALOG}. Note that this does NOT rebuild the connector, so without dropping the cache
+     * here the catalog would keep serving what it remembered until the TTL ran out -- the statement a user
+     * reaches for when metadata looks wrong would be the one statement that changed nothing.
+     */
+    @Override
+    public void invalidateAll() {
+        metadataCache.invalidateAll();
     }
 
     @Override
