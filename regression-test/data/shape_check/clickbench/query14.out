@@ -7,8 +7,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------hashAgg[GLOBAL]
-----------------PhysicalProject
-------------------filter(( not (SearchPhrase = '')))
---------------------PhysicalOlapScan[hits]
+--------------PhysicalProject
+----------------filter(( not (SearchPhrase = '')))
+------------------PhysicalOlapScan[hits]
 
