@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
-import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -393,7 +392,7 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testAdaptiveBatchUsesInternalThroughputThreshold() {
+    public void testAdaptiveBatchUsesTaskLagThreshold() {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);
         int previousAdaptiveIntervalSec = Config.routine_load_adaptive_min_batch_interval_sec;
@@ -412,88 +411,78 @@ public class KafkaRoutineLoadJobTest {
 
             Map<Integer, Long> taskProgress = Maps.newHashMap();
             taskProgress.put(1, 10L);
+            taskProgress.put(2, 20L);
 
-            KafkaTaskInfo initialTask = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+            KafkaTaskInfo taskWithUnknownLag = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
                     taskProgress, false, 1000, false);
-            initialTask.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask initialThriftTask = new TRoutineLoadTask();
-            Deencapsulation.invoke(initialTask, "adaptiveBatchParam", initialThriftTask, routineLoadJob);
-            Assert.assertEquals(20L, initialThriftTask.getMaxIntervalS());
-            Assert.assertEquals(200000L, initialThriftTask.getMaxBatchRows());
-            Assert.assertEquals(100L * 1024 * 1024, initialThriftTask.getMaxBatchSize());
+            taskWithUnknownLag.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask unknownLagThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(
+                    taskWithUnknownLag, "adaptiveBatchParam", unknownLagThriftTask, routineLoadJob);
+            Assert.assertEquals(20L, unknownLagThriftTask.getMaxIntervalS());
 
-            KafkaTaskInfo lowThroughputTask = new KafkaTaskInfo(new UUID(1, 2), 1L, 20000,
-                    taskProgress, false, 1000, false);
-            RLTaskTxnCommitAttachment lowThroughputAttachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(lowThroughputAttachment, "loadedRows", 100000L);
-            Deencapsulation.setField(lowThroughputAttachment, "receivedBytes", 4L * 1024 * 1024);
-            Deencapsulation.setField(lowThroughputAttachment, "taskExecutionTimeMs", 20000L);
-            lowThroughputTask.handleTaskByTxnCommitAttachment(lowThroughputAttachment);
-            KafkaTaskInfo nextLowThroughputTask = new KafkaTaskInfo(lowThroughputTask, taskProgress, false);
-            nextLowThroughputTask.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask lowThroughputThriftTask = new TRoutineLoadTask();
-            Deencapsulation.invoke(nextLowThroughputTask, "adaptiveBatchParam",
-                    lowThroughputThriftTask, routineLoadJob);
-            Assert.assertEquals(20L, lowThroughputThriftTask.getMaxIntervalS());
-            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L, nextLowThroughputTask.getTimeoutMs());
+            Map<Integer, Long> latestOffsets = Maps.newHashMap();
+            latestOffsets.put(1, 10_000_010L);
+            latestOffsets.put(2, 10_000_020L);
+            latestOffsets.put(3, 100_000_000L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets", latestOffsets);
 
-            KafkaTaskInfo adaptiveLowThroughputTask = new KafkaTaskInfo(new UUID(1, 5), 1L, 20000,
+            KafkaTaskInfo taskAtLagThreshold = new KafkaTaskInfo(new UUID(1, 2), 1L, 20000,
                     taskProgress, false, 1000, false);
-            RLTaskTxnCommitAttachment adaptiveLowThroughputAttachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(adaptiveLowThroughputAttachment, "loadedRows", 162458L);
-            Deencapsulation.setField(adaptiveLowThroughputAttachment, "receivedBytes", 70045427L);
-            Deencapsulation.setField(adaptiveLowThroughputAttachment, "taskExecutionTimeMs", 360000L);
-            adaptiveLowThroughputTask.handleTaskByTxnCommitAttachment(adaptiveLowThroughputAttachment);
-            KafkaTaskInfo nextAdaptiveLowThroughputTask =
-                    new KafkaTaskInfo(adaptiveLowThroughputTask, taskProgress, false);
-            nextAdaptiveLowThroughputTask.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask adaptiveLowThroughputThriftTask = new TRoutineLoadTask();
-            Deencapsulation.invoke(nextAdaptiveLowThroughputTask, "adaptiveBatchParam",
-                    adaptiveLowThroughputThriftTask, routineLoadJob);
-            Assert.assertEquals(20L, adaptiveLowThroughputThriftTask.getMaxIntervalS());
+            taskAtLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            latestOffsets.put(2, 10_000_021L);
+            TRoutineLoadTask thresholdThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(
+                    taskAtLagThreshold, "adaptiveBatchParam", thresholdThriftTask, routineLoadJob);
+            Assert.assertEquals(20L, thresholdThriftTask.getMaxIntervalS());
+            Assert.assertEquals(200000L, thresholdThriftTask.getMaxBatchRows());
+            Assert.assertEquals(100L * 1024 * 1024, thresholdThriftTask.getMaxBatchSize());
+            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L, taskAtLagThreshold.getTimeoutMs());
 
-            KafkaTaskInfo highRowsOnlyTask = new KafkaTaskInfo(new UUID(1, 3), 1L, 20000,
-                    taskProgress, false, 1000, false);
-            RLTaskTxnCommitAttachment highRowsOnlyAttachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(highRowsOnlyAttachment, "loadedRows", 2000000L);
-            Deencapsulation.setField(highRowsOnlyAttachment, "receivedBytes", 1L);
-            Deencapsulation.setField(highRowsOnlyAttachment, "taskExecutionTimeMs", 20000L);
-            highRowsOnlyTask.handleTaskByTxnCommitAttachment(highRowsOnlyAttachment);
-            KafkaTaskInfo nextHighRowsOnlyTask = new KafkaTaskInfo(highRowsOnlyTask, taskProgress, false);
-            nextHighRowsOnlyTask.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask highRowsOnlyThriftTask = new TRoutineLoadTask();
-            Deencapsulation.invoke(nextHighRowsOnlyTask, "adaptiveBatchParam",
-                    highRowsOnlyThriftTask, routineLoadJob);
-            Assert.assertEquals(20L, highRowsOnlyThriftTask.getMaxIntervalS());
-            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L, nextHighRowsOnlyTask.getTimeoutMs());
-
-            KafkaTaskInfo highBytesThroughputTask = new KafkaTaskInfo(new UUID(1, 4), 1L, 20000,
-                    taskProgress, false, 1000, false);
-            RLTaskTxnCommitAttachment highBytesThroughputAttachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(highBytesThroughputAttachment, "loadedRows", 1L);
-            Deencapsulation.setField(highBytesThroughputAttachment, "receivedBytes", 100L * 1024 * 1024);
-            Deencapsulation.setField(highBytesThroughputAttachment, "taskExecutionTimeMs", 20000L);
-            highBytesThroughputTask.handleTaskByTxnCommitAttachment(highBytesThroughputAttachment);
-            KafkaTaskInfo nextHighBytesThroughputTask =
-                    new KafkaTaskInfo(highBytesThroughputTask, taskProgress, false);
-            nextHighBytesThroughputTask.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask highBytesThroughputThriftTask = new TRoutineLoadTask();
-            Deencapsulation.invoke(nextHighBytesThroughputTask, "adaptiveBatchParam",
-                    highBytesThroughputThriftTask, routineLoadJob);
-            Assert.assertEquals(360L, highBytesThroughputThriftTask.getMaxIntervalS());
+            KafkaTaskInfo taskAboveLagThreshold = new KafkaTaskInfo(new UUID(1, 3), 1L, 20000,
+                    taskProgress, false, 1000, true);
+            taskAboveLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask adaptiveThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(
+                    taskAboveLagThreshold, "adaptiveBatchParam", adaptiveThriftTask, routineLoadJob);
+            Assert.assertEquals(360L, adaptiveThriftTask.getMaxIntervalS());
             Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS,
-                    highBytesThroughputThriftTask.getMaxBatchRows());
+                    adaptiveThriftTask.getMaxBatchRows());
             Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE,
-                    highBytesThroughputThriftTask.getMaxBatchSize());
+                    adaptiveThriftTask.getMaxBatchSize());
             Assert.assertEquals(360L * Config.routine_load_task_timeout_multiplier * 1000,
-                    nextHighBytesThroughputTask.getTimeoutMs());
+                    taskAboveLagThreshold.getTimeoutMs());
+
+            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 50_000_000L);
+            latestOffsets.put(1, 25_000_010L);
+            latestOffsets.put(2, 25_000_020L);
+            KafkaTaskInfo taskAtConfiguredLagThreshold = new KafkaTaskInfo(new UUID(1, 4), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            taskAtConfiguredLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            latestOffsets.put(2, 25_000_021L);
+            TRoutineLoadTask configuredThresholdThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(taskAtConfiguredLagThreshold, "adaptiveBatchParam",
+                    configuredThresholdThriftTask, routineLoadJob);
+            Assert.assertEquals(20L, configuredThresholdThriftTask.getMaxIntervalS());
+            Assert.assertEquals(50_000_000L, configuredThresholdThriftTask.getMaxBatchRows());
+            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L,
+                    taskAtConfiguredLagThreshold.getTimeoutMs());
+
+            KafkaTaskInfo taskAboveConfiguredLagThreshold = new KafkaTaskInfo(new UUID(1, 5), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            taskAboveConfiguredLagThreshold.updateAdaptiveTimeout(routineLoadJob);
+            TRoutineLoadTask configuredAdaptiveThriftTask = new TRoutineLoadTask();
+            Deencapsulation.invoke(taskAboveConfiguredLagThreshold, "adaptiveBatchParam",
+                    configuredAdaptiveThriftTask, routineLoadJob);
+            Assert.assertEquals(360L, configuredAdaptiveThriftTask.getMaxIntervalS());
+            Assert.assertEquals(50_000_000L, configuredAdaptiveThriftTask.getMaxBatchRows());
         } finally {
             Config.routine_load_adaptive_min_batch_interval_sec = previousAdaptiveIntervalSec;
         }
     }
 
     @Test
-    public void testAdaptiveBatchSnapshotAcrossConfigChange() {
+    public void testAdaptiveBatchUsesCapturedIntervalAcrossConfigChange() {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);
         int previousAdaptiveIntervalSec = Config.routine_load_adaptive_min_batch_interval_sec;
@@ -506,36 +495,32 @@ public class KafkaRoutineLoadJobTest {
             KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
                     1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
             Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", 30L);
-            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 50000000L);
-            Deencapsulation.setField(routineLoadJob, "maxBatchSizeBytes", 10L * 1024 * 1024 * 1024);
+            Deencapsulation.setField(routineLoadJob, "maxBatchRows", 200000L);
+            Deencapsulation.setField(routineLoadJob, "maxBatchSizeBytes", 100L * 1024 * 1024);
             Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
 
             Map<Integer, Long> taskProgress = Maps.newHashMap();
             taskProgress.put(1, 10L);
+            Map<Integer, Long> latestOffsets = Maps.newHashMap();
+            latestOffsets.put(1, 20_000_011L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets", latestOffsets);
 
-            KafkaTaskInfo completedTask = new KafkaTaskInfo(new UUID(1, 6), 1L, 20000,
+            KafkaTaskInfo scheduledTask = new KafkaTaskInfo(new UUID(1, 6), 1L, 20000,
                     taskProgress, false, 1000, false);
-            RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(attachment, "loadedRows", 1000000L);
-            Deencapsulation.setField(attachment, "receivedBytes", 64L * 1024 * 1024);
-            Deencapsulation.setField(attachment, "taskExecutionTimeMs", 30000L);
-            completedTask.handleTaskByTxnCommitAttachment(attachment);
-
-            KafkaTaskInfo scheduledTask = new KafkaTaskInfo(completedTask, taskProgress, false);
             scheduledTask.updateAdaptiveTimeout(routineLoadJob);
-            long normalTimeoutMs = Math.max(30L * Config.routine_load_task_timeout_multiplier,
-                    Config.routine_load_task_min_timeout_sec) * 1000L;
-            Assert.assertEquals(normalTimeoutMs, scheduledTask.getTimeoutMs());
+            long adaptiveTimeoutMs = 360L * Config.routine_load_task_timeout_multiplier * 1000L;
+            Assert.assertEquals(adaptiveTimeoutMs, scheduledTask.getTimeoutMs());
 
             Config.routine_load_adaptive_min_batch_interval_sec = 720;
             TRoutineLoadTask scheduledThriftTask = new TRoutineLoadTask();
             Deencapsulation.invoke(scheduledTask, "adaptiveBatchParam", scheduledThriftTask, routineLoadJob);
-            Assert.assertEquals(30L, scheduledThriftTask.getMaxIntervalS());
-            Assert.assertEquals(50000000L, scheduledThriftTask.getMaxBatchRows());
-            Assert.assertEquals(10L * 1024 * 1024 * 1024, scheduledThriftTask.getMaxBatchSize());
-            Assert.assertEquals(normalTimeoutMs, scheduledTask.getTimeoutMs());
+            Assert.assertEquals(360L, scheduledThriftTask.getMaxIntervalS());
+            Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, scheduledThriftTask.getMaxBatchRows());
+            Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, scheduledThriftTask.getMaxBatchSize());
+            Assert.assertEquals(adaptiveTimeoutMs, scheduledTask.getTimeoutMs());
 
-            KafkaTaskInfo nextSchedulingAttempt = new KafkaTaskInfo(completedTask, taskProgress, false);
+            KafkaTaskInfo nextSchedulingAttempt = new KafkaTaskInfo(new UUID(1, 7), 1L, 20000,
+                    taskProgress, false, 1000, false);
             nextSchedulingAttempt.updateAdaptiveTimeout(routineLoadJob);
             TRoutineLoadTask nextThriftTask = new TRoutineLoadTask();
             Deencapsulation.invoke(nextSchedulingAttempt, "adaptiveBatchParam", nextThriftTask, routineLoadJob);
@@ -545,61 +530,21 @@ public class KafkaRoutineLoadJobTest {
 
             for (int nonPositiveInterval : new int[] {0, -1}) {
                 Config.routine_load_adaptive_min_batch_interval_sec = nonPositiveInterval;
-                KafkaTaskInfo nonPositiveConfigTask = new KafkaTaskInfo(completedTask, taskProgress, false);
+                KafkaTaskInfo nonPositiveConfigTask = new KafkaTaskInfo(new UUID(1, 8), 1L, 20000,
+                        taskProgress, false, 1000, false);
                 nonPositiveConfigTask.updateAdaptiveTimeout(routineLoadJob);
                 TRoutineLoadTask nonPositiveConfigThriftTask = new TRoutineLoadTask();
                 Deencapsulation.invoke(nonPositiveConfigTask, "adaptiveBatchParam",
                         nonPositiveConfigThriftTask, routineLoadJob);
                 Assert.assertEquals(30L, nonPositiveConfigThriftTask.getMaxIntervalS());
+                Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS,
+                        nonPositiveConfigThriftTask.getMaxBatchRows());
+                Assert.assertEquals(RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE,
+                        nonPositiveConfigThriftTask.getMaxBatchSize());
+                long normalTimeoutMs = Math.max(30L * Config.routine_load_task_timeout_multiplier,
+                        Config.routine_load_task_min_timeout_sec) * 1000L;
                 Assert.assertEquals(normalTimeoutMs, nonPositiveConfigTask.getTimeoutMs());
             }
-        } finally {
-            Config.routine_load_adaptive_min_batch_interval_sec = previousAdaptiveIntervalSec;
-        }
-    }
-
-    @Test
-    public void testAdaptiveBatchSampleInheritanceOnRenew() {
-        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
-        Env env = Mockito.mock(Env.class);
-        int previousAdaptiveIntervalSec = Config.routine_load_adaptive_min_batch_interval_sec;
-
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            Config.routine_load_adaptive_min_batch_interval_sec = 360;
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
-
-            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
-            Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", 20L);
-            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
-
-            Map<Integer, Long> taskProgress = Maps.newHashMap();
-            taskProgress.put(1, 10L);
-
-            KafkaTaskInfo committedTask = new KafkaTaskInfo(new UUID(1, 7), 1L, 20000,
-                    taskProgress, false, 1000, false);
-            RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(attachment, "receivedBytes", 100L * 1024 * 1024);
-            Deencapsulation.setField(attachment, "taskExecutionTimeMs", 20000L);
-            committedTask.handleTaskByTxnCommitAttachment(attachment);
-            committedTask.setExecuteStartTimeMs(System.currentTimeMillis());
-            committedTask.setTxnStatus(TransactionStatus.COMMITTED);
-
-            KafkaTaskInfo taskAfterCommit = new KafkaTaskInfo(committedTask, taskProgress, false);
-            taskAfterCommit.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask thriftTaskAfterCommit = new TRoutineLoadTask();
-            Deencapsulation.invoke(taskAfterCommit, "adaptiveBatchParam", thriftTaskAfterCommit, routineLoadJob);
-            Assert.assertEquals(360L, thriftTaskAfterCommit.getMaxIntervalS());
-
-            taskAfterCommit.setExecuteStartTimeMs(System.currentTimeMillis());
-            taskAfterCommit.setTxnStatus(TransactionStatus.ABORTED);
-            KafkaTaskInfo taskAfterAbort = new KafkaTaskInfo(taskAfterCommit, taskProgress, false);
-            taskAfterAbort.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask thriftTaskAfterAbort = new TRoutineLoadTask();
-            Deencapsulation.invoke(taskAfterAbort, "adaptiveBatchParam", thriftTaskAfterAbort, routineLoadJob);
-            Assert.assertEquals(20L, thriftTaskAfterAbort.getMaxIntervalS());
-            Assert.assertEquals(routineLoadJob.getTimeout() * 1000L, taskAfterAbort.getTimeoutMs());
         } finally {
             Config.routine_load_adaptive_min_batch_interval_sec = previousAdaptiveIntervalSec;
         }
@@ -610,10 +555,8 @@ public class KafkaRoutineLoadJobTest {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);
         RoutineLoadTaskScheduler routineLoadTaskScheduler = Mockito.mock(RoutineLoadTaskScheduler.class);
-        int previousAdaptiveIntervalSec = Config.routine_load_adaptive_min_batch_interval_sec;
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            Config.routine_load_adaptive_min_batch_interval_sec = 360;
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
             Mockito.when(env.getRoutineLoadTaskScheduler()).thenReturn(routineLoadTaskScheduler);
@@ -623,17 +566,12 @@ public class KafkaRoutineLoadJobTest {
                             1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
             long maxBatchIntervalS = 10;
             Deencapsulation.setField(routineLoadJob, "maxBatchIntervalS", maxBatchIntervalS);
-            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
 
             List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
             Map<Integer, Long> partitionIdsToOffset = Maps.newHashMap();
             partitionIdsToOffset.put(100, 0L);
             KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L,
                     maxBatchIntervalS * 2 * 1000, partitionIdsToOffset, false, -1, false);
-            RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
-            Deencapsulation.setField(attachment, "receivedBytes", 100L * 1024 * 1024);
-            Deencapsulation.setField(attachment, "taskExecutionTimeMs", 20000L);
-            kafkaTaskInfo.handleTaskByTxnCommitAttachment(attachment);
             kafkaTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis() - maxBatchIntervalS * 2 * 1000 - 1);
             routineLoadTaskInfoList.add(kafkaTaskInfo);
 
@@ -645,13 +583,6 @@ public class KafkaRoutineLoadJobTest {
                     Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
             Assert.assertNotEquals("1", idToRoutineLoadTask.get(0).getId());
             Assert.assertEquals(1, idToRoutineLoadTask.size());
-            KafkaTaskInfo taskAfterTimeout = (KafkaTaskInfo) idToRoutineLoadTask.get(0);
-            taskAfterTimeout.updateAdaptiveTimeout(routineLoadJob);
-            TRoutineLoadTask thriftTaskAfterTimeout = new TRoutineLoadTask();
-            Deencapsulation.invoke(taskAfterTimeout, "adaptiveBatchParam", thriftTaskAfterTimeout, routineLoadJob);
-            Assert.assertEquals(maxBatchIntervalS, thriftTaskAfterTimeout.getMaxIntervalS());
-        } finally {
-            Config.routine_load_adaptive_min_batch_interval_sec = previousAdaptiveIntervalSec;
         }
     }
 
