@@ -120,6 +120,20 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
 
     // 3. wait all compaction finished
     def running = triggered_tablets.size() > 0
+    def toLongOrNull = { value ->
+        if (value == null) {
+            return null
+        }
+        try {
+            return value.toString().trim().toLong()
+        } catch (Throwable ignored) {
+            return null
+        }
+    }
+    def isIgnoredCompactionStatus = { status ->
+        def status_lower = "${status}".toLowerCase()
+        return ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }
+    }
     Awaitility.await().atMost(timeout_seconds, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
         for (tablet in triggered_tablets) {
             def be_host = backendId_to_backendIP["${tablet.BackendId}"]
@@ -146,8 +160,50 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 }
                 def tabletStatus = parseJson(stdout.trim())
                 def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
-                // last compaction success time isn't updated, indicates compaction is not started(so we treat it as running and wait)
-                running = running || (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
+                // last compaction success/failure time isn't updated, indicates compaction is not started(so we treat it as running and wait)
+                def handedOffToBaseCompactionAfterDeleteVersion = false
+                def completedByBaseCompactionAfterDeleteVersion = false
+                if (compaction_type == "cumulative") {
+                    def oldCumulativePoint = toLongOrNull(oldStatus["cumulative point"])
+                    def newCumulativePoint = toLongOrNull(tabletStatus["cumulative point"])
+                    def lastCumulativeStatus = "${tabletStatus["last cumulative status"]}".toLowerCase()
+                    def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
+                    def cumulativeSuccessTimeChanged =
+                            oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
+                    // E-2010 advances the cumulative point and lets base compaction handle delete-version rowsets.
+                    // In some timing windows, base success is already visible in the cached old status while
+                    // cumulative success advances later, so accept either success signal but not failure time alone.
+                    handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
+                            oldCumulativePoint != null && newCumulativePoint != null &&
+                            newCumulativePoint > oldCumulativePoint
+                    completedByBaseCompactionAfterDeleteVersion =
+                            handedOffToBaseCompactionAfterDeleteVersion &&
+                            (baseSuccessTimeChanged || cumulativeSuccessTimeChanged)
+                }
+                def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
+                def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
+                def compactionFailureIgnored =
+                        !failure_time_unchanged && isIgnoredCompactionStatus(tabletStatus["last ${compaction_type} status"])
+                def baseFailureTimeChanged = handedOffToBaseCompactionAfterDeleteVersion &&
+                        oldStatus["last base failure time"] != tabletStatus["last base failure time"]
+                def baseFailureIgnored = baseFailureTimeChanged && isIgnoredCompactionStatus(tabletStatus["last base status"])
+                if (!running && !handedOffToBaseCompactionAfterDeleteVersion &&
+                        !completedByBaseCompactionAfterDeleteVersion &&
+                        success_time_unchanged && !failure_time_unchanged && !compactionFailureIgnored) {
+                    throw new Exception("compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, " +
+                            "run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
+                }
+                if (!running && handedOffToBaseCompactionAfterDeleteVersion &&
+                        !completedByBaseCompactionAfterDeleteVersion &&
+                        baseFailureTimeChanged && !baseFailureIgnored) {
+                    throw new Exception("base compaction failed after cumulative E-2010 handoff, be host: ${be_host}, " +
+                            "tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, " +
+                            "old status: ${oldStatus}, new status: ${tabletStatus}")
+                }
+                def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
+                        compactionFailureIgnored || baseFailureIgnored ||
+                        (!handedOffToBaseCompactionAfterDeleteVersion && !success_time_unchanged)
+                running = running || !compactionFinished
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                     return false
