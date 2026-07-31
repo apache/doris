@@ -690,8 +690,11 @@ public class IcebergUtils {
             case STRUCT:
                 Types.StructType struct = (Types.StructType) type;
                 ArrayList<StructField> nestedTypes = struct.fields().stream().map(
+                        // Nested docs live on Iceberg fields, so carry them into the Doris type;
+                        // otherwise DESC can only expose the top-level column comment.
                         x -> new StructField(x.name(),
-                                icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
+                                icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz),
+                                x.doc(), x.isOptional()))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             case VARIANT:
@@ -1448,12 +1451,6 @@ public class IcebergUtils {
                 refName = params.getListParams().get(0);
             }
             SnapshotRef snapshotRef = table.refs().get(refName);
-            LOG.info("[BranchDebug] getQuerySpecSnapshot: refName={}, snapshotId={}, "
-                    + "currentSnapshotId={}, allRefs={}",
-                    refName,
-                    snapshotRef != null ? snapshotRef.snapshotId() : "null",
-                    table.currentSnapshot() != null ? table.currentSnapshot().snapshotId() : "null",
-                    table.refs());
             if (params.isBranch()) {
                 if (snapshotRef == null || !snapshotRef.isBranch()) {
                     throw new UserException("Table " + table.name() + " does not have branch named " + refName);
@@ -1466,6 +1463,7 @@ public class IcebergUtils {
             return new IcebergTableQueryInfo(
                 snapshotRef.snapshotId(),
                 refName,
+                // Branches use the table's current schema while tags retain their snapshot schema.
                 SnapshotUtil.schemaFor(table, refName).schemaId());
         }
 
@@ -1489,9 +1487,11 @@ public class IcebergUtils {
             if (!table.refs().containsKey(value)) {
                 throw new UserException("Table " + table.name() + " does not have tag or branch named " + value);
             }
+            SnapshotRef snapshotRef = table.refs().get(value);
             return new IcebergTableQueryInfo(
-                table.refs().get(value).snapshotId(),
+                snapshotRef.snapshotId(),
                 value,
+                // VERSION must preserve Iceberg's branch-current/tag-historical schema contract.
                 SnapshotUtil.schemaFor(table, value).schemaId()
             );
         } else {
@@ -1821,7 +1821,7 @@ public class IcebergUtils {
             Optional<TableScanParams> scanParams) {
         if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
             // If a snapshot is specified, use the specified snapshot and the corresponding schema (not latest).
-            Table icebergTable = getIcebergTable(dorisTable);
+            Table icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(getIcebergTable(dorisTable));
             IcebergTableQueryInfo info;
             try {
                 info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
@@ -1831,19 +1831,29 @@ public class IcebergUtils {
             return new IcebergSnapshotCacheValue(
                     IcebergPartitionInfo.empty(),
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
-                    getNameMapping(icebergTable));
+                    getNameMapping(icebergTable),
+                    icebergTable);
         }
         return getLatestSnapshotCacheValue(dorisTable);
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {
-        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(dorisTable);
-        IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshotFromContext, dorisTable);
+        return getIcebergSchema(dorisTable, MvccUtil.getSnapshotFromContext(dorisTable));
+    }
+
+    public static List<Column> getIcebergSchema(ExternalTable dorisTable, Optional<MvccSnapshot> snapshot) {
+        IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshot, dorisTable);
         return IcebergUtils.getSchemaCacheValue(dorisTable, cacheValue).getSchema();
     }
 
     public static List<Column> getIcebergPartitionColumns(Optional<MvccSnapshot> snapshot, ExternalTable dorisTable) {
         IcebergSnapshotCacheValue snapshotValue = getSnapshotCacheValue(snapshot, dorisTable);
+        if (snapshotValue.getIcebergTable().isPresent()) {
+            // Schema ID alone cannot identify the partition spec; metadata-only evolution may keep
+            // the same schema and snapshot IDs while changing spec(), so derive both from T0.
+            return buildTableSchemaCacheValue(dorisTable, snapshotValue.getSnapshot().getSchemaId(),
+                    snapshotValue.getIcebergTable().get()).getPartitionColumns();
+        }
         return getSchemaCacheValue(dorisTable, snapshotValue).getPartitionColumns();
     }
 
@@ -1870,6 +1880,11 @@ public class IcebergUtils {
 
     private static Optional<SchemaCacheValue> loadTableSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        return Optional.of(buildTableSchemaCacheValue(dorisTable, schemaId, icebergTable));
+    }
+
+    private static IcebergSchemaCacheValue buildTableSchemaCacheValue(ExternalTable dorisTable, long schemaId,
+            Table icebergTable) {
         List<Column> schema = IcebergUtils.getSchema(dorisTable, schemaId, false, icebergTable);
         // get table partition column info
         List<Column> tmpColumns = Lists.newArrayList();
@@ -1883,7 +1898,7 @@ public class IcebergUtils {
                 }
             }
         }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+        return new IcebergSchemaCacheValue(schema, tmpColumns);
     }
 
     /**

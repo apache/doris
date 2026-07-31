@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -65,7 +66,13 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            long ttlSeconds = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+            long ttlSeconds;
+            try {
+                ttlSeconds = PropertyAnalyzer.analyzeFileCacheTtlSeconds(
+                        properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
             olapTable.readLock();
             try {
                 if (ttlSeconds == olapTable.getTTLSeconds()) {
@@ -162,7 +169,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitMode, olapTable.getGroupCommitMode());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -177,7 +183,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitIntervalMs, olapTable.getGroupCommitIntervalMs());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -192,7 +197,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                             groupCommitDataBytes, olapTable.getGroupCommitDataBytes());
                     return;
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
@@ -355,7 +359,6 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     throw new UserException("enable_mow_light_delete property is "
                             + "not supported for unique merge-on-read table");
                 }
-                partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }

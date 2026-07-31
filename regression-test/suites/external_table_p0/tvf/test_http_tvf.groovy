@@ -327,7 +327,8 @@ suite("test_http_tvf", "p2") {
         select count(*) from
         http(
             "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
-            "format" = "csv"
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
 
@@ -335,7 +336,8 @@ suite("test_http_tvf", "p2") {
         select count(*) from
         http(
             "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
-            "format" = "csv"
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
     
@@ -343,7 +345,8 @@ suite("test_http_tvf", "p2") {
         desc function
         http(
             "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
-            "format" = "csv"
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
 

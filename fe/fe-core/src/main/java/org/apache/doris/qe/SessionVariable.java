@@ -171,6 +171,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH =
             "enable_distinct_streaming_agg_force_passthrough";
     public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_AGG = "enable_local_exchange_before_agg";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
+            "enable_local_exchange_before_streaming_agg";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
@@ -846,6 +849,7 @@ public class SessionVariable implements Serializable, Writable {
     // Default is false, which means do not flatten nested when create table.
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
+    public static final String ENABLE_VARIANT_V2 = "enable_variant_v2";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1112,8 +1116,8 @@ public class SessionVariable implements Serializable, Writable {
     public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = {
-            "ScanNode 扫描数据的最大并发，默认为 4", "The max threads to read data of ScanNode, default 4"})
-    public int maxScannersConcurrency = 4;
+            "ScanNode 扫描数据的最大并发，默认为 8", "The max threads to read data of ScanNode, default 8"})
+    public int maxScannersConcurrency = 8;
 
     @VariableMgr.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
@@ -1372,6 +1376,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableStreamingAggHashJoinForcePassthrough = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeAgg = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
@@ -3580,6 +3590,18 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_VARIANT_V2,
+            needForward = true,
+            affectQueryResultInPlan = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {
+                    "是否对纯计算表达式启用 ColumnVariantV2，默认关闭。",
+                    "Whether to enable ColumnVariantV2 for compute expressions. The default is false."
+            }
+    )
+    public boolean enableVariantV2 = false;
+
+    @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3693,6 +3715,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableFileScannerV2 = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
+        this.enableLocalExchangeBeforeAgg = random.nextBoolean();
+        this.enableLocalExchangeBeforeStreamingAgg = random.nextBoolean();
         this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
         this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
@@ -5500,6 +5524,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
+        tResult.setEnableLocalExchangeBeforeAgg(enableLocalExchangeBeforeAgg);
+        tResult.setEnableLocalExchangeBeforeStreamingAgg(enableLocalExchangeBeforeStreamingAgg);
         tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
         tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
@@ -6456,6 +6482,10 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
+    }
+
+    public boolean isEnableVariantV2() {
+        return enableVariantV2;
     }
 
     public void setProfileLevel(String profileLevel) {

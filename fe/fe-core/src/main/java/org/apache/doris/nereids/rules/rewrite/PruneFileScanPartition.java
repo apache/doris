@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
@@ -76,8 +77,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
     private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
-        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
-                ctx.getStatementContext().getSnapshot(externalTable)))) {
+        List<Column> partitionColumns = getPartitionColumnsForScan(externalTable, scan);
+        if (CollectionUtils.isEmpty(partitionColumns)) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -85,8 +86,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
-        List<Slot> partitionSlots = externalTable.getPartitionColumns(
-                        ctx.getStatementContext().getSnapshot(externalTable))
+        List<Slot> partitionSlots = partitionColumns
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
@@ -107,5 +107,11 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));
         }
         return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true);
+    }
+
+    static List<Column> getPartitionColumnsForScan(ExternalTable externalTable, LogicalFileScan scan) {
+        // The partition map is frozen on the logical relation, so its column list must come from
+        // the same snapshot rather than the mutable table-scoped compatibility entry.
+        return externalTable.getPartitionColumns(scan.getRelationSnapshot());
     }
 }

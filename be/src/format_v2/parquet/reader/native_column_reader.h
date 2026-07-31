@@ -86,12 +86,17 @@ public:
     Status select_with_dictionary_filter(const SelectionVector& selection, uint16_t selected_rows,
                                          int64_t batch_rows,
                                          const IColumn::Filter& dictionary_filter,
-                                         MutableColumnPtr& column, IColumn::Filter* row_filter,
-                                         bool* used_filter) override;
+                                         IColumn* projected_column, IColumn::Filter* row_filter,
+                                         uint16_t* survivor_count, bool* used_filter) override;
     Status select_with_fixed_width_filter(const SelectionVector& selection, uint16_t selected_rows,
                                           int64_t batch_rows, const VExprSPtrs& conjuncts,
                                           int column_id, IColumn* projected_column,
-                                          IColumn::Filter* row_filter, bool* used_filter) override;
+                                          IColumn::Filter* row_filter, bool* used_filter,
+                                          DirectPredicateExecutionKind* execution_kind) override;
+    Status select_with_runtime_filter(const SelectionVector& selection, uint16_t selected_rows,
+                                      int64_t batch_rows, const VExprContextSPtrs& conjuncts,
+                                      int column_id, MutableColumnPtr* projected_column,
+                                      IColumn::Filter* row_filter, bool* used_filter) override;
     void flush_profile() override;
     bool crossed_page_since_last_batch() override;
     Result<MutableColumnPtr> dictionary_values() override;
@@ -115,7 +120,15 @@ private:
     Status read_with_fixed_width_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                                         const VExprSPtrs& conjuncts, int column_id,
                                         IColumn* projected_column, IColumn::Filter* row_filter,
-                                        int64_t* rows_read, bool* used_filter);
+                                        int64_t* rows_read, bool* used_filter,
+                                        DirectPredicateExecutionKind* execution_kind);
+    Status read_with_dictionary_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
+                                       const IColumn::Filter& dictionary_filter,
+                                       const IColumn* typed_dictionary, IColumn* projected_values,
+                                       ColumnInt32* matched_dictionary_ids,
+                                       IColumn::Filter* row_filter, int64_t* survivor_count,
+                                       int64_t* rows_read, bool* projected_directly,
+                                       bool* used_filter);
     void release_batch_scratch_if_needed();
     int64_t sync_native_profile();
     void record_page_fragments(int64_t page_fragments);

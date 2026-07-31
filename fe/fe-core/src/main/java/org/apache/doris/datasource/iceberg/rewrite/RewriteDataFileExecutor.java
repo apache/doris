@@ -20,7 +20,9 @@ package org.apache.doris.datasource.iceberg.rewrite;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.scheduler.exception.JobException;
@@ -28,10 +30,13 @@ import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.Lists;
+// Keep third-party imports lexical to preserve the repository's CustomImportOrder invariant.
+import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,7 +65,11 @@ public class RewriteDataFileExecutor {
         long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
         IcebergTransaction transaction = (IcebergTransaction) dorisTable.getCatalog().getTransactionManager()
                 .getTransaction(transactionId);
-        transaction.beginRewrite(dorisTable);
+        MvccSnapshot targetSnapshot = dorisTable.loadSnapshot(Optional.empty(), Optional.empty());
+        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot).getSnapshotCacheValue()
+                .getIcebergTable().orElseThrow(
+                        () -> new UserException("Iceberg rewrite target metadata is not available"));
+        transaction.beginRewrite(dorisTable, targetIcebergTable);
 
         // Register files to delete
         for (RewriteDataGroup group : groups) {
@@ -82,6 +91,7 @@ public class RewriteDataFileExecutor {
                     group,
                     transactionId,
                     dorisTable,
+                    targetSnapshot,
                     connectContext,
                     targetFileSizeBytes,
                     availableBeCount,
@@ -121,11 +131,16 @@ public class RewriteDataFileExecutor {
         long rewrittenBytesCount = groups.stream().mapToLong(group -> group.getTotalSize()).sum();
         int removedDeleteFilesCount = groups.stream().mapToInt(group -> group.getDeleteFileCount()).sum();
 
-        // Commit transaction
-        transaction.commit();
+        commitAndInvalidate(transaction);
 
         return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
                 rewrittenBytesCount, removedDeleteFilesCount);
+    }
+
+    void commitAndInvalidate(IcebergTransaction transaction) throws UserException {
+        transaction.commit();
+        // Rewrite commits bypass the external-table DDL path, so evict the pre-rewrite snapshot before reuse.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
     }
 
     /**

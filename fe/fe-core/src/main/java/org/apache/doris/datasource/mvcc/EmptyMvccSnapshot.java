@@ -18,4 +18,8 @@
 package org.apache.doris.datasource.mvcc;
 
 public class EmptyMvccSnapshot implements MvccSnapshot {
+    @Override
+    public boolean isSameSnapshot(MvccSnapshot other) {
+        return other instanceof EmptyMvccSnapshot;
+    }
 }

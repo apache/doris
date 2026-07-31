@@ -98,8 +98,11 @@ public class IcebergMergeExecutorTest {
         ctx.getSessionVariable().setEnableNereidsDistributePlanner(false);
         ctx.setThreadLocalInfo();
 
-        IcebergMergeExecutor executor = new IcebergMergeExecutor(ctx, table, "label", planner, false, -1L);
-        IcebergMergeSink sink = new IcebergMergeSink(table, new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext());
+        Table targetIcebergTable = table.getIcebergTable();
+        IcebergMergeExecutor executor = new IcebergMergeExecutor(
+                ctx, table, targetIcebergTable, "label", planner, false, -1L);
+        IcebergMergeSink sink = new IcebergMergeSink(table, targetIcebergTable,
+                new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext(), true);
 
         executor.finalizeSinkForMerge(null, sink, null);
         TDataSink tDataSink = getTDataSink(sink);
@@ -112,7 +115,7 @@ public class IcebergMergeExecutorTest {
         executor.txnId = 11L;
         executor.beforeExec();
 
-        Mockito.verify(transaction).beginMerge(table);
+        Mockito.verify(transaction).beginMerge(table, targetIcebergTable);
         ArgumentCaptor<Map<String, List<DeleteFile>>> deleteFilesCaptor = ArgumentCaptor.forClass(Map.class);
         Mockito.verify(transaction).setRewrittenDeleteFilesByReferencedDataFile(deleteFilesCaptor.capture());
         Assertions.assertSame(deleteFile, deleteFilesCaptor.getValue().get(referencedDataFile).get(0));

@@ -69,7 +69,7 @@ public class CloudProcVersionDisplayTest {
     private SystemInfoService systemInfoService;
     private TabletInvertedIndex invertedIndex;
     private InternalCatalog internalCatalog;
-    private MockedStatic<Env> envStatic;
+    private MockedStatic<Env> mockedEnv;
 
     private String originDeployMode;
     private String originCloudUniqueId;
@@ -92,15 +92,15 @@ public class CloudProcVersionDisplayTest {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
 
-        envStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
-        envStatic.when(Env::getServingEnv).thenReturn(env);
-        envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+        mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedEnv.when(Env::getServingEnv).thenReturn(env);
+        mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
     }
 
     @After
     public void tearDown() {
-        if (envStatic != null) {
-            envStatic.close();
+        if (mockedEnv != null) {
+            mockedEnv.close();
         }
         Config.deploy_mode = originDeployMode;
         Config.cloud_unique_id = originCloudUniqueId;
@@ -124,9 +124,9 @@ public class CloudProcVersionDisplayTest {
     public void testReplicasProcNodeShowsPartitionCachedVersionInCloudMode() throws AnalysisException {
         ProcTestContext context = createProcTestContext();
 
-        envStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
-        envStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
+        mockedEnv.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
         Mockito.when(invertedIndex.getTabletMeta(TABLET_ID)).thenReturn(context.tabletMeta);
+        mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
         Mockito.when(internalCatalog.getDbNullable(DB_ID)).thenReturn(context.db);
 
         ReplicasProcNode procNode = new ReplicasProcNode(TABLET_ID, context.tablet.getReplicas());

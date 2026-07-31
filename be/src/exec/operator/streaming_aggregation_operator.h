@@ -220,8 +220,10 @@ public:
             state->enable_streaming_agg_hash_join_force_passthrough()) {
             return DataDistribution(ExchangeType::PASSTHROUGH);
         }
-        if (!state->get_query_ctx()->should_be_shuffled_agg(
-                    StatefulOperatorX<StreamingAggLocalState>::node_id())) {
+        // Keep streaming aggregation on its inherited distribution unless the dedicated switch
+        // explicitly enables a local hash exchange.
+        if (!state->enable_local_exchange_before_streaming_agg() &&
+            !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {

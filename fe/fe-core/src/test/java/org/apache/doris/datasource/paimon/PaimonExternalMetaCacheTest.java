@@ -21,16 +21,56 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
+import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
+import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.Snapshot;
+import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class PaimonExternalMetaCacheTest {
+
+    @Test
+    public void testLatestSnapshotUsesLatestSchemaForPinnedRead() {
+        PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                new PaimonPartitionInfoLoader(),
+                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), null));
+        NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable pinnedTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        Mockito.when(snapshot.id()).thenReturn(12L);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Collections.singletonMap(
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"))).thenReturn(pinnedTable);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(4L);
+
+        PaimonSnapshotCacheValue value = loader.load(nameMapping, baseTable);
+
+        Assert.assertEquals(12L, value.getSnapshot().getSnapshotId());
+        Assert.assertEquals(4L, value.getSnapshot().getSchemaId());
+        Assert.assertSame(pinnedTable, value.getSnapshot().getTable());
+        Mockito.verify(latestSchemaTable).copyWithoutTimeTravel(Collections.singletonMap(
+                CoreOptions.SCAN_SNAPSHOT_ID.key(), "12"));
+    }
 
     @Test
     public void testInvalidateTablePrecise() {

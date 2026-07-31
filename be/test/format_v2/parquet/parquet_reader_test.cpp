@@ -2010,6 +2010,34 @@ TEST_F(NewParquetReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead
     EXPECT_EQ(rows, 0);
 }
 
+TEST_F(NewParquetReaderTest, ConditionCacheHitKeepsBatchAcrossAdjacentTrueGranules) {
+    write_condition_cache_parquet_file(_file_path);
+    auto reader = create_reader();
+    reader->set_batch_size(ConditionCacheContext::GRANULE_SIZE * 2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(std::vector<bool> {true, true});
+    reader->set_condition_cache_context(ctx);
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(rows, ConditionCacheContext::GRANULE_SIZE * 2);
+}
+
 TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
     write_parquet_file(_file_path, 2);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);

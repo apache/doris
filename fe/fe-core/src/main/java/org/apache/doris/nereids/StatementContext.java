@@ -34,6 +34,9 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonScanParams;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -263,6 +266,7 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
@@ -481,7 +485,11 @@ public class StatementContext implements Closeable {
         }
         ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
                 id -> new ExternalTablePreloadInfo((ExternalTable) table));
-        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+        boolean selectorFreePaimonOptions = scanParams.isPresent()
+                && scanParams.get().isOptions()
+                && (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
+                && PaimonScanParams.usesStatementSnapshot(scanParams.get().getMapParams());
+        if (tableSnapshot.isPresent() || (scanParams.isPresent() && !selectorFreePaimonOptions)) {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
@@ -930,15 +938,23 @@ public class StatementContext implements Closeable {
      * @param tableSnapshot table snapshot info
      * @param scanParams table scan params (e.g., branch/tag for Iceberg tables)
      */
-    public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
+    public Optional<MvccSnapshot> loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        if (specificTable instanceof MvccTable) {
-            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
-            if (!snapshots.containsKey(mvccTableInfo)) {
-                snapshots.put(mvccTableInfo,
-                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
-            }
+        if (!(specificTable instanceof MvccTable)) {
+            return Optional.empty();
         }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+        MvccSnapshot snapshot;
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            snapshot = ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams);
+        } else {
+            // Keep latest metadata separate: a historical relation may temporarily become the
+            // table-scoped snapshot, but it must not redefine what a later latest relation sees.
+            snapshot = latestSnapshots.computeIfAbsent(mvccTableInfo,
+                    key -> ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+        }
+        snapshots.put(mvccTableInfo, snapshot);
+        return Optional.of(snapshot);
     }
 
     /**
@@ -962,6 +978,9 @@ public class StatementContext implements Closeable {
      * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        // Injected snapshots are execution fences (for example MTMV refresh); an unqualified
+        // relation must reuse that fence instead of treating the latest-snapshot cache as empty.
+        latestSnapshots.put(mvccTableInfo, snapshot);
         snapshots.put(mvccTableInfo, snapshot);
     }
 

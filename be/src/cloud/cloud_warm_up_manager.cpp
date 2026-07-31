@@ -93,6 +93,10 @@ bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
         "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
 bvar::Adder<uint64_t> g_balance_tablet_be_mapping_size("balance_tablet_be_mapping_size");
+// Number of warm up jobs currently held in this BE's memory.
+// Incremented when FE dispatches a new job to this BE (SET_JOB / SET_BATCH / event SET_JOB),
+// decremented when the job is cleared (CLEAR_JOB / event CLEAR_JOB).
+bvar::Adder<int64_t> g_file_cache_warm_up_job_num("file_cache_warm_up_job_num");
 
 bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
@@ -153,7 +157,8 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
-                                               bool is_index, std::function<void(Status)> done_cb) {
+                                               bool is_index, std::function<void(Status)> done_cb,
+                                               int64_t tablet_id) {
     VLOG_DEBUG << "submit warm up task for file: " << path << ", file_size: " << file_size
                << ", expiration_time: " << expiration_time
                << ", is_index: " << (is_index ? "true" : "false");
@@ -208,6 +213,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                             }
                             wait->signal();
                         },
+                .tablet_id = tablet_id,
         });
 
         offset += current_chunk_size;
@@ -280,7 +286,8 @@ void CloudWarmUpManager::handle_jobs() {
                         submit_download_tasks(
                                 storage_resource.value()->remote_segment_path(*rs, seg_id),
                                 rs->segment_file_size(cast_set<int>(seg_id)), rs->fs(),
-                                expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
+                                expiration_time, wait, false,
+                                [tablet, rs, seg_id](Status st) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                                << seg_id << " completed";
                                     if (tablet->complete_rowset_segment_warmup(
@@ -290,7 +297,8 @@ void CloudWarmUpManager::handle_jobs() {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " completed";
                                     }
-                                });
+                                },
+                                tablet_id);
                     }
 
                     // 2nd. download inverted index files
@@ -337,7 +345,8 @@ void CloudWarmUpManager::handle_jobs() {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
-                                    });
+                                    },
+                                    tablet_id);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
@@ -360,7 +369,8 @@ void CloudWarmUpManager::handle_jobs() {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
-                                    });
+                                    },
+                                    tablet_id);
                         }
                     }
                 }
@@ -404,6 +414,7 @@ Status CloudWarmUpManager::check_and_set_job_id(int64_t job_id) {
     std::lock_guard lock(_mtx);
     if (_cur_job_id == 0) {
         _cur_job_id = job_id;
+        g_file_cache_warm_up_job_num << 1;
     }
     Status st = Status::OK();
     if (_cur_job_id != job_id) {
@@ -422,6 +433,7 @@ Status CloudWarmUpManager::check_and_set_batch_id(int64_t job_id, int64_t batch_
     }
     if (_cur_job_id == 0) {
         _cur_job_id = job_id;
+        g_file_cache_warm_up_job_num << 1;
     }
     if (_cur_batch_id == batch_id) {
         *retry = true;
@@ -467,6 +479,9 @@ Status CloudWarmUpManager::clear_job(int64_t job_id) {
     std::lock_guard lock(_mtx);
     Status st = Status::OK();
     if (job_id == _cur_job_id) {
+        if (_cur_job_id != 0) {
+            g_file_cache_warm_up_job_num << -1;
+        }
         _cur_job_id = 0;
         _cur_batch_id = -1;
         _pending_job_metas.clear();
@@ -489,11 +504,14 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
     Status st = Status::OK();
     if (event == TWarmUpEventType::type::LOAD) {
         if (clear) {
-            _tablet_replica_cache.erase(job_id);
+            if (_tablet_replica_cache.erase(job_id) > 0) {
+                g_file_cache_warm_up_job_num << -1;
+            }
             _event_driven_filters.erase(job_id);
             LOG(INFO) << "Clear event driven sync, job_id=" << job_id << ", event=" << event;
         } else if (!_tablet_replica_cache.contains(job_id)) {
             static_cast<void>(_tablet_replica_cache[job_id]);
+            g_file_cache_warm_up_job_num << 1;
             if (table_ids != nullptr) {
                 // table-level filter: set to the given table_id set (may be empty,
                 // meaning all matched tables were deleted — warm up nothing)
@@ -627,7 +645,13 @@ std::vector<JobReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_
     }
     for (auto job_id : cancelled_jobs) {
         LOG(INFO) << "get_replica_info: erasing cancelled job, job_id=" << job_id;
-        _tablet_replica_cache.erase(job_id);
+        // Lazy cleanup path: FE reported the warm up job as CANCELLED, so the job is
+        // no longer held in memory. Keep the job-count metric and the event filter
+        // consistent with the explicit CLEAR_JOB path in set_event().
+        if (_tablet_replica_cache.erase(job_id) > 0) {
+            g_file_cache_warm_up_job_num << -1;
+        }
+        _event_driven_filters.erase(job_id);
     }
     VLOG_DEBUG << "get_replica_info: return " << replicas.size()
                << " replicas, tablet id=" << tablet_id;

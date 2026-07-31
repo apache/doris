@@ -17,9 +17,13 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -32,6 +36,7 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.hive.HiveCatalog;
+import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataField;
@@ -46,12 +51,14 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.Mockito;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -245,13 +252,86 @@ public class PaimonMetadataOpsTest {
         Assert.assertEquals("c0", table.options().get("bucket-key"));
     }
 
+    @Test
+    public void testModifyColumnPreservesRemoteTypeBehindLossyProjection()
+            throws Exception {
+        TimestampType remoteType = new TimestampType(9);
+        DataField remoteField = new DataField(0, "ts", remoteType);
+        Column projectedColumn = new Column(
+                "ts", ScalarType.createDatetimeV2Type(6), true);
+
+        org.apache.paimon.types.DataType requestedType =
+                ops.requestedColumnType(projectedColumn, remoteField);
+
+        Assert.assertTrue(requestedType instanceof TimestampType);
+        Assert.assertEquals(9, ((TimestampType) requestedType).getPrecision());
+        Assert.assertEquals(projectedColumn.isAllowNull(), requestedType.isNullable());
+    }
+
+    @Test
+    public void testIfNotExistsRefreshesNamesWhenRemoteTableExists() throws Exception {
+        String tableName = getTableName();
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(dorisCatalog).getDbNullable(dbName);
+        Mockito.doReturn(Optional.of(database)).when(dorisCatalog).getDbForReplay(dbName);
+        Mockito.when(database.getRemoteName()).thenReturn(dbName);
+
+        PaimonMetadataOps existingTableOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog) {
+            @Override
+            public boolean tableExist(String ignoredDbName, String ignoredTableName) {
+                return true;
+            }
+        };
+        CreateTableInfo createTableInfo = parseCreateTableInfo(
+                "create table if not exists " + dbName + "." + tableName + " (id int) engine = paimon");
+
+        Assert.assertTrue(existingTableOps.performCreateTable(createTableInfo));
+        Mockito.verify(database).resetMetaCacheNames();
+        Mockito.verify(remoteCatalog, Mockito.never()).createTable(
+                Mockito.any(Identifier.class), Mockito.any(Schema.class), Mockito.anyBoolean());
+    }
+
+    @Test
+    public void testIfNotExistsReportsConcurrentWinner() throws Exception {
+        String tableName = getTableName();
+        Identifier identifier = new Identifier(dbName, tableName);
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(dorisCatalog).getDbNullable(dbName);
+        Mockito.doReturn(Optional.of(database)).when(dorisCatalog).getDbForReplay(dbName);
+        Mockito.when(database.getRemoteName()).thenReturn(dbName);
+        Mockito.when(database.getTableNullable(tableName)).thenReturn(null);
+
+        PaimonMetadataOps raceOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog) {
+            @Override
+            public boolean tableExist(String ignoredDbName, String ignoredTableName) {
+                return false;
+            }
+        };
+        CreateTableInfo createTableInfo = parseCreateTableInfo(
+                "create table if not exists " + dbName + "." + tableName + " (id int) engine = paimon");
+        Mockito.doThrow(new Catalog.TableAlreadyExistException(identifier))
+                .when(remoteCatalog).createTable(
+                        Mockito.eq(identifier), Mockito.any(Schema.class), Mockito.eq(false));
+
+        Assert.assertTrue(raceOps.performCreateTable(createTableInfo));
+        Mockito.verify(database).resetMetaCacheNames();
+    }
+
     public void createTable(String sql) throws UserException {
+        ops.createTable(parseCreateTableInfo(sql));
+    }
+
+    private CreateTableInfo parseCreateTableInfo(String sql) throws UserException {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.setIsExternal(true);
         createTableInfo.analyzeEngine();
-        ops.createTable(createTableInfo);
+        return createTableInfo;
     }
 
     public String getTableName() {

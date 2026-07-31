@@ -279,6 +279,10 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
 
 uint32_t BaseTablet::get_real_compaction_score() const {
     std::shared_lock l(_meta_lock);
+    return get_real_compaction_score_unlocked();
+}
+
+uint32_t BaseTablet::get_real_compaction_score_unlocked() const {
     const auto& rs_metas = _tablet_meta->all_rs_metas();
     return std::accumulate(rs_metas.begin(), rs_metas.end(), 0, [](uint32_t score, const auto& it) {
         return score + it.second->get_compaction_score();

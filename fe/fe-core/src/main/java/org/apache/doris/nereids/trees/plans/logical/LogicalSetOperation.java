@@ -276,9 +276,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
             }
             ImmutableList.Builder<StructField> commonFields = ImmutableList.builder();
             for (int i = 0; i < leftFields.size(); i++) {
-                boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable();
                 DataType commonType = getAssignmentCompatibleType(
                         leftFields.get(i).getDataType(), rightFields.get(i).getDataType());
+                // Legacy set operations need a nullable common child whenever coercing either
+                // input can itself produce NULL, even if both source fields are declared required.
+                boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                        || Cast.castNullable(false, leftFields.get(i).getDataType(), commonType)
+                        || Cast.castNullable(false, rightFields.get(i).getDataType(), commonType);
                 StructField commonField = leftFields.get(i).withDataTypeAndNullable(commonType, nullable);
                 commonFields.add(commonField);
             }

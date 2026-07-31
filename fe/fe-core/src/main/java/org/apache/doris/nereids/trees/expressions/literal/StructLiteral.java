@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
@@ -31,7 +30,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * struct literal
@@ -153,8 +151,16 @@ public class StructLiteral extends Literal {
         return new StructType(structFields.build());
     }
 
+    /**
+     * Infer a struct type from its field expressions.
+     */
     public static StructType computeDataType(List<? extends Expression> fields) {
-        List<DataType> fieldTypes = fields.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList());
-        return constructStructType(fieldTypes);
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < fields.size(); i++) {
+            Expression field = fields.get(i);
+            // Preserve literal nullability so a known non-null value can satisfy a required nested field.
+            structFields.add(new StructField(COL_PREFIX + (i + 1), field.getDataType(), field.nullable(), ""));
+        }
+        return new StructType(structFields.build());
     }
 }

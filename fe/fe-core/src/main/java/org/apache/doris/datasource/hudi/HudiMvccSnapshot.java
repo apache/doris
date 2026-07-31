@@ -57,6 +57,11 @@ public class HudiMvccSnapshot implements MvccSnapshot {
     }
 
     @Override
+    public boolean isSameSnapshot(MvccSnapshot other) {
+        return other instanceof HudiMvccSnapshot && timestamp == ((HudiMvccSnapshot) other).timestamp;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -65,12 +70,12 @@ public class HudiMvccSnapshot implements MvccSnapshot {
             return false;
         }
         HudiMvccSnapshot that = (HudiMvccSnapshot) o;
-        return tablePartitionValues.equals(that.tablePartitionValues);
+        return timestamp == that.timestamp && tablePartitionValues.equals(that.tablePartitionValues);
     }
 
     @Override
     public int hashCode() {
-        return tablePartitionValues.hashCode();
+        return 31 * tablePartitionValues.hashCode() + Long.hashCode(timestamp);
     }
 
     @Override

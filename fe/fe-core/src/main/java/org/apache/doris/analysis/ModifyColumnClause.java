@@ -34,6 +34,7 @@ import java.util.Map;
 public class ModifyColumnClause extends AlterTableClause {
     private ColumnDef columnDef;
     private String sql;
+    private ColumnPath columnPath;
     private ColumnPosition colPos;
     // which rollup is to be modify, if rollup is null, modify base table.
     private String rollupName;
@@ -55,6 +56,10 @@ public class ModifyColumnClause extends AlterTableClause {
         return colPos;
     }
 
+    public ColumnPath getColumnPath() {
+        return columnPath;
+    }
+
     public String getRollupName() {
         return rollupName;
     }
@@ -63,6 +68,7 @@ public class ModifyColumnClause extends AlterTableClause {
                               Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
+        this.columnPath = ColumnPath.of(columnDef.getName());
         this.colPos = colPos;
         this.rollupName = rollup;
         this.properties = properties;
@@ -70,8 +76,14 @@ public class ModifyColumnClause extends AlterTableClause {
 
     public ModifyColumnClause(String sql, Column column, ColumnPosition colPos, String rollup,
             Map<String, String> properties) {
+        this(sql, ColumnPath.of(column.getName()), column, colPos, rollup, properties);
+    }
+
+    public ModifyColumnClause(String sql, ColumnPath columnPath, Column column, ColumnPosition colPos,
+            String rollup, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.sql = sql;
+        this.columnPath = columnPath;
         this.column = column;
         this.colPos = colPos;
         this.rollupName = rollup;

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.catalog.Column;
@@ -45,6 +46,7 @@ import java.util.Set;
  */
 public class ModifyColumnOp extends AlterTableOp {
     private ColumnDefinition columnDef;
+    private ColumnPath columnPath;
     private ColumnPosition colPos;
     // which rollup is to be modify, if rollup is null, modify base table.
     private String rollupName;
@@ -56,8 +58,17 @@ public class ModifyColumnOp extends AlterTableOp {
 
     public ModifyColumnOp(ColumnDefinition columnDef, ColumnPosition colPos, String rollup,
             Map<String, String> properties) {
+        this(columnDef, ColumnPath.of(columnDef.getName()), colPos, rollup, properties);
+    }
+
+    /**
+     * Create modify-column operation with the original nested column path.
+     */
+    public ModifyColumnOp(ColumnDefinition columnDef, ColumnPath columnPath, ColumnPosition colPos,
+            String rollup, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
+        this.columnPath = columnPath;
         this.colPos = colPos;
         this.rollupName = rollup;
         this.properties = properties;
@@ -65,6 +76,10 @@ public class ModifyColumnOp extends AlterTableOp {
 
     public Column getColumn() {
         return column;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public ColumnPosition getColPos() {
@@ -124,7 +139,11 @@ public class ModifyColumnOp extends AlterTableOp {
                 }
             }
         }
-        columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        if (columnPath.isNested()) {
+            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        } else {
+            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        }
         if (colPos != null) {
             colPos.analyze();
             if (olapTable != null) {
@@ -173,7 +192,7 @@ public class ModifyColumnOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyColumnClause(toSql(), column, colPos, rollupName, properties);
+        return new ModifyColumnClause(toSql(), columnPath, column, colPos, rollupName, properties);
     }
 
     @Override
@@ -194,7 +213,7 @@ public class ModifyColumnOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MODIFY COLUMN ").append(columnDef.toSql());
+        sb.append("MODIFY COLUMN ").append(columnDef.toSql(columnPath.toSql()));
         if (colPos != null) {
             sb.append(" ").append(colPos);
         }

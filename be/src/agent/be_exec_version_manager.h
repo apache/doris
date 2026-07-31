@@ -33,6 +33,7 @@ constexpr inline int AGGREGATION_2_1_VERSION =
 constexpr inline int USE_CONST_SERDE =
         8; // support const column in serialize/deserialize function: PR #41175
 constexpr inline int USE_NEW_FIXED_OBJECT_SERIALIZATION_VERSION = 10;
+constexpr inline int SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION = 11;
 
 class BeExecVersionManager {
 public:

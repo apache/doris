@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
@@ -65,6 +66,9 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
+        // OAuth bearer material must follow the same masking path as storage credentials in
+        // audit SQL, SHOW CREATE output, and every other printable connector-property surface.
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AzureProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSProperties.class));

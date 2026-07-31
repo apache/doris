@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
@@ -175,6 +176,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalPaimonTableSink(
+            PhysicalPaimonTableSink<? extends Plan> paimonTableSink, PlanContext context) {
+        addRequestPropertyToChildren(paimonTableSink.getRequirePhysicalProperties());
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalMaxComputeTableSink(
             PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, PlanContext context) {
         if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
@@ -199,9 +207,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalIcebergMergeSink(
             PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (!icebergMergeSink.isRequireMergeCardinalityCheck()
+                && connectContext != null
+                && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
+            // SQL MERGE cardinality is mandatory even when optional UPDATE consistency is disabled.
             addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
         }
         return null;

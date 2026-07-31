@@ -20,12 +20,16 @@ package org.apache.doris.datasource.hudi;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
 import com.google.common.collect.Maps;
 import mockit.Mock;
@@ -33,15 +37,95 @@ import mockit.MockUp;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.util.Option;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class HudiUtilsTest {
+
+    private MockedStatic<Env> envMockedStatic;
+
+    @org.junit.After
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+            envMockedStatic = null;
+        }
+    }
+
+    @Test
+    public void testResolveQueryInstantPrefersPinnedSnapshot() {
+        long pinnedInstant = 20260727123456789L;
+        MvccSnapshot snapshot = new HudiMvccSnapshot(new TablePartitionValues(), pinnedInstant);
+        HoodieTimeline timeline = Mockito.mock(HoodieTimeline.class);
+        HoodieInstant newerInstant = Mockito.mock(HoodieInstant.class);
+        Mockito.when(newerInstant.requestedTime()).thenReturn("20260727123500000");
+        Mockito.when(timeline.lastInstant()).thenReturn(Option.of(newerInstant));
+
+        Assert.assertEquals(Long.toString(pinnedInstant),
+                HudiUtils.resolveQueryInstant(Optional.of(snapshot), Optional.empty(), timeline).orElse(null));
+        Mockito.verify(timeline, Mockito.never()).lastInstant();
+    }
+
+    @Test
+    public void testLatestSnapshotUsesPartitionsFromCapturedInstant() {
+        long capturedInstant = 20260727123456789L;
+        HoodieTableMetaClient capturedClient = Mockito.mock(HoodieTableMetaClient.class);
+        HoodieTimeline capturedTimeline = Mockito.mock(HoodieTimeline.class);
+        HoodieInstant capturedHoodieInstant = Mockito.mock(HoodieInstant.class);
+        Mockito.when(capturedClient.getCommitsAndCompactionTimeline()).thenReturn(capturedTimeline);
+        Mockito.when(capturedTimeline.filterCompletedInstants()).thenReturn(capturedTimeline);
+        Mockito.when(capturedTimeline.lastInstant()).thenReturn(Option.of(capturedHoodieInstant));
+        Mockito.when(capturedHoodieInstant.requestedTime()).thenReturn(Long.toString(capturedInstant));
+
+        HoodieTableMetaClient refreshedClient = Mockito.mock(HoodieTableMetaClient.class);
+        HoodieTimeline refreshedTimeline = Mockito.mock(HoodieTimeline.class);
+        HoodieInstant refreshedInstant = Mockito.mock(HoodieInstant.class);
+        Mockito.when(refreshedClient.getCommitsAndCompactionTimeline()).thenReturn(refreshedTimeline);
+        Mockito.when(refreshedTimeline.filterCompletedInstants()).thenReturn(refreshedTimeline);
+        Mockito.when(refreshedTimeline.lastInstant()).thenReturn(Option.of(refreshedInstant));
+        Mockito.when(refreshedInstant.requestedTime()).thenReturn("20260727123500000");
+
+        TablePartitionValues capturedPartitions = new TablePartitionValues();
+        TablePartitionValues refreshedPartitions = new TablePartitionValues();
+        HudiExternalMetaCache hudiCache = Mockito.mock(HudiExternalMetaCache.class);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(100L);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.useHiveSyncPartition()).thenReturn(false);
+        // The second client models cache replacement after the instant has already been captured.
+        Mockito.when(table.getHudiClient()).thenReturn(capturedClient, refreshedClient);
+        Mockito.when(hudiCache.getPartitionValues(table, false)).thenReturn(refreshedPartitions);
+        Mockito.when(hudiCache.getSnapshotPartitionValues(
+                table, Long.toString(capturedInstant), false)).thenReturn(capturedPartitions);
+
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(cacheMgr.hudi(catalog.getId())).thenReturn(hudiCache);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+        HudiMvccSnapshot snapshot = HudiUtils.getHudiMvccSnapshot(Optional.empty(), table);
+
+        Assert.assertEquals(capturedInstant, snapshot.getTimestamp());
+        Assert.assertSame(capturedPartitions, snapshot.getTablePartitionValues());
+        Mockito.verify(hudiCache).getSnapshotPartitionValues(
+                table, Long.toString(capturedInstant), false);
+    }
 
     @Test
     public void testGetHudiSchemaWithCleanCommit() throws IOException {

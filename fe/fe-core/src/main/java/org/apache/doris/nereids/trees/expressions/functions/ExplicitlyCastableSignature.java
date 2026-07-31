@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -42,6 +44,11 @@ public interface ExplicitlyCastableSignature extends ComputeSignature {
 
     /** isExplicitlyCastable */
     static boolean isPrimitiveExplicitlyCastable(DataType signatureType, DataType realType) {
+        if (signatureType instanceof JsonType
+                && realType instanceof VariantType
+                && ((VariantType) realType).isComputeV2()) {
+            return false;
+        }
         if (signatureType instanceof AnyDataType
                 || signatureType instanceof FollowToAnyDataType
                 || signatureType.isAssignableFrom(realType)) {

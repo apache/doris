@@ -193,9 +193,12 @@ suite("test_es_query", "p2,external") {
             }
         }
 
-        def query_catalogs = { -> 
+        def query_catalogs = { ->
             sql """switch internal"""
-            sql """use regression_test_external_table_p0_es"""
+            // test_v1/test_v2 live in this suite's own database, which the
+            // framework derives from the suite directory. Hardcoding the name
+            // breaks whenever the suite moves between p0 and p2.
+            sql """use ${context.dbName}"""
             executeWithRetry("""select * from test_v1 where test2='text#1'""", "sql01", 30)
             order_qt_sql01 """select * from test_v1 where test2='text#1'"""
             order_qt_sql02 """select * from test_v1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""

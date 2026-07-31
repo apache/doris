@@ -26,6 +26,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionState;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -97,6 +99,7 @@ public class CloudUpgradeMgr extends MasterDaemon {
                 }
                 if (!isFinished) {
                     isBeInactive = false;
+                    logAndAbortFailedConflictTxns(be, dbWithWaterTxn, tableIdList);
                     LOG.info("BE {} is still active, waiting db {} txn {}",
                             be, dbWithWaterTxn.dbId, dbWithWaterTxn.txnId);
                     break;
@@ -109,6 +112,45 @@ public class CloudUpgradeMgr extends MasterDaemon {
             }
         }
         LOG.info("finish cloud upgrade mgr");
+    }
+
+    private void logAndAbortFailedConflictTxns(long be, DbWithWaterTxn dbWithWaterTxn, List<Long> tableIdList) {
+        try {
+            CloudGlobalTransactionMgr txnMgr = (CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr();
+            List<TransactionState> conflictTxns =
+                    txnMgr.getUnFinishedPreviousLoad(dbWithWaterTxn.txnId, dbWithWaterTxn.dbId, tableIdList);
+            if (conflictTxns.isEmpty()) {
+                LOG.info("BE {} waiting db {} txn {} but no conflict txn details returned, tableCount={}",
+                        be, dbWithWaterTxn.dbId, dbWithWaterTxn.txnId, tableIdList.size());
+                return;
+            }
+
+            if (Config.enable_abort_txn_by_checking_conflict_txn) {
+                List<TransactionState> failedTxns = GlobalTransactionMgr.checkFailedTxns(conflictTxns);
+                for (TransactionState txn : failedTxns) {
+                    try {
+                        txnMgr.abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by cloud upgrade");
+                        LOG.info("BE {} abort conflict txn {} while waiting db {} txn {}",
+                                be, txn.getTransactionId(), dbWithWaterTxn.dbId, dbWithWaterTxn.txnId);
+                    } catch (UserException e) {
+                        LOG.warn("BE {} failed to abort conflict txn {} while waiting db {} txn {}",
+                                be, txn.getTransactionId(), dbWithWaterTxn.dbId, dbWithWaterTxn.txnId, e);
+                    }
+                }
+            }
+
+            String txnSamples = conflictTxns.stream()
+                    .limit(20)
+                    .map(txn -> String.format("(%d,%s,%s)",
+                            txn.getTransactionId(), txn.getTransactionStatus(), txn.getLabel()))
+                    .collect(Collectors.joining(", "));
+            LOG.info("BE {} waiting db {} txn {}, conflictTxnCount={}, sampleTxns=[{}], tableCount={}",
+                    be, dbWithWaterTxn.dbId, dbWithWaterTxn.txnId, conflictTxns.size(), txnSamples,
+                    tableIdList.size());
+        } catch (UserException e) {
+            LOG.warn("failed to get conflict txns for BE {}, db {}, txn {}",
+                    be, dbWithWaterTxn.dbId, dbWithWaterTxn.txnId, e);
+        }
     }
 
     /* called after tablets migrating to new BE process complete */

@@ -22,9 +22,11 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -37,6 +39,8 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -67,8 +71,70 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testSnapshotCacheFreezesSharedTableOperations() {
+        Schema originalSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Schema evolvedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StringType.get()));
+        AtomicReference<TableMetadata> currentMetadata = new AtomicReference<>(
+                TableMetadata.newTableMetadata(originalSchema, PartitionSpec.unpartitioned(),
+                        "file:/tmp/iceberg-cache-table", Collections.emptyMap()));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenAnswer(invocation -> currentMetadata.get());
+        Mockito.when(operations.io()).thenReturn(Mockito.mock(org.apache.iceberg.io.FileIO.class));
+        Mockito.when(operations.locationProvider())
+                .thenReturn(Mockito.mock(org.apache.iceberg.io.LocationProvider.class));
+        Table sharedTable = new BaseTable(operations, "table");
+
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, originalSchema.schemaId()),
+                Optional.empty(), sharedTable);
+        currentMetadata.set(TableMetadata.newTableMetadata(evolvedSchema, PartitionSpec.unpartitioned(),
+                "file:/tmp/iceberg-cache-table", Collections.emptyMap()));
+
+        Assert.assertEquals(2, sharedTable.schema().columns().size());
+        Assert.assertEquals(1, cacheValue.getIcebergTable().get().schema().columns().size());
+    }
+
+    @Test
+    public void testRetainedGenerationKeepsProjectionAtomic() {
+        Schema originalSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Schema evolvedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StringType.get()));
+        TableMetadata originalMetadata = TableMetadata.newTableMetadata(
+                originalSchema, PartitionSpec.unpartitioned(),
+                "file:/tmp/iceberg-atomic-projection", Collections.emptyMap());
+        TableMetadata evolvedMetadata = TableMetadata.newTableMetadata(
+                evolvedSchema, PartitionSpec.unpartitioned(),
+                "file:/tmp/iceberg-atomic-projection",
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING,
+                        "{\"type\":\"struct\",\"fields\":[{\"field-id\":2,\"names\":[\"payload\"]}]}"));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(originalMetadata, evolvedMetadata);
+        Mockito.when(operations.io()).thenReturn(Mockito.mock(org.apache.iceberg.io.FileIO.class));
+        Mockito.when(operations.locationProvider())
+                .thenReturn(Mockito.mock(org.apache.iceberg.io.LocationProvider.class));
+        Table sharedTable = new BaseTable(operations, "table");
+
+        Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(sharedTable);
+        IcebergSnapshot snapshot = IcebergUtils.getLatestIcebergSnapshot(retainedTable);
+        Optional<Map<Integer, List<String>>> nameMapping = IcebergUtils.getNameMapping(retainedTable);
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), snapshot, nameMapping, retainedTable);
+
+        Assert.assertEquals(originalSchema.schemaId(), snapshot.getSchemaId());
+        Assert.assertFalse(nameMapping.isPresent());
+        Assert.assertEquals(1, cacheValue.getIcebergTable().get().schema().columns().size());
+        Mockito.verify(operations, Mockito.times(1)).current();
+    }
+
     @Test
     public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
         Table table = Mockito.mock(Table.class);
@@ -89,6 +155,34 @@ public class IcebergUtilsTest {
         Assert.assertEquals(org.apache.iceberg.FileFormat.ORC, IcebergUtils.getFileFormat(table));
         // Do not call newScan planFiles()
         Mockito.verify(table, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testPartitionColumnsUseFrozenTableSpec() {
+        Schema frozenSchema = new Schema(17, Arrays.asList(
+                Types.NestedField.required(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "q", Types.IntegerType.get())));
+        Table frozenTable = Mockito.mock(Table.class);
+        Mockito.when(frozenTable.schema()).thenReturn(frozenSchema);
+        Mockito.when(frozenTable.schemas()).thenReturn(
+                Collections.singletonMap(frozenSchema.schemaId(), frozenSchema));
+        Mockito.when(frozenTable.spec()).thenReturn(PartitionSpec.builderFor(frozenSchema).identity("p").build());
+        Mockito.when(frozenTable.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
+
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(101L, frozenSchema.schemaId()),
+                Optional.empty(), frozenTable);
+
+        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumns(
+                Optional.of(new IcebergMvccSnapshot(cacheValue)), dorisTable);
+
+        Assert.assertEquals(Collections.singletonList("p"), partitionColumns.stream()
+                .map(Column::getName).collect(java.util.stream.Collectors.toList()));
     }
 
     @Test
@@ -237,6 +331,19 @@ public class IcebergUtilsTest {
 
         Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
         Assert.assertEquals("PART", columns.get(1).getName());
+    }
+
+    @Test
+    public void testParseSchemaPreservesTopLevelAndNestedComments() {
+        Schema schema = new Schema(Types.NestedField.optional(
+                1, "info", Types.StructType.of(
+                        Types.NestedField.optional(2, "value", Types.IntegerType.get(), "nested-comment")),
+                "top-level-comment"));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("top-level-comment", columns.get(0).getComment());
+        Assert.assertTrue(columns.get(0).getType().toSql().contains("comment 'nested-comment'"));
     }
 
     @Test

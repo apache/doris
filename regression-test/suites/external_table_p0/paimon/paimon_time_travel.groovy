@@ -155,6 +155,14 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
 
         // tag on expired snapshot should still be readable
         qt_expired_tag_count """select count(*) from ${tableName}_expired_tag FOR VERSION AS OF 't_exp_1';"""
+        qt_expired_tag_options_count """
+                select count(*) from ${tableName}_expired_tag
+                @options('scan.tag-name'='t_exp_1');
+                """
+        qt_expired_version_options_count """
+                select count(*) from ${tableName}_expired_tag
+                @options('scan.version'='t_exp_1');
+                """
 
         List<List<Object>> branchesResult = sql """ select branch_name from ${tableName}\$branches order by branch_name;"""
         logger.info("Query result from ${tableName}\$branches: ${branchesResult}")

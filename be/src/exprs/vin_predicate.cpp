@@ -30,6 +30,7 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "core/data_type/define_primitive_type.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/in.h"
 #include "exprs/function/simple_function_factory.h"
@@ -44,6 +45,42 @@ class RuntimeState;
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+size_t raw_in_value_size(PrimitiveType primitive_type) {
+    switch (primitive_type) {
+#define RETURN_RAW_IN_SIZE(TYPE) \
+    case TYPE:                   \
+        return sizeof(typename PrimitiveTypeTraits<TYPE>::CppType)
+        RETURN_RAW_IN_SIZE(TYPE_BOOLEAN);
+        RETURN_RAW_IN_SIZE(TYPE_TINYINT);
+        RETURN_RAW_IN_SIZE(TYPE_SMALLINT);
+        RETURN_RAW_IN_SIZE(TYPE_INT);
+        RETURN_RAW_IN_SIZE(TYPE_BIGINT);
+        RETURN_RAW_IN_SIZE(TYPE_LARGEINT);
+        RETURN_RAW_IN_SIZE(TYPE_FLOAT);
+        RETURN_RAW_IN_SIZE(TYPE_DOUBLE);
+        RETURN_RAW_IN_SIZE(TYPE_DATE);
+        RETURN_RAW_IN_SIZE(TYPE_DATETIME);
+        RETURN_RAW_IN_SIZE(TYPE_DATEV2);
+        RETURN_RAW_IN_SIZE(TYPE_DATETIMEV2);
+        RETURN_RAW_IN_SIZE(TYPE_TIMESTAMPTZ);
+        RETURN_RAW_IN_SIZE(TYPE_TIMEV2);
+        RETURN_RAW_IN_SIZE(TYPE_DECIMAL32);
+        RETURN_RAW_IN_SIZE(TYPE_DECIMAL64);
+        RETURN_RAW_IN_SIZE(TYPE_DECIMALV2);
+        RETURN_RAW_IN_SIZE(TYPE_DECIMAL128I);
+        RETURN_RAW_IN_SIZE(TYPE_DECIMAL256);
+        RETURN_RAW_IN_SIZE(TYPE_IPV4);
+        RETURN_RAW_IN_SIZE(TYPE_IPV6);
+#undef RETURN_RAW_IN_SIZE
+    default:
+        return 0;
+    }
+}
+
+} // namespace
 
 VInPredicate::VInPredicate(const TExprNode& node)
         : VExpr(node), _is_not_in(node.in_predicate.is_not_in) {}
@@ -122,6 +159,7 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     _seg_filter_values.clear();
     _seg_filter_contains_null = false;
     _zonemap_materialized = false;
+    _direct_filter_set.reset();
     if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
         return Status::OK();
     }
@@ -140,6 +178,7 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     DORIS_CHECK(in_state != nullptr);
     DORIS_CHECK(in_state->use_set);
     DORIS_CHECK(in_state->hybrid_set != nullptr);
+    _direct_filter_set = in_state->hybrid_set;
 
     expr_zonemap::InZonemapMaterializedSet materialized;
     RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
@@ -181,6 +220,79 @@ ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalCon
 bool VInPredicate::can_evaluate_bloom_filter() const {
     return _zonemap_materialized && !_is_not_in &&
            std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+}
+
+bool VInPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                   int column_id) const {
+    if (!_zonemap_materialized || _direct_filter_set == nullptr || data_type == nullptr ||
+        !_is_args_all_constant) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(get_child(0));
+    if (slot == nullptr || slot->column_id() != column_id || slot->data_type() == nullptr) {
+        return false;
+    }
+    const auto raw_type = remove_nullable(data_type);
+    return remove_nullable(slot->data_type())->equals(*raw_type) &&
+           raw_in_value_size(raw_type->get_primitive_type()) != 0;
+}
+
+Status VInPredicate::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                                 size_t value_width, const DataTypePtr& data_type,
+                                                 int column_id, uint8_t* matches) const {
+    if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+        return Status::NotSupported("IN predicate cannot evaluate raw fixed-width values");
+    }
+    DORIS_CHECK(values != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    const size_t expected_width =
+            raw_in_value_size(remove_nullable(data_type)->get_primitive_type());
+    if (value_width != expected_width) {
+        return Status::Corruption("Raw IN width {} does not match expected {}", value_width,
+                                  expected_width);
+    }
+    // NOT IN with a NULL literal is UNKNOWN for every non-null physical value. Definition levels
+    // handle input NULLs, while this guard preserves the remaining three-valued SQL invariant.
+    if (_is_not_in && _seg_filter_contains_null) {
+        std::fill(matches, matches + num_values, uint8_t {0});
+    } else if (_is_not_in) {
+        _direct_filter_set->find_batch_raw_fixed_negative(values, num_values, value_width, matches);
+    } else {
+        _direct_filter_set->find_batch_raw_fixed(values, num_values, value_width, matches);
+    }
+    return Status::OK();
+}
+
+bool VInPredicate::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                    int column_id) const {
+    if (!_zonemap_materialized || _direct_filter_set == nullptr || data_type == nullptr ||
+        !_is_args_all_constant ||
+        !is_string_type(remove_nullable(data_type)->get_primitive_type())) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(get_child(0));
+    return slot != nullptr && slot->column_id() == column_id && slot->data_type() != nullptr &&
+           is_string_type(remove_nullable(slot->data_type())->get_primitive_type());
+}
+
+Status VInPredicate::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                  const DataTypePtr& data_type, int column_id,
+                                                  uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("IN predicate cannot evaluate raw binary values");
+    }
+    DORIS_CHECK(values != nullptr || num_values == 0);
+    DORIS_CHECK(matches != nullptr || num_values == 0);
+    if (_is_not_in && _seg_filter_contains_null) {
+        std::fill(matches, matches + num_values, uint8_t {0});
+    } else if (_is_not_in) {
+        _direct_filter_set->find_batch_raw_binary_negative(values, num_values, matches);
+    } else {
+        // Decoder-owned slices remain valid for the whole batch, so regular SQL IN/NOT IN can
+        // probe the prepared hash set without constructing and then compacting a ColumnString.
+        _direct_filter_set->find_batch_raw_binary(values, num_values, matches);
+    }
+    return Status::OK();
 }
 
 Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,

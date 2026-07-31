@@ -22,11 +22,18 @@ set -eo pipefail
 . /mnt/scripts/hive-common-lib.sh
 
 BOOTSTRAP_GROUPS="$(bootstrap_normalize_groups "${HIVE_BOOTSTRAP_GROUPS:-}")"
-DEFAULT_MODULES=(default multi_catalog partition_type statistics tvf regression test preinstalled_hql view)
+DEFAULT_MODULES=(default multi_catalog partition_type statistics tvf regression test preinstalled_hql view paimon_hms)
 LAST_REFRESH_DETAIL=""
 HIVE_HQL_PARALLEL="${HIVE_HQL_PARALLEL:-${LOAD_PARALLEL}}"
 
 ensure_hive_state_layout
+
+# The Paimon HMS tables need the Paimon storage handler and the object storage
+# credentials that only the Hive3 stack is configured with, so the module opts
+# in via the same flag the settings env files carry.
+paimon_hms_enabled() {
+    [[ "${enablePaimonHms:-false}" == "true" ]]
+}
 
 normalize_hive_modules() {
     local raw_modules="${1:-}"
@@ -35,14 +42,19 @@ normalize_hive_modules() {
     local normalized=()
 
     if [[ -z "${cleaned_modules}" || "${cleaned_modules}" == "all" ]]; then
-        printf '%s\n' "${DEFAULT_MODULES[@]}"
+        for module in "${DEFAULT_MODULES[@]}"; do
+            if [[ "${module}" == "paimon_hms" ]] && ! paimon_hms_enabled; then
+                continue
+            fi
+            echo "${module}"
+        done
         return 0
     fi
 
     IFS=',' read -r -a normalized <<<"${cleaned_modules}"
     for module in "${normalized[@]}"; do
         case "${module}" in
-        default|multi_catalog|partition_type|statistics|tvf|regression|test|preinstalled_hql|view)
+        default|multi_catalog|partition_type|statistics|tvf|regression|test|preinstalled_hql|view|paimon_hms)
             echo "${module}"
             ;;
         *)
@@ -125,6 +137,9 @@ calc_module_sha() {
         ;;
     view)
         files+=("/mnt/scripts/create_view_scripts/create_view.hql")
+        ;;
+    paimon_hms)
+        files+=("/mnt/scripts/create_external_paimon_scripts/create_paimon_tables.hql")
         ;;
     *)
         echo "Unknown module for sha: ${module}" >&2
@@ -313,6 +328,11 @@ refresh_module() {
     view)
         LAST_REFRESH_DETAIL="create_view.hql"
         run_hive_hql /mnt/scripts/create_view_scripts/create_view.hql "create_view.hql"
+        ;;
+    paimon_hms)
+        LAST_REFRESH_DETAIL="create_paimon_tables.hql"
+        run_hive_hql /mnt/scripts/create_external_paimon_scripts/create_paimon_tables.hql \
+            "create_paimon_tables.hql"
         ;;
     *)
         echo "Unknown module for refresh: ${module}" >&2

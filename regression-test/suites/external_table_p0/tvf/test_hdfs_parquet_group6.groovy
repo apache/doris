@@ -427,7 +427,13 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
+                check { result, exception, startTime, endTime ->
+                    def message = exception?.toString()
+                    assertTrue(message != null
+                                    && (message.contains("The column type of 'time_millis' is not supported")
+                                        || message.contains("Unsupported parquet column 'time_millis': Parquet TIME with isAdjustedToUTC=true is not supported")),
+                            "Unexpected Parquet TIME error: ${message}")
+                }
             }
 
 

@@ -17,23 +17,33 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -49,16 +59,22 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.BaseMetadataTable;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.types.Types;
@@ -89,6 +105,12 @@ public class IcebergScanNodeTest {
         return (Optional<Map<Integer, List<String>>>) method.invoke(node);
     }
 
+    private static Table useFrozenTableGeneration(IcebergScanNode node, Table table) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("useFrozenTableGeneration", Table.class);
+        method.setAccessible(true);
+        return (Table) method.invoke(node, table);
+    }
+
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
         private TableScan tableScan;
@@ -111,6 +133,10 @@ public class IcebergScanNodeTest {
             return tableScan;
         }
 
+        TableScan createRealTableScan() throws UserException {
+            return super.createTableScan();
+        }
+
         @Override
         public boolean isBatchMode() {
             return false;
@@ -124,6 +150,12 @@ public class IcebergScanNodeTest {
         @Override
         public List<String> getPathPartitionKeys() {
             return Collections.emptyList();
+        }
+
+        void addSlot(int slotId, Column column) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(slotId), desc);
+            slot.setColumn(column);
+            desc.addSlot(slot);
         }
 
         @Override
@@ -141,6 +173,12 @@ public class IcebergScanNodeTest {
             enableCurrentIcebergScanSemantics();
             return params.getIcebergScanSemanticsVersion();
         }
+
+        TFileScanRangeParams initializeAndGetIcebergSchemaInfo() throws UserException {
+            params = new TFileScanRangeParams();
+            initializeIcebergSchemaInfo(Optional.empty());
+            return params;
+        }
     }
 
     @Test
@@ -149,6 +187,34 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION,
                 node.enableAndGetIcebergScanSemanticsVersion());
+    }
+
+    @Test
+    public void testPartitionEvolutionKeepsNonFileSlotInReaderSchema() throws Exception {
+        Column evolvedIdentityColumn = new Column("int_col", Type.BIGINT, true);
+        evolvedIdentityColumn.setUniqueId(1);
+        Column projectedColumn = new Column("payload", Type.STRING, true);
+        projectedColumn.setUniqueId(2);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        // Reader schema resolution is pinned to the relation snapshot, including partition-only columns.
+        Mockito.when(targetTable.getFullSchema(Mockito.<Optional<MvccSnapshot>>any())).thenReturn(
+                ImmutableList.of(evolvedIdentityColumn, projectedColumn));
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        node.addSlot(1, projectedColumn);
+        setIcebergSource(node, source);
+        Mockito.doReturn(Collections.emptyMap()).when(node).getBase64EncodedInitialDefaultsForScan();
+
+        TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo();
+
+        Assert.assertEquals(2, scanParams.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assert.assertEquals("int_col", scanParams.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+        Assert.assertEquals("payload", scanParams.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
     }
 
     @Test
@@ -465,6 +531,297 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(Collections.singletonMap(7, "AAEC/w=="), defaults);
         Mockito.verify(node, Mockito.never()).createTableScan();
+    }
+
+    @Test
+    public void testHistoricalPredicateUsesSelectedScanSchema() throws Exception {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(7, "old_name", Types.IntegerType.get()));
+        Schema currentSchema = new Schema(
+                Types.NestedField.optional(8, "new_name", Types.IntegerType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(currentSchema);
+        Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(
+                historicalSchema.schemaId(), historicalSchema));
+        TableScan scan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(scan.schema()).thenReturn(historicalSchema);
+        Mockito.when(scan.metricsReporter(Mockito.any())).thenReturn(scan);
+        Mockito.when(scan.useSnapshot(1L)).thenReturn(scan);
+        Mockito.when(scan.project(historicalSchema)).thenReturn(scan);
+        Mockito.when(scan.filter(Mockito.any())).thenReturn(scan);
+        Mockito.when(scan.planWith(Mockito.any())).thenReturn(scan);
+        Mockito.when(table.newScan()).thenReturn(scan);
+
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(new SessionVariable()));
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        Mockito.doReturn(new IcebergTableQueryInfo(1L, null, historicalSchema.schemaId()))
+                .when(node).getSpecifiedSnapshot();
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "old_name"), new IntLiteral(1, Type.INT)));
+
+        node.createRealTableScan();
+
+        Mockito.verify(scan).filter(Mockito.argThat(expression -> expression.toString().contains("old_name")));
+    }
+
+    @Test
+    public void testPinnedBranchUsesFrozenSnapshotWithCurrentSchema() throws Exception {
+        Schema snapshotSchema = new Schema(11, ImmutableList.of(
+                Types.NestedField.optional(1, "old_name", Types.StringType.get())));
+        Schema currentSchema = new Schema(12, ImmutableList.of(
+                Types.NestedField.optional(1, "new_name", Types.StringType.get()),
+                Types.NestedField.optional(2, "new_col", Types.StringType.get())));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(currentSchema);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(11, snapshotSchema, 12, currentSchema));
+        Mockito.when(table.refs()).thenReturn(Collections.singletonMap(
+                "moving", SnapshotRef.branchBuilder(2L).build()));
+        TableScan scan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(scan.schema()).thenReturn(currentSchema);
+        Mockito.when(scan.metricsReporter(Mockito.any())).thenReturn(scan);
+        Mockito.when(scan.useSnapshot(1L)).thenReturn(scan);
+        Mockito.when(scan.project(currentSchema)).thenReturn(scan);
+        Mockito.when(table.newScan()).thenReturn(scan);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(targetTable.getName()).thenReturn("tbl");
+        Mockito.when(targetTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergExternalCatalog sourceCatalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+        Mockito.when(source.getCatalog()).thenReturn(sourceCatalog);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        node.setScanParams(new TableScanParams(TableScanParams.BRANCH,
+                Collections.singletonMap(TableScanParams.PARAMS_NAME, "moving"), Collections.emptyList()));
+
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        statementContext.setSnapshot(new MvccTableInfo(targetTable), new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(1L, currentSchema.schemaId()))));
+        try {
+            node.createRealTableScan();
+
+            Mockito.verify(scan).useSnapshot(1L);
+            Mockito.verify(scan).project(currentSchema);
+            Mockito.verify(scan, Mockito.never()).useRef(Mockito.anyString());
+            Mockito.verify(table, Mockito.never()).refs();
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testPinnedLatestUsesFrozenSnapshot() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(schema.schemaId(), schema));
+        TableScan scan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(scan.schema()).thenReturn(schema);
+        Mockito.when(scan.metricsReporter(Mockito.any())).thenReturn(scan);
+        Mockito.when(scan.useSnapshot(7L)).thenReturn(scan);
+        Mockito.when(scan.project(schema)).thenReturn(scan);
+        Mockito.when(table.newScan()).thenReturn(scan);
+
+        IcebergExternalTable targetTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(IcebergExternalCatalog.class));
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(7L, schema.schemaId())))));
+
+        node.createRealTableScan();
+
+        Mockito.verify(scan).useSnapshot(7L);
+        Mockito.verify(scan).project(schema);
+    }
+
+    @Test
+    public void testPinnedEmptyTableDoesNotUseInvalidSnapshot() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(schema.schemaId(), schema));
+        TableScan scan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(scan.schema()).thenReturn(schema);
+        Mockito.when(scan.metricsReporter(Mockito.any())).thenReturn(scan);
+        Mockito.when(table.newScan()).thenReturn(scan);
+
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(IcebergExternalCatalog.class));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(-1L, schema.schemaId())))));
+
+        node.createRealTableScan();
+
+        Mockito.verify(scan, Mockito.never()).useSnapshot(Mockito.anyLong());
+    }
+
+    @Test
+    public void testPinnedEmptyTableUsesFrozenGenerationAfterRefresh() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        Table frozenEmptyTable = Mockito.mock(Table.class);
+        TableScan frozenEmptyScan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(frozenEmptyScan.schema()).thenReturn(schema);
+        Mockito.when(frozenEmptyScan.metricsReporter(Mockito.any())).thenReturn(frozenEmptyScan);
+        Mockito.when(frozenEmptyScan.planWith(Mockito.any())).thenReturn(frozenEmptyScan);
+        Mockito.when(frozenEmptyTable.newScan()).thenReturn(frozenEmptyScan);
+
+        Table refreshedTable = Mockito.mock(Table.class);
+        TableScan refreshedScan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(refreshedScan.schema()).thenReturn(schema);
+        Mockito.when(refreshedScan.metricsReporter(Mockito.any())).thenReturn(refreshedScan);
+        Mockito.when(refreshedScan.planWith(Mockito.any())).thenReturn(refreshedScan);
+        Mockito.when(refreshedTable.newScan()).thenReturn(refreshedScan);
+
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(IcebergExternalCatalog.class));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, refreshedTable);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(-1L, schema.schemaId()), Optional.empty(), frozenEmptyTable))));
+
+        TableScan plannedScan = node.createRealTableScan();
+
+        Assert.assertSame(frozenEmptyScan, plannedScan);
+        Mockito.verify(frozenEmptyTable).newScan();
+        Mockito.verify(refreshedTable, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testPinnedNonEmptyTableUsesFrozenGenerationAfterRefresh() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        Table frozenTable = Mockito.mock(Table.class);
+        TableScan frozenScan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(frozenScan.schema()).thenReturn(schema);
+        Mockito.when(frozenScan.metricsReporter(Mockito.any())).thenReturn(frozenScan);
+        Mockito.when(frozenScan.useSnapshot(101L)).thenReturn(frozenScan);
+        Mockito.when(frozenScan.project(schema)).thenReturn(frozenScan);
+        Mockito.when(frozenScan.planWith(Mockito.any())).thenReturn(frozenScan);
+        Mockito.when(frozenTable.newScan()).thenReturn(frozenScan);
+        Mockito.when(frozenTable.schemas()).thenReturn(Collections.singletonMap(schema.schemaId(), schema));
+
+        Table refreshedTable = Mockito.mock(Table.class);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(IcebergExternalCatalog.class));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, refreshedTable);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(101L, schema.schemaId()), Optional.empty(), frozenTable))));
+
+        TableScan plannedScan = node.createRealTableScan();
+
+        Assert.assertSame(frozenScan, plannedScan);
+        Mockito.verify(frozenScan).useSnapshot(101L);
+        Mockito.verify(refreshedTable, Mockito.never()).newScan();
+    }
+
+    @Test
+    public void testSnapshotSelectableMetadataTableUsesFrozenBaseGeneration() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        TableMetadata metadata = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:/tmp/frozen-metadata-table",
+                Collections.emptyMap());
+        Table frozenBaseTable = new BaseTable(new StaticTableOperations(
+                metadata, Mockito.mock(org.apache.iceberg.io.FileIO.class),
+                Mockito.mock(org.apache.iceberg.io.LocationProvider.class)), "table");
+        Table currentMetadataTable = Mockito.mock(Table.class);
+
+        IcebergSysExternalTable targetTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(targetTable.supportsSnapshotSelection()).thenReturn(true);
+        Mockito.when(targetTable.getSysTableType()).thenReturn(MetadataTableType.FILES.name());
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergSource(node, source);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(-1L, schema.schemaId()), Optional.empty(), frozenBaseTable))));
+
+        Table retainedMetadataTable = useFrozenTableGeneration(node, currentMetadataTable);
+
+        Assert.assertNotSame(currentMetadataTable, retainedMetadataTable);
+        Assert.assertTrue(retainedMetadataTable instanceof BaseMetadataTable);
+        Assert.assertEquals(schema.asStruct(), ((BaseMetadataTable) retainedMetadataTable).table()
+                .schema().asStruct());
+    }
+
+    @Test
+    public void testAllMetadataTableDoesNotUseSnapshot() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.schemas()).thenReturn(Collections.singletonMap(schema.schemaId(), schema));
+        TableScan scan = Mockito.mock(TableScan.class, Mockito.RETURNS_SELF);
+        Mockito.when(scan.schema()).thenReturn(schema);
+        Mockito.when(scan.metricsReporter(Mockito.any())).thenReturn(scan);
+        Mockito.when(table.newScan()).thenReturn(scan);
+
+        IcebergSysExternalTable targetTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(targetTable.supportsSnapshotSelection()).thenReturn(false);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(IcebergExternalCatalog.class));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(
+                new IcebergSnapshotCacheValue(new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                        new IcebergSnapshot(7L, schema.schemaId())))));
+
+        node.createRealTableScan();
+
+        Mockito.verify(scan, Mockito.never()).useSnapshot(Mockito.anyLong());
     }
 
     private static void setIcebergTable(IcebergScanNode node, Table table) throws Exception {

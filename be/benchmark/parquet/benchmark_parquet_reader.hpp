@@ -24,6 +24,7 @@
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -39,13 +40,18 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exprs/vcompound_pred.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "parquet_benchmark_scenarios.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
@@ -88,6 +94,64 @@ inline std::shared_ptr<arrow::Array> build_int32_array(int null_percent, Pattern
     return builder.Finish().ValueOrDie();
 }
 
+inline std::shared_ptr<arrow::Array> build_int64_array(int null_percent, Pattern pattern) {
+    arrow::Int64Builder builder;
+    PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
+    for (size_t row = 0; row < READER_ROWS; ++row) {
+        if (is_null_row(row, null_percent, pattern)) {
+            PARQUET_THROW_NOT_OK(builder.AppendNull());
+        } else {
+            PARQUET_THROW_NOT_OK(builder.Append(static_cast<int64_t>(row % 100)));
+        }
+    }
+    return builder.Finish().ValueOrDie();
+}
+
+inline std::string padded_decimal(size_t value) {
+    std::string result = std::to_string(value);
+    result.insert(0, 3 - result.size(), '0');
+    return result;
+}
+
+inline std::shared_ptr<arrow::Array> build_string_array(int null_percent, Pattern pattern) {
+    arrow::StringBuilder builder;
+    PARQUET_THROW_NOT_OK(builder.Reserve(READER_ROWS));
+    for (size_t row = 0; row < READER_ROWS; ++row) {
+        if (is_null_row(row, null_percent, pattern)) {
+            PARQUET_THROW_NOT_OK(builder.AppendNull());
+        } else {
+            PARQUET_THROW_NOT_OK(builder.Append(padded_decimal(row % 100)));
+        }
+    }
+    return builder.Finish().ValueOrDie();
+}
+
+inline std::shared_ptr<arrow::Array> build_value_array(const ReaderScenario& scenario) {
+    switch (scenario.value_type) {
+    case ValueType::INT32:
+        return build_int32_array(scenario.null_percent, scenario.null_pattern);
+    case ValueType::INT64:
+        return build_int64_array(scenario.null_percent, scenario.null_pattern);
+    case ValueType::BYTE_ARRAY:
+        return build_string_array(scenario.null_percent, scenario.null_pattern);
+    default:
+        throw std::logic_error("unsupported Parquet reader benchmark value type");
+    }
+}
+
+inline std::shared_ptr<arrow::DataType> arrow_value_type(ValueType value_type) {
+    switch (value_type) {
+    case ValueType::INT32:
+        return arrow::int32();
+    case ValueType::INT64:
+        return arrow::int64();
+    case ValueType::BYTE_ARRAY:
+        return arrow::utf8();
+    default:
+        throw std::logic_error("unsupported Parquet reader benchmark value type");
+    }
+}
+
 inline ::parquet::Encoding::type file_encoding(Encoding encoding) {
     switch (encoding) {
     case Encoding::PLAIN:
@@ -107,9 +171,10 @@ inline ::parquet::Encoding::type file_encoding(Encoding encoding) {
 }
 
 inline std::string fixture_name(const ReaderScenario& scenario) {
-    return "v2_" + to_string(scenario.encoding) + "_null" + std::to_string(scenario.null_percent) +
-           "_" + to_string(scenario.null_pattern) + "_w" + std::to_string(scenario.schema_width) +
-           "_p" + std::to_string(scenario.predicate_position) + ".parquet";
+    return "v2_" + to_string(scenario.encoding) + "_" + to_string(scenario.value_type) + "_null" +
+           std::to_string(scenario.null_percent) + "_" + to_string(scenario.null_pattern) + "_w" +
+           std::to_string(scenario.schema_width) + "_p" +
+           std::to_string(scenario.predicate_position) + ".parquet";
 }
 
 inline void verify_fixture_encoding(const std::filesystem::path& path,
@@ -148,13 +213,14 @@ inline std::filesystem::path ensure_fixture(const ReaderScenario& scenario) {
     std::filesystem::create_directories(directory);
     const auto temporary_path = path.string() + ".tmp";
     std::filesystem::remove(temporary_path);
-    const auto values = build_int32_array(scenario.null_percent, scenario.null_pattern);
+    const auto values = build_value_array(scenario);
     std::vector<std::shared_ptr<arrow::Field>> fields;
     std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
     fields.reserve(scenario.schema_width);
     columns.reserve(scenario.schema_width);
     for (int column = 0; column < scenario.schema_width; ++column) {
-        fields.push_back(arrow::field("c" + std::to_string(column), arrow::int32(), true));
+        fields.push_back(arrow::field("c" + std::to_string(column),
+                                      arrow_value_type(scenario.value_type), true));
         columns.push_back(std::make_shared<arrow::ChunkedArray>(values));
     }
     const auto table = arrow::Table::Make(arrow::schema(std::move(fields)), std::move(columns));
@@ -275,6 +341,73 @@ inline VExprContextSPtr make_predicate(int column_position, int selectivity_perc
     return context;
 }
 
+inline VExprSPtr make_int32_comparison(const std::string& function_name, TExprOpcode::type opcode,
+                                       VExprSPtr left, VExprSPtr right) {
+    const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName name;
+    name.__set_function_name(function_name);
+    TFunction function;
+    function.__set_name(name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({left->data_type()->to_thrift(), right->data_type()->to_thrift()});
+    function.__set_ret_type(bool_type->to_thrift());
+    function.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(opcode);
+    node.__set_type(bool_type->to_thrift());
+    node.__set_fn(function);
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto comparison = VectorizedFnCall::create_shared(node);
+    comparison->add_child(std::move(left));
+    comparison->add_child(std::move(right));
+    return comparison;
+}
+
+inline VExprSPtr make_reader_literal(const ReaderScenario& scenario, const DataTypePtr& type) {
+    switch (scenario.value_type) {
+    case ValueType::INT32:
+        return VLiteral::create_shared(remove_nullable(type),
+                                       Field::create_field<TYPE_INT>(scenario.selectivity_percent));
+    case ValueType::INT64:
+        return VLiteral::create_shared(
+                remove_nullable(type),
+                Field::create_field<TYPE_BIGINT>(scenario.selectivity_percent));
+    case ValueType::BYTE_ARRAY:
+        return VLiteral::create_shared(
+                remove_nullable(type),
+                Field::create_field<TYPE_STRING>(padded_decimal(scenario.selectivity_percent)));
+    default:
+        throw std::logic_error("unsupported Parquet reader benchmark predicate type");
+    }
+}
+
+inline VExprContextSPtr make_complex_residual_predicate(int selectivity_percent, int first_position,
+                                                        int later_left_position,
+                                                        int later_right_position,
+                                                        const DataTypePtr& int_type) {
+    const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+    node.__set_opcode(TExprOpcode::COMPOUND_AND);
+    node.__set_type(bool_type->to_thrift());
+    node.__set_num_children(2);
+    node.__set_is_nullable(true);
+    auto compound = VCompoundPred::create_shared(node);
+    compound->add_child(make_int32_comparison(
+            "lt", TExprOpcode::LT,
+            VSlotRef::create_shared(first_position, first_position, -1, int_type, "c0"),
+            VLiteral::create_shared(remove_nullable(int_type),
+                                    Field::create_field<TYPE_INT>(selectivity_percent))));
+    compound->add_child(make_int32_comparison(
+            "eq", TExprOpcode::EQ,
+            VSlotRef::create_shared(later_left_position, later_left_position, -1, int_type, "c2"),
+            VSlotRef::create_shared(later_right_position, later_right_position, -1, int_type,
+                                    "c3")));
+    return VExprContext::create_shared(std::move(compound));
+}
+
 inline Block make_block(const std::vector<format::ColumnDefinition>& schema) {
     Block block;
     for (const auto& column : schema) {
@@ -284,10 +417,17 @@ inline Block make_block(const std::vector<format::ColumnDefinition>& schema) {
 }
 
 struct ReaderSession {
+    ~ReaderSession() {
+        for (const auto& context : opened_conjuncts) {
+            context->close();
+        }
+    }
+
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     std::unique_ptr<format::parquet::ParquetReader> reader;
     std::vector<format::ColumnDefinition> schema;
     std::shared_ptr<format::FileScanRequest> request;
+    VExprContextSPtrs opened_conjuncts;
 };
 
 inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& path,
@@ -322,8 +462,37 @@ inline std::unique_ptr<ReaderSession> open_reader(const std::filesystem::path& p
                     request_builder.add_non_predicate_column(format::LocalColumnId(payload)));
         }
         const auto predicate_position = session->request->local_positions.at(predicate_id).value();
-        session->request->conjuncts.push_back(
-                make_predicate(static_cast<int>(predicate_position), scenario.selectivity_percent));
+        auto context = VExprContext::create_shared(make_int32_comparison(
+                "lt", TExprOpcode::LT,
+                VSlotRef::create_shared(static_cast<int>(predicate_position),
+                                        static_cast<int>(predicate_position), -1,
+                                        session->schema[scenario.predicate_position].type, "c0"),
+                make_reader_literal(scenario, session->schema[scenario.predicate_position].type)));
+        throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
+        throw_if_error(context->open(&session->runtime_state));
+        session->request->conjuncts.push_back(context);
+        session->opened_conjuncts.push_back(std::move(context));
+    } else if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
+        DORIS_CHECK(scenario.schema_width >= 5);
+        std::array<int, 3> predicate_columns {0, 2, 3};
+        std::array<int, 3> predicate_positions {};
+        for (size_t index = 0; index < predicate_columns.size(); ++index) {
+            const int column = predicate_columns[index];
+            const auto predicate_id = format::LocalColumnId(column);
+            throw_if_error(request_builder.add_predicate_column(predicate_id));
+            session->request->predicate_only_columns.push_back(predicate_id);
+            predicate_positions[index] =
+                    static_cast<int>(session->request->local_positions.at(predicate_id).value());
+        }
+        throw_if_error(request_builder.add_non_predicate_column(
+                format::LocalColumnId(scenario.schema_width - 1)));
+        auto context = make_complex_residual_predicate(
+                scenario.selectivity_percent, predicate_positions[0], predicate_positions[1],
+                predicate_positions[2], session->schema[0].type);
+        throw_if_error(context->prepare(&session->runtime_state, RowDescriptor()));
+        throw_if_error(context->open(&session->runtime_state));
+        session->request->conjuncts.push_back(context);
+        session->opened_conjuncts.push_back(std::move(context));
     } else {
         throw_if_error(request_builder.add_non_predicate_column(format::LocalColumnId(0)));
         if (scenario.schema_width > 1) {
@@ -383,7 +552,23 @@ inline int projected_columns(const ReaderScenario& scenario) {
         scenario.projection == Projection::PREDICATE_ONLY) {
         return 1;
     }
+    if (scenario.operation == ReaderOperation::COMPLEX_RESIDUAL_SCAN) {
+        return 4;
+    }
     return std::min(2, scenario.schema_width);
+}
+
+inline size_t value_width(const ReaderScenario& scenario) {
+    switch (scenario.value_type) {
+    case ValueType::INT32:
+        return sizeof(int32_t);
+    case ValueType::INT64:
+        return sizeof(int64_t);
+    case ValueType::BYTE_ARRAY:
+        return 3;
+    default:
+        return sizeof(int32_t);
+    }
 }
 
 inline void run_reader(benchmark::State& state, ReaderScenario scenario) {
@@ -408,8 +593,9 @@ inline void run_reader(benchmark::State& state, ReaderScenario scenario) {
 
         const auto raw_rows = raw_rows_per_iteration(scenario);
         state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * selected_rows));
-        state.SetBytesProcessed(static_cast<int64_t>(
-                state.iterations() * raw_rows * projected_columns(scenario) * sizeof(int32_t)));
+        state.SetBytesProcessed(
+                static_cast<int64_t>(state.iterations() * raw_rows * projected_columns(scenario) *
+                                     value_width(scenario)));
         state.counters["raw_rows"] = static_cast<double>(raw_rows);
         state.counters["selected_rows"] = static_cast<double>(selected_rows);
         state.counters["fixture_bytes"] = static_cast<double>(std::filesystem::file_size(fixture));
@@ -428,13 +614,7 @@ inline void run_reader(benchmark::State& state, ReaderScenario scenario) {
 
 inline bool register_reader_benchmarks() {
     for (const auto& scenario : reader_scenarios()) {
-        std::string name =
-                "ParquetReader/" + to_string(scenario.operation) + "/" +
-                to_string(scenario.encoding) + "/null_" + std::to_string(scenario.null_percent) +
-                "/" + to_string(scenario.null_pattern) + "/sel_" +
-                std::to_string(scenario.selectivity_percent) + "/" +
-                to_string(scenario.projection) + "/width_" + std::to_string(scenario.schema_width) +
-                "/predicate_" + std::to_string(scenario.predicate_position);
+        std::string name = "ParquetReader/" + reader_scenario_name(scenario);
         benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State& state) {
             run_reader(state, scenario);
         })->Unit(benchmark::kNanosecond);

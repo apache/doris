@@ -545,7 +545,7 @@ public class Config extends ConfigBase {
                     + "start at first time. You can also specify one."})
     public static int cluster_id = -1;
 
-    @ConfField(description = {"集群 token，用于内部认证。",
+    @ConfField(sensitive = true, description = {"集群 token，用于内部认证。",
             "Cluster token used for internal authentication."})
     public static String auth_token = "";
 
@@ -932,6 +932,18 @@ public class Config extends ConfigBase {
     // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
+
+    @ConfField(sensitive = true, description = {"Cluster token for FE meta-service internal HTTP authentication. "
+            + "When set (non-empty), FE meta-service endpoints (such as image/role/check/put/journal_id) "
+            + "additionally require the caller to present a matching token header, on top of the existing "
+            + "node-host check. Empty (default) keeps the legacy behavior of node-host check only, so "
+            + "existing clusters and rolling upgrades are unaffected. Must be identical on all FEs and "
+            + "provisioned in fe.conf before enabling, otherwise FEs will reject each other.",
+            "FE meta-service 内部 HTTP 鉴权使用的集群 token。设置(非空)后,meta-service 端点(如 "
+            + "image/role/check/put/journal_id)在原有 node-host 校验之上,额外要求调用方携带匹配的 token 头。"
+            + "为空(默认)时维持仅 node-host 校验的旧行为,存量集群与滚动升级不受影响。必须在所有 FE 上取值一致,"
+            + "并在启用前写入 fe.conf,否则 FE 之间会互相拒绝。"})
+    public static String fe_meta_auth_token = "";
 
     /**
      * Set to true if you deploy Palo using thirdparty deploy manager
@@ -2209,7 +2221,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 10;
+    public static int max_be_exec_version = 11;
 
     /**
      * Min data version of backends serialize block.
@@ -2910,7 +2922,7 @@ public class Config extends ConfigBase {
             "Auto Buckets 中最小的 buckets 数目",
             "min buckets of auto bucket"
     })
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets 中最大的 buckets 数目",
@@ -3298,7 +3310,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {
             "是否在 schema change 过程中，检测冲突事物并 abort 它",
-            "SHould abort txn by checking conflick txn in schema change"})
+            "SHould abort txn by checking conflick txn in schema change or cloud upgrade checks"})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
@@ -3745,6 +3757,12 @@ public class Config extends ConfigBase {
             description = { "存算分离模式下，一个 BE 挂掉多长时间后，它的 tablet 彻底转移到其他 BE 上" })
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = false, masterOnly = true,
+            description = {
+                    "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
+                            + "If false, use the legacy modulo placement. Restart-only."})
+    public static boolean enable_cloud_colocate_consistent_hash = true;
+
     @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认 true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
     public static boolean enable_auto_start_for_cloud_cluster = true;
@@ -3808,6 +3826,38 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下 FE 请求 meta service 超时的重试次数，默认 1 次",
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
+
+    @ConfField(mutable = true, description = {
+            "Whether to enable QPS rate limit for RPC requests to meta service."})
+    public static boolean meta_service_rpc_rate_limit_enabled = false;
+
+    @ConfField(mutable = true, description = {
+            "Default QPS limit for each method (requests per second) in each cpu core, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static int meta_service_rpc_rate_limit_default_qps_per_core = 50;
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.QpsConfigHandler.class,
+            description = {
+                "QPS limit config per rpc method to meta service in per cpu core, "
+                    + "format: method1:qps1;method2:qps2, "
+                    + "e.g.: getPartitionVersion:100;getTableVersion:100;getTabletStats:50, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static String meta_service_rpc_rate_limit_qps_per_core_config
+            = "getPartitionVersion:500;getTableVersion:500;getTabletStats:50;beginTxn:50";
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.PositiveIntConfigHandler.class,
+            description = {
+                "Burst window for meta service RPC rate limit in seconds. "
+                    + "The long-term average QPS is unchanged, while calls can burst within this window."})
+    public static int meta_service_rpc_rate_limit_burst_seconds = 2;
+
+    @ConfField(mutable = true, callback = MetaServiceRpcRateLimitConfigValidator.NonNegativeLongConfigHandler.class,
+            description = {
+                "Max wait time in milliseconds when meta service RPC is rate limited, "
+                    + "zero means fail fast."})
+    public static long meta_service_rpc_rate_limit_wait_timeout_ms = 1000;
 
     @ConfField(mutable = true, description = {"存算分离模式下自动启停功能，对于该配置中的数据库名不进行唤醒操作，"
             + "用于内部作业的数据库，例如统计信息用到的数据库，"
@@ -4060,4 +4110,5 @@ public class Config extends ConfigBase {
                     + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
                     + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
     public static boolean enable_adaptive_random_bucket_load = true;
+
 }

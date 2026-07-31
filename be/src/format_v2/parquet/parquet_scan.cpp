@@ -22,6 +22,7 @@
 #include <optional>
 #include <ranges>
 #include <set>
+#include <span>
 #include <unordered_set>
 #include <utility>
 
@@ -29,8 +30,14 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_const.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -569,8 +576,8 @@ Status finalize_parquet_row_group_plans(
 
 namespace {
 
-using DictionaryResidualConjunct = std::pair<VExprContextSPtr, VExprSPtr>;
-using DictionaryResidualConjuncts = std::vector<DictionaryResidualConjunct>;
+using OwnedExpressionConjunct = std::pair<VExprContextSPtr, VExprSPtr>;
+using OwnedExpressionConjuncts = std::vector<OwnedExpressionConjunct>;
 
 void update_counter_if_not_null(RuntimeProfile::Counter* counter, int64_t value) {
     if (counter != nullptr) {
@@ -615,10 +622,9 @@ Status execute_compact_filter_conjuncts(const VExprContextSPtrs& conjuncts, size
     return Status::OK();
 }
 
-Status execute_compact_dictionary_residual_conjuncts(const DictionaryResidualConjuncts& conjuncts,
-                                                     size_t rows, Block* file_block,
-                                                     IColumn::Filter* compact_filter,
-                                                     bool* can_filter_all) {
+Status execute_compact_owned_conjuncts(std::span<const OwnedExpressionConjunct> conjuncts,
+                                       size_t rows, Block* file_block,
+                                       IColumn::Filter* compact_filter, bool* can_filter_all) {
     DORIS_CHECK(compact_filter != nullptr);
     DORIS_CHECK(can_filter_all != nullptr);
     compact_filter->resize_fill(rows, 1);
@@ -794,11 +800,17 @@ int64_t count_range_rows(const std::vector<RowRange>& ranges) {
 }
 
 void append_intersection(const RowRange& left, const RowRange& right,
-                         std::vector<RowRange>* result) {
+                         std::vector<RowRange>& result) {
     const int64_t start = std::max(left.start, right.start);
     const int64_t end = std::min(left.start + left.length, right.start + right.length);
     if (start < end) {
-        result->push_back(RowRange {.start = start, .length = end - start});
+        // Cache granules are only filter coordinates. Merge adjacent survivors so cache hits
+        // preserve the original read-range batch boundaries, matching V1 RowRanges semantics.
+        if (!result.empty() && result.back().start + result.back().length == start) {
+            result.back().length = end - result.back().start;
+            return;
+        }
+        result.push_back(RowRange {.start = start, .length = end - start});
     }
 }
 
@@ -830,7 +842,7 @@ std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRang
             const int64_t granule_end = granule_start + ConditionCacheContext::GRANULE_SIZE;
             const RowRange file_granule_range {.start = granule_start - row_group_first_row,
                                                .length = granule_end - granule_start};
-            append_intersection(range, file_granule_range, &result);
+            append_intersection(range, file_granule_range, result);
         }
     }
     return result;
@@ -890,6 +902,7 @@ void ParquetScanScheduler::reset() {
     _predicate_schedule = {};
     _predicate_positions_scratch.clear();
     _predicate_indices_by_position_scratch.clear();
+    _materialized_predicate_positions_scratch.clear();
     _ordered_predicate_positions_scratch.clear();
     _predicate_batch_sequence = 0;
     reset_current_row_group();
@@ -964,8 +977,10 @@ const detail::PredicateConjunctSchedule& ParquetScanScheduler::predicate_conjunc
     _predicate_schedule_request = &request;
     _predicate_positions_scratch.clear();
     _predicate_indices_by_position_scratch.clear();
+    _materialized_predicate_positions_scratch.clear();
     _predicate_positions_scratch.reserve(request.predicate_columns.size());
     _predicate_indices_by_position_scratch.reserve(request.predicate_columns.size());
+    _materialized_predicate_positions_scratch.reserve(request.predicate_columns.size());
     for (size_t idx = 0; idx < request.predicate_columns.size(); ++idx) {
         const auto position_it =
                 request.local_positions.find(request.predicate_columns[idx].column_id());
@@ -978,17 +993,41 @@ const detail::PredicateConjunctSchedule& ParquetScanScheduler::predicate_conjunc
 }
 
 std::vector<format::LocalColumnIndex> ParquetScanScheduler::adaptive_predicate_prefetch_columns(
-        const format::FileScanRequest& request) const {
+        const format::FileScanRequest& request) {
     std::vector<size_t> positions;
     std::unordered_map<size_t, const format::LocalColumnIndex*> columns_by_position;
-    positions.reserve(request.predicate_columns.size());
     columns_by_position.reserve(request.predicate_columns.size());
     for (const auto& column : request.predicate_columns) {
         const auto position_it = request.local_positions.find(column.column_id());
         DORIS_CHECK(position_it != request.local_positions.end());
         const size_t position = position_it->second.value();
-        positions.push_back(position);
         columns_by_position.emplace(position, &column);
+    }
+    const auto& schedule = predicate_conjunct_schedule(request);
+    if (!schedule.supports_lazy_materialization) {
+        positions.reserve(request.predicate_columns.size());
+        for (const auto& column : request.predicate_columns) {
+            positions.push_back(request.local_positions.at(column.column_id()).value());
+        }
+    } else if (!schedule.single_column_conjuncts.empty()) {
+        positions.reserve(schedule.single_column_conjuncts.size());
+        for (const auto& column : request.predicate_columns) {
+            const size_t position = request.local_positions.at(column.column_id()).value();
+            if (schedule.single_column_conjuncts.contains(position)) {
+                // Cold adaptive statistics intentionally preserve request order; iterating the
+                // hash map here would make the first decoded predicate depend on bucket layout.
+                positions.push_back(position);
+            }
+        }
+    } else if (!schedule.remaining_stages.empty()) {
+        // Match execution's first reachable stage. Warming columns owned only by later residuals
+        // would turn lazy decode into eager remote IO before an earlier conjunct can reject rows.
+        positions = schedule.remaining_stages.front().required_positions;
+    } else {
+        positions.reserve(request.predicate_columns.size());
+        for (const auto& column : request.predicate_columns) {
+            positions.push_back(request.local_positions.at(column.column_id()).value());
+        }
     }
     auto ordered = detail::order_adaptive_predicates(positions, _predicate_runtime_stats);
     ordered = detail::adaptive_prefetch_prefix(ordered, _predicate_runtime_stats, 0.25);
@@ -1214,6 +1253,37 @@ Status ParquetScanScheduler::flush_pending_non_predicate_skip_rows() {
 
 namespace {
 
+bool append_residual_stages(const VExprContextSPtr& owner_context, const VExprSPtr& expression,
+                            const std::unordered_set<size_t>& predicate_block_positions,
+                            std::vector<detail::PredicateConjunctStage>* stages) {
+    DORIS_CHECK(owner_context != nullptr);
+    DORIS_CHECK(expression != nullptr);
+    DORIS_CHECK(stages != nullptr);
+    const auto* compound_predicate = dynamic_cast<const VCompoundPred*>(expression.get());
+    if (compound_predicate != nullptr && compound_predicate->op() == TExprOpcode::COMPOUND_AND) {
+        for (const auto& child : expression->children()) {
+            if (!append_residual_stages(owner_context, child, predicate_block_positions, stages)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::set<int> referenced_positions;
+    expression->collect_slot_column_ids(referenced_positions);
+    auto& stage = stages->emplace_back();
+    stage.owner_context = owner_context;
+    stage.expression = expression;
+    for (const int position : referenced_positions) {
+        if (position < 0 || !predicate_block_positions.contains(cast_set<size_t>(position))) {
+            stages->pop_back();
+            return false;
+        }
+        stage.required_positions.push_back(cast_set<size_t>(position));
+    }
+    return true;
+}
+
 detail::PredicateConjunctSchedule build_predicate_conjunct_schedule(
         const format::FileScanRequest& request) {
     std::unordered_set<size_t> predicate_block_positions;
@@ -1235,18 +1305,31 @@ detail::PredicateConjunctSchedule build_predicate_conjunct_schedule(
             // optimization, so any unsafe conjunct disables the per-column schedule for the batch.
             schedule.remaining_conjuncts = request.conjuncts;
             schedule.single_column_conjuncts.clear();
+            schedule.remaining_stages.clear();
+            schedule.supports_lazy_materialization = false;
             return schedule;
         }
         std::set<int> referenced_positions;
         conjunct->root()->collect_slot_column_ids(referenced_positions);
         if (referenced_positions.size() != 1) {
             schedule.remaining_conjuncts.push_back(conjunct);
+            if (!append_residual_stages(conjunct, conjunct->root(), predicate_block_positions,
+                                        &schedule.remaining_stages)) {
+                schedule.supports_lazy_materialization = false;
+                schedule.remaining_conjuncts = request.conjuncts;
+                schedule.single_column_conjuncts.clear();
+                schedule.remaining_stages.clear();
+                return schedule;
+            }
             continue;
         }
         const auto block_position = static_cast<size_t>(*referenced_positions.begin());
         if (!predicate_block_positions.contains(block_position)) {
-            schedule.remaining_conjuncts.push_back(conjunct);
-            continue;
+            schedule.supports_lazy_materialization = false;
+            schedule.remaining_conjuncts = request.conjuncts;
+            schedule.single_column_conjuncts.clear();
+            schedule.remaining_stages.clear();
+            return schedule;
         }
         schedule.single_column_conjuncts[block_position].push_back(conjunct);
     }
@@ -1265,6 +1348,12 @@ bool can_evaluate_all_with_dictionary(const VExprContextSPtrs& conjuncts) {
 
 bool can_evaluate_dictionary_exactly(const VExprSPtr& expr) {
     DORIS_CHECK(expr != nullptr);
+    if (expr->is_topn_filter()) {
+        // A row-group bitmap snapshots one bound, while TopN can publish or tighten it between
+        // batches. Keep the row expression as a residual; the cached bitmap remains a safe
+        // monotonic prefilter and the residual observes the current bound on every batch.
+        return false;
+    }
     const auto* compound_pred = dynamic_cast<const VCompoundPred*>(expr.get());
     if (compound_pred == nullptr) {
         return expr->can_evaluate_dictionary_filter();
@@ -1280,7 +1369,7 @@ bool can_evaluate_dictionary_exactly(const VExprSPtr& expr) {
 }
 
 void collect_dictionary_residual_exprs(const VExprContextSPtr& owner_context, const VExprSPtr& expr,
-                                       DictionaryResidualConjuncts* residual_conjuncts) {
+                                       OwnedExpressionConjuncts* residual_conjuncts) {
     DORIS_CHECK(owner_context != nullptr);
     DORIS_CHECK(expr != nullptr);
     DORIS_CHECK(residual_conjuncts != nullptr);
@@ -1304,9 +1393,8 @@ void collect_dictionary_residual_exprs(const VExprContextSPtr& owner_context, co
     residual_conjuncts->emplace_back(owner_context, expr);
 }
 
-DictionaryResidualConjuncts build_dictionary_residual_conjuncts(
-        const VExprContextSPtrs& conjuncts) {
-    DictionaryResidualConjuncts residual_conjuncts;
+OwnedExpressionConjuncts build_dictionary_residual_conjuncts(const VExprContextSPtrs& conjuncts) {
+    OwnedExpressionConjuncts residual_conjuncts;
     for (const auto& conjunct : conjuncts) {
         DORIS_CHECK(conjunct != nullptr);
         collect_dictionary_residual_exprs(conjunct, conjunct->root(), &residual_conjuncts);
@@ -1322,14 +1410,255 @@ uint16_t count_selected_rows(const IColumn::Filter& filter) {
     return selected_rows;
 }
 
-IColumn::Filter build_dictionary_entry_filter(size_t block_position,
-                                              const ParquetColumnSchema& column_schema,
-                                              const VExprContextSPtrs& conjuncts,
-                                              const IColumn& dictionary) {
-    IColumn::Filter dictionary_filter(dictionary.size(), 1);
+enum class DictionaryEntryFilterKernel {
+    GENERIC,
+    TYPED_FIXED_WIDTH,
+    TYPED_STRING,
+    VECTORIZED_RUNTIME_FILTER,
+};
+
+template <typename ColumnType>
+bool get_fixed_dictionary_raw_values(const IColumn& dictionary, const uint8_t** values,
+                                     size_t* value_width) {
+    const auto* typed_dictionary = check_and_get_column<ColumnType>(dictionary);
+    if (typed_dictionary == nullptr) {
+        return false;
+    }
+    *values = reinterpret_cast<const uint8_t*>(typed_dictionary->get_data().data());
+    *value_width = sizeof(typename ColumnType::value_type);
+    return true;
+}
+
+bool get_typed_dictionary_raw_values(PrimitiveType primitive_type, const IColumn& dictionary,
+                                     const uint8_t** values, size_t* value_width) {
+    switch (primitive_type) {
+#define GET_TYPED_DICTIONARY_VALUES(TYPE)                                                       \
+    case TYPE:                                                                                  \
+        return get_fixed_dictionary_raw_values<typename PrimitiveTypeTraits<TYPE>::ColumnType>( \
+                dictionary, values, value_width)
+        GET_TYPED_DICTIONARY_VALUES(TYPE_BOOLEAN);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_TINYINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_SMALLINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_INT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_BIGINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_LARGEINT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_FLOAT);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DOUBLE);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATE);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATETIME);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATEV2);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DATETIMEV2);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_TIMESTAMPTZ);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL32);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL64);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMALV2);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL128I);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_DECIMAL256);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_IPV4);
+        GET_TYPED_DICTIONARY_VALUES(TYPE_IPV6);
+#undef GET_TYPED_DICTIONARY_VALUES
+    default:
+        return false;
+    }
+}
+
+Status try_apply_runtime_filters_to_dictionary(size_t block_position,
+                                               const ParquetColumnSchema& column_schema,
+                                               const VExprContextSPtrs& conjuncts,
+                                               const IColumn& dictionary,
+                                               IColumn::Filter* dictionary_filter, bool* applied) {
+    DORIS_CHECK(dictionary_filter != nullptr);
+    DORIS_CHECK(applied != nullptr);
+    *applied = false;
+    if (!std::ranges::all_of(conjuncts, [](const auto& conjunct) {
+            return conjunct != nullptr && conjunct->root() != nullptr &&
+                   conjunct->root()->is_rf_wrapper() &&
+                   conjunct->root()->can_evaluate_dictionary_filter() &&
+                   conjunct->root()->get_impl() != nullptr;
+        })) {
+        return Status::OK();
+    }
+
+    Block dictionary_block;
+    const size_t dictionary_size = dictionary.size();
+    const auto dummy_type = std::make_shared<DataTypeUInt8>();
+    for (size_t position = 0; position < block_position; ++position) {
+        // Slot position is metadata, not a reason to allocate position*rows bytes. Every unused
+        // slot shares the same one-value constant representation while preserving block indexing.
+        dictionary_block.insert({ColumnConst::create(ColumnUInt8::create(1, 0), dictionary_size),
+                                 dummy_type, "dictionary_dummy"});
+    }
+    ColumnPtr dictionary_column = dictionary.get_ptr();
+    if (column_schema.type->is_nullable()) {
+        dictionary_column =
+                ColumnNullable::create(dictionary_column, ColumnUInt8::create(dictionary_size, 0));
+    }
+    dictionary_block.insert({std::move(dictionary_column), column_schema.type, "dictionary_value"});
+
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary_size, 1);
+    for (const auto& conjunct : conjuncts) {
+        bool can_filter_all = false;
+        // Execute the wrapped implementation directly. Sampling the tiny dictionary through the
+        // RF wrapper could mark the filter ineffective for the much larger row batches that follow.
+        RETURN_IF_ERROR(conjunct->root()->get_impl()->execute_filter(
+                conjunct.get(), &dictionary_block, dictionary_filter->data(), dictionary_size,
+                false, &can_filter_all));
+        if (can_filter_all) {
+            break;
+        }
+    }
+    *applied = true;
+    return Status::OK();
+}
+
+enum class StringDictionaryCompareOp {
+    EQ,
+    NE,
+    LT,
+    LE,
+    GT,
+    GE,
+};
+
+std::optional<StringDictionaryCompareOp> string_dictionary_compare_op(std::string_view name,
+                                                                      bool reverse) {
+    StringDictionaryCompareOp op;
+    if (name == "eq") {
+        op = StringDictionaryCompareOp::EQ;
+    } else if (name == "ne") {
+        op = StringDictionaryCompareOp::NE;
+    } else if (name == "lt") {
+        op = StringDictionaryCompareOp::LT;
+    } else if (name == "le") {
+        op = StringDictionaryCompareOp::LE;
+    } else if (name == "gt") {
+        op = StringDictionaryCompareOp::GT;
+    } else if (name == "ge") {
+        op = StringDictionaryCompareOp::GE;
+    } else {
+        return std::nullopt;
+    }
+    if (!reverse || op == StringDictionaryCompareOp::EQ || op == StringDictionaryCompareOp::NE) {
+        return op;
+    }
+    switch (op) {
+    case StringDictionaryCompareOp::LT:
+        return StringDictionaryCompareOp::GT;
+    case StringDictionaryCompareOp::LE:
+        return StringDictionaryCompareOp::GE;
+    case StringDictionaryCompareOp::GT:
+        return StringDictionaryCompareOp::LT;
+    case StringDictionaryCompareOp::GE:
+        return StringDictionaryCompareOp::LE;
+    default:
+        __builtin_unreachable();
+    }
+}
+
+bool string_compare_matches(int comparison, StringDictionaryCompareOp op) {
+    switch (op) {
+    case StringDictionaryCompareOp::EQ:
+        return comparison == 0;
+    case StringDictionaryCompareOp::NE:
+        return comparison != 0;
+    case StringDictionaryCompareOp::LT:
+        return comparison < 0;
+    case StringDictionaryCompareOp::LE:
+        return comparison <= 0;
+    case StringDictionaryCompareOp::GT:
+        return comparison > 0;
+    case StringDictionaryCompareOp::GE:
+        return comparison >= 0;
+    }
+    __builtin_unreachable();
+}
+
+bool try_apply_string_dictionary_conjunct(size_t block_position, const DataTypePtr& column_type,
+                                          const VExprSPtr& root, const IColumn& dictionary,
+                                          IColumn::Filter* dictionary_filter) {
+    const auto fn = std::dynamic_pointer_cast<VectorizedFnCall>(root);
+    if (fn == nullptr || (!dictionary.is_column_string() && !dictionary.is_column_string64())) {
+        return false;
+    }
+    const auto slot_literal = expr_zonemap::extract_slot_and_literal(fn->children());
+    if (!slot_literal.has_value() || slot_literal->slot_index != block_position ||
+        slot_literal->literal.get_type() != TYPE_STRING ||
+        !remove_nullable(slot_literal->slot_type)->equals(*remove_nullable(column_type)) ||
+        !remove_nullable(slot_literal->literal_type)->equals(*remove_nullable(column_type))) {
+        return false;
+    }
+    const auto op =
+            string_dictionary_compare_op(fn->function_name(), slot_literal->literal_on_left);
+    if (!op.has_value()) {
+        return false;
+    }
+    const auto& literal = slot_literal->literal.get<TYPE_STRING>();
+    const StringRef literal_ref(literal.data(), literal.size());
+    for (size_t dictionary_id = 0; dictionary_id < dictionary.size(); ++dictionary_id) {
+        const int comparison = dictionary.get_data_at(dictionary_id).compare(literal_ref);
+        (*dictionary_filter)[dictionary_id] &= string_compare_matches(comparison, *op) ? 1 : 0;
+    }
+    return true;
+}
+
+Status build_dictionary_entry_filter(size_t block_position,
+                                     const ParquetColumnSchema& column_schema,
+                                     const VExprContextSPtrs& conjuncts, const IColumn& dictionary,
+                                     IColumn::Filter* dictionary_filter,
+                                     DictionaryEntryFilterKernel* kernel) {
+    DORIS_CHECK(dictionary_filter != nullptr);
+    DORIS_CHECK(kernel != nullptr);
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary.size(), 1);
+    *kernel = DictionaryEntryFilterKernel::GENERIC;
+    // Block positions are expression slot IDs here; validate the narrowing once so every
+    // dictionary evaluation path uses the same representable ID.
+    const int expression_column_id = cast_set<int>(block_position);
+    const auto typed_data_type = remove_nullable(column_schema.type);
+    const uint8_t* raw_values = nullptr;
+    size_t value_width = 0;
+    if (std::ranges::all_of(conjuncts,
+                            [&](const auto& conjunct) {
+                                return conjunct->root()->can_execute_on_raw_fixed_values(
+                                        column_schema.type, expression_column_id);
+                            }) &&
+        get_typed_dictionary_raw_values(typed_data_type->get_primitive_type(), dictionary,
+                                        &raw_values, &value_width)) {
+        // A dictionary is immutable for the row group, so compare its contiguous typed values once
+        // and reuse the resulting id bitmap for every data page.
+        for (const auto& conjunct : conjuncts) {
+            RETURN_IF_ERROR(conjunct->root()->execute_on_raw_fixed_values(
+                    raw_values, dictionary.size(), value_width, column_schema.type,
+                    expression_column_id, dictionary_filter->data()));
+        }
+        *kernel = DictionaryEntryFilterKernel::TYPED_FIXED_WIDTH;
+        return Status::OK();
+    }
+
+    if (std::ranges::all_of(conjuncts, [&](const auto& conjunct) {
+            return try_apply_string_dictionary_conjunct(block_position, column_schema.type,
+                                                        conjunct->root(), dictionary,
+                                                        dictionary_filter);
+        })) {
+        *kernel = DictionaryEntryFilterKernel::TYPED_STRING;
+        return Status::OK();
+    }
+
+    bool applied_runtime_filters = false;
+    RETURN_IF_ERROR(try_apply_runtime_filters_to_dictionary(
+            block_position, column_schema, conjuncts, dictionary, dictionary_filter,
+            &applied_runtime_filters));
+    if (applied_runtime_filters) {
+        *kernel = DictionaryEntryFilterKernel::VECTORIZED_RUNTIME_FILTER;
+        return Status::OK();
+    }
+
+    dictionary_filter->clear();
+    dictionary_filter->resize_fill(dictionary.size(), 1);
     DictionaryEvalContext ctx;
     auto& slot = ctx.slots
-                         .emplace(static_cast<int>(block_position),
+                         .emplace(expression_column_id,
                                   DictionaryEvalContext::SlotDictionary {
                                           .data_type = column_schema.type, .values = {}})
                          .first->second;
@@ -1339,12 +1668,13 @@ IColumn::Filter build_dictionary_entry_filter(size_t block_position,
         dictionary.get(dictionary_id, value);
         slot.values.clear();
         slot.values.push_back(std::move(value));
-        dictionary_filter[dictionary_id] = VExprContext::evaluate_dictionary_filter(
-                                                   conjuncts, ctx) == ZoneMapFilterResult::kNoMatch
-                                                   ? 0
-                                                   : 1;
+        (*dictionary_filter)[dictionary_id] =
+                VExprContext::evaluate_dictionary_filter(conjuncts, ctx) ==
+                                ZoneMapFilterResult::kNoMatch
+                        ? 0
+                        : 1;
     }
-    return dictionary_filter;
+    return Status::OK();
 }
 
 } // namespace
@@ -1426,11 +1756,21 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
         // VCompoundPred intentionally evaluates only dictionary-capable children, so residual
         // predicates still run later on surviving rows.
         IColumn::Filter dictionary_filter;
-        DictionaryResidualConjuncts residual_conjuncts;
+        OwnedExpressionConjuncts residual_conjuncts;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_build_time);
-            dictionary_filter = build_dictionary_entry_filter(
-                    block_position, *column_schema, conjunct_it->second, *dictionary_values);
+            DictionaryEntryFilterKernel filter_kernel = DictionaryEntryFilterKernel::GENERIC;
+            RETURN_IF_ERROR(build_dictionary_entry_filter(block_position, *column_schema,
+                                                          conjunct_it->second, *dictionary_values,
+                                                          &dictionary_filter, &filter_kernel));
+            if (filter_kernel == DictionaryEntryFilterKernel::TYPED_FIXED_WIDTH) {
+                update_counter_if_not_null(_scan_profile.dict_filter_typed_compare_columns, 1);
+            } else if (filter_kernel == DictionaryEntryFilterKernel::TYPED_STRING) {
+                update_counter_if_not_null(_scan_profile.dict_filter_string_compare_columns, 1);
+            } else if (filter_kernel == DictionaryEntryFilterKernel::VECTORIZED_RUNTIME_FILTER) {
+                update_counter_if_not_null(
+                        _scan_profile.dict_filter_vectorized_runtime_filter_columns, 1);
+            }
             residual_conjuncts = build_dictionary_residual_conjuncts(conjunct_it->second);
         }
 
@@ -1471,14 +1811,18 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     remember_residual_positions(schedule.remaining_conjuncts);
     remember_residual_positions(request.delete_conjuncts);
     const size_t predicate_batch_sequence = _predicate_batch_sequence++;
-    const bool can_read_predicate_columns_round_by_round =
-            !schedule.single_column_conjuncts.empty();
+    const bool can_read_predicate_columns_round_by_round = schedule.supports_lazy_materialization;
     auto& read_column_positions = _read_column_positions_scratch;
     read_column_positions.clear();
     read_column_positions.reserve(request.predicate_columns.size());
+    auto& materialized_positions = _materialized_predicate_positions_scratch;
+    materialized_positions.clear();
     for (auto& rows : _predicate_column_selection_scratch | std::views::values) {
         rows.clear();
     }
+    // A generation becomes dirty only when filtering changes SelectionVector. Columns read after
+    // an all-pass stage already share its coordinates, so rewalking every prior mapping is wasted.
+    bool predicate_columns_need_alignment = false;
 
     auto remember_column_selection = [&](uint32_t position) {
         auto& rows = _predicate_column_selection_scratch[position];
@@ -1493,6 +1837,8 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     auto compact_predicate_columns = [&](bool discard_predicate_only_payload) -> Status {
         bool compacted = false;
         int64_t compacted_bytes = 0;
+        update_counter_if_not_null(_scan_profile.predicate_alignment_columns,
+                                   cast_set<int64_t>(read_column_positions.size()));
         for (const uint32_t position : read_column_positions) {
             auto& source_rows = _predicate_column_selection_scratch[position];
             const auto& old_column = file_block->get_by_position(position).column;
@@ -1566,11 +1912,11 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
     auto read_predicate_column =
             [&](ParquetColumnReader* column_reader, size_t block_position,
                 format::LocalColumnId local_id, const VExprContextSPtrs* single_column_conjuncts,
-                bool* used_dictionary_filter, bool* used_fixed_width_filter) -> Status {
+                bool* used_dictionary_filter, bool* used_direct_reader_filter) -> Status {
         DORIS_CHECK(used_dictionary_filter != nullptr);
-        DORIS_CHECK(used_fixed_width_filter != nullptr);
+        DORIS_CHECK(used_direct_reader_filter != nullptr);
         *used_dictionary_filter = false;
-        *used_fixed_width_filter = false;
+        *used_direct_reader_filter = false;
         DCHECK(remove_nullable(column_reader->type())
                        ->equals(*remove_nullable(file_block->get_by_position(block_position).type)))
                 << column_reader->type()->get_name() << " "
@@ -1579,16 +1925,45 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         SCOPED_TIMER(_scan_profile.column_read_time);
         const auto dictionary_filter_it = _current_dictionary_filters.find(local_id);
-        if (dictionary_filter_it != _current_dictionary_filters.end()) {
+        const bool dictionary_predicate_accepts_null =
+                single_column_conjuncts != nullptr && !single_column_conjuncts->empty() &&
+                std::ranges::all_of(*single_column_conjuncts, [](const auto& conjunct) {
+                    return conjunct != nullptr && conjunct->root() != nullptr &&
+                           conjunct->root()->raw_predicate_result_for_null();
+                });
+        if (dictionary_filter_it != _current_dictionary_filters.end() &&
+            !dictionary_predicate_accepts_null) {
+            // Dictionary ids have no entry for a physical NULL. Until an unbound TopN publishes
+            // its first bound, keep the materializing residual path so the all-pass invariant can
+            // preserve those rows; later batches can resume dictionary-id pruning safely.
             const uint16_t selected_rows_before = *selected_rows;
             IColumn::Filter compact_filter;
+            uint16_t new_selected_rows = 0;
             bool used_filter = false;
+            const auto residual_it = _current_dictionary_residual_conjuncts.find(local_id);
+            const bool has_dictionary_residual =
+                    residual_it != _current_dictionary_residual_conjuncts.end() &&
+                    !residual_it->second.empty();
+            const bool predicate_only =
+                    request.is_predicate_only(local_id) && !has_dictionary_residual;
+            // Dictionary ids are sufficient for predicate-only slots; skipping typed survivor
+            // gathers preserves the block row shape without materializing an unobservable payload.
+            IColumn* projected_column = predicate_only ? nullptr : column.get();
             RETURN_IF_ERROR(column_reader->select_with_dictionary_filter(
-                    *selection, *selected_rows, batch_rows, dictionary_filter_it->second, column,
-                    &compact_filter, &used_filter));
+                    *selection, *selected_rows, batch_rows, dictionary_filter_it->second,
+                    projected_column, &compact_filter, &new_selected_rows, &used_filter));
             if (used_filter) {
                 DORIS_CHECK(compact_filter.size() == selected_rows_before);
-                const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                DORIS_CHECK(new_selected_rows <= selected_rows_before);
+                update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_batches, 1);
+                update_counter_if_not_null(_scan_profile.dictionary_predicate_direct_rows,
+                                           selected_rows_before);
+                // The decoder already observes every keep bit while producing compact_filter, so
+                // reuse its count instead of adding another full filter scan at this boundary.
+                if (!predicate_only) {
+                    update_counter_if_not_null(_scan_profile.dictionary_predicate_projected_rows,
+                                               new_selected_rows);
+                }
                 const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
                                            static_cast<int64_t>(new_selected_rows);
                 if (conjunct_filtered_rows != nullptr) {
@@ -1603,7 +1978,13 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                     *selected_rows = apply_compact_filter_to_selection(compact_filter, selection,
                                                                        selected_rows_before);
                 }
-                file_block->replace_by_position(block_position, std::move(column));
+                if (predicate_only) {
+                    auto placeholder = column->clone_empty();
+                    placeholder->insert_many_defaults(*selected_rows);
+                    file_block->replace_by_position(block_position, std::move(placeholder));
+                } else {
+                    file_block->replace_by_position(block_position, std::move(column));
+                }
                 read_column_positions.push_back(cast_set<uint32_t>(block_position));
                 remember_column_selection(cast_set<uint32_t>(block_position));
                 *used_dictionary_filter = true;
@@ -1621,6 +2002,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 const uint16_t selected_rows_before = *selected_rows;
                 IColumn::Filter compact_filter;
                 bool used_filter = false;
+                DirectPredicateExecutionKind execution_kind = DirectPredicateExecutionKind::NONE;
                 const bool predicate_only = request.is_predicate_only(local_id);
                 // The raw decoder cannot rewind after evaluating encoded fixed-width values.
                 // Project survivors in that pass when output still needs the predicate column.
@@ -1628,13 +2010,24 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                 RETURN_IF_ERROR(column_reader->select_with_fixed_width_filter(
                         *selection, *selected_rows, batch_rows, direct_conjuncts,
                         cast_set<int>(block_position), projected_column, &compact_filter,
-                        &used_filter));
+                        &used_filter, &execution_kind));
                 if (used_filter) {
                     DORIS_CHECK_EQ(compact_filter.size(), selected_rows_before);
-                    update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_batches,
-                                               1);
-                    update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_rows,
-                                               selected_rows_before);
+                    if (execution_kind == DirectPredicateExecutionKind::RAW_FIXED ||
+                        execution_kind == DirectPredicateExecutionKind::RAW_BINARY ||
+                        execution_kind == DirectPredicateExecutionKind::CONVERTED_FIXED) {
+                        update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_batches,
+                                                   1);
+                        update_counter_if_not_null(_scan_profile.raw_value_predicate_direct_rows,
+                                                   selected_rows_before);
+                    }
+                    if (execution_kind == DirectPredicateExecutionKind::RAW_FIXED ||
+                        execution_kind == DirectPredicateExecutionKind::CONVERTED_FIXED) {
+                        update_counter_if_not_null(
+                                _scan_profile.fixed_width_predicate_direct_batches, 1);
+                        update_counter_if_not_null(_scan_profile.fixed_width_predicate_direct_rows,
+                                                   selected_rows_before);
+                    }
                     const uint16_t new_selected_rows = count_selected_rows(compact_filter);
                     const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
                                                static_cast<int64_t>(new_selected_rows);
@@ -1657,7 +2050,41 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                     read_column_positions.push_back(cast_set<uint32_t>(block_position));
                     remember_column_selection(cast_set<uint32_t>(block_position));
                     *predicate_columns_filtered = true;
-                    *used_fixed_width_filter = true;
+                    *used_direct_reader_filter = true;
+                    return Status::OK();
+                }
+
+                RETURN_IF_ERROR(column_reader->select_with_runtime_filter(
+                        *selection, *selected_rows, batch_rows, *single_column_conjuncts,
+                        cast_set<int>(block_position), predicate_only ? nullptr : &column,
+                        &compact_filter, &used_filter));
+                if (used_filter) {
+                    DORIS_CHECK_EQ(compact_filter.size(), selected_rows_before);
+                    update_counter_if_not_null(_scan_profile.typed_runtime_filter_direct_batches,
+                                               1);
+                    update_counter_if_not_null(_scan_profile.typed_runtime_filter_direct_rows,
+                                               selected_rows_before);
+                    const uint16_t new_selected_rows = count_selected_rows(compact_filter);
+                    const auto filtered_rows = static_cast<int64_t>(selected_rows_before) -
+                                               static_cast<int64_t>(new_selected_rows);
+                    if (conjunct_filtered_rows != nullptr) {
+                        *conjunct_filtered_rows += filtered_rows;
+                    }
+                    if (new_selected_rows != selected_rows_before) {
+                        *selected_rows = apply_compact_filter_to_selection(
+                                compact_filter, selection, selected_rows_before);
+                    }
+                    if (predicate_only) {
+                        auto placeholder = column->clone_empty();
+                        placeholder->insert_many_defaults(*selected_rows);
+                        file_block->replace_by_position(block_position, std::move(placeholder));
+                    } else {
+                        file_block->replace_by_position(block_position, std::move(column));
+                    }
+                    read_column_positions.push_back(cast_set<uint32_t>(block_position));
+                    remember_column_selection(cast_set<uint32_t>(block_position));
+                    *predicate_columns_filtered = true;
+                    *used_direct_reader_filter = true;
                     return Status::OK();
                 }
             }
@@ -1705,6 +2132,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                        static_cast<int64_t>(new_selected_rows);
         }
         if (new_selected_rows != selected_rows_before) {
+            predicate_columns_need_alignment = true;
             *selected_rows = can_filter_all
                                      ? 0
                                      : apply_compact_filter_to_selection(compact_filter, selection,
@@ -1713,16 +2141,16 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         return Status::OK();
     };
 
-    auto execute_scheduled_dictionary_residual_conjuncts =
-            [&](const DictionaryResidualConjuncts& conjuncts) -> Status {
+    auto execute_scheduled_owned_conjuncts =
+            [&](std::span<const OwnedExpressionConjunct> conjuncts) -> Status {
         if (conjuncts.empty() || *selected_rows == 0) {
             return Status::OK();
         }
         const uint16_t selected_rows_before = *selected_rows;
         IColumn::Filter compact_filter;
         bool can_filter_all = false;
-        RETURN_IF_ERROR(execute_compact_dictionary_residual_conjuncts(
-                conjuncts, selected_rows_before, file_block, &compact_filter, &can_filter_all));
+        RETURN_IF_ERROR(execute_compact_owned_conjuncts(conjuncts, selected_rows_before, file_block,
+                                                        &compact_filter, &can_filter_all));
         if (can_filter_all) {
             compact_filter.resize_fill(selected_rows_before, 0);
         }
@@ -1732,6 +2160,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                        static_cast<int64_t>(new_selected_rows);
         }
         if (new_selected_rows != selected_rows_before) {
+            predicate_columns_need_alignment = true;
             *selected_rows = can_filter_all
                                      ? 0
                                      : apply_compact_filter_to_selection(compact_filter, selection,
@@ -1749,13 +2178,13 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         return execute_scheduled_conjuncts(conjuncts);
     };
 
-    auto execute_scheduled_dictionary_residual_conjuncts_with_profile =
-            [&](const DictionaryResidualConjuncts& conjuncts) -> Status {
+    auto execute_scheduled_owned_conjuncts_with_profile =
+            [&](std::span<const OwnedExpressionConjunct> conjuncts) -> Status {
         if (_scan_profile.predicate_filter_time == nullptr) {
-            return execute_scheduled_dictionary_residual_conjuncts(conjuncts);
+            return execute_scheduled_owned_conjuncts(conjuncts);
         }
         SCOPED_TIMER(_scan_profile.predicate_filter_time);
-        return execute_scheduled_dictionary_residual_conjuncts(conjuncts);
+        return execute_scheduled_owned_conjuncts(conjuncts);
     };
 
     auto execute_scheduled_delete_conjuncts = [&]() -> Status {
@@ -1772,6 +2201,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             compact_filter.resize_fill(selected_rows_before, 0);
         }
         if (can_filter_all || count_selected_rows(compact_filter) != selected_rows_before) {
+            predicate_columns_need_alignment = true;
             *selected_rows = can_filter_all
                                      ? 0
                                      : apply_compact_filter_to_selection(compact_filter, selection,
@@ -1785,10 +2215,11 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             auto position_it = request.local_positions.find(fid);
             DORIS_CHECK(position_it != request.local_positions.end());
             bool used_dictionary_filter = false;
-            bool used_fixed_width_filter = false;
+            bool used_direct_reader_filter = false;
             RETURN_IF_ERROR(read_predicate_column(column_reader.get(), position_it->second.value(),
                                                   fid, nullptr, &used_dictionary_filter,
-                                                  &used_fixed_width_filter));
+                                                  &used_direct_reader_filter));
+            materialized_positions.insert(position_it->second.value());
         }
         return Status::OK();
     };
@@ -1808,8 +2239,18 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         // Single-column conjuncts can be evaluated immediately after their column is read. Once
         // selection shrinks, later predicate columns use ParquetColumnReader::select() so the
         // reader skips rows already rejected by earlier predicates instead of materializing them.
+        _ordered_predicate_positions_scratch.clear();
+        _ordered_predicate_positions_scratch.reserve(schedule.single_column_conjuncts.size());
+        for (const auto& column : request.predicate_columns) {
+            const size_t position = request.local_positions.at(column.column_id()).value();
+            if (schedule.single_column_conjuncts.contains(position)) {
+                // The request order is the stable cold-start policy until measured costs can
+                // reorder predicates; unordered-map iteration can defeat an early selective filter.
+                _ordered_predicate_positions_scratch.push_back(position);
+            }
+        }
         _ordered_predicate_positions_scratch = detail::order_adaptive_predicates(
-                _predicate_positions_scratch, _predicate_runtime_stats);
+                _ordered_predicate_positions_scratch, _predicate_runtime_stats);
         const auto& ordered_positions = _ordered_predicate_positions_scratch;
         for (size_t order_idx = 0; order_idx < ordered_positions.size(); ++order_idx) {
             const size_t position = ordered_positions[order_idx];
@@ -1827,23 +2268,27 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                                                          predicate_batch_sequence);
             const int64_t start_ns = sample ? MonotonicNanos() : 0;
             bool used_dictionary_filter = false;
-            bool used_fixed_width_filter = false;
+            bool used_direct_reader_filter = false;
             const auto conjunct_it = schedule.single_column_conjuncts.find(block_position);
             const VExprContextSPtrs* column_conjuncts =
                     conjunct_it == schedule.single_column_conjuncts.end() ? nullptr
                                                                           : &conjunct_it->second;
             RETURN_IF_ERROR(read_predicate_column(reader_it->second.get(), block_position, fid,
                                                   column_conjuncts, &used_dictionary_filter,
-                                                  &used_fixed_width_filter));
+                                                  &used_direct_reader_filter));
+            materialized_positions.insert(block_position);
             if (*selected_rows != 0 && conjunct_it != schedule.single_column_conjuncts.end()) {
                 if (used_dictionary_filter) {
                     const auto residual_it = _current_dictionary_residual_conjuncts.find(fid);
                     DORIS_CHECK(residual_it != _current_dictionary_residual_conjuncts.end());
-                    RETURN_IF_ERROR(execute_scheduled_dictionary_residual_conjuncts_with_profile(
-                            residual_it->second));
-                } else if (!used_fixed_width_filter) {
+                    RETURN_IF_ERROR(
+                            execute_scheduled_owned_conjuncts_with_profile(residual_it->second));
+                } else if (!used_direct_reader_filter) {
                     RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(conjunct_it->second));
                 }
+            }
+            if (*selected_rows != rows_before) {
+                predicate_columns_need_alignment = true;
             }
             if (sample) {
                 const double cost_per_row = static_cast<double>(MonotonicNanos() - start_ns) /
@@ -1866,39 +2311,103 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
             if (*selected_rows != 0) {
                 continue;
             }
-            for (size_t remaining_order_idx = order_idx + 1;
-                 remaining_order_idx < ordered_positions.size(); ++remaining_order_idx) {
-                const size_t remaining_idx = _predicate_indices_by_position_scratch.at(
-                        ordered_positions[remaining_order_idx]);
-                const auto remaining_fid = request.predicate_columns[remaining_idx].column_id();
-                auto remaining_reader_it = _current_predicate_columns.find(remaining_fid);
-                DORIS_CHECK(remaining_reader_it != _current_predicate_columns.end());
-                RETURN_IF_ERROR(remaining_reader_it->second->skip(batch_rows));
-            }
             return Status::OK();
         }
         return Status::OK();
     };
 
+    auto materialize_predicate_positions = [&](const std::vector<size_t>& positions) -> Status {
+        for (const size_t position : positions) {
+            if (materialized_positions.contains(position)) {
+                continue;
+            }
+            const auto index_it = _predicate_indices_by_position_scratch.find(position);
+            DORIS_CHECK(index_it != _predicate_indices_by_position_scratch.end());
+            const auto fid = request.predicate_columns[index_it->second].column_id();
+            const auto reader_it = _current_predicate_columns.find(fid);
+            DORIS_CHECK(reader_it != _current_predicate_columns.end());
+            bool used_dictionary_filter = false;
+            bool used_direct_reader_filter = false;
+            RETURN_IF_ERROR(read_predicate_column(reader_it->second.get(), position, fid, nullptr,
+                                                  &used_dictionary_filter,
+                                                  &used_direct_reader_filter));
+            materialized_positions.insert(position);
+        }
+        return Status::OK();
+    };
+
+    auto skip_unmaterialized_predicate_columns = [&]() -> Status {
+        for (const auto& col : request.predicate_columns) {
+            const auto position_it = request.local_positions.find(col.column_id());
+            DORIS_CHECK(position_it != request.local_positions.end());
+            if (materialized_positions.contains(position_it->second.value())) {
+                continue;
+            }
+            const auto reader_it = _current_predicate_columns.find(col.column_id());
+            DORIS_CHECK(reader_it != _current_predicate_columns.end());
+            RETURN_IF_ERROR(reader_it->second->skip(batch_rows));
+        }
+        // Every skipped column has an empty payload in the block. Suppress the caller's
+        // batch-coordinate filter because there is no materialized batch-sized column left.
+        *predicate_columns_filtered = true;
+        return Status::OK();
+    };
+
     auto compact_predicate_columns_with_profile =
             [&](bool discard_predicate_only_payload) -> Status {
+        if (!discard_predicate_only_payload && !predicate_columns_need_alignment) {
+            return Status::OK();
+        }
         const int64_t start_ns = MonotonicNanos();
         auto status = compact_predicate_columns(discard_predicate_only_payload);
         update_counter_if_not_null(_scan_profile.predicate_compaction_time,
                                    MonotonicNanos() - start_ns);
+        if (status.ok()) {
+            predicate_columns_need_alignment = false;
+        }
         return status;
     };
 
     RETURN_IF_ERROR(read_round_by_round());
-    // Single-column expressions only touch the just-read column, so earlier columns can retain
-    // their own row mappings. Compact only when a later expression needs a shared coordinate
-    // space; otherwise the final boundary can discard hidden predicate payloads without scanning
-    // them again.
-    if (!schedule.remaining_conjuncts.empty()) {
-        RETURN_IF_ERROR(compact_predicate_columns_with_profile(false));
+    if (*selected_rows == 0) {
+        RETURN_IF_ERROR(skip_unmaterialized_predicate_columns());
+        return compact_predicate_columns_with_profile(true);
     }
-    RETURN_IF_ERROR(execute_scheduled_conjuncts_with_profile(schedule.remaining_conjuncts));
+
+    // Complex residuals keep their original conjunct order. Materialize only the columns needed
+    // by the next reachable expression, then compact previously read columns into the same row
+    // space before evaluating it. This is the scanner-side equivalent of expression-triggered
+    // lazy columns: a conjunct that rejects the batch prevents later-only columns from decoding.
+    for (const auto& stage : schedule.remaining_stages) {
+        RETURN_IF_ERROR(materialize_predicate_positions(stage.required_positions));
+        RETURN_IF_ERROR(compact_predicate_columns_with_profile(false));
+        const OwnedExpressionConjunct stage_conjunct {stage.owner_context, stage.expression};
+        RETURN_IF_ERROR(execute_scheduled_owned_conjuncts_with_profile(
+                std::span<const OwnedExpressionConjunct>(&stage_conjunct, 1)));
+        if (*selected_rows == 0) {
+            RETURN_IF_ERROR(skip_unmaterialized_predicate_columns());
+            return compact_predicate_columns_with_profile(true);
+        }
+    }
+
     if (!request.delete_conjuncts.empty()) {
+        std::set<int> delete_positions;
+        for (const auto& conjunct : request.delete_conjuncts) {
+            DORIS_CHECK(conjunct != nullptr && conjunct->root() != nullptr);
+            conjunct->root()->collect_slot_column_ids(delete_positions);
+        }
+        std::vector<size_t> required_delete_positions;
+        required_delete_positions.reserve(delete_positions.size());
+        for (const int position : delete_positions) {
+            DORIS_CHECK(position >= 0);
+            required_delete_positions.push_back(cast_set<size_t>(position));
+        }
+        if (required_delete_positions.empty() && !_predicate_positions_scratch.empty()) {
+            // An all-literal equality-delete predicate has no slot dependency, but its hidden
+            // row-count carrier must still be materialized so the result matches selected_rows.
+            required_delete_positions.push_back(_predicate_positions_scratch.front());
+        }
+        RETURN_IF_ERROR(materialize_predicate_positions(required_delete_positions));
         RETURN_IF_ERROR(compact_predicate_columns_with_profile(false));
     }
     if (_scan_profile.predicate_filter_time == nullptr) {
@@ -1907,6 +2416,11 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         SCOPED_TIMER(_scan_profile.predicate_filter_time);
         RETURN_IF_ERROR(execute_scheduled_delete_conjuncts());
     }
+    if (*selected_rows == 0) {
+        RETURN_IF_ERROR(skip_unmaterialized_predicate_columns());
+        return compact_predicate_columns_with_profile(true);
+    }
+    RETURN_IF_ERROR(materialize_predicate_positions(_predicate_positions_scratch));
     return compact_predicate_columns_with_profile(true);
 }
 

@@ -28,8 +28,8 @@ namespace {
 
 constexpr std::string_view PAIMON_OPTION_PREFIX = "paimon.";
 constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
-constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
-constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+constexpr std::string_view DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+constexpr std::string_view DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_io_tmp";
 
 const std::string* get_paimon_predicate(const TFileScanRangeParams* scan_params,
@@ -59,7 +59,7 @@ Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
                 "missing paimon_split for paimon jni reader, possibly caused by FE/BE protocol "
                 "mismatch");
     }
-    if (!range.table_format_params.paimon_params.__isset.reader_type ||
+    if (range.table_format_params.paimon_params.__isset.reader_type &&
         range.table_format_params.paimon_params.reader_type != TPaimonReaderType::PAIMON_JNI) {
         return Status::InternalError(
                 "invalid reader_type for paimon jni reader, possibly caused by FE/BE protocol "

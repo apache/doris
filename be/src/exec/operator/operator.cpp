@@ -63,6 +63,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -150,6 +151,23 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
+}
+
+bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
+    return exchange_type == ExchangeType::HASH_SHUFFLE ||
+           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+}
+
+bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {
+    if (!_child) {
+        return false;
+    }
+    if (_child->is_serial_operator()) {
+        return true;
+    }
+    const auto child_distribution = _child->required_data_distribution(state);
+    return child_distribution.need_local_exchange() &&
+           !is_hash_shuffle(child_distribution.distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -802,6 +820,7 @@ DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
+DECLARE_OPERATOR(PaimonTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
 DECLARE_OPERATOR(IcebergDeleteSinkLocalState)
 DECLARE_OPERATOR(IcebergMergeSinkLocalState)
@@ -929,6 +948,7 @@ template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOpera
 template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
+template class AsyncWriterSink<doris::PaimonTableWriter, PaimonTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

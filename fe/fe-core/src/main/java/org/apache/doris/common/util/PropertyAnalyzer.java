@@ -62,12 +62,19 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class PropertyAnalyzer {
@@ -126,6 +133,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
+    public static final long MAX_FILE_CACHE_TTL_SECONDS = Long.MAX_VALUE / 2L;
 
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
@@ -229,6 +237,27 @@ public class PropertyAnalyzer {
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
     public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    /** Formatter for cooldown/baseTime strings that carry an explicit timezone
+     *  offset (e.g. "+00:00").  Accepts optional fractional seconds up to
+     *  nanosecond precision so that TIMESTAMPTZ(p) values with 0 ≤ p ≤ 6
+     *  are parsed correctly.  Uses STRICT resolver style so that invalid
+     *  calendar dates (e.g. Feb 29 in a non-leap year) are rejected rather
+     *  than silently normalized. */
+    private static final DateTimeFormatter TZ_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
+            .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+            .appendOffset("+HH:MM", "+00:00")
+            .toFormatter()
+            .withResolverStyle(ResolverStyle.STRICT);
+    /** Precompiled pattern matching a trailing timezone specifier
+     *  ({@code ±HH:MM}, {@code Z}, {@code UTC}, or {@code GMT}) preceded
+     *  by a full {@code yyyy-MM-dd HH:mm:ss[.SSSSSS]} datetime, i.e. the
+     *  exact shape produced by {@code convertToUtcTimestamp()} in
+     *  DynamicPartitionScheduler.  Values with other datetime shapes
+     *  (compact forms, missing seconds, etc.) are intentionally left to
+     *  the legacy DATETIME parser. */
+    private static final Pattern TZ_OFFSET_PATTERN = Pattern.compile(
+            "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?(Z|[+-]\\d{2}:\\d{2}|UTC|GMT)$");
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
@@ -397,9 +426,31 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
-                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
-                    cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-                } catch (AnalysisException e) {
+                    // A value with an explicit timezone offset (e.g.
+                    // "2027-01-01 00:00:00+00:00" or, for TIMESTAMPTZ(6),
+                    // "2027-01-01 00:00:00.000000+00:00") represents an
+                    // unambiguous UTC instant. Parse it directly as a
+                    // ZonedDateTime and convert to epoch millis, bypassing
+                    // the DATETIME-based DateLiteralUtils.createDateLiteral()
+                    // path which uses Instant.now() for the initial offset
+                    // computation and produces incorrect results across DST
+                    // boundaries.
+                    if (TZ_OFFSET_PATTERN.matcher(value).find()) {
+                        // TZ_FORMATTER only understands ±HH:MM offsets.
+                        // Normalize Z, UTC, GMT to the canonical zero
+                        // offset so that every explicit-zone spelling is
+                        // parsed as an unambiguous instant rather than
+                        // falling through to the DATETIME path (which
+                        // uses Instant.now() for the DST offset and
+                        // produces incorrect results across DST changes).
+                        String normalized = value.replaceAll("(Z|UTC|GMT)$", "+00:00");
+                        cooldownTimestamp = TZ_FORMATTER.parse(normalized, ZonedDateTime::from)
+                                .toInstant().toEpochMilli();
+                    } else {
+                        DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                        cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                    }
+                } catch (AnalysisException | DateTimeParseException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
                     cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
                 }
@@ -629,18 +680,29 @@ public class PropertyAnalyzer {
     public static long analyzeTTL(Map<String, String> properties) throws AnalysisException {
         long ttlSeconds = 0;
         if (properties != null && properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            String ttlSecondsStr = properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS);
-            try {
-                ttlSeconds = Long.parseLong(ttlSecondsStr);
-                if (ttlSeconds < 0) {
-                    throw new NumberFormatException();
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or  is out of range "
-                           + "(0 < integer < Long.MAX_VALUE)");
-            }
+            ttlSeconds = analyzeFileCacheTtlSeconds(properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS));
         }
         return ttlSeconds;
+    }
+
+    public static long analyzeFileCacheTtlSeconds(String ttlSecondsStr) throws AnalysisException {
+        long ttlSeconds;
+        try {
+            ttlSeconds = Long.parseLong(ttlSecondsStr);
+        } catch (NumberFormatException e) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        if (ttlSeconds < 0 || ttlSeconds > MAX_FILE_CACHE_TTL_SECONDS) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        return ttlSeconds;
+    }
+
+    private static AnalysisException invalidFileCacheTtlSecondsException(String ttlSecondsStr) {
+        return new AnalysisException("The value " + ttlSecondsStr + " formats error or is out of range "
+                + "(0 <= integer <= " + MAX_FILE_CACHE_TTL_SECONDS + "). Larger values may overflow in BE "
+                + "and change TTL cache to normal cache; please use " + MAX_FILE_CACHE_TTL_SECONDS
+                + " or a smaller value.");
     }
 
     public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {

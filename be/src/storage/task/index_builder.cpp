@@ -278,7 +278,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto idx_file_reader = std::make_unique<IndexFileReader>(
                         context.fs(),
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
-                        output_rs_tablet_schema->get_inverted_index_storage_format());
+                        output_rs_tablet_schema->get_inverted_index_storage_format(),
+                        InvertedIndexFileInfo(), _tablet->tablet_id());
                 auto st = idx_file_reader->init();
                 DBUG_EXECUTE_IF(
                         "IndexBuilder::update_inverted_index_info_index_file_reader_init_not_ok", {
@@ -374,7 +375,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         fs, std::move(index_path_prefix),
                         output_rowset_meta->rowset_id().to_string(), seg_ptr->id(),
                         output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(file_writer));
+                        std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
                 RETURN_IF_ERROR(index_file_writer->initialize(dirs));
                 // create inverted index writer
                 for (auto& index_meta : _dropped_inverted_indexes) {
@@ -445,12 +446,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(file_writer));
+                        std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
                 RETURN_IF_ERROR(index_file_writer->initialize(dirs));
             } else {
                 index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
-                        seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format());
+                        seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
+                        nullptr, true /* can_use_ram_dir */, _tablet->tablet_id());
             }
             // create inverted index writer, or ann index writer
             for (auto inverted_index : _alter_inverted_indexes) {
@@ -930,7 +932,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
-        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        std::lock_guard meta_wlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
         for (auto i = 0; i < _input_rowsets.size(); ++i) {
@@ -952,7 +954,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         // should call it after merge delete_bitmap
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     } else {
-        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+        std::lock_guard wrlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     }
 

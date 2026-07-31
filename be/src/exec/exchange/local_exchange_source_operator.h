@@ -82,6 +82,11 @@ public:
 
     bool is_source() const override { return true; }
 
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        return {_exchange_type};
+    }
+    ExchangeType exchange_type() const { return _exchange_type; }
+
 private:
     friend class LocalExchangeSourceLocalState;
 

@@ -41,7 +41,8 @@ namespace doris::segment_v2 {
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                                  std::string rowset_id, int64_t seg_id,
                                  InvertedIndexStorageFormatPB storage_format,
-                                 io::FileWriterPtr file_writer, bool can_use_ram_dir)
+                                 io::FileWriterPtr file_writer, bool can_use_ram_dir,
+                                 int64_t tablet_id)
         : _fs(std::move(fs)),
           _index_path_prefix(std::move(index_path_prefix)),
           _rowset_id(std::move(rowset_id)),
@@ -49,7 +50,8 @@ IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_p
           _storage_format(storage_format),
           _local_fs(io::global_local_filesystem()),
           _idx_v2_writer(std::move(file_writer)),
-          _can_use_ram_dir(can_use_ram_dir) {
+          _can_use_ram_dir(can_use_ram_dir),
+          _tablet_id(tablet_id) {
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     _tmp_dir = tmp_file_dir.native();
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
@@ -121,8 +123,8 @@ Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {
 }
 
 Status IndexFileWriter::add_into_searcher_cache() {
-    auto index_file_reader =
-            std::make_unique<IndexFileReader>(_fs, _index_path_prefix, _storage_format);
+    auto index_file_reader = std::make_unique<IndexFileReader>(
+            _fs, _index_path_prefix, _storage_format, InvertedIndexFileInfo(), _tablet_id);
     auto st = index_file_reader->init();
     if (!st.ok()) {
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
