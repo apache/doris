@@ -725,7 +725,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     unset _fs_mod
     # Connector SPI and plugin modules (loaded at runtime as plugins)
     modules+=("fe-connector/fe-connector-spi")
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+    # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
+    # but present there is not a no-op: the deploy step unzips whatever archive is left in the
+    # module's target/ from some earlier build, so the plugin silently ships stale.
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
