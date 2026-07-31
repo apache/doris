@@ -19,6 +19,11 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.DorisConnectorException;
 
+import org.apache.paimon.Snapshot;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.utils.SnapshotManager;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -319,5 +324,88 @@ public final class PaimonIncrementalScanParams {
         PaimonScanParams.inheritedReadStateKeys().forEach(key -> withResets.put(key, null));
         withResets.putAll(scanOptions);
         return withResets;
+    }
+
+    /**
+     * Bind an incremental relation's range to the catalog-visible snapshot, for the table the BE
+     * re-plans on a catalog-less copy.
+     *
+     * <p>Only for {@link PaimonScanParams#resolvesSnapshotOnBackend} system tables, i.e. today
+     * {@code $partitions}, the one table that both re-plans on the BE and accepts {@code @incr}.
+     * Paimon selects the incremental scanner from {@code incremental-between*} and never reads
+     * {@code scan.snapshot-id} in that mode, so the snapshot pin
+     * ({@code PaimonScanPlanProvider#pinCatalogSnapshot}) cannot bound this scan - and
+     * {@link PaimonScanParams#isolateIncrementalRead} clears it anyway, so one relation's read state
+     * cannot leak into another's.
+     *
+     * <p>The timestamp form is the exposed one. {@code IncrementalDeltaStartingScanner
+     * #betweenTimestamps} turns both endpoints into snapshot ids through
+     * {@code SnapshotManager#earlierOrEqualTimeMills}, whose binary search runs up to
+     * {@code latestSnapshotId()}: the catalog's pointer here, but the newest file in the snapshot
+     * directory on the catalog-less BE. So resolve the endpoints while the loader is still around
+     * and hand the BE the explicit id range Paimon would have computed itself. Only the delta
+     * scanner's rule is reachable: {@code incremental-between-scan-mode} is cleared with the rest of
+     * the read state, and its default {@code AUTO} never selects the diff scanner.
+     *
+     * <p>Only when the requested end reaches the catalog's snapshot. An older end already resolves
+     * to the same id on both sides, because every snapshot the catalog has not published yet is
+     * younger than the one it points at. The snapshot-id form ({@code startSnapshotId} /
+     * {@code endSnapshotId}) names its endpoints outright and needs nothing.
+     *
+     * <p>Never on a {@code scan.fallback-branch} table, because an id range cannot be expressed for
+     * the pair. The two branches keep independent snapshot id sequences, and
+     * {@code FallbackReadFileStoreTable#rewriteFallbackOptions} translates only
+     * {@code scan.snapshot-id} - {@code incremental-between} is copied to the fallback branch
+     * verbatim. A main-branch id range would then be validated against the fallback branch's own
+     * range in {@code IncrementalDeltaStartingScanner#betweenSnapshotIds} and either fail out of
+     * range or select unrelated commits. The timestamp form needs no translation to begin with: a
+     * wall clock means the same thing on both branches, and each resolves it against its own
+     * {@code SnapshotManager}, so handing it over untouched is the branch-correct choice. What that
+     * keeps is the catalog-versus-filesystem endpoint gap {@code pinCatalogSnapshot} documents for
+     * the fallback branch, which is the same gap on the same table.
+     *
+     * @param scanOptions the relation's resolved scan options
+     * @param dataTable the still catalog-ful base table the FE planned with
+     * @return a NEW map whose timestamp range is replaced by the resolved id range, or
+     *         {@code scanOptions} unchanged (same reference) when the range is already bound, cannot
+     *         be bound, or does not need to be
+     */
+    public static Map<String, String> bindRangeToCatalog(
+            Map<String, String> scanOptions, FileStoreTable dataTable) {
+        String range = scanOptions == null ? null : scanOptions.get(PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP);
+        if (range == null) {
+            return scanOptions;
+        }
+        // Before any pair-level accessor is read: on a fallback pair both catalogEnvironment() and
+        // snapshotManager() describe the main branch alone, and the bound could not be carried to
+        // the fallback branch anyway.
+        if (PaimonTableDecorators.unwrapToFallbackOrBase(dataTable) instanceof FallbackReadFileStoreTable) {
+            return scanOptions;
+        }
+        if (!dataTable.catalogEnvironment().supportsVersionManagement()) {
+            return scanOptions;
+        }
+        SnapshotManager snapshotManager = dataTable.snapshotManager();
+        Snapshot latest = snapshotManager.latestSnapshot();
+        Snapshot earliest = snapshotManager.earliestSnapshot();
+        if (latest == null || earliest == null) {
+            return scanOptions;
+        }
+        String[] endpoints = range.split(",");
+        long startMillis = Long.parseLong(endpoints[0]);
+        long endMillis = Long.parseLong(endpoints[1]);
+        if (endMillis < latest.timeMillis()) {
+            return scanOptions;
+        }
+        Snapshot start = snapshotManager.earlierOrEqualTimeMills(startMillis);
+        // The starting snapshot is exclusive, hence the id before the earliest one when the range
+        // opens before it - exactly what betweenTimestamps computes.
+        long startId = (start == null || earliest.timeMillis() > startMillis)
+                ? earliest.id() - 1
+                : start.id();
+        Map<String, String> boundParams = new HashMap<>(scanOptions);
+        boundParams.put(PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP, null);
+        boundParams.put(PAIMON_INCREMENTAL_BETWEEN, startId + "," + latest.id());
+        return boundParams;
     }
 }
