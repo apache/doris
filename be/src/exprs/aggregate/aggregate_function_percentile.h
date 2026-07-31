@@ -379,7 +379,6 @@ struct PercentileApproxArrayState {
         }
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
-        DCHECK(digest.get() != nullptr);
         digest->serialize(reinterpret_cast<uint8_t*>(result.data()));
         buf.write_binary(result);
     }
@@ -421,7 +420,6 @@ struct PercentileApproxArrayState {
                         "percentile_approx_array aggregate states have incompatible quantiles "
                         "or compression");
             }
-            levels.merge(rhs.levels);
         }
         if (!levels.empty()) {
             digest->merge(rhs.digest.get());
@@ -437,7 +435,7 @@ struct PercentileApproxArrayState {
 
     void insert_result_into(IColumn& to) const {
         auto& column_data = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data();
-        if (!init_flag || levels.empty()) {
+        if (levels.empty()) {
             return;
         }
 
@@ -493,9 +491,9 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena&, bool has_null) override {
+        DCHECK(!has_null);
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        DCHECK(!has_null);
         _add_values(this->data(place), sources.get_data().data() + batch_begin,
                     batch_end - batch_begin + 1, columns, batch_begin);
     }
@@ -526,40 +524,39 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
-        auto& to_nested_col = to_arr.get_data();
-        if (is_column_nullable(to_nested_col)) {
-            auto* col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-            this->data(place).insert_result_into(col_null->get_nested_column());
-            col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
-        } else {
-            this->data(place).insert_result_into(to_nested_col);
-        }
-        to_arr.get_offsets().push_back(to_nested_col.size());
+        auto& nullable_data =
+                assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to_arr.get_data());
+        auto& nested_data = nullable_data.get_nested_column();
+        this->data(place).insert_result_into(nested_data);
+        nullable_data.get_null_map_data().resize_fill(nested_data.size(), 0);
+        to_arr.get_offsets().push_back(nested_data.size());
     }
 
 private:
     void _add_values(PercentileApproxArrayState& state, const Float64* values, size_t value_size,
                      const IColumn** columns, size_t quantile_row) const {
-        const auto& quantile_array =
-                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        const auto& offsets = quantile_array.get_offsets();
-        const auto& nullable_quantiles =
-                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                        quantile_array.get_data());
-        const auto& quantiles = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
-                                        nullable_quantiles.get_nested_column())
-                                        .get_data();
-        const auto& null_map = nullable_quantiles.get_null_map_data();
-        const size_t start = quantile_row == 0 ? 0 : offsets[quantile_row - 1];
-        const size_t quantile_size = offsets[quantile_row] - start;
+        if (!state.init_flag) {
+            const auto& quantile_array =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+            const auto& offsets = quantile_array.get_offsets();
+            const auto& nullable_quantiles =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                            quantile_array.get_data());
+            const auto& quantiles = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(
+                                            nullable_quantiles.get_nested_column())
+                                            .get_data();
+            const auto& null_map = nullable_quantiles.get_null_map_data();
+            const size_t start = quantile_row == 0 ? 0 : offsets[quantile_row - 1];
+            const size_t quantile_size = offsets[quantile_row] - start;
 
-        float compression = 10000;
-        if constexpr (has_compression) {
-            const auto& compression_column =
-                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
-            compression = static_cast<float>(compression_column.get_element(0));
+            float compression = 10000;
+            if constexpr (has_compression) {
+                const auto& compression_column =
+                        assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
+                compression = static_cast<float>(compression_column.get_element(0));
+            }
+            state.init(quantiles, null_map, start, quantile_size, compression);
         }
-        state.init(quantiles, null_map, start, quantile_size, compression);
         state.add_range(values, value_size);
     }
 };

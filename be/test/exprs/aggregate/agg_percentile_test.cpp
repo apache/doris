@@ -133,12 +133,20 @@ TEST(AggregateFunctionPercentileApproxArrayTest, AddAndBatchPaths) {
     function->create(batch_place);
     function->add_batch_single_place(values.size(), batch_place, columns, arena);
 
+    std::unique_ptr<char[]> range_memory(new char[function->size_of_data()]);
+    AggregateDataPtr range_place = range_memory.get();
+    function->create(range_place);
+    function->add_batch_range(1, 4, range_place, columns, arena, false);
+
     const auto expected = expected_quantiles(values, quantiles, 10000);
     expect_results_equal(read_result(function, row_place), expected);
     expect_results_equal(read_result(function, batch_place), expected);
+    expect_results_equal(read_result(function, range_place),
+                         expected_quantiles({2, 3, 4, 5}, quantiles, 10000));
 
     function->destroy(row_place);
     function->destroy(batch_place);
+    function->destroy(range_place);
 }
 
 TEST(AggregateFunctionPercentileApproxArrayTest, CompressionSerializationAndMerge) {
@@ -183,6 +191,40 @@ TEST(AggregateFunctionPercentileApproxArrayTest, CompressionSerializationAndMerg
     function->destroy(source_place);
     function->destroy(restored_place);
     function->destroy(merged_place);
+}
+
+TEST(AggregateFunctionPercentileApproxArrayTest, MergeCompatibleInitializedStates) {
+    const std::vector<double> left_values {5, 10, 15};
+    const std::vector<double> right_values {20, 25, 30};
+    const std::vector<double> quantiles {0.25, 0.5, 0.75};
+    auto function = create_percentile_approx_array_function(true);
+    ASSERT_NE(function, nullptr);
+    Arena arena;
+
+    auto create_state = [&](const std::vector<double>& values) {
+        auto value_column = create_values(values);
+        auto quantile_column = create_quantiles(quantiles, values.size());
+        auto compression_column = ColumnFloat64::create();
+        compression_column->insert_value(2048);
+        const IColumn* columns[] = {value_column.get(), quantile_column.get(),
+                                    compression_column.get()};
+        std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+        function->create(memory.get());
+        function->add_batch_single_place(values.size(), memory.get(), columns, arena);
+        return memory;
+    };
+
+    auto left = create_state(left_values);
+    auto right = create_state(right_values);
+    function->merge(left.get(), right.get(), arena);
+
+    std::vector<double> all_values = left_values;
+    all_values.insert(all_values.end(), right_values.begin(), right_values.end());
+    expect_results_equal(read_result(function, left.get()),
+                         expected_quantiles(all_values, quantiles, 2048));
+
+    function->destroy(left.get());
+    function->destroy(right.get());
 }
 
 TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantile) {
