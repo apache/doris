@@ -68,6 +68,9 @@ import java.util.Map;
 /** Converts Arrow columns into Paimon internal values without owning writer state. */
 final class PaimonArrowConverter {
 
+    static final String VARIANT_VALUE_FIELD = "value";
+    static final String VARIANT_METADATA_FIELD = "metadata";
+
     private final ZoneId sessionTimeZone;
 
     PaimonArrowConverter(ZoneId sessionTimeZone) {
@@ -99,8 +102,16 @@ final class PaimonArrowConverter {
         Object[] values(int rowIndex) {
             Object[] values = new Object[vectors.size()];
             for (int column = 0; column < vectors.size(); column++) {
-                values[column] = convertVectorValue(
-                        vectors.get(column), rowIndex, fields.get(column), targetTypes[column]);
+                try {
+                    values[column] = convertVectorValue(
+                            vectors.get(column), rowIndex, fields.get(column), targetTypes[column]);
+                } catch (RuntimeException e) {
+                    throw new IllegalArgumentException(
+                            "Failed to convert Arrow column '" + fields.get(column).getName()
+                                    + "' at row " + rowIndex + " to Paimon "
+                                    + targetTypes[column],
+                            e);
+                }
             }
             return values;
         }
@@ -108,6 +119,17 @@ final class PaimonArrowConverter {
 
     private Object convertVectorValue(
             FieldVector vector, int index, Field arrowField, DataType targetType) {
+        if (targetType instanceof VariantType) {
+            if (!(vector instanceof StructVector)) {
+                throw new IllegalArgumentException(
+                        "Paimon VARIANT write only supports Variant V2 Arrow "
+                                + "struct<value: binary, metadata: binary>, but got "
+                                + vector.getField());
+            }
+            return vector.isNull(index)
+                    ? null
+                    : convertVariantVector((StructVector) vector, index);
+        }
         if (vector.isNull(index)) {
             return null;
         }
@@ -172,27 +194,6 @@ final class PaimonArrowConverter {
         if (value == null) {
             return null;
         }
-        if (targetType instanceof VariantType) {
-            if (value instanceof byte[]) {
-                return toVariant((byte[]) value);
-            }
-            if (value instanceof BinaryString) {
-                return toVariant(((BinaryString) value).toBytes());
-            }
-            if (value instanceof org.apache.arrow.vector.util.Text) {
-                return toVariant(((org.apache.arrow.vector.util.Text) value).copyBytes());
-            }
-            if (value instanceof org.apache.hadoop.io.Text) {
-                org.apache.hadoop.io.Text text = (org.apache.hadoop.io.Text) value;
-                return GenericVariant.fromJson(text.toString());
-            }
-            if (value instanceof CharSequence) {
-                return GenericVariant.fromJson(value.toString());
-            }
-            throw new IllegalArgumentException(
-                    "Paimon VARIANT requires Arrow UTF-8 JSON, but got "
-                            + value.getClass().getName());
-        }
         if (targetType instanceof BinaryType || targetType instanceof VarBinaryType) {
             if (value instanceof byte[]) {
                 return value;
@@ -249,17 +250,31 @@ final class PaimonArrowConverter {
     }
 
     static Object convertText(byte[] value, DataType targetType) {
-        if (targetType instanceof VariantType) {
-            return toVariant(value);
-        }
         if (targetType instanceof BinaryType || targetType instanceof VarBinaryType) {
             return value;
         }
         return BinaryString.fromBytes(value);
     }
 
-    private static GenericVariant toVariant(byte[] json) {
-        return GenericVariant.fromJson(new String(json, StandardCharsets.UTF_8));
+    private GenericVariant convertVariantVector(StructVector vector, int index) {
+        List<FieldVector> children = vector.getChildrenFromFields();
+        if (children.size() != 2
+                || !VARIANT_VALUE_FIELD.equals(children.get(0).getName())
+                || !VARIANT_METADATA_FIELD.equals(children.get(1).getName())
+                || !(children.get(0) instanceof VarBinaryVector)
+                || !(children.get(1) instanceof VarBinaryVector)) {
+            throw new IllegalArgumentException(
+                    "Paimon VARIANT binary transport requires Arrow "
+                            + "struct<value: binary, metadata: binary>, but got "
+                            + vector.getField());
+        }
+        VarBinaryVector valueVector = (VarBinaryVector) children.get(0);
+        VarBinaryVector metadataVector = (VarBinaryVector) children.get(1);
+        if (valueVector.isNull(index) || metadataVector.isNull(index)) {
+            throw new IllegalArgumentException(
+                    "A non-null Paimon VARIANT struct requires non-null value and metadata");
+        }
+        return new GenericVariant(valueVector.get(index), metadataVector.get(index));
     }
 
     private GenericRow convertStructVector(

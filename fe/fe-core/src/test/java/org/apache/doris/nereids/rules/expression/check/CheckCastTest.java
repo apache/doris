@@ -60,9 +60,16 @@ public class CheckCastTest {
         VariantType v1Source = new VariantType(100);
         VariantType v1SameProperties = new VariantType(100);
         VariantType v1DifferentProperties = new VariantType(200);
+        VariantType v2Source = v1Source.withComputeV2(true);
+        VariantType v2DifferentProperties = v1DifferentProperties.withComputeV2(true);
 
         Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
         Assertions.assertFalse(CheckCast.check(v1Source, v1DifferentProperties, true));
+        Assertions.assertTrue(CheckCast.check(v2Source, v2DifferentProperties, true));
+        Assertions.assertTrue(CheckCast.check(
+                ArrayType.of(v2Source), ArrayType.of(v2DifferentProperties), true));
+        Assertions.assertFalse(CheckCast.check(v1Source, v2Source, true));
+        Assertions.assertFalse(CheckCast.check(v2Source, v1Source, true));
     }
 
     @Test

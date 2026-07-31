@@ -32,6 +32,12 @@
 
 #include "common/check.h"
 #include "common/logging.h"
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
@@ -68,6 +74,68 @@ void retain_memory_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> ma
     }
     std::lock_guard<std::mutex> lock(retained_memory_managers_mutex());
     retained_memory_managers().emplace_back(std::move(manager));
+}
+
+Status convert_to_paimon_arrow_type(const DataTypePtr& origin_type,
+                                    std::shared_ptr<arrow::DataType>* result,
+                                    const std::string& timezone) {
+    const DataTypePtr type = remove_nullable(origin_type);
+    if (typeid_cast<const DataTypeVariantV2*>(type.get()) != nullptr) {
+        *result = arrow::struct_({arrow::field("value", arrow::binary(), false),
+                                  arrow::field("metadata", arrow::binary(), false)});
+        return Status::OK();
+    }
+    switch (type->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+        std::shared_ptr<arrow::DataType> element_type;
+        RETURN_IF_ERROR(convert_to_paimon_arrow_type(array_type.get_nested_type(), &element_type,
+                                                     timezone));
+        *result = std::make_shared<arrow::ListType>(element_type);
+        return Status::OK();
+    }
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+        std::shared_ptr<arrow::DataType> key_type;
+        std::shared_ptr<arrow::DataType> value_type;
+        RETURN_IF_ERROR(convert_to_paimon_arrow_type(map_type.get_key_type(), &key_type, timezone));
+        RETURN_IF_ERROR(
+                convert_to_paimon_arrow_type(map_type.get_value_type(), &value_type, timezone));
+        *result = std::make_shared<arrow::MapType>(key_type, value_type);
+        return Status::OK();
+    }
+    case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+        std::vector<std::shared_ptr<arrow::Field>> fields;
+        fields.reserve(struct_type.get_elements().size());
+        for (size_t i = 0; i < struct_type.get_elements().size(); ++i) {
+            std::shared_ptr<arrow::DataType> field_type;
+            RETURN_IF_ERROR(convert_to_paimon_arrow_type(struct_type.get_element(i), &field_type,
+                                                         timezone));
+            fields.push_back(arrow::field(struct_type.get_element_name(i), field_type,
+                                          struct_type.get_element(i)->is_nullable()));
+        }
+        *result = arrow::struct_(std::move(fields));
+        return Status::OK();
+    }
+    default:
+        return convert_to_arrow_type(origin_type, result, timezone);
+    }
+}
+
+Status get_paimon_arrow_schema_from_block(const Block& block,
+                                          std::shared_ptr<arrow::Schema>* result) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    fields.reserve(block.columns());
+    for (const auto& type_and_name : block) {
+        std::shared_ptr<arrow::DataType> arrow_type;
+        RETURN_IF_ERROR(convert_to_paimon_arrow_type(type_and_name.type, &arrow_type, ""));
+        fields.push_back(create_arrow_field_with_metadata(
+                type_and_name.name, arrow_type, type_and_name.type->is_nullable(),
+                type_and_name.type->get_primitive_type()));
+    }
+    *result = arrow::schema(std::move(fields));
+    return Status::OK();
 }
 } // namespace
 
@@ -360,7 +428,7 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
     // Paimon write timestamps are transported as civil-time fields. The Java writer uses the
     // pinned Paimon target type to preserve NTZ values or convert LTZ values with the session zone.
     std::shared_ptr<arrow::Schema> arrow_schema;
-    RETURN_IF_ERROR(get_arrow_schema_from_block(block, &arrow_schema, ""));
+    RETURN_IF_ERROR(get_paimon_arrow_schema_from_block(block, &arrow_schema));
 
     // Step 2: Convert Doris Block columns to an Arrow RecordBatch.
     std::shared_ptr<arrow::RecordBatch> record_batch;

@@ -363,6 +363,17 @@ public class VariantType extends PrimitiveType {
         return computeV2 == other.computeV2;
     }
 
+    /**
+     * Whether a cast between two Variant types is safe.
+     *
+     * <p>Variant V1 embeds layout properties in its execution type, so V1 casts still require
+     * exact type equality. All compute-only V2 types share the same physical value/metadata
+     * representation, therefore layout-property differences do not require conversion.</p>
+     */
+    public boolean isCastCompatibleWith(VariantType other) {
+        return (computeV2 && other.computeV2) || equals(other);
+    }
+
     /** Returns this Variant type with the requested compute-only physical representation. */
     public VariantType withComputeV2(boolean enabled) {
         if (computeV2 == enabled) {

@@ -46,6 +46,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
@@ -973,7 +974,7 @@ public class BindSink implements AnalysisRuleFactory {
         if (bindColumns.size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getJdbcColumnToOutput(bindColumns, child);
+        Map<String, NamedExpression> columnToOutput = getPaimonColumnToOutput(bindColumns, child);
         List<Column> writeColumns = new ArrayList<>(bindColumns);
         if (!staticPartitionColNames.isEmpty()) {
             for (Column column : writeTarget.getSchema()) {
@@ -993,6 +994,11 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
+        ConnectContext connectContext = ctx.cascadesContext.getConnectContext();
+        boolean enableVariantV2 = connectContext != null
+                && connectContext.getSessionVariable().isEnableVariantV2();
+        PaimonVariantWriteAnalyzer.validate(
+                writeTarget, writeColumns, columnToOutput, enableVariantV2);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
                 writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
         return boundSink.withChildAndUpdateOutput(outputProject);
@@ -1100,6 +1106,18 @@ public class BindSink implements AnalysisRuleFactory {
             columnToOutput.put(column.getName(), output);
         }
 
+        return columnToOutput;
+    }
+
+    private static Map<String, NamedExpression> getPaimonColumnToOutput(
+            List<Column> bindColumns, LogicalPlan child) {
+        Map<String, NamedExpression> columnToOutput =
+                Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < bindColumns.size(); i++) {
+            Column column = bindColumns.get(i);
+            columnToOutput.put(column.getName(),
+                    new Alias(child.getOutput().get(i), column.getName()));
+        }
         return columnToOutput;
     }
 

@@ -17,8 +17,16 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VarBinaryVector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.DataTypes;
@@ -34,6 +42,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.Collections;
 
 public class PaimonArrowConverterTest {
 
@@ -87,17 +96,95 @@ public class PaimonArrowConverterTest {
     }
 
     @Test
-    public void testVariantJsonKindsUsePaimonVariant() {
-        String[] jsonValues = {
-                "\"scalar\"",
-                "[1,true,null]",
-                "{\"id\":1,\"name\":\"doris\"}"
-        };
-        for (String json : jsonValues) {
-            Object value = PaimonArrowConverter.convertText(
-                    json.getBytes(StandardCharsets.UTF_8), new VariantType());
-            Assertions.assertInstanceOf(GenericVariant.class, value);
-            Assertions.assertEquals(json, ((GenericVariant) value).toJson());
+    public void testVariantJsonTransportIsRejected() {
+        Field variantField = new Field(
+                "payload", FieldType.nullable(new ArrowType.Utf8()), null);
+        try (RootAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Collections.singletonList(variantField)), allocator)) {
+            VarCharVector vector = (VarCharVector) root.getVector("payload");
+            root.allocateNew();
+            vector.setSafe(0, "{\"legacy\":true}".getBytes(StandardCharsets.UTF_8));
+            root.setRowCount(1);
+
+            PaimonArrowConverter.RowReader rows =
+                    new PaimonArrowConverter(ZoneId.of("UTC")).rows(
+                            root, new org.apache.paimon.types.DataType[] {new VariantType()});
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> rows.values(0));
+            Assertions.assertTrue(exception.getCause().getMessage().contains(
+                    "only supports Variant V2"));
+        }
+    }
+
+    @Test
+    public void testVariantBinaryTransportPreservesValueAndMetadata() {
+        GenericVariant expected = GenericVariant.fromJson(
+                "{\"id\":1,\"nested\":[true,null,\"doris\"]}");
+        Field variantField = new Field(
+                "payload",
+                FieldType.nullable(new ArrowType.Struct()),
+                Arrays.asList(
+                        new Field(
+                                PaimonArrowConverter.VARIANT_VALUE_FIELD,
+                                FieldType.notNullable(new ArrowType.Binary()),
+                                null),
+                        new Field(
+                                PaimonArrowConverter.VARIANT_METADATA_FIELD,
+                                FieldType.notNullable(new ArrowType.Binary()),
+                                null)));
+
+        try (RootAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Collections.singletonList(variantField)), allocator)) {
+            StructVector vector = (StructVector) root.getVector("payload");
+            VarBinaryVector values = (VarBinaryVector) vector.getChild(
+                    PaimonArrowConverter.VARIANT_VALUE_FIELD);
+            VarBinaryVector metadata = (VarBinaryVector) vector.getChild(
+                    PaimonArrowConverter.VARIANT_METADATA_FIELD);
+            root.allocateNew();
+            values.setSafe(0, expected.value());
+            metadata.setSafe(0, expected.metadata());
+            vector.setIndexDefined(0);
+            vector.setNull(1);
+            root.setRowCount(2);
+
+            PaimonArrowConverter converter = new PaimonArrowConverter(ZoneId.of("UTC"));
+            PaimonArrowConverter.RowReader rows = converter.rows(
+                    root, new org.apache.paimon.types.DataType[] {new VariantType()});
+            GenericVariant actual = (GenericVariant) rows.values(0)[0];
+
+            Assertions.assertArrayEquals(expected.value(), actual.value());
+            Assertions.assertArrayEquals(expected.metadata(), actual.metadata());
+            Assertions.assertNull(rows.values(1)[0]);
+        }
+    }
+
+    @Test
+    public void testVariantBinaryTransportRejectsMissingMetadata() {
+        Field variantField = new Field(
+                "payload",
+                FieldType.nullable(new ArrowType.Struct()),
+                Arrays.asList(
+                        new Field("value", FieldType.nullable(new ArrowType.Binary()), null),
+                        new Field("metadata", FieldType.nullable(new ArrowType.Binary()), null)));
+        try (RootAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Collections.singletonList(variantField)), allocator)) {
+            StructVector vector = (StructVector) root.getVector("payload");
+            VarBinaryVector values = (VarBinaryVector) vector.getChild("value");
+            root.allocateNew();
+            values.setSafe(0, GenericVariant.fromJson("1").value());
+            vector.setIndexDefined(0);
+            root.setRowCount(1);
+
+            PaimonArrowConverter.RowReader rows =
+                    new PaimonArrowConverter(ZoneId.of("UTC")).rows(
+                            root, new org.apache.paimon.types.DataType[] {new VariantType()});
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> rows.values(0));
+            Assertions.assertTrue(exception.getMessage().contains("payload"));
+            Assertions.assertTrue(exception.getCause().getMessage().contains("metadata"));
         }
     }
 

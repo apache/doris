@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 
 #include <algorithm>
 #include <cstring>
@@ -173,6 +174,119 @@ void preflight_json(const IColumn& column, size_t start, size_t end,
                 CountingWriter writer;
                 write_json_value(value, writer, options);
             });
+}
+
+void validate_paimon_variant_value(VariantRef value) {
+    const size_t encoded_size = value.value_size();
+    if (encoded_size != value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Variant value has {} trailing bytes after the encoded value",
+                        value.value.size - encoded_size);
+    }
+    switch (value.basic_type()) {
+    case VariantBasicType::PRIMITIVE: {
+        const auto primitive_id = value.primitive_id();
+        switch (primitive_id) {
+        case VariantPrimitiveId::NULL_VALUE:
+        case VariantPrimitiveId::TRUE_VALUE:
+        case VariantPrimitiveId::FALSE_VALUE:
+        case VariantPrimitiveId::INT8:
+        case VariantPrimitiveId::INT16:
+        case VariantPrimitiveId::INT32:
+        case VariantPrimitiveId::INT64:
+        case VariantPrimitiveId::DOUBLE:
+        case VariantPrimitiveId::DECIMAL4:
+        case VariantPrimitiveId::DECIMAL8:
+        case VariantPrimitiveId::DECIMAL16:
+        case VariantPrimitiveId::DATE:
+        case VariantPrimitiveId::TIMESTAMP_MICROS:
+        case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
+        case VariantPrimitiveId::FLOAT:
+        case VariantPrimitiveId::BINARY:
+        case VariantPrimitiveId::STRING:
+        case VariantPrimitiveId::UUID:
+            return;
+        case VariantPrimitiveId::TIME_NTZ_MICROS:
+        case VariantPrimitiveId::TIMESTAMP_NANOS:
+        case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "Paimon 1.3 does not support Variant primitive id {}",
+                            static_cast<uint8_t>(primitive_id));
+        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Paimon 1.3 does not support unknown Variant primitive id {}",
+                        static_cast<uint8_t>(primitive_id));
+    }
+    case VariantBasicType::SHORT_STRING:
+        return;
+    case VariantBasicType::OBJECT:
+        for (uint32_t i = 0; i < value.num_elements(); ++i) {
+            uint32_t field_id = 0;
+            VariantRef child = value.object_value_at(i, &field_id);
+            value.metadata.key_at(field_id);
+            validate_paimon_variant_value(child);
+        }
+        return;
+    case VariantBasicType::ARRAY:
+        for (uint32_t i = 0; i < value.num_elements(); ++i) {
+            validate_paimon_variant_value(value.array_at(i));
+        }
+        return;
+    }
+}
+
+void require_paimon_arrow_status(const arrow::Status& status) {
+    if (!status.ok()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Paimon Variant Arrow append failed: {}",
+                        status.ToString());
+    }
+}
+
+Status write_paimon_variant_arrow(const IColumn& column, const NullMap* null_map,
+                                  arrow::StructBuilder& builder, size_t start, size_t end) {
+    const auto& struct_type = assert_cast<const arrow::StructType&>(*builder.type());
+    if (struct_type.num_fields() != 2 || struct_type.field(0)->name() != "value" ||
+        struct_type.field(1)->name() != "metadata" ||
+        struct_type.field(0)->type()->id() != arrow::Type::BINARY ||
+        struct_type.field(1)->type()->id() != arrow::Type::BINARY) {
+        return Status::InvalidArgument(
+                "Paimon Variant V2 Arrow type must be "
+                "struct<value: binary, metadata: binary>, got {}",
+                struct_type.ToString());
+    }
+    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
+    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
+    if (value_builder == nullptr || metadata_builder == nullptr) {
+        return Status::InvalidArgument("Paimon Variant V2 Arrow child builders must be binary");
+    }
+
+    const auto outer_nulls = forced_nulls(null_map);
+    visit_variant_v2_values(
+            column, start, end, outer_nulls,
+            [&](size_t) { require_paimon_arrow_status(builder.AppendNull()); },
+            [&](size_t row, VariantRef value) {
+                try {
+                    constexpr size_t PAIMON_VARIANT_SIZE_LIMIT = 128 * 1024 * 1024;
+                    if (value.value.size > PAIMON_VARIANT_SIZE_LIMIT ||
+                        value.metadata.size > PAIMON_VARIANT_SIZE_LIMIT) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "exceeds the 128 MiB value/metadata limit");
+                    }
+                    value.metadata.validate();
+                    validate_paimon_variant_value(value);
+                } catch (const Exception& e) {
+                    throw Exception(e.code(), "Paimon Variant V2 row {} is incompatible: {}", row,
+                                    e.what());
+                }
+                require_paimon_arrow_status(builder.Append());
+                require_paimon_arrow_status(
+                        value_builder->Append(reinterpret_cast<const uint8_t*>(value.value.data),
+                                              cast_set<int32_t, size_t, false>(value.value.size)));
+                require_paimon_arrow_status(metadata_builder->Append(
+                        reinterpret_cast<const uint8_t*>(value.metadata.data),
+                        cast_set<int32_t, size_t, false>(value.metadata.size)));
+            });
+    return Status::OK();
 }
 
 } // namespace
@@ -536,6 +650,11 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
             return write_arrow(column, null_map,
                                assert_cast<arrow::LargeStringBuilder&>(*array_builder), first, last,
                                options);
+        }
+        if (array_builder->type()->id() == arrow::Type::STRUCT) {
+            return write_paimon_variant_arrow(column, null_map,
+                                              assert_cast<arrow::StructBuilder&>(*array_builder),
+                                              first, last);
         }
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());
