@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -58,6 +59,29 @@ using ::doris::ColumnString;
 struct ColumnChunkRange {
     size_t offset = 0;
     size_t length = 0;
+};
+
+// Dictionary filtering has two consumers with different coordinate requirements. OR branches
+// need a keep byte for every selected row so their bitmaps can be unioned, while an AND stage can
+// emit survivor positions and compact SelectionVector directly. Exactly one sink is populated.
+struct DictionaryFilterOutput {
+    IColumn::Filter* row_filter = nullptr;
+    std::vector<uint16_t>* survivor_positions = nullptr;
+    size_t selected_rows = 0;
+    size_t survivor_count = 0;
+
+    void append(bool keep) {
+        if (row_filter != nullptr) {
+            row_filter->push_back(keep ? 1 : 0);
+        }
+        if (keep) {
+            if (survivor_positions != nullptr) {
+                survivor_positions->push_back(cast_set<uint16_t>(selected_rows));
+            }
+            ++survivor_count;
+        }
+        ++selected_rows;
+    }
 };
 
 struct ParquetReaderCompat {
@@ -234,8 +258,8 @@ public:
                                      ColumnSelectVector& select_vector,
                                      const IColumn* typed_dictionary, IColumn* projected_values,
                                      ColumnInt32* matched_dictionary_ids,
-                                     IColumn::Filter* row_filter, size_t* survivor_count,
-                                     bool* projected_directly, bool* used_filter);
+                                     DictionaryFilterOutput* output, bool* projected_directly,
+                                     bool* used_filter);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }

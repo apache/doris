@@ -1343,10 +1343,9 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_values(
         size_t num_values, const IColumn::Filter& dictionary_filter, FilterMap& filter_map,
         const IColumn* typed_dictionary, IColumn* projected_values,
-        ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
+        ColumnInt32* matched_dictionary_ids, DictionaryFilterOutput* output,
         bool* projected_directly) {
-    DORIS_CHECK(row_filter != nullptr);
-    DORIS_CHECK(survivor_count != nullptr);
+    DORIS_CHECK(output != nullptr);
     DORIS_CHECK(projected_directly != nullptr);
     _null_run_lengths.clear();
     if (_chunk_reader->max_def_level() > 0) {
@@ -1389,7 +1388,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_dictionary_filter_
     bool used_filter = false;
     RETURN_IF_ERROR(_chunk_reader->filter_dictionary_indices(
             dictionary_filter, _select_vector, typed_dictionary, projected_values,
-            matched_dictionary_ids, row_filter, survivor_count, projected_directly, &used_filter));
+            matched_dictionary_ids, output, projected_directly, &used_filter));
     // Pure-dictionary chunks are prevalidated before definition levels are consumed.
     DORIS_CHECK(used_filter);
     return Status::OK();
@@ -1399,15 +1398,13 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dictionary_filter(
         const IColumn::Filter& dictionary_filter, FilterMap& filter_map, size_t batch_size,
         const IColumn* typed_dictionary, IColumn* projected_values,
-        ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
-        size_t* read_rows, bool* eof, bool* projected_directly, bool* used_filter) {
-    DORIS_CHECK(row_filter != nullptr);
-    DORIS_CHECK(survivor_count != nullptr);
+        ColumnInt32* matched_dictionary_ids, DictionaryFilterOutput* output, size_t* read_rows,
+        bool* eof, bool* projected_directly, bool* used_filter) {
+    DORIS_CHECK(output != nullptr);
     DORIS_CHECK(read_rows != nullptr);
     DORIS_CHECK(eof != nullptr);
     DORIS_CHECK(projected_directly != nullptr);
     DORIS_CHECK(used_filter != nullptr);
-    *survivor_count = 0;
     *read_rows = 0;
     *projected_directly = false;
     *used_filter = false;
@@ -1440,17 +1437,14 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dictionary_filter(
             _current_row_index += skip_values;
             const size_t values =
                     std::min(static_cast<size_t>(range.to() - range.from()), batch_size - has_read);
-            size_t fragment_survivors = 0;
             bool fragment_projected_directly = false;
             RETURN_IF_ERROR(_read_dictionary_filter_values(
                     values, dictionary_filter, filter_map, typed_dictionary, projected_values,
-                    matched_dictionary_ids, row_filter, &fragment_survivors,
-                    &fragment_projected_directly));
+                    matched_dictionary_ids, output, &fragment_projected_directly));
             if (has_read != 0) {
                 DORIS_CHECK_EQ(*projected_directly, fragment_projected_directly);
             }
             *projected_directly = fragment_projected_directly;
-            *survivor_count += fragment_survivors;
             has_read += values;
             *read_rows += values;
             _current_row_index += values;

@@ -195,10 +195,11 @@ instructions as well; this file adds format-v2-specific review expectations.
   invalidation, admission, and fallback I/O. Any intentional difference needs benchmark and memory
   evidence showing it is no worse for v1 workloads. Cache lookup must never alter page ordinal,
   decoder, level, or dictionary cursor state.
-- Apply v1's MergeRange decision to the native data-page reader, after metadata/dictionary probes
-  finish. Predicate and lazy readers for one Row Group must share one ordered-range wrapper, and
-  native per-column prefetch must be disabled while that wrapper is active. Never allocate one
-  MergeRange buffer per leaf; wide complex projections would multiply its bounded scratch memory.
+- Apply v1's MergeRange decision to complete native Column Chunk ranges before dictionary probes.
+  Dictionary and data pages are one monotonically consumed stream per chunk; predicate and lazy
+  readers for one Row Group must share one ordered-range wrapper, and native per-column prefetch
+  must be disabled while that wrapper is active. Never allocate one MergeRange buffer per leaf;
+  wide complex projections would multiply its bounded scratch memory.
 - Preserve observability inside aggregate counters. `TotalBatches` must be decomposable into probe,
   dense, selected, empty, page-crossing, and nested/fragmented work where relevant; decode, level,
   selection, conversion, allocation, and materialization time must remain attributable without

@@ -1388,6 +1388,21 @@ void write_decimal_pair_parquet_file(const std::string& file_path) {
     write_table(file_path, table, 4, false, false, false);
 }
 
+void write_q28_decimal_or_parquet_file(const std::string& file_path) {
+    const auto decimal_type = arrow::decimal128(10, 2);
+    auto schema = arrow::schema({
+            arrow::field("list_price", decimal_type, false),
+            arrow::field("coupon_amount", decimal_type, false),
+            arrow::field("wholesale_cost", decimal_type, false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_decimal128_array({100, 200, 300, 400}, 10, 2),
+                                             build_decimal128_array({0, 200, 0, 0}, 10, 2),
+                                             build_decimal128_array({0, 0, 0, 400}, 10, 2),
+                                             build_int32_array({10, 20, 30, 40})});
+    write_table(file_path, table, 4, false, false, false);
+}
+
 void write_dictionary_int_pair_parquet_file(const std::string& file_path) {
     auto schema = arrow::schema({
             arrow::field("id", arrow::int32(), false),
@@ -1485,7 +1500,7 @@ void write_nullable_dictionary_string_pair_parquet_file(const std::string& file_
     write_table(file_path, table, 4, true, false, false);
 }
 
-void write_int_triple_parquet_file(const std::string& file_path) {
+void write_int_triple_parquet_file(const std::string& file_path, bool enable_dictionary = false) {
     auto schema = arrow::schema({
             arrow::field("left", arrow::int32(), false),
             arrow::field("middle", arrow::int32(), false),
@@ -1494,7 +1509,7 @@ void write_int_triple_parquet_file(const std::string& file_path) {
     auto table = arrow::Table::Make(schema, {build_int32_array({1, 2, 3, 4, 5, 6}),
                                              build_int32_array({10, 20, 30, 0, 0, 0}),
                                              build_int32_array({100, 200, 300, 400, 500, 600})});
-    write_table(file_path, table, 6, false, false, false);
+    write_table(file_path, table, 6, enable_dictionary, false, false);
 }
 
 void write_int_columns_parquet_file(const std::string& file_path, int column_count,
@@ -2438,6 +2453,138 @@ TEST_F(ParquetScanTest, ComplexResidualSelectsLaterColumnsForSurvivingRows) {
     EXPECT_EQ(counter_value(profile, "ReaderReadRows"), 15);
     EXPECT_EQ(counter_value(profile, "ReaderSelectRows"), 3);
     EXPECT_EQ(counter_value(profile, "ReaderSkipRows"), 3);
+    context->close();
+}
+
+TEST_F(ParquetScanTest, CrossColumnOrDirectFiltersPredicateOnlyBranches) {
+    write_int_triple_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(2)).ok());
+    request->predicate_only_columns = {format::LocalColumnId(1), format::LocalColumnId(2)};
+
+    auto first = create_int32_function_conjunct(0, "eq", TExprOpcode::EQ, 1, false);
+    auto second = create_int32_function_conjunct(1, "eq", TExprOpcode::EQ, 20, false);
+    auto third = create_int32_function_conjunct(2, "eq", TExprOpcode::EQ, 600, false);
+    auto first_or_second =
+            create_compound_conjunct(TExprOpcode::COMPOUND_OR, first->root(), second->root());
+    auto context = create_compound_conjunct(TExprOpcode::COMPOUND_OR, first_or_second->root(),
+                                            third->root());
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    request->conjuncts.push_back(context);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 3);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {1, 2, 6}));
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 2);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectRows"), 12);
+    context->close();
+}
+
+TEST_F(ParquetScanTest, Q28DecimalOrDirectFiltersPredicateOnlyBranches) {
+    write_q28_decimal_or_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(2)).ok());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(format::LocalColumnId(3)).ok());
+    request->predicate_only_columns = {format::LocalColumnId(1), format::LocalColumnId(2)};
+
+    auto make_between = [](int column_id, int64_t lower, int64_t upper) {
+        auto lower_bound =
+                create_decimal64_function_conjunct(column_id, "gt", TExprOpcode::GT, lower);
+        auto upper_bound =
+                create_decimal64_function_conjunct(column_id, "lt", TExprOpcode::LT, upper);
+        return create_and_conjunct(lower_bound->root(), upper_bound->root());
+    };
+    auto list_price = make_between(0, 50, 150);
+    auto coupon_amount = make_between(1, 150, 250);
+    auto wholesale_cost = make_between(2, 350, 450);
+    auto first_or_second = create_compound_conjunct(TExprOpcode::COMPOUND_OR, list_price->root(),
+                                                    coupon_amount->root());
+    auto context = create_compound_conjunct(TExprOpcode::COMPOUND_OR, first_or_second->root(),
+                                            wholesale_cost->root());
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    request->conjuncts.push_back(context);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 3);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(3).column).get_data(),
+              (ColumnInt32::Container {10, 20, 40}));
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 2);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectRows"), 8);
+    context->close();
+}
+
+TEST_F(ParquetScanTest, CrossColumnOrDictionaryFiltersPredicateOnlyBranches) {
+    write_int_triple_parquet_file(_file_path, true);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(2)).ok());
+    request->predicate_only_columns = {format::LocalColumnId(1), format::LocalColumnId(2)};
+
+    auto first = create_int32_function_conjunct(0, "eq", TExprOpcode::EQ, 1, false);
+    auto second = create_int32_function_conjunct(1, "eq", TExprOpcode::EQ, 20, false);
+    auto third = create_int32_function_conjunct(2, "eq", TExprOpcode::EQ, 600, false);
+    auto first_or_second =
+            create_compound_conjunct(TExprOpcode::COMPOUND_OR, first->root(), second->root());
+    auto context = create_compound_conjunct(TExprOpcode::COMPOUND_OR, first_or_second->root(),
+                                            third->root());
+    ASSERT_TRUE(context->prepare(&state, RowDescriptor()).ok());
+    ASSERT_TRUE(context->open(&state).ok());
+    request->conjuncts.push_back(context);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 3);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_data(),
+              (ColumnInt32::Container {1, 2, 6}));
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectBatches"), 2);
+    EXPECT_EQ(counter_value(profile, "DictionaryPredicateDirectRows"), 12);
+    EXPECT_EQ(counter_value(profile, "RawValuePredicateDirectBatches"), 0);
     context->close();
 }
 
@@ -4173,6 +4320,41 @@ TEST_F(ParquetScanTest, OpenDefersPageIndexProbeToCurrentRowGroup) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_EQ(rows, 128);
     EXPECT_EQ(counter_value(profile, "PageIndexReadCalls"), 1);
+}
+
+TEST(DictionaryFilterCostTest, KeepsLargePredicateOnlyRowGroupsOnDictionaryIds) {
+    format::parquet::detail::DictionaryFilterCost cost {.row_count = 1'500'000,
+                                                        .dictionary_page_bytes = 64 * 1024,
+                                                        .compressed_chunk_bytes = 8 * 1024 * 1024,
+                                                        .value_width = 16,
+                                                        .predicate_only = true,
+                                                        .dictionary_entries = 5'000,
+                                                        .matching_entries = 500};
+    EXPECT_TRUE(format::parquet::detail::should_probe_dictionary_filter(cost));
+    EXPECT_TRUE(format::parquet::detail::should_execute_dictionary_filter(cost));
+}
+
+TEST(DictionaryFilterCostTest, SkipsExpensiveProbeForTinyRowGroup) {
+    format::parquet::detail::DictionaryFilterCost cost {.row_count = 64,
+                                                        .dictionary_page_bytes = 64 * 1024,
+                                                        .compressed_chunk_bytes = 128 * 1024,
+                                                        .value_width = 8,
+                                                        .predicate_only = true};
+    EXPECT_FALSE(format::parquet::detail::should_probe_dictionary_filter(cost));
+}
+
+TEST(DictionaryFilterCostTest, FallsBackForProjectedNarrowHighCardinalityColumn) {
+    format::parquet::detail::DictionaryFilterCost cost {.row_count = 1'000'000,
+                                                        .dictionary_page_bytes = 1024 * 1024,
+                                                        .compressed_chunk_bytes = 8 * 1024 * 1024,
+                                                        .value_width = 1,
+                                                        .predicate_only = false,
+                                                        .dictionary_entries = 100'000,
+                                                        .matching_entries = 95'000};
+    EXPECT_TRUE(format::parquet::detail::should_probe_dictionary_filter(cost));
+    EXPECT_FALSE(format::parquet::detail::should_execute_dictionary_filter(cost));
+    cost.predicate_only = true;
+    EXPECT_TRUE(format::parquet::detail::should_execute_dictionary_filter(cost));
 }
 
 } // namespace

@@ -98,6 +98,8 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_selection_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_selection_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr; // dictionary rewrite time (ns)
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time =
@@ -106,7 +108,10 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* dict_filter_build_time =
             nullptr; // dictionary entry bitmap build time (ns)
     RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr; // candidate columns
-    RuntimeProfile::Counter* dict_filter_columns = nullptr;           // optimized columns
+    RuntimeProfile::Counter* dict_filter_adaptive_probe_accepted_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_adaptive_probe_skipped_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_adaptive_execution_fallback_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_columns = nullptr; // optimized columns
     RuntimeProfile::Counter* dict_filter_typed_compare_columns =
             nullptr; // fixed-width typed comparison columns
     RuntimeProfile::Counter* dict_filter_string_compare_columns =
@@ -228,12 +233,17 @@ struct ParquetProfile {
     RuntimeProfile::Counter* typed_runtime_filter_direct_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_batches = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_direct_rows = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_selection_batches = nullptr;
+    RuntimeProfile::Counter* dictionary_predicate_fused_selection_rows = nullptr;
     RuntimeProfile::Counter* dictionary_predicate_projected_rows = nullptr;
     RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_expr_rewrite_time = nullptr;
     RuntimeProfile::Counter* dict_filter_read_dict_time = nullptr;
     RuntimeProfile::Counter* dict_filter_build_time = nullptr;
     RuntimeProfile::Counter* dict_filter_candidate_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_adaptive_probe_accepted_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_adaptive_probe_skipped_columns = nullptr;
+    RuntimeProfile::Counter* dict_filter_adaptive_execution_fallback_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_typed_compare_columns = nullptr;
     RuntimeProfile::Counter* dict_filter_string_compare_columns = nullptr;

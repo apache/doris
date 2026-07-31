@@ -193,6 +193,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "DictionaryPredicateDirectBatches", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_direct_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictionaryPredicateDirectRows", TUnit::UNIT, parquet_profile, 1);
+    dictionary_predicate_fused_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictionaryPredicateFusedSelectionBatches", TUnit::UNIT, parquet_profile, 1);
+    dictionary_predicate_fused_selection_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictionaryPredicateFusedSelectionRows", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictionaryPredicateProjectedRows", TUnit::UNIT, parquet_profile, 1);
     dictionary_predicate_fused_projected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -207,6 +211,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "DictFilterBuildTime", parquet_profile, 1);
     dict_filter_candidate_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "DictFilterCandidateColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_adaptive_probe_accepted_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterAdaptiveProbeAcceptedColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_adaptive_probe_skipped_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterAdaptiveProbeSkippedColumns", TUnit::UNIT, parquet_profile, 1);
+    dict_filter_adaptive_execution_fallback_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "DictFilterAdaptiveExecutionFallbackColumns", TUnit::UNIT, parquet_profile, 1);
     dict_filter_columns = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "DictFilterColumns", TUnit::UNIT,
                                                        parquet_profile, 1);
     dict_filter_typed_compare_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -350,12 +360,21 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
             .typed_runtime_filter_direct_rows = typed_runtime_filter_direct_rows,
             .dictionary_predicate_direct_batches = dictionary_predicate_direct_batches,
             .dictionary_predicate_direct_rows = dictionary_predicate_direct_rows,
+            .dictionary_predicate_fused_selection_batches =
+                    dictionary_predicate_fused_selection_batches,
+            .dictionary_predicate_fused_selection_rows = dictionary_predicate_fused_selection_rows,
             .dictionary_predicate_projected_rows = dictionary_predicate_projected_rows,
             .dict_filter_rewrite_time = dict_filter_rewrite_time,
             .dict_filter_expr_rewrite_time = dict_filter_expr_rewrite_time,
             .dict_filter_read_dict_time = dict_filter_read_dict_time,
             .dict_filter_build_time = dict_filter_build_time,
             .dict_filter_candidate_columns = dict_filter_candidate_columns,
+            .dict_filter_adaptive_probe_accepted_columns =
+                    dict_filter_adaptive_probe_accepted_columns,
+            .dict_filter_adaptive_probe_skipped_columns =
+                    dict_filter_adaptive_probe_skipped_columns,
+            .dict_filter_adaptive_execution_fallback_columns =
+                    dict_filter_adaptive_execution_fallback_columns,
             .dict_filter_columns = dict_filter_columns,
             .dict_filter_typed_compare_columns = dict_filter_typed_compare_columns,
             .dict_filter_string_compare_columns = dict_filter_string_compare_columns,

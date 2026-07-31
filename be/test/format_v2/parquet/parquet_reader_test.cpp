@@ -2998,6 +2998,49 @@ TEST_F(NewParquetReaderTest, DictionaryPredicateReaderIsSharedOutsideMergeRangeR
     EXPECT_GT(profile.get_counter("NativeReadCalls")->value(), 0);
 }
 
+TEST_F(NewParquetReaderTest, PredicateOnlyDictionaryChunkUsesRowGroupMergeReader) {
+    write_single_row_group_dictionary_filter_parquet_file(_file_path);
+
+    RuntimeProfile profile("new_parquet_reader_dictionary_only_merge_profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(1)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->predicate_only_columns.push_back(format::LocalColumnId(1));
+    request->count_star_placeholder_columns.push_back(format::LocalColumnId(0));
+    request->conjuncts.push_back(create_string_in_conjunct(1, {"az", "za"}));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 2);
+    EXPECT_EQ(profile.get_counter("RowsFilteredByDictFilter")->value(), 4);
+    ASSERT_NE(profile.get_counter("DictionaryPredicateFusedSelectionBatches"), nullptr);
+    ASSERT_NE(profile.get_counter("DictionaryPredicateFusedSelectionRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("DictionaryPredicateFusedSelectionBatches")->value(), 1);
+    EXPECT_EQ(profile.get_counter("DictionaryPredicateFusedSelectionRows")->value(), 6);
+    ASSERT_NE(profile.get_counter("DictFilterAdaptiveProbeAcceptedColumns"), nullptr);
+    EXPECT_EQ(profile.get_counter("DictFilterAdaptiveProbeAcceptedColumns")->value(), 1);
+    // The dictionary page and its following data pages are one sequential Column Chunk stream.
+    // Routing both through the row-group wrapper is what removes the synchronous probe small read.
+    ASSERT_NE(profile.get_counter("MergedIO"), nullptr);
+    EXPECT_GT(profile.get_counter("MergedIO")->value(), 0);
+    EXPECT_GT(profile.get_counter("MergedBytes")->value(), 0);
+}
+
 TEST_F(NewParquetReaderTest, DictionaryPredicateWorksWithoutRuntimeProfile) {
     write_single_row_group_dictionary_filter_parquet_file(_file_path);
 

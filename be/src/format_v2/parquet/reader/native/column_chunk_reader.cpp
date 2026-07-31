@@ -2001,7 +2001,7 @@ bool try_filter_and_project_dictionary_values(
         const IColumn* typed_dictionary, IColumn* projected_values,
         const std::vector<uint32_t>& selected_dictionary_indices,
         const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
-        IColumn::Filter* row_filter, size_t* survivor_count) {
+        DictionaryFilterOutput* output) {
     if (typed_dictionary == nullptr || projected_values == nullptr) {
         return false;
     }
@@ -2014,9 +2014,7 @@ bool try_filter_and_project_dictionary_values(
     const auto& dictionary_data = dictionary->get_data();
     auto& projected_data = projected->get_data();
     projected_data.reserve(projected_data.size() + selected_dictionary_indices.size());
-    row_filter->reserve(row_filter->size() + nullable_selection_nulls.size());
     size_t physical_row = 0;
-    size_t survivors = 0;
     for (const uint8_t is_null : nullable_selection_nulls) {
         bool keep = false;
         if (is_null == 0) {
@@ -2026,13 +2024,11 @@ bool try_filter_and_project_dictionary_values(
             keep = dictionary_filter[dictionary_id] != 0;
             if (keep) {
                 projected_data.push_back(dictionary_data[dictionary_id]);
-                ++survivors;
             }
         }
-        row_filter->push_back(keep ? 1 : 0);
+        output->append(keep);
     }
     DORIS_CHECK_EQ(physical_row, selected_dictionary_indices.size());
-    *survivor_count = survivors;
     return true;
 }
 
@@ -2040,12 +2036,12 @@ bool try_filter_and_project_fixed_width_dictionary(
         const IColumn* typed_dictionary, IColumn* projected_values,
         const std::vector<uint32_t>& selected_dictionary_indices,
         const NullMap& nullable_selection_nulls, const IColumn::Filter& dictionary_filter,
-        IColumn::Filter* row_filter, size_t* survivor_count) {
-#define TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnType)                                       \
-    if (try_filter_and_project_dictionary_values<ColumnType>(                               \
-                typed_dictionary, projected_values, selected_dictionary_indices,            \
-                nullable_selection_nulls, dictionary_filter, row_filter, survivor_count)) { \
-        return true;                                                                        \
+        DictionaryFilterOutput* output) {
+#define TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnType)                            \
+    if (try_filter_and_project_dictionary_values<ColumnType>(                    \
+                typed_dictionary, projected_values, selected_dictionary_indices, \
+                nullable_selection_nulls, dictionary_filter, output)) {          \
+        return true;                                                             \
     }
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnUInt8)
     TRY_FIXED_WIDTH_DICTIONARY_COLUMN(ColumnInt8)
@@ -2080,18 +2076,15 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices(
         const IColumn::Filter& dictionary_filter, ColumnSelectVector& select_vector,
         const IColumn* typed_dictionary, IColumn* projected_values,
-        ColumnInt32* matched_dictionary_ids, IColumn::Filter* row_filter, size_t* survivor_count,
+        ColumnInt32* matched_dictionary_ids, DictionaryFilterOutput* output,
         bool* projected_directly, bool* used_filter) {
-    DORIS_CHECK(row_filter != nullptr);
-    DORIS_CHECK(survivor_count != nullptr);
+    DORIS_CHECK(output != nullptr);
+    DORIS_CHECK((output->row_filter == nullptr) != (output->survivor_positions == nullptr));
     DORIS_CHECK(projected_directly != nullptr);
     DORIS_CHECK(used_filter != nullptr);
     DORIS_CHECK((typed_dictionary == nullptr) == (projected_values == nullptr));
     *projected_directly = false;
     *used_filter = false;
-    // The top-level reader clears once and owns the final compact filter. Every fully validated
-    // page fragment appends here so page/range boundaries never require intermediate copies.
-    *survivor_count = 0;
     if (_current_encoding != tparquet::Encoding::RLE_DICTIONARY || _page_decoder == nullptr ||
         !_page_decoder->has_dictionary()) {
         return Status::OK();
@@ -2164,16 +2157,22 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
 
     const bool direct_fixed_width_projection = try_filter_and_project_fixed_width_dictionary(
             typed_dictionary, projected_values, _selected_dictionary_indices,
-            _nullable_selection_nulls, dictionary_filter, row_filter, survivor_count);
+            _nullable_selection_nulls, dictionary_filter, output);
     auto* matched =
             matched_dictionary_ids == nullptr ? nullptr : &matched_dictionary_ids->get_data();
     if (!direct_fixed_width_projection && matched != nullptr) {
         matched->reserve(matched->size() + selection.selected_values);
     }
     if (!direct_fixed_width_projection) {
-        row_filter->reserve(row_filter->size() + _nullable_selection_nulls.size());
+        if (output->row_filter != nullptr) {
+            output->row_filter->reserve(output->row_filter->size() +
+                                        _nullable_selection_nulls.size());
+        }
+        if (output->survivor_positions != nullptr) {
+            output->survivor_positions->reserve(output->survivor_positions->size() +
+                                                selection.selected_values);
+        }
         size_t physical_row = 0;
-        size_t survivors = 0;
         for (const uint8_t is_null : _nullable_selection_nulls) {
             bool keep = false;
             if (is_null == 0) {
@@ -2184,12 +2183,10 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::filter_dictionary_indices
                 if (keep && matched != nullptr) {
                     matched->push_back(cast_set<int32_t>(dictionary_id));
                 }
-                survivors += keep;
             }
-            row_filter->push_back(keep ? 1 : 0);
+            output->append(keep);
         }
         DORIS_CHECK_EQ(physical_row, _selected_dictionary_indices.size());
-        *survivor_count = survivors;
     }
     // Commit page progress only after every external dictionary id has been validated.
     _remaining_num_values -= select_vector.num_values();

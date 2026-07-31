@@ -156,9 +156,8 @@ struct ParquetFileContext {
     // random-access behavior and simply skip prefetch.
     void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                          const io::IOContext* io_ctx);
-    // Install the row-group-scoped MergeRangeFileReader on the native data-page path. Dictionary
-    // probes must run before this method because their native ReadAt order is independent of the
-    // sequential projected chunk ranges consumed by MergeRangeFileReader.
+    // Install one row-group-scoped MergeRangeFileReader over complete Column Chunk ranges.
+    // Dictionary probes and following data-page reads are sequential within each registered range.
     bool set_native_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                                          size_t avg_io_size, RuntimeProfile* profile,
                                          int64_t merge_read_slice_size);

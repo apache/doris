@@ -715,10 +715,10 @@ Chunks from surviving Row Groups are registered, limiting pollution and key coun
 
 - When the base reader is CachedRemoteFileReader, predicate/output ranges for the current Row Group
   may be prefetched into FileCache.
-- After dictionary probing, small projected chunks share one Row-Group-scoped
-  MergeRangeFileReader on the native data-page path. Large chunks and in-memory files keep the base
-  reader. Native metadata/index reads use explicit immutable ranges and never own a decoder stream
-  cursor.
+- Before dictionary probing, small projected chunks register their complete ranges in one
+  Row-Group-scoped MergeRangeFileReader. The same native column reader then consumes dictionary and
+  data pages monotonically inside its range. Large chunks and in-memory files keep the base reader.
+  Native metadata/index reads use explicit immutable ranges and never own a decoder stream cursor.
 - With row-level filters, prefetch predicate columns first. Prefetch non-predicate columns only after
   at least one row survives, avoiding unnecessary bandwidth.
 

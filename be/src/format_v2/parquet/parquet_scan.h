@@ -64,8 +64,19 @@ struct PredicateConjunctStage {
     std::vector<size_t> required_positions;
 };
 
+struct PredicateOrBranch {
+    size_t block_position;
+    VExprSPtr expression;
+};
+
+struct PredicateOrStage {
+    VExprContextSPtr owner_context;
+    std::vector<PredicateOrBranch> branches;
+};
+
 struct PredicateConjunctSchedule {
     std::map<size_t, VExprContextSPtrs> single_column_conjuncts;
+    std::vector<PredicateOrStage> direct_or_stages;
     VExprContextSPtrs remaining_conjuncts;
     std::vector<PredicateConjunctStage> remaining_stages;
     bool supports_lazy_materialization = true;
@@ -76,6 +87,19 @@ struct AdaptivePredicateStats {
     double survival_ratio = 1;
     size_t samples = 0;
 };
+
+struct DictionaryFilterCost {
+    int64_t row_count = 0;
+    size_t dictionary_page_bytes = 0;
+    size_t compressed_chunk_bytes = 0;
+    size_t value_width = 0;
+    bool predicate_only = false;
+    size_t dictionary_entries = 0;
+    size_t matching_entries = 0;
+};
+
+bool should_probe_dictionary_filter(const DictionaryFilterCost& cost);
+bool should_execute_dictionary_filter(const DictionaryFilterCost& cost);
 
 std::vector<size_t> order_adaptive_predicates(
         const std::vector<size_t>& positions,
@@ -269,6 +293,8 @@ private:
             _current_non_predicate_columns; // non-predicate ColumnReaders
     std::map<format::LocalColumnId, IColumn::Filter>
             _current_dictionary_filters; // local id -> dict entry bitmap
+    std::map<format::LocalColumnId, IColumn::Filter>
+            _current_or_dictionary_filters; // predicate-only OR branch -> dict entry bitmap
     std::map<format::LocalColumnId, std::vector<std::pair<VExprContextSPtr, VExprSPtr>>>
             _current_dictionary_residual_conjuncts; // local id -> row-level residual conjuncts
     int64_t _current_row_group_rows = 0;            // current row group row count

@@ -57,11 +57,16 @@ public:
     virtual Status select(const SelectionVector& selection, uint16_t selected_rows,
                           int64_t batch_rows, MutableColumnPtr& column);
 
+    // Consume one batch by evaluating dictionary ids. OR callers request a row_filter in current
+    // selection coordinates; an AND caller instead supplies compacted_selection so the decoder can
+    // emit ordered survivor positions and avoid a second keep-byte scan. Exactly one output sink
+    // must be non-null, and compacted_selection is mutated only after the full id batch validates.
     virtual Status select_with_dictionary_filter(const SelectionVector& selection,
                                                  uint16_t selected_rows, int64_t batch_rows,
                                                  const IColumn::Filter& dictionary_filter,
                                                  IColumn* projected_column,
                                                  IColumn::Filter* row_filter,
+                                                 SelectionVector* compacted_selection,
                                                  uint16_t* survivor_count, bool* used_filter);
 
     // Consume batch_rows and evaluate eligible fixed-width values without first constructing a

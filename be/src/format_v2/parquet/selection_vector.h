@@ -132,6 +132,34 @@ public:
         return _compact(filter, count, false);
     }
 
+    size_t compact_with_selection_positions(const Index* positions, size_t survivor_count,
+                                            size_t input_count) {
+        DORIS_CHECK(positions != nullptr || survivor_count == 0);
+        DORIS_CHECK(input_count <= _size);
+        DORIS_CHECK(survivor_count <= input_count);
+        Index* source = _data;
+        if (_data == nullptr) {
+            _owned.resize(_size);
+            _data = _owned.data();
+        }
+        bool remains_identity = true;
+        size_t previous_position = 0;
+        for (size_t output = 0; output < survivor_count; ++output) {
+            const size_t position = positions[output];
+            DORIS_CHECK(position < input_count);
+            DORIS_CHECK(output == 0 || position > previous_position);
+            const Index row = source == nullptr ? static_cast<Index>(position) : source[position];
+            _data[output] = row;
+            remains_identity &= row == output;
+            previous_position = position;
+        }
+        // Decoder-emitted survivor positions are already compact and ordered. Gathering by
+        // position avoids constructing and rescanning one keep byte per selected input row.
+        _identity = remains_identity;
+        ++_generation;
+        return survivor_count;
+    }
+
     Status materialize_filter(size_t count, int64_t batch_rows, const uint8_t** filter) const {
         DORIS_CHECK(filter != nullptr);
         if (batch_rows >= 0 && std::cmp_equal(count, batch_rows) && _identity &&
