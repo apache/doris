@@ -532,9 +532,8 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     }
 
     @Test
-    public void testGroupingSetsPlanContainsHashShuffle() throws Exception {
-        // Non-pooling grouping sets keeps the colocated BUCKET_HASH_SHUFFLE output of
-        // the scan all the way through Repeat→Agg; no LE(LOCAL_HASH) is needed.
+    public void testGroupingSetsDoesNotUseHashShuffle() throws Exception {
+        // Repeat→StreamingAgg uses PASSTHROUGH rather than hashing all expanded rows.
         setupLocalShuffleSession(sv -> sv.setIgnoreStorageDataDistribution(false));
         assertNoLocalExchangeOfType(
                 "select k1, k2, sum(v1) from test.t1 group by grouping sets((k1), (k1, k2))",
@@ -542,37 +541,23 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     }
 
     @Test
-    public void testRepeatNoRequireKeepsHashLocalExchangeAboveRepeat() throws Exception {
-        // Behavior 1 of the RepeatNode fix — noRequire (tpcds q67, +73%).
-        // RepeatNode recurses with noRequire() instead of forwarding the streaming
-        // agg's HASH require to its child.  So when the pooling scan upstream does NOT
-        // already provide the distribution, the parent inserts the LE(LOCAL_HASH)
-        // ABOVE the Repeat, never below it:
-        //   Agg <- LE(LOCAL_HASH) <- LE(PASSTHROUGH) <- Repeat <- scan
-        // Pinning Repeat with repeat() (not anyTree) distinguishes the fixed plan from
-        // the buggy one (buggy forwarded the require, so the LE landed below the
-        // Repeat, hashing the pre-repeat rows by the child's single upstream key and
-        // collapsing them onto one instance).
+    public void testStreamingAggAfterRepeatUsesPassthrough() throws Exception {
+        // Repeat expands grouping sets into consecutive blocks. A passthrough local
+        // exchange above Repeat distributes those blocks among streaming aggregation
+        // instances without hashing every expanded row.
         setupLocalShuffleSession(null);
         assertPlanShape(
                 "select k1, k2, count(*) from test.t1 group by grouping sets((k1), (k1, k2))",
                 anyTree(
                         agg(
-                                localExchange(LOCAL_HASH,
-                                        localExchange(PT,
-                                                repeat(anyTree(olapScan("t1"))))))));
+                                localExchange(PT,
+                                        repeat(anyTree(olapScan("t1")))))));
     }
 
     @Test
-    public void testRepeatReturnsChildDistributionSkipsRedundantHash() throws Exception {
-        // Behavior 2 of the RepeatNode fix — return enforceResult.second (tpcds q70).
-        // RepeatNode reports its child's real output distribution to the parent (not
-        // NOOP).  With a non-pooling colocate scan, the child's BUCKET_HASH
-        // distribution propagates through the Repeat and already satisfies the agg's
-        // hash requirement, so the parent's satisfy-check SKIPS inserting any LE — no
-        // LOCAL_HASH appears.  Had RepeatNode returned NOOP (the discarded v1), the
-        // satisfy-check would fail and force a redundant LE(LOCAL_HASH) that
-        // re-shuffles the post-repeat rows into skew.
+    public void testStreamingAggAfterRepeatDoesNotUseHashForColocatedScan() throws Exception {
+        // The dedicated PASSTHROUGH requirement also takes precedence when the scan
+        // provides a colocated bucket distribution.
         setupLocalShuffleSession(sv -> sv.setIgnoreStorageDataDistribution(false));
         assertNoLocalExchangeOfType(
                 "select k1, k2, count(*) from test.t1 group by grouping sets((k1), (k1, k2))",
@@ -604,10 +589,11 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     @Test
     public void testMixedPlanWithPoolingScan() throws Exception {
         // Pooling: grouping-sets sub-query JOINed and re-aggregated.  Probe side
-        // wraps the inner agg/Repeat with LE(LOCAL_HASH) over LE(PASSTHROUGH); build
-        // side comes through LE(PASS_TO_ONE) over an inter-fragment Exchange.
+        // hashes the inner agg output for the join, while Repeat→StreamingAgg uses
+        // PASSTHROUGH; the build side comes through LE(PASS_TO_ONE) over an
+        // inter-fragment Exchange.
         //   Agg → HashJoin
-        //           ← Agg → LE(LOCAL_HASH) → LE(PASSTHROUGH) → Repeat → scan(t1)
+        //           ← LE(LOCAL_HASH) → Agg → LE(PASSTHROUGH) → Repeat → scan(t1)
         //           ← LE(PASS_TO_ONE) → Exchange → scan(t2)
         setupLocalShuffleSession(null);
         assertPlanShape(
@@ -616,8 +602,8 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                 anyTree(
                         agg(
                                 hashJoin(
-                                        agg(
-                                                localExchange(LOCAL_HASH,
+                                        localExchange(LOCAL_HASH,
+                                                agg(
                                                         localExchange(PT,
                                                                 anyTree(olapScan("t1"))))),
                                         localExchange(PASS_TO_ONE_LE,

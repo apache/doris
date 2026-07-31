@@ -73,6 +73,8 @@ public:
     Status pull(RuntimeState* state, Block* output_block, bool* eos) const override;
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
 
+    bool is_repeat() const override { return true; }
+
 private:
     friend class RepeatLocalState;
 
