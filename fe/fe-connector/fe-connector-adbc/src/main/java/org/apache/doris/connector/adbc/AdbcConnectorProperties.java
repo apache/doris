@@ -42,6 +42,14 @@ public final class AdbcConnectorProperties {
      * {@link AdbcDriverPathResolver} for why downloading it per node cannot be made safe.
      */
     public static final String DRIVER_URL = "driver_url";
+
+    /**
+     * Optional MD5 of the driver library, verified at {@code CREATE CATALOG} against the file this FE
+     * resolves. It guards the mistake this catalog type invites -- a hand-placed file that is the wrong
+     * build, or a stale copy on one node -- which otherwise loads fine and surfaces much later as a query
+     * failure that says nothing about a file. <b>It only sees the FE's copy</b>; see
+     * {@link AdbcDriverPathResolver#checkChecksum}.
+     */
     public static final String DRIVER_CHECKSUM = "driver_checksum";
     /** Optional; empty lets the driver manager infer the entry point symbol. */
     public static final String DRIVER_ENTRYPOINT = "driver_entrypoint";

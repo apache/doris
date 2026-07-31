@@ -123,7 +123,11 @@ public class AdbcConnector implements Connector {
      */
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
-        resolveDriverPath();
+        // Checked here rather than through the context's own checksum service: that one resolves against
+        // jdbc_drivers_dir and a .jar grammar, neither of which applies to an ADBC driver library.
+        AdbcDriverPathResolver.checkChecksum(resolveDriverPath(),
+                properties.get(AdbcConnectorProperties.DRIVER_CHECKSUM),
+                properties.get(AdbcConnectorProperties.DRIVER_URL));
         // Before the remote check, because a misspelled dialect is answerable without a source and its
         // error should not be preceded by a connection failure the user cannot act on.
         dialectSelector.validateConfiguredName();

@@ -17,11 +17,15 @@
 
 package org.apache.doris.connector.adbc;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -182,5 +186,54 @@ public final class AdbcDriverPathResolver {
                 + " do not carry across driver builds. Drivers are published on the arrow-adbc GitHub"
                 + " releases page, and can also be extracted from the PyPI wheels (for Flight SQL:"
                 + " adbc_driver_flightsql).");
+    }
+
+    /**
+     * Fails when the driver file is not the one the catalog declared, by MD5.
+     *
+     * <p>Optional, and the only property here a user has to compute themselves. It earns its place because
+     * of what this catalog type asks of an operator: place one file, by hand, on every node, and keep the
+     * copies identical. Nothing about a wrong or stale copy announces itself -- the library still loads, and
+     * whatever it does differently surfaces later as a query failure with no mention of a file.
+     *
+     * <p><b>Scope: the file on THIS FE.</b> It cannot see what any BE has, so it does not verify that the
+     * copies match across nodes -- the failure that would hurt most. Declaring the same checksum on the
+     * catalog and deploying with it is what makes that check meaningful; Doris only holds up its end here.
+     */
+    public static void checkChecksum(Path driverPath, String declaredChecksum, String driverUrl) {
+        if (declaredChecksum == null || declaredChecksum.trim().isEmpty()) {
+            return;
+        }
+        String actual = md5Of(driverPath, driverUrl);
+        if (actual.equalsIgnoreCase(declaredChecksum.trim())) {
+            return;
+        }
+        throw new IllegalArgumentException("The ADBC driver at " + driverPath + " has MD5 " + actual
+                + ", but '" + AdbcConnectorProperties.DRIVER_CHECKSUM + "' declares "
+                + declaredChecksum.trim() + " (from '" + AdbcConnectorProperties.DRIVER_URL + "' = "
+                + driverUrl + "). This FE is holding a different driver build from the one the catalog was"
+                + " written for; every BE must hold that same build too.");
+    }
+
+    private static String md5Of(Path driverPath, String driverUrl) {
+        try (InputStream in = Files.newInputStream(driverPath)) {
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) >= 0) {
+                digest.update(buffer, 0, read);
+            }
+            StringBuilder hex = new StringBuilder(32);
+            for (byte b : digest.digest()) {
+                hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (IOException | NoSuchAlgorithmException e) {
+            // Fail closed: a checksum that could not be computed has verified nothing, and treating that as
+            // a pass would make the property quietly optional on exactly the nodes where reading fails.
+            throw new IllegalArgumentException("Cannot compute the MD5 of the ADBC driver at " + driverPath
+                    + " (from '" + AdbcConnectorProperties.DRIVER_URL + "' = " + driverUrl + "): "
+                    + e.getMessage(), e);
+        }
     }
 }

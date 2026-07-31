@@ -208,4 +208,55 @@ class AdbcDriverPathResolverTest {
         Assertions.assertDoesNotThrow(
                 () -> AdbcDriverPathResolver.checkExists(present, "libadbc_driver_flightsql.so"));
     }
+
+    // ---- checksum ----
+
+    /** {@code md5sum} of the three bytes below, which is what a user would paste into the property. */
+    private static final String ABC_MD5 = "900150983cd24fb0d6963f7d28e17f72";
+
+    private static Path driverFileContaining(Path tempDir, String content) throws Exception {
+        Path file = tempDir.resolve("libadbc_driver_flightsql.so");
+        Files.write(file, content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return file;
+    }
+
+    @Test
+    void declaredChecksumIsCheckedAgainstTheFile(@TempDir Path tempDir) throws Exception {
+        Path driver = driverFileContaining(tempDir, "abc");
+        Assertions.assertDoesNotThrow(() -> AdbcDriverPathResolver.checkChecksum(
+                driver, ABC_MD5, "libadbc_driver_flightsql.so"));
+    }
+
+    @Test
+    void checksumIsComparedWithoutRegardToCase(@TempDir Path tempDir) throws Exception {
+        Path driver = driverFileContaining(tempDir, "abc");
+        // md5sum prints lowercase, other tools print upper; rejecting one of them would only teach
+        // users that the property is unreliable.
+        Assertions.assertDoesNotThrow(() -> AdbcDriverPathResolver.checkChecksum(
+                driver, ABC_MD5.toUpperCase(java.util.Locale.ROOT), "libadbc_driver_flightsql.so"));
+    }
+
+    @Test
+    void theWrongFileIsNamedAlongWithBothChecksums(@TempDir Path tempDir) throws Exception {
+        Path driver = driverFileContaining(tempDir, "not the driver you meant");
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AdbcDriverPathResolver.checkChecksum(driver, ABC_MD5, "libadbc_driver_flightsql.so"));
+
+        // Both values, because the useful next step is comparing them with the file the user meant to
+        // deploy, and the path, because on this catalog type the usual mistake is a stale copy.
+        String message = e.getMessage();
+        Assertions.assertTrue(message.contains(ABC_MD5), message);
+        Assertions.assertTrue(message.contains(driver.toString()), message);
+        Assertions.assertTrue(message.contains(AdbcConnectorProperties.DRIVER_CHECKSUM), message);
+    }
+
+    @Test
+    void noChecksumMeansNoCheck(@TempDir Path tempDir) throws Exception {
+        Path driver = driverFileContaining(tempDir, "abc");
+        for (String absent : new String[] {null, "", "   "}) {
+            Assertions.assertDoesNotThrow(() -> AdbcDriverPathResolver.checkChecksum(
+                    driver, absent, "libadbc_driver_flightsql.so"), String.valueOf(absent));
+        }
+    }
 }
