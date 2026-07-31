@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.datasource.property.storage.S3Properties;
 
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -31,6 +33,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Map;
 
 public class ResourcePersistTest {
     @Test
@@ -43,14 +46,19 @@ public class ResourcePersistTest {
     }
 
     @Test
-    public void testAzureResourcePersist() throws IOException {
+    public void testAzureResourcePersist() throws Exception {
         Resource resource = new AzureResource("azure_resource");
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(S3Properties.REGION, "test-region");
+        properties.put(S3Properties.VALIDITY_CHECK, "false");
+        resource.modifyProperties(properties);
         Assert.assertTrue(resource.toString().contains("\"clazz\":\"AzureResource\""));
 
         Resource readResource = readWrittenResource(resource);
         Assert.assertTrue(readResource instanceof AzureResource);
         Assert.assertEquals("azure_resource", readResource.getName());
         Assert.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        Assert.assertEquals("test-region", readResource.getCopiedProperties().get(S3Properties.REGION));
         readResource.readLock();
         readResource.readUnlock();
     }

@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,6 +46,7 @@ import java.util.Optional;
 
 public class AzureResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(AzureResource.class);
+    @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
 
     public AzureResource() {
