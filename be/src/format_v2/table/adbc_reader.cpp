@@ -178,6 +178,10 @@ public:
                                                             error.get()),
                              "StatementExecuteQuery", error);
 
+        // Before Arrow ever sees it: the driver's stream may not clear its release callback, and
+        // Arrow aborts the process when that happens.
+        enforce_stream_release_contract(&_c_stream);
+
         auto reader = arrow::ImportRecordBatchReader(&_c_stream);
         if (!reader.ok()) {
             return Status::InternalError("ADBC: failed to import the result stream: {}",
@@ -336,7 +340,55 @@ ColumnDefinition adbc_child_definition(const std::string& name, DataTypePtr type
     return child;
 }
 
+// A stream that forwards everything to the driver's and, on release, does the one thing some
+// drivers forget: clear its own release callback. Heap-allocated because Arrow keeps only the
+// ArrowArrayStream it was handed, and the delegate has to outlive this function.
+struct DelegatingStream {
+    ArrowArrayStream inner;
+};
+
+int delegating_get_schema(ArrowArrayStream* self, ArrowSchema* out) {
+    auto& inner = static_cast<DelegatingStream*>(self->private_data)->inner;
+    return inner.get_schema(&inner, out);
+}
+
+int delegating_get_next(ArrowArrayStream* self, ArrowArray* out) {
+    auto& inner = static_cast<DelegatingStream*>(self->private_data)->inner;
+    return inner.get_next(&inner, out);
+}
+
+const char* delegating_get_last_error(ArrowArrayStream* self) {
+    auto& inner = static_cast<DelegatingStream*>(self->private_data)->inner;
+    return inner.get_last_error != nullptr ? inner.get_last_error(&inner) : nullptr;
+}
+
+void delegating_release(ArrowArrayStream* self) {
+    auto* delegate = static_cast<DelegatingStream*>(self->private_data);
+    if (delegate->inner.release != nullptr) {
+        delegate->inner.release(&delegate->inner);
+    }
+    delete delegate;
+    self->private_data = nullptr;
+    // What the driver failed to do, and what Arrow aborts the process over.
+    self->release = nullptr;
+}
+
 } // namespace
+
+void enforce_stream_release_contract(ArrowArrayStream* stream) {
+    DORIS_CHECK(stream != nullptr);
+    if (stream->release == nullptr) {
+        // Already released; nothing to delegate to, and wrapping it would hand Arrow a stream
+        // whose callbacks dereference a released delegate.
+        return;
+    }
+    auto* delegate = new DelegatingStream {.inner = *stream};
+    *stream = ArrowArrayStream {.get_schema = delegating_get_schema,
+                                .get_next = delegating_get_next,
+                                .get_last_error = delegating_get_last_error,
+                                .release = delegating_release,
+                                .private_data = delegate};
+}
 
 AdbcFileReader::AdbcFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                                std::unique_ptr<io::FileDescription>& file_description,

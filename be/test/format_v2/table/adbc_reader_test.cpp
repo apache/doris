@@ -639,4 +639,87 @@ TEST_F(AdbcSqliteReaderTest, InvalidQuerySurfacesTheDriverMessage) {
             << "driver message was lost: " << status.to_string();
 }
 
+// ---- the release contract Arrow aborts the process over ----
+
+namespace {
+
+// A stream shaped like the one the Flight SQL driver hands out: its release callback runs, but
+// leaves `release` set. The Arrow C data interface forbids that, and Arrow C++ does not merely
+// complain -- ArrowArrayStreamRelease calls abort(), taking the whole BE with it.
+struct MisbehavingDriverStream {
+    int release_calls = 0;
+    int get_next_calls = 0;
+};
+
+MisbehavingDriverStream& state_of(ArrowArrayStream* self) {
+    return *static_cast<MisbehavingDriverStream*>(self->private_data);
+}
+
+int misbehaving_get_schema(ArrowArrayStream* /*self*/, ArrowSchema* /*out*/) {
+    return 0;
+}
+
+int misbehaving_get_next(ArrowArrayStream* self, ArrowArray* /*out*/) {
+    state_of(self).get_next_calls++;
+    return 0;
+}
+
+const char* misbehaving_get_last_error(ArrowArrayStream* /*self*/) {
+    return "driver said so";
+}
+
+void misbehaving_release(ArrowArrayStream* self) {
+    state_of(self).release_calls++;
+    // Deliberately does NOT clear self->release. This is the bug being defended against.
+}
+
+ArrowArrayStream misbehaving_stream(MisbehavingDriverStream* state) {
+    ArrowArrayStream stream {};
+    stream.get_schema = misbehaving_get_schema;
+    stream.get_next = misbehaving_get_next;
+    stream.get_last_error = misbehaving_get_last_error;
+    stream.release = misbehaving_release;
+    stream.private_data = state;
+    return stream;
+}
+
+} // namespace
+
+TEST(AdbcStreamReleaseContractTest, ClearsReleaseEvenWhenTheDriverDoesNot) {
+    MisbehavingDriverStream state;
+    ArrowArrayStream stream = misbehaving_stream(&state);
+
+    enforce_stream_release_contract(&stream);
+    ASSERT_NE(stream.release, nullptr);
+    stream.release(&stream);
+
+    // The invariant Arrow asserts on, and the one a scan against Flight SQL used to break.
+    EXPECT_EQ(stream.release, nullptr);
+    // The driver still gets released, exactly once: the wrapper must not leak the real stream.
+    EXPECT_EQ(state.release_calls, 1);
+}
+
+TEST(AdbcStreamReleaseContractTest, StillDelegatesEveryCallbackToTheDriver) {
+    // A wrapper that swallowed calls would turn a crash into silently empty results, which is
+    // worse: the scan would report success on rows it never read.
+    MisbehavingDriverStream state;
+    ArrowArrayStream stream = misbehaving_stream(&state);
+    enforce_stream_release_contract(&stream);
+
+    ArrowArray array {};
+    EXPECT_EQ(stream.get_next(&stream, &array), 0);
+    EXPECT_EQ(state.get_next_calls, 1);
+    EXPECT_STREQ(stream.get_last_error(&stream), "driver said so");
+
+    stream.release(&stream);
+}
+
+TEST(AdbcStreamReleaseContractTest, LeavesAnAlreadyReleasedStreamAlone) {
+    // Wrapping one would hand Arrow callbacks that dereference a delegate with nothing behind it.
+    ArrowArrayStream stream {};
+    enforce_stream_release_contract(&stream);
+    EXPECT_EQ(stream.release, nullptr);
+    EXPECT_EQ(stream.private_data, nullptr);
+}
+
 } // namespace doris::format::adbc

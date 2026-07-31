@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <arrow/c/abi.h>
 #include <arrow/record_batch.h>
 #include <cctz/time_zone.h>
 
@@ -40,6 +41,17 @@ class SlotDescriptor;
 } // namespace doris
 
 namespace doris::format::adbc {
+
+// Replaces *stream with one that delegates to it and, on release, clears its own release callback
+// the way the Arrow C data interface requires. *stream is left released, as a move leaves it.
+//
+// Not a nicety: Arrow C++ aborts the process (ArrowArrayStreamRelease's assertion) when a release
+// callback returns without clearing itself, and the Flight SQL driver's stream does exactly that --
+// observed, and the reason a scan used to take the BE down. The ADBC driver manager's own wrapper
+// hides the flaw, but this connector loads drivers through the registry that owns their lifetime and
+// so calls their entry points directly. Applied to every driver on purpose: any of them may have the
+// same flaw, and a third-party driver's bug must not be able to abort the BE.
+void enforce_stream_release_contract(ArrowArrayStream* stream);
 
 // Small abstraction around the ADBC C API so the block materialization path stays unit-testable
 // without a live database. Production uses the real ADBC stream; tests can drive the same path from
