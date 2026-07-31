@@ -150,7 +150,7 @@ public class IvmDeltaRewriteHelper {
         while (current instanceof LogicalProject) {
             LogicalProject<?> project = (LogicalProject<?>) current;
             projects.add(project);
-            if (containsSinkHiddenColumnPlaceholder(project)) {
+            if (containsSinkSequencePlaceholder(project)) {
                 return Pair.of(project.child(), projects);
             }
             current = project.child();
@@ -188,11 +188,12 @@ public class IvmDeltaRewriteHelper {
         return IvmUtil.isCommonHiddenSlot(alias.getName()) && alias.child().isLiteral();
     }
 
-    private boolean containsSinkHiddenColumnPlaceholder(LogicalProject<?> project) {
+    private boolean containsSinkSequencePlaceholder(LogicalProject<?> project) {
         return project.getProjects().stream()
                 .filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
-                .anyMatch(this::isSinkHiddenColumnPlaceholder);
+                .anyMatch(alias -> Column.SEQUENCE_COL.equals(alias.getName())
+                        && isSinkHiddenColumnPlaceholder(alias));
     }
 
     private LogicalProject<?> makeDeleteSignProject(IvmDeltaRewriteResult result, IvmIncrRefreshContext ctx) {
