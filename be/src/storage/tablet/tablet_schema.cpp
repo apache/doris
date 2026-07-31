@@ -98,6 +98,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DATEV2;
     } else if (0 == upper_type_str.compare("DATETIMEV2")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    } else if (0 == upper_type_str.compare("TIMESTAMP_NS")) {
+        type = FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS;
     } else if (0 == upper_type_str.compare("DATETIME")) {
         type = FieldType::OLAP_FIELD_TYPE_DATETIME;
     } else if (0 == upper_type_str.compare("TIMESTAMPTZ")) {
@@ -241,6 +243,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return "DATETIMEV2";
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
+        return "TIMESTAMP_NS";
 
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
@@ -356,6 +360,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DATETIME:
         return 8;
     case TPrimitiveType::DATETIMEV2:
+    case TPrimitiveType::TIMESTAMP_NS:
     case TPrimitiveType::TIMESTAMPTZ:
         return 8;
     case TPrimitiveType::FLOAT:

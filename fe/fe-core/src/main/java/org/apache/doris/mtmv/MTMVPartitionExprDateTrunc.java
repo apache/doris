@@ -247,7 +247,8 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             return String.format(PartitionExprUtil.DATE_FORMATTER, literal.getYear(), literal.getMonth(),
                     literal.getDay());
-        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()) {
+        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()
+                || partitionColumnType.isTimeStampNs()) {
             return String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     literal.getYear(), literal.getMonth(), literal.getDay(),
                     literal.getHour(), literal.getMinute(), literal.getSecond());

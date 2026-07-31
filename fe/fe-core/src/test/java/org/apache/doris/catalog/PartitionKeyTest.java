@@ -27,6 +27,8 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -290,6 +292,60 @@ public class PartitionKeyTest {
     public void testMaxValueToSql() throws Exception {
         PartitionKey key = PartitionKey.createInfinityPartitionKey(allColumns, true);
         Assert.assertEquals("(MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE)", key.toSql());
+    }
+
+    @Test
+    public void testTimeStampNsMinValue() throws Exception {
+        assertTimeStampNsMinValue(
+                "1677-09-21 00:12:43.145224192", "1677-09-21 00:12:43.145224193");
+    }
+
+    @Test
+    public void testTimeStampNsSuccessor() throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("1970-01-01 00:00:00.123456789")),
+                Arrays.asList(column));
+
+        PartitionKey successor = key.successor();
+
+        Assert.assertTrue(successor.getKeys().get(0)
+                instanceof org.apache.doris.analysis.TimeStampNsLiteral);
+        Assert.assertEquals("1970-01-01 00:00:00.123456790",
+                successor.getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testTimeStampNsSerialization() throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("1970-01-01 00:00:00.123456789")),
+                Arrays.asList(column));
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        key.write(new DataOutputStream(bytes));
+        PartitionKey restored = PartitionKey.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+        Assert.assertEquals(key, restored);
+        Assert.assertTrue(restored.getKeys().get(0)
+                instanceof org.apache.doris.analysis.TimeStampNsLiteral);
+        Assert.assertEquals("1970-01-01 00:00:00.123456789",
+                restored.getKeys().get(0).getStringValue());
+    }
+
+    private void assertTimeStampNsMinValue(String minValue, String nextValue) throws Exception {
+        Column column = new Column("timestamp_ns", ScalarType.createTimeStampNsType());
+        PartitionKey infinityMin = PartitionKey.createInfinityPartitionKey(Arrays.asList(column), false);
+        PartitionKey literalMin = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue(minValue)), Arrays.asList(column));
+        PartitionKey literalNext = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue(nextValue)), Arrays.asList(column));
+
+        Assert.assertTrue(infinityMin.isMinValue());
+        Assert.assertTrue(literalMin.isMinValue());
+        Assert.assertEquals(infinityMin, literalMin);
+        Assert.assertFalse(literalNext.isMinValue());
     }
 
     @Test

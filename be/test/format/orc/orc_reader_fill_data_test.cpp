@@ -161,6 +161,26 @@ TEST_F(OrcReaderFillDataTest, TimestampDecodeNormalizesCstTimezone) {
     EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "2020-01-02 03:04:05.321000");
 }
 
+TEST_F(OrcReaderFillDataTest, TimestampDecodeKeepsWideDateTimeV2Range) {
+    auto batch = create_timestamp_batch(1, {253402300799}, {999999000});
+    auto data_type = std::make_shared<DataTypeDateTimeV2>(6);
+    auto column = data_type->create_column();
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::TIMESTAMP);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, nullptr, true);
+
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    Status status = reader->_fill_doris_data_column<false>(
+            "test_ts", mutable_column, data_type, const_node, orc_type_ptr.get(), batch.get(), 1);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(*mutable_column);
+    ASSERT_EQ(timestamp_column.size(), 1);
+    EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "9999-12-31 23:59:59.999999");
+}
+
 TEST_F(OrcReaderFillDataTest, SchemaChangeNullableNullMapUsesAppendedSlice) {
     std::vector<int64_t> values = {10, 20, 30};
     std::vector<bool> nulls = {true, false, true};

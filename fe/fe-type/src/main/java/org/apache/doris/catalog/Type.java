@@ -71,6 +71,7 @@ public abstract class Type {
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
     public static final ScalarType TIMEV2 = new ScalarType(PrimitiveType.TIMEV2);
     public static final ScalarType TIMESTAMPTZ = new ScalarType(PrimitiveType.TIMESTAMPTZ);
+    public static final ScalarType TIMESTAMP_NS = ScalarType.createTimeStampNsType();
     public static final ScalarType STRING = ScalarType.createStringType();
     public static final ScalarType VARBINARY = ScalarType.createVarbinaryType(-1);
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
@@ -97,7 +98,8 @@ public abstract class Type {
     public static final ScalarType DEFAULT_DECIMALV3 = DEFAULT_DECIMAL32;
     public static final ScalarType DEFAULT_DATETIMEV2 = ScalarType.createDatetimeV2Type(0);
     public static final ScalarType DATETIMEV2 = DEFAULT_DATETIMEV2;
-    public static final ScalarType DATETIMEV2_WITH_MAX_SCALAR = ScalarType.createDatetimeV2Type(6);
+    public static final ScalarType DATETIMEV2_WITH_MAX_SCALAR
+            = ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE);
     public static final ScalarType DEFAULT_TIMESTAMP_TZ = ScalarType.createTimeStampTzType(0);
     public static final ScalarType TIMESTAMP_TZ = DEFAULT_TIMESTAMP_TZ;
     public static final ScalarType TIMESTAMP_TZ_WITH_MAX_SCALAR = ScalarType.createTimeStampTzType(6);
@@ -165,6 +167,7 @@ public abstract class Type {
         numericDateTimeTypes.add(DATETIME);
         numericDateTimeTypes.add(DATEV2);
         numericDateTimeTypes.add(DATETIMEV2);
+        numericDateTimeTypes.add(TIMESTAMP_NS);
         numericDateTimeTypes.add(TIMEV2);
         numericDateTimeTypes.addAll(numericTypes);
 
@@ -178,6 +181,7 @@ public abstract class Type {
         trivialTypes.add(DATETIME);
         trivialTypes.add(DATEV2);
         trivialTypes.add(DATETIMEV2);
+        trivialTypes.add(TIMESTAMP_NS);
         trivialTypes.add(IPV4);
         trivialTypes.add(IPV6);
         trivialTypes.add(TIMEV2);
@@ -202,6 +206,7 @@ public abstract class Type {
         arraySubTypes.add(DATETIME);
         arraySubTypes.add(DATEV2);
         arraySubTypes.add(DATETIMEV2);
+        arraySubTypes.add(TIMESTAMP_NS);
         arraySubTypes.add(TIMESTAMP_TZ);
         arraySubTypes.add(IPV4);
         arraySubTypes.add(IPV6);
@@ -232,6 +237,7 @@ public abstract class Type {
         mapSubTypes.add(DATETIME);
         mapSubTypes.add(DATEV2);
         mapSubTypes.add(DATETIMEV2);
+        mapSubTypes.add(TIMESTAMP_NS);
         mapSubTypes.add(TIMESTAMP_TZ);
         mapSubTypes.add(IPV4);
         mapSubTypes.add(IPV6);
@@ -258,6 +264,7 @@ public abstract class Type {
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);
         structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(TIMESTAMP_NS);
         structSubTypes.add(TIMESTAMP_TZ);
         structSubTypes.add(IPV4);
         structSubTypes.add(IPV6);
@@ -490,6 +497,8 @@ public abstract class Type {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
+        } else if (isTimeStampNs()) {
+            return "timestamp_ns";
         } else if (isTimeStampTz()) {
             StringBuilder typeStr = new StringBuilder("timestamptz");
             if (((ScalarType) this).getScalarScale() > 0) {
@@ -556,6 +565,10 @@ public abstract class Type {
 
     public boolean isDatetimeV2() {
         return isScalarType(PrimitiveType.DATETIMEV2);
+    }
+
+    public boolean isTimeStampNs() {
+        return isScalarType(PrimitiveType.TIMESTAMP_NS);
     }
 
     public boolean isTimeV2() {
@@ -707,6 +720,7 @@ public abstract class Type {
     public boolean isDateType() {
         return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME)
                 || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2)
+                || isScalarType(PrimitiveType.TIMESTAMP_NS)
                 || isScalarType(PrimitiveType.TIMESTAMPTZ);
     }
 
@@ -890,6 +904,8 @@ public abstract class Type {
                 return Type.DATEV2;
             case DATETIMEV2:
                 return Type.DATETIMEV2;
+            case TIMESTAMP_NS:
+                return Type.TIMESTAMP_NS;
             case TIMEV2:
                 return Type.TIMEV2;
             case TIMESTAMPTZ:
@@ -999,6 +1015,8 @@ public abstract class Type {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
                     type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.TIMESTAMP_NS) {
+                    type = ScalarType.createTimeStampNsType();
                 } else if (scalarType.getType() == TPrimitiveType.TIMEV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
@@ -1140,6 +1158,8 @@ public abstract class Type {
             case TIMESTAMPTZ:
             case TIMEV2:
                 return t.decimalPrecision();
+            case TIMESTAMP_NS:
+                return 29;
             default:
                 return null;
         }
@@ -1176,6 +1196,8 @@ public abstract class Type {
             case DECIMAL128:
             case DECIMAL256:
                 return t.decimalScale();
+            case TIMESTAMP_NS:
+                return 9;
             default:
                 return null;
         }
