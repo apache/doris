@@ -20,13 +20,10 @@
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-doris_home="$(cd "${curdir}/.." && pwd)"
-benchmark="${doris_home}/lib/async_file_cache_write_microbench"
+doris_home="$(cd "${curdir}/../../../../.." && pwd)"
+benchmark="${doris_home}/be/output/lib/async_file_cache_write_microbench"
 if [[ ! -x "${benchmark}" ]]; then
-    benchmark="${doris_home}/output/be/lib/async_file_cache_write_microbench"
-fi
-if [[ ! -x "${benchmark}" ]]; then
-    echo "Cannot find async_file_cache_write_microbench under ${doris_home}." >&2
+    echo "Cannot find async_file_cache_write_microbench under ${doris_home}/be/output/lib." >&2
     exit 1
 fi
 

@@ -1287,22 +1287,15 @@ DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
 DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
-DEFINE_mInt64(async_file_cache_write_max_pending_tasks_per_disk, "256");
+DEFINE_mInt64(async_file_cache_write_max_pending_bytes_per_disk, "268435456"); // 256 MiB
 DEFINE_mInt32(async_file_cache_write_batch_size, "16");
-DEFINE_mInt64(async_file_cache_write_watchdog_warn_secs, "30");
-DEFINE_mInt64(async_file_cache_write_watchdog_drop_secs, "120");
 DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
 DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
 DEFINE_Validator(async_file_cache_write_workers_per_disk,
                  [](int32_t value) { return value > 0 && value <= 128; });
-DEFINE_Validator(async_file_cache_write_max_pending_tasks_per_disk,
+DEFINE_Validator(async_file_cache_write_max_pending_bytes_per_disk,
                  [](int64_t value) { return value > 0; });
 DEFINE_Validator(async_file_cache_write_batch_size, [](int32_t value) { return value > 0; });
-DEFINE_Validator(async_file_cache_write_watchdog_warn_secs, [](int64_t value) {
-    return value >= 0 && value < async_file_cache_write_watchdog_drop_secs;
-});
-DEFINE_Validator(async_file_cache_write_watchdog_drop_secs,
-                 [](int64_t value) { return value > async_file_cache_write_watchdog_warn_secs; });
 DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
                  [](int32_t value) { return value > 0; });
 
