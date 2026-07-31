@@ -132,46 +132,39 @@ suite("bucket_shuffle_set_operation") {
     // three branches, and a nested union.
     sql "set force_to_local_shuffle=true"
 
-    // every window partition must contain each row_number() exactly once; a partition split across
-    // pipeline tasks shows up as the same rn twice inside one id
-    def assertRowNumbersUnique = { String tag, int expectedRows, String sqlStr ->
-        def rows = sql(sqlStr)
-        org.junit.Assert.assertEquals("${tag}: unexpected row count".toString(), expectedRows, rows.size())
-        def seen = [] as Set
-        rows.each { row ->
-            org.junit.Assert.assertTrue(
-                    "${tag}: duplicated row_number ${row[2]} in window partition ${row[0]}: ${rows}".toString(),
-                    seen.add("${row[0]}/${row[2]}".toString()))
-        }
-    }
-
-    assertRowNumbersUnique("union_under_window", 6, """
+    // The ordered golden results prove both the row count and that every window partition
+    // contains each row_number() exactly once. A partition split across pipeline tasks would
+    // produce duplicate row_number values inside one id.
+    order_qt_union_under_window """
         select id, value, row_number() over (partition by id order by value) rn
         from (
             select id, value from bucket_shuffle_set_operation1
             union all
             select id, value from bucket_shuffle_set_operation2
-        ) u""")
+        ) u
+        order by id, value, rn"""
 
-    assertRowNumbersUnique("union_under_window_no_order_by", 6, """
+    order_qt_union_under_window_no_order_by """
         select id, value, row_number() over (partition by id) rn
         from (
             select id, value from bucket_shuffle_set_operation1
             union all
             select id, value from bucket_shuffle_set_operation2
-        ) u""")
+        ) u
+        order by id, value, rn"""
 
     // the branches have different bucket counts, so one must be re-shuffled onto the other's
     // buckets rather than keeping its own
-    assertRowNumbersUnique("union_unequal_buckets_under_window", 6, """
+    order_qt_union_unequal_buckets_under_window """
         select id, value, row_number() over (partition by id order by value) rn
         from (
             select id, value from bucket_shuffle_set_operation1
             union all
             select id, value from bucket_shuffle_set_operation3
-        ) u""")
+        ) u
+        order by id, value, rn"""
 
-    assertRowNumbersUnique("three_way_union_under_window", 9, """
+    order_qt_three_way_union_under_window """
         select id, value, row_number() over (partition by id order by value) rn
         from (
             select id, value from bucket_shuffle_set_operation1
@@ -179,9 +172,10 @@ suite("bucket_shuffle_set_operation") {
             select id, value from bucket_shuffle_set_operation2
             union all
             select id, value from bucket_shuffle_set_operation3
-        ) u""")
+        ) u
+        order by id, value, rn"""
 
-    assertRowNumbersUnique("nested_union_under_window", 9, """
+    order_qt_nested_union_under_window """
         select id, value, row_number() over (partition by id order by value) rn
         from (
             select id, value from bucket_shuffle_set_operation1
@@ -189,7 +183,8 @@ suite("bucket_shuffle_set_operation") {
             (select id, value from bucket_shuffle_set_operation2
              union all
              select id, value from bucket_shuffle_set_operation3)
-        ) u""")
+        ) u
+        order by id, value, rn"""
 
     sql "set force_to_local_shuffle=false"
 

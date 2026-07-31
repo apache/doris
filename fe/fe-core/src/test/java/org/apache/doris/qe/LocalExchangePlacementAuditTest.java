@@ -29,6 +29,7 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -128,58 +129,7 @@ public class LocalExchangePlacementAuditTest extends TestWithFeService {
         }
     }
 
-    private static final StringBuilder REPORT = new StringBuilder();
-    private static final StringBuilder PLANS = new StringBuilder();
-    private static final java.util.Set<String> DUMP_LABELS = new java.util.HashSet<>(
-            java.util.Arrays.asList("union+agg", "union+window(partition by bucket key)"));
-
-    /** Total LocalExchangeNode count, so a "fix" that merely buys consistency by inserting
-     *  redundant exchanges is visible rather than silent. */
-    private static int countLocalExchanges(List<PlanFragment> fragments) {
-        int n = 0;
-        for (PlanFragment fragment : fragments) {
-            n += countLe(fragment.getPlanRoot());
-        }
-        return n;
-    }
-
-    private static int countLe(PlanNode node) {
-        int n = node instanceof LocalExchangeNode ? 1 : 0;
-        for (PlanNode child : node.getChildren()) {
-            n += countLe(child);
-        }
-        return n;
-    }
-
-    /** Proof that the bucket -> local-hash upgrade actually fired: an LE(LOCAL_HASH) directly
-     *  feeding a HashJoinNode. Without it the "under bucket join" arms test nothing. */
-    private static boolean bucketUpgradeFired(List<PlanFragment> fragments) {
-        for (PlanFragment fragment : fragments) {
-            if (hasLocalHashUnderJoin(fragment.getPlanRoot())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasLocalHashUnderJoin(PlanNode node) {
-        if (node instanceof HashJoinNode) {
-            for (PlanNode child : node.getChildren()) {
-                if (child instanceof LocalExchangeNode && ((LocalExchangeNode) child)
-                        .getExchangeType() == LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE) {
-                    return true;
-                }
-            }
-        }
-        for (PlanNode child : node.getChildren()) {
-            if (hasLocalHashUnderJoin(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void audit(String label, String sql, boolean pooling, boolean bucketUpgrade)
+    private String audit(String label, String sql, boolean pooling, boolean bucketUpgrade)
             throws Exception {
         SessionVariable sv = connectContext.getSessionVariable();
         sv.setEnableLocalShufflePlanner(true);
@@ -201,38 +151,14 @@ public class LocalExchangePlacementAuditTest extends TestWithFeService {
 
         StmtExecutor executor = executeNereidsSql("explain distributed plan " + sql);
         NereidsPlanner planner = (NereidsPlanner) executor.planner();
-        if (DUMP_LABELS.contains(label)) {
-            StringBuilder plan = new StringBuilder("===== " + label + " pooling=" + pooling + " =====\n");
-            for (PlanFragment fragment : planner.getFragments()) {
-                plan.append(fragment.getExplainString(
-                        org.apache.doris.thrift.TExplainLevel.VERBOSE)).append('\n');
-            }
-            PLANS.append(plan);
-        }
-        String problems;
-        try {
-            problems = findMixedPlacement(planner.getFragments(), connectContext);
-        } catch (Throwable t) {
-            REPORT.append("ERR   | pooling=").append(pooling).append(" | ").append(label)
-                    .append(" | ").append(t).append('\n');
-            return;
-        }
-        if (!problems.isEmpty()) {
-            REPORT.append("MIXED | pooling=").append(pooling).append(" upgrade=").append(bucketUpgrade)
-                    .append(bucketUpgradeFired(planner.getFragments()) ? "(FIRED)" : "(idle)")
-                    .append(" le=").append(countLocalExchanges(planner.getFragments()))
-                    .append(" | ").append(label)
-                    .append(" | ").append(problems.trim().replace('\n', ';')).append('\n');
-        } else {
-            REPORT.append("ok    | pooling=").append(pooling).append(" upgrade=").append(bucketUpgrade)
-                    .append(bucketUpgradeFired(planner.getFragments()) ? "(FIRED)" : "(idle)")
-                    .append(" le=").append(countLocalExchanges(planner.getFragments()))
-                    .append(" | ").append(label).append('\n');
-        }
+        String problems = findMixedPlacement(planner.getFragments(), connectContext);
+        return problems.isEmpty() ? "" : "MIXED | pooling=" + pooling + " upgrade=" + bucketUpgrade
+                + " | " + label + " | " + problems.trim().replace('\n', ';');
     }
 
     @Test
-    public void auditPlacementConsistency() throws Exception {
+    public void auditPlacementConsistency() {
+        List<String> failures = new ArrayList<>();
         // set operation kind x consumer kind x which side needs re-shuffling
         String[][] cases = {
             {"union+window(partition by bucket key)",
@@ -312,22 +238,17 @@ public class LocalExchangePlacementAuditTest extends TestWithFeService {
             for (boolean bucketUpgrade : new boolean[] {false, true}) {
                 for (String[] c : cases) {
                     try {
-                        audit(c[0], c[1], pooling, bucketUpgrade);
-                    } catch (Throwable t) {
-                        REPORT.append("PLANFAIL | pooling=").append(pooling)
-                                .append(" upgrade=").append(bucketUpgrade).append(" | ")
-                                .append(c[0]).append(" | ").append(t).append('\n');
+                        String failure = audit(c[0], c[1], pooling, bucketUpgrade);
+                        if (!failure.isEmpty()) {
+                            failures.add(failure);
+                        }
+                    } catch (Exception e) {
+                        failures.add("PLANFAIL | pooling=" + pooling + " upgrade=" + bucketUpgrade
+                                + " | " + c[0] + " | " + e);
                     }
                 }
             }
         }
-        java.nio.file.Files.write(java.nio.file.Paths.get(
-                "/private/tmp/claude-501/-Users-lanhuajian-github-doris/"
-                + "3310e680-7250-4a00-9770-2e288afa6b07/scratchpad/placement_audit.txt"),
-                REPORT.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        java.nio.file.Files.write(java.nio.file.Paths.get(
-                "/private/tmp/claude-501/-Users-lanhuajian-github-doris/"
-                + "3310e680-7250-4a00-9770-2e288afa6b07/scratchpad/placement_audit_plans.txt"),
-                PLANS.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Assertions.assertTrue(failures.isEmpty(), String.join("\n", failures));
     }
 }
