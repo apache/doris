@@ -145,6 +145,11 @@ public class NereidsToConnectorExpressionConverterTest {
                 new EqualTo(slot("ts", ScalarType.createDatetimeV2Type(0)),
                         new DateTimeV2Literal(2024, 1, 2, 12, 34, 56))));
         Assertions.assertEquals(LocalDateTime.of(2024, 1, 2, 12, 34, 56), ts.getValue());
+
+        ConnectorLiteral nanoTs = rightLiteralOf(NereidsToConnectorExpressionConverter.convert(
+                new EqualTo(slot("timestamp_ns", ScalarType.createTimeStampNsType()),
+                        new DateTimeV2Literal("2024-01-02 12:34:56.123456789"))));
+        Assertions.assertEquals(LocalDateTime.of(2024, 1, 2, 12, 34, 56, 123456789), nanoTs.getValue());
     }
 
     // ---- node shape mapping ----

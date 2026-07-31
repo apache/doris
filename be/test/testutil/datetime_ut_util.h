@@ -27,6 +27,15 @@ inline auto make_datetime(int year, int month, int day, int hour, int minute, in
     return dt;
 }
 
+inline auto make_datetime_nano(int year, int month, int day, int hour, int minute, int second,
+                               int nanosecond) {
+    DateV2Value<DateTimeV2ValueType> datetime;
+    datetime.unchecked_set_time(year, month, day, hour, minute, second, nanosecond / 1000);
+    TimeStampNsValue result;
+    DORIS_CHECK(result.from_datetime(datetime, nanosecond % 1000));
+    return result;
+}
+
 inline auto make_timestamptz(int year, int month, int day, int hour, int minute, int second,
                              int microsecond) {
     DateV2Value<DateTimeV2ValueType> dt;

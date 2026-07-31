@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -47,7 +48,9 @@ public class SequenceCount extends NotNullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .varArgs(StringType.INSTANCE, TimeStampTzType.WILDCARD, BooleanType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .varArgs(StringType.INSTANCE, DateTimeV2Type.WILDCARD, BooleanType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, DateTimeV2Type.WILDCARD, BooleanType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .varArgs(StringType.INSTANCE, TimeStampNsType.INSTANCE, BooleanType.INSTANCE)
     );
 
     /**

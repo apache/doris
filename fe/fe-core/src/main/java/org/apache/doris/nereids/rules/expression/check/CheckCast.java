@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -150,6 +151,11 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
 
+        // TimestampNs
+        allowedTypes = Sets.newHashSet();
+        allowToStringLikeType(allowedTypes);
+        strictCastWhiteList.put(TimeStampNsType.class, allowedTypes);
+
         // timestamp tz
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(DateTimeV2Type.class);
@@ -180,6 +186,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv6Type.class);
         allowedTypes.add(VarBinaryType.class);
         allowedTypes.add(TimeStampTzType.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);

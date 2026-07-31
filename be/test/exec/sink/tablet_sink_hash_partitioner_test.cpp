@@ -36,6 +36,7 @@
 #include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/exchange_sink_operator.h"
@@ -58,6 +59,69 @@ namespace {
 using doris::ExchangeSinkLocalState;
 using doris::ExchangeSinkOperatorX;
 using doris::OperatorContext;
+
+TExprNode _make_timestamp_ns_literal(std::string value) {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::DATE_LITERAL);
+    node.__set_num_children(0);
+
+    TDateLiteral literal;
+    literal.__set_value(std::move(value));
+    node.__set_date_literal(literal);
+
+    TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_TIMESTAMP_NS);
+    type_desc.__set_is_nullable(false);
+    node.__set_type(type_desc);
+    node.__set_is_nullable(false);
+    return node;
+}
+
+void _build_timestamp_ns_schema(OperatorContext& ctx, TOlapTableSchemaParam& tschema,
+                                int64_t& schema_index_id) {
+    TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_TIMESTAMP_NS);
+
+    TDescriptorTableBuilder dtb;
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .set_slotType(type_desc)
+                                   .nullable(true)
+                                   .column_name("dt")
+                                   .column_pos(0)
+                                   .build());
+    tuple_builder.build(&dtb);
+
+    auto thrift_desc_tbl = dtb.desc_tbl();
+    DescriptorTbl* desc_tbl = nullptr;
+    auto st = DescriptorTbl::create(ctx.state.obj_pool(), thrift_desc_tbl, &desc_tbl);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ctx.state.set_desc_tbl(desc_tbl);
+
+    tschema.db_id = 1;
+    tschema.table_id = 2;
+    tschema.version = 0;
+    tschema.slot_descs = thrift_desc_tbl.slotDescriptors;
+    tschema.tuple_desc = thrift_desc_tbl.tupleDescriptors.front();
+
+    TOlapTableIndexSchema index_schema;
+    index_schema.id = 10;
+    index_schema.columns = {"dt"};
+    index_schema.schema_hash = 123;
+    tschema.indexes = {index_schema};
+    schema_index_id = index_schema.id;
+}
+
+TOlapTablePartition _make_timestamp_ns_partition(int64_t id, int64_t schema_index_id) {
+    TOlapTablePartition partition;
+    partition.id = id;
+    partition.num_buckets = 1;
+    partition.__set_is_mutable(true);
+
+    TOlapTableIndexTablets index_tablets;
+    index_tablets.index_id = schema_index_id;
+    index_tablets.tablets = {id * 100};
+    partition.indexes = {index_tablets};
+    return partition;
+}
 
 std::shared_ptr<ExchangeSinkOperatorX> _create_parent_operator(
         OperatorContext& ctx, const std::shared_ptr<doris::MockRowDescriptor>& row_desc_holder) {
@@ -274,6 +338,51 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
         ASSERT_TRUE(st.ok()) << st.to_string();
         EXPECT_EQ(tablet_index[0], 0);
     }
+}
+
+TEST(TabletSinkHashPartitionerTest, TimeStampNsRangeUsesPartitionColumnScale) {
+    OperatorContext ctx;
+
+    TOlapTableSchemaParam tschema;
+    int64_t schema_index_id = 0;
+    _build_timestamp_ns_schema(ctx, tschema, schema_index_id);
+
+    auto schema = std::make_shared<OlapTableSchemaParam>();
+    auto st = schema->init(tschema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    TOlapTablePartitionParam partition_param;
+    partition_param.db_id = 1;
+    partition_param.table_id = 2;
+    partition_param.version = 0;
+    partition_param.__set_partition_type(TPartitionType::RANGE_PARTITIONED);
+    partition_param.__set_partition_columns({"dt"});
+
+    auto before_epoch = _make_timestamp_ns_partition(1, schema_index_id);
+    before_epoch.__set_end_keys({_make_timestamp_ns_literal("1970-01-01 00:00:00")});
+
+    auto epoch = _make_timestamp_ns_partition(2, schema_index_id);
+    epoch.__set_start_keys({_make_timestamp_ns_literal("1970-01-01 00:00:00")});
+    epoch.__set_end_keys({_make_timestamp_ns_literal("1970-01-01 00:00:00.000000002")});
+
+    auto after_epoch = _make_timestamp_ns_partition(3, schema_index_id);
+    after_epoch.__set_start_keys({_make_timestamp_ns_literal("1970-01-01 00:00:00.000000002")});
+    partition_param.partitions = {epoch, before_epoch, after_epoch};
+
+    VOlapTablePartitionParam partitions(schema, partition_param);
+    st = partitions.init();
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto* slot = schema->tuple_desc()->slots().front();
+    auto column = slot->get_empty_mutable_column();
+    const TimeStampNsValue min_value(std::numeric_limits<int64_t>::min());
+    column->insert_data(reinterpret_cast<const char*>(&min_value), 0);
+    Block block({{std::move(column), slot->get_data_type_ptr(), slot->col_name()}});
+
+    VOlapTablePartition* result = nullptr;
+    EXPECT_TRUE(partitions.find_partition(&block, 0, result));
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->id, before_epoch.id);
 }
 } // anonymous namespace
 } // namespace doris

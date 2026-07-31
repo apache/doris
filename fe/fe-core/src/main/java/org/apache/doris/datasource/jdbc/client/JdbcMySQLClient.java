@@ -450,11 +450,13 @@ public class JdbcMySQLClient extends JdbcClient {
             case "DATETIMEV2": {
                 int scale = (openParen == -1) ? 0
                         : Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
-                if (scale > 6) {
-                    scale = 6;
+                if (scale > ScalarType.MAX_DATETIMEV2_SCALE) {
+                    scale = ScalarType.MAX_DATETIMEV2_SCALE;
                 }
                 return ScalarType.createDatetimeV2Type(scale);
             }
+            case "TIMESTAMP_NS":
+                return ScalarType.createTimeStampNsType();
             case "CHAR":
             case "CHARACTER":
                 return ScalarType.createCharType(fieldSchema.requiredColumnSize());

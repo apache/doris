@@ -37,6 +37,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -212,6 +213,9 @@ using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DA
 
 using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIMEV2>>;
+using FunctionTimeStampNsDayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimeStampNsMonthName =
+        FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_TIMESTAMP_NS>>;
 using FunctionYearMonth = FunctionDateOrDateTimeToString<YearMonthImpl>;
 using FunctionDayHour = FunctionDateOrDateTimeToString<DayHourImpl>;
 using FunctionDayMinute = FunctionDateOrDateTimeToString<DayMinuteImpl>;
@@ -226,6 +230,7 @@ using FunctionSecondMicrosecond = FunctionDateOrDateTimeToString<SecondMicroseco
 
 using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATEV2>>;
 using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
+using FunctionTimeStampNsIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMP_NS>>;
 using FunctionTimestampTzIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMPTZ>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
@@ -233,6 +238,8 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMonthNameV2>();
     factory.register_function<FunctionDateTimeV2DayName>();
     factory.register_function<FunctionDateTimeV2MonthName>();
+    factory.register_function<FunctionTimeStampNsDayName>();
+    factory.register_function<FunctionTimeStampNsMonthName>();
     factory.register_function<FunctionYearMonth>();
     factory.register_function<FunctionDayHour>();
     factory.register_function<FunctionDayMinute>();
@@ -246,6 +253,7 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecondMicrosecond>();
     factory.register_function<FunctionDateIso8601>();
     factory.register_function<FunctionDateTimeIso8601>();
+    factory.register_function<FunctionTimeStampNsIso8601>();
     factory.register_function<FunctionTimestampTzIso8601>();
 }
 

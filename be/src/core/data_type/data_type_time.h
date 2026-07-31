@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number_base.h"
@@ -40,8 +41,10 @@ class IColumn;
 
 class DataTypeTimeV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2> {
 public:
+    static constexpr UInt32 MAX_SCALE = 6;
+
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
-        if (UNLIKELY(scale > 6)) {
+        if (UNLIKELY(std::cmp_greater(scale, MAX_SCALE))) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {

@@ -18,6 +18,7 @@
 #include "exprs/function/function_datetime_string_to_string.h"
 
 #include "core/data_type/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/simple_function_factory.h"
@@ -27,6 +28,8 @@ namespace doris {
 using FunctionDateFormatV2 = FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATETIMEV2>>;
+using FunctionTimeStampNsDateFormat =
+        FunctionDateTimeStringToString<DateFormatImpl<TYPE_TIMESTAMP_NS>>;
 // old version
 using FunctionFromUnixTimeOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, false>>;
 using FunctionFromUnixTimeTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, false>>;
@@ -39,6 +42,7 @@ using FunctionFromUnixTimeNewDecimalTwoArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true>>;
 using FunctionTimeFormatDate = FunctionTimeFormat<TYPE_DATEV2>;
 using FunctionTimeFormatDateTime = FunctionTimeFormat<TYPE_DATETIMEV2>;
+using FunctionTimeFormatTimeStampNs = FunctionTimeFormat<TYPE_TIMESTAMP_NS>;
 using FunctionTimeFormatTime = FunctionTimeFormat<TYPE_TIMEV2>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
@@ -50,8 +54,10 @@ void register_function_date_time_string_to_string(SimpleFunctionFactory& factory
     factory.register_function<FunctionFromUnixTimeNewDecimalOneArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalTwoArg>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
+    factory.register_function<FunctionTimeStampNsDateFormat>();
     factory.register_function<FunctionTimeFormatDate>();
     factory.register_function<FunctionTimeFormatDateTime>();
+    factory.register_function<FunctionTimeFormatTimeStampNs>();
     factory.register_function<FunctionTimeFormatTime>();
 }
 

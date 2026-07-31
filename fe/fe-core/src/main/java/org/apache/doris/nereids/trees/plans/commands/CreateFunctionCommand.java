@@ -425,6 +425,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     private void checkUdfSupportedType(Type type, String typePosition) throws AnalysisException {
+        if (binaryType == Function.BinaryType.JAVA_UDF && type.isTimeStampNs()) {
+            throw new AnalysisException(String.format(
+                    "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
+        }
         // Reject bitmap/hll/quantile_state type
         if (type.isObjectStored()) {
             throw new AnalysisException(String.format(
@@ -1062,6 +1066,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             case DATETIMEV2:
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
+                break;
+            case TIMESTAMP_NS:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMP_NS);
                 break;
             case TIMESTAMPTZ:
                 typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMPTZ);

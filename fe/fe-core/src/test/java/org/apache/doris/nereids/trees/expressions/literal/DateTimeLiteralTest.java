@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -31,15 +33,46 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 class DateTimeLiteralTest {
+    @Test
+    void testMysqlTimestampKeepsMicrosecondRange() {
+        boolean previousEnableDateConversion = Config.enable_date_conversion;
+        try {
+            Config.enable_date_conversion = true;
+            ByteBuffer data = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN);
+            data.put((byte) 11)
+                    .putChar((char) 3022)
+                    .put((byte) 1)
+                    .put((byte) 2)
+                    .put((byte) 3)
+                    .put((byte) 4)
+                    .put((byte) 5)
+                    .putInt(123456)
+                    .flip();
+
+            Literal literal = Literal.getLiteralByMysqlType(
+                    MysqlColType.MYSQL_TYPE_DATETIME, false, data);
+
+            DateTimeV2Literal dateTime = Assertions.assertInstanceOf(DateTimeV2Literal.class, literal);
+            Assertions.assertEquals(DateTimeV2Type.MAX, dateTime.getDataType());
+            Assertions.assertEquals("3022-01-02 03:04:05.123456", dateTime.getStringValue());
+        } finally {
+            Config.enable_date_conversion = previousEnableDateConversion;
+        }
+    }
+
     @Test
     void reject() {
         // Assertions.assertThrows(IllegalArgumentException.class, () -> {
@@ -402,28 +435,34 @@ class DateTimeLiteralTest {
         check("2016-07-02 01:01:01.123456", DateTimeV2Literal::new);
         check("2016-7-02 01:01:01.123456", DateTimeV2Literal::new);
 
-        // Testing with microsecond of length 7
-        DateTimeV2Literal literal = check("2016-07-02 01:01:01.12345678", DateTimeV2Literal::new);
-        Assertions.assertEquals(123457, literal.microSecond);
+        // Fractional digits above microsecond precision are preserved by TIMESTAMP_NS literals.
+        TimeStampNsLiteral literal = check("2016-07-02 01:01:01.12345678", TimeStampNsLiteral::new);
+        Assertions.assertEquals(123456, literal.getMicroSecond());
+        Assertions.assertEquals(123456780, literal.getNanoSecond());
 
-        literal = check("2016-07-02 01:01:01.44444444", DateTimeV2Literal::new);
-        Assertions.assertEquals(444444, literal.microSecond);
+        literal = check("2016-07-02 01:01:01.44444444", TimeStampNsLiteral::new);
+        Assertions.assertEquals(444444, literal.getMicroSecond());
+        Assertions.assertEquals(444444440, literal.getNanoSecond());
 
-        literal = check("2016-07-02 01:01:01.44444445", DateTimeV2Literal::new);
-        Assertions.assertEquals(444444, literal.microSecond);
+        literal = check("2016-07-02 01:01:01.44444445", TimeStampNsLiteral::new);
+        Assertions.assertEquals(444444, literal.getMicroSecond());
+        Assertions.assertEquals(444444450, literal.getNanoSecond());
 
-        literal = check("2016-07-02 01:01:01.4444445", DateTimeV2Literal::new);
-        Assertions.assertEquals(444445, literal.microSecond);
+        literal = check("2016-07-02 01:01:01.4444445", TimeStampNsLiteral::new);
+        Assertions.assertEquals(444444, literal.getMicroSecond());
+        Assertions.assertEquals(444444500, literal.getNanoSecond());
 
-        literal = check("2016-07-02 01:01:01.9999995", DateTimeV2Literal::new);
-        Assertions.assertEquals(0, literal.microSecond);
-        Assertions.assertEquals(2, literal.second);
+        literal = check("2016-07-02 01:01:01.9999995", TimeStampNsLiteral::new);
+        Assertions.assertEquals(999999, literal.getMicroSecond());
+        Assertions.assertEquals(999999500, literal.getNanoSecond());
+        Assertions.assertEquals(1, literal.getSecond());
 
-        literal = check("2021-01-01 23:59:59.9999995", DateTimeV2Literal::new);
-        Assertions.assertEquals(0, literal.microSecond);
-        Assertions.assertEquals(0, literal.second);
-        Assertions.assertEquals(0, literal.minute);
-        Assertions.assertEquals(0, literal.hour);
+        literal = check("2021-01-01 23:59:59.9999995", TimeStampNsLiteral::new);
+        Assertions.assertEquals(999999, literal.getMicroSecond());
+        Assertions.assertEquals(999999500, literal.getNanoSecond());
+        Assertions.assertEquals(59, literal.getSecond());
+        Assertions.assertEquals(59, literal.getMinute());
+        Assertions.assertEquals(23, literal.getHour());
     }
 
     @Test
@@ -456,6 +495,25 @@ class DateTimeLiteralTest {
         Assertions.assertEquals(
                 check("2016-12-31 23:59:59.999999", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)),
                 check("2017-01-01 00:00:00.00000", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)));
+    }
+
+    @Test
+    void testTimeStampNsGuardDigitRounding() {
+        TimeStampNsLiteral literal = new TimeStampNsLiteral("1970-01-01 00:00:00.1234567894");
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789", literal.getStringValue());
+
+        literal = new TimeStampNsLiteral("1970-01-01 00:00:00.1234567895");
+        Assertions.assertEquals("1970-01-01 00:00:00.123456790", literal.getStringValue());
+
+        literal = new TimeStampNsLiteral("1970-01-01 00:00:00.9999999995");
+        Assertions.assertEquals("1970-01-01 00:00:01.000000000", literal.getStringValue());
+
+        literal = new TimeStampNsLiteral("1970-01-01 00:00:00.1234567845");
+        Assertions.assertEquals("1970-01-01 00:00:00.123456785", literal.getStringValue());
+
+        DateTimeLiteral parsed = DateTimeLiteral.parseDateTimeLiteral(
+                "1970-01-01 00:00:00.9999999995", true).get();
+        Assertions.assertEquals("1970-01-01 00:00:01.000000", parsed.getStringValue());
     }
 
     @Test
@@ -625,7 +683,8 @@ class DateTimeLiteralTest {
 
     @Test
     void testDateTimeV2UncheckedCastTo() {
-        DateTimeV2Literal v2 = new DateTimeV2Literal(DateTimeV2Type.MAX, 2025, 7, 23, 13, 25, 59, 999999);
+        DateTimeV2Literal v2 = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), 2025, 7, 23, 13, 25, 59, 999999);
         Expression expression = v2.uncheckedCastTo(BigIntType.INSTANCE);
         Assertions.assertInstanceOf(BigIntLiteral.class, expression);
 
@@ -689,9 +748,54 @@ class DateTimeLiteralTest {
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("2025-07-23 13:25:59", ((StringLiteral) expression).value);
 
-        v2 = new DateTimeV2Literal(DateTimeV2Type.MAX, 2025, 7, 23, 13, 25, 59, 0);
+        v2 = new DateTimeV2Literal(DateTimeV2Type.of(6), 2025, 7, 23, 13, 25, 59, 0);
         expression = v2.uncheckedCastTo(StringType.INSTANCE);
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("2025-07-23 13:25:59.000000", ((StringLiteral) expression).value);
+    }
+
+    @Test
+    void testTimeStampNsUncheckedCastRoundingAndRange() {
+        TimeStampNsLiteral nano = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
+        DateTimeV2Literal micro = (DateTimeV2Literal) nano.uncheckedCastTo(DateTimeV2Type.of(6));
+        Assertions.assertEquals("2024-02-29 12:34:56.123457", micro.getStringValue());
+
+        nano = new TimeStampNsLiteral("1969-12-31 23:59:59.999999999");
+        micro = (DateTimeV2Literal) nano.uncheckedCastTo(DateTimeV2Type.of(6));
+        Assertions.assertEquals("1970-01-01 00:00:00.000000", micro.getStringValue());
+        TimeV2Literal time = (TimeV2Literal) nano.uncheckedCastTo(TimeV2Type.of(6));
+        Assertions.assertEquals("24:00:00.000000", time.getStringValue());
+
+        nano = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
+        time = (TimeV2Literal) nano.uncheckedCastTo(TimeV2Type.of(6));
+        Assertions.assertEquals("12:34:56.123457", time.getStringValue());
+
+        TimeStampNsLiteral lower = new TimeStampNsLiteral("1677-09-21 00:12:43.145224192");
+        Assertions.assertSame(lower, lower.uncheckedCastTo(TimeStampNsType.INSTANCE));
+
+        TimeStampNsLiteral upper = new TimeStampNsLiteral("2262-04-11 23:47:16.854775807");
+        Assertions.assertSame(upper, upper.uncheckedCastTo(TimeStampNsType.INSTANCE));
+
+        DateTimeV2Literal lowerMicro = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "1677-09-21 00:12:43.145225");
+        Assertions.assertEquals("1677-09-21 00:12:43.145225000",
+                ((TimeStampNsLiteral) lowerMicro.uncheckedCastTo(TimeStampNsType.INSTANCE)).getStringValue());
+
+        DateTimeV2Literal yearZero = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "0000-01-01 00:00:00.000000");
+        DateTimeV2Literal yearNineNineNineNine = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "9999-12-31 23:59:59.999999");
+        Assertions.assertThrows(CastException.class,
+                () -> yearZero.uncheckedCastTo(TimeStampNsType.INSTANCE));
+        Assertions.assertThrows(CastException.class,
+                () -> yearNineNineNineNine.uncheckedCastTo(TimeStampNsType.INSTANCE));
+    }
+
+    @Test
+    void testTimestampNsEpochNanoBoundaries() {
+        Assertions.assertEquals("1677-09-21 00:12:43.145224192",
+                TimeStampNsLiteral.getMinValue().getStringValue());
+        Assertions.assertEquals("2262-04-11 23:47:16.854775807",
+                TimeStampNsLiteral.getMaxValue().getStringValue());
     }
 }

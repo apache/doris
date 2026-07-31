@@ -75,6 +75,32 @@ public class DataTypeTest {
     }
 
     @Test
+    void testTimeStampNsValidation() {
+        Assertions.assertDoesNotThrow(TimeStampNsType.INSTANCE::validateDataType);
+    }
+
+    @Test
+    void testTimeV2PromotionKeepsMicrosecondPrecision() {
+        Assertions.assertEquals(
+                ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE),
+                TimeV2Type.of(6).getAllPromotions());
+    }
+
+    @Test
+    void testImplicitDateTimeV2PrecisionKeepsMicrosecondCompatibility() {
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(StringType.INSTANCE));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(DecimalV3Type.createDecimalV3Type(18, 9)));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forTypeFromString("1st Jun 2007 09:45:30"));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(DateTimeV2Type.MAX));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forTypeFromString("2024-01-01 00:00:00.123456789"));
+    }
+
+    @Test
     void testConvertFromString() {
         // boolean
         Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("boolean"));
@@ -121,6 +147,16 @@ public class DataTypeTest {
 
         // datetimev2
         Assertions.assertEquals(DateTimeV2Type.of(3), DataType.convertFromString("datetimev2(3)"));
+        Assertions.assertSame(TimeStampNsType.INSTANCE, DataType.convertFromString("timestamp_ns"));
+        for (String datetimeType : ImmutableList.of("datetime", "datetimev2")) {
+            for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
+                int scale = invalidScale;
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> DataType.convertFromString(datetimeType + "(" + scale + ")"));
+            }
+        }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DataType.convertFromString("timestamp_ns(9)"));
         // hll
         Assertions.assertEquals(HllType.INSTANCE, DataType.convertFromString("hll"));
         // bitmap

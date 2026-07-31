@@ -790,6 +790,44 @@ TEST_F(InvertedIndexWriterTest, NumericWrite) {
     test_numeric_write("test_rowset_3", 0);
 }
 
+TEST_F(InvertedIndexWriterTest, TimeStampNsWrite) {
+    TabletColumn field;
+    field.set_name("dt");
+    field.set_unique_id(0);
+    field.set_type(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
+    field.set_is_nullable(false);
+
+    TabletIndexPB index_meta_pb;
+    index_meta_pb.set_index_type(IndexType::INVERTED);
+    index_meta_pb.set_index_id(1);
+    index_meta_pb.set_index_name("test_timestamp_ns");
+    index_meta_pb.add_col_unique_id(0);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_meta_pb);
+
+    const std::string rowset_id = "test_timestamp_ns";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(index_path, &file_writer).ok());
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            io::global_local_filesystem(), index_path_prefix, rowset_id, 0,
+            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    ASSERT_TRUE(
+            IndexColumnWriter::create(&field, &column_writer, index_file_writer.get(), &index_meta)
+                    .ok());
+    const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
+                                         std::numeric_limits<int64_t>::max()};
+    ASSERT_TRUE(column_writer->add_values("dt", values.data(), values.size()).ok());
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+}
+
 // Test case for Unicode string values with enable_correct_term_write=true
 TEST_F(InvertedIndexWriterTest, UnicodeStringWriteEnabled) {
     test_unicode_string_write("test_rowset_4", 0, true);

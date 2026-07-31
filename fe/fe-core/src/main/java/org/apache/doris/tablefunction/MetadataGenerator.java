@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.RoleMappingMeta;
@@ -2156,6 +2157,11 @@ public class MetadataGenerator {
                             trow.addToColumnValue(
                                     new TCell().setLongVal(TimeUtils.convertStringToDateTimeV2(partitionValue,
                                             ((ScalarType) type).getScalarScale())));
+                            break;
+                        case TIMESTAMP_NS:
+                            trow.addToColumnValue(new TCell().setLongVal(
+                                    ((Number) DateLiteralUtils.createLiteral(
+                                            partitionValue, type).getRealValue()).longValue()));
                             break;
                         default:
                             throw new AnalysisException(

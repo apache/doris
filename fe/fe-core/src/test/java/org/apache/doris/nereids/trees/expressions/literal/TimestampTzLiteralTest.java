@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,6 +59,8 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(14, literal.second);
         Assertions.assertEquals(123457, literal.microSecond);
         Assertions.assertEquals(6, literal.getDataType().getScale());
+        Assertions.assertEquals(TimeStampTzType.of(6),
+                TimeStampTzType.MAX.scaleTypeForType(TimeStampNsType.INSTANCE));
 
         literal = new TimestampTzLiteral("2022-12-31 21:00:14.1234567  -06:45");
         Assertions.assertEquals(2023, literal.year);
@@ -124,6 +128,49 @@ class TimestampTzLiteralTest {
                 "2024-01-15 12:00:00 +00:00");
 
         Assertions.assertEquals("2024-01-15 12:00:00.000000+00:00", literal.getStringValue());
+    }
+
+    @Test
+    void testCastBetweenTimestampTzAndTimeStampNs() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("+08:00");
+        context.setThreadLocalInfo();
+        try {
+            TimeStampNsLiteral nano = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
+            TimestampTzLiteral timestampTz = (TimestampTzLiteral) nano.uncheckedCastTo(TimeStampTzType.of(6));
+            Assertions.assertEquals("2024-02-29 04:34:56.123457+00:00", timestampTz.getStringValue());
+
+            timestampTz = new TimestampTzLiteral(
+                    TimeStampTzType.of(6), 2024, 2, 29, 4, 34, 56, 123456);
+            nano = (TimeStampNsLiteral) timestampTz.uncheckedCastTo(TimeStampNsType.INSTANCE);
+            Assertions.assertEquals("2024-02-29 12:34:56.123456000", nano.getStringValue());
+
+            context.getSessionVariable().setTimeZone("+14:00");
+            timestampTz = new TimestampTzLiteral(
+                    TimeStampTzType.of(6), 1677, 9, 20, 10, 12, 43, 145225);
+            nano = (TimeStampNsLiteral) timestampTz.uncheckedCastTo(TimeStampNsType.INSTANCE);
+            Assertions.assertEquals("1677-09-21 00:12:43.145225000", nano.getStringValue());
+
+            context.getSessionVariable().setTimeZone("UTC");
+            TimestampTzLiteral yearZero = new TimestampTzLiteral(
+                    TimeStampTzType.of(6), 0, 1, 1, 0, 0, 0, 0);
+            TimestampTzLiteral yearNineNineNineNine = new TimestampTzLiteral(
+                    TimeStampTzType.of(6), 9999, 12, 31, 23, 59, 59, 999999);
+            TimestampTzLiteral belowLowerBound = new TimestampTzLiteral(
+                    TimeStampTzType.of(6), 1677, 9, 21, 0, 12, 43, 145224);
+            TimestampTzLiteral aboveUpperBound = new TimestampTzLiteral(
+                    TimeStampTzType.of(6), 2262, 4, 11, 23, 47, 16, 854776);
+            Assertions.assertThrows(CastException.class,
+                    () -> yearZero.uncheckedCastTo(TimeStampNsType.INSTANCE));
+            Assertions.assertThrows(CastException.class,
+                    () -> yearNineNineNineNine.uncheckedCastTo(TimeStampNsType.INSTANCE));
+            Assertions.assertThrows(CastException.class,
+                    () -> belowLowerBound.uncheckedCastTo(TimeStampNsType.INSTANCE));
+            Assertions.assertThrows(CastException.class,
+                    () -> aboveUpperBound.uncheckedCastTo(TimeStampNsType.INSTANCE));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

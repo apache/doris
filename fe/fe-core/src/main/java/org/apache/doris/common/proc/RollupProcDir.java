@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Type;
@@ -333,7 +334,8 @@ public class RollupProcDir implements ProcDirInterface {
         if (subExpr.getChild(1) instanceof StringLiteral && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
             return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
         }
-        if (subExpr.getChild(1) instanceof DateLiteral) {
+        if (subExpr.getChild(1) instanceof DateLiteral
+                || subExpr.getChild(1) instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
             Type type;
             switch (subExpr.getChild(1).getType().getPrimitiveType()) {
                 case DATE:
@@ -344,14 +346,15 @@ public class RollupProcDir implements ProcDirInterface {
                     type = Type.DATETIMEV2;
                     break;
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case TIMESTAMPTZ:
                     type = subExpr.getChild(1).getType();
                     break;
                 default:
                     throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
             }
-            Long leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
-            Long rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
+            Long leftVal = DateLiteralUtils.createLiteral((String) element, type).getLongValue();
+            Long rightVal = ((LiteralExpr) subExpr.getChild(1)).getLongValue();
             switch (binaryPredicate.getOp()) {
                 case EQ:
                 case EQ_FOR_NULL:

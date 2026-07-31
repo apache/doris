@@ -359,6 +359,8 @@ public final class ConnectorColumnConverter {
                     return ScalarType.createDatetimeV2Type(precision);
                 }
                 return ScalarType.DATETIMEV2;
+            case "TIMESTAMP_NS":
+                return ScalarType.createTimeStampNsType();
             case "TIMESTAMPTZ":
                 if (precision >= 0) {
                     return ScalarType.createTimeStampTzType(precision);

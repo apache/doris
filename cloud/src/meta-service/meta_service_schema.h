@@ -24,6 +24,9 @@ namespace doris::cloud {
 class Transaction;
 struct ValueBuf;
 
+bool check_tablet_schema(const doris::TabletSchemaCloudPB& schema,
+                         doris::TabletSchemaCloudPB& saved_schema);
+
 void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                    std::string_view schema_key, const doris::TabletSchemaCloudPB& schema);
 

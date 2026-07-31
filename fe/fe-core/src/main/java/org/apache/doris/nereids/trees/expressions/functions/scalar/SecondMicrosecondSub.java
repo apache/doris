@@ -80,9 +80,12 @@ public class SecondMicrosecondSub extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+        if (getArgument(0).getDataType() instanceof TimeStampTzType
+                || signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
             return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
         }
-        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
+        DateTimeV2Type returnType = DateTimeV2Type.forTypeWithMinimumScale(
+                getArgument(0).getDataType(), DateTimeV2Type.MAX_SCALE);
+        return signature.withArgumentType(0, returnType).withReturnType(returnType);
     }
 }

@@ -273,6 +273,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         if (column.has_default_value()) {
             std::string default_value;
             if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+                          column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS ||
                           column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
                          to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
@@ -288,7 +289,19 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     int precision = std::stoi(column.default_value().substr(pos + 1));
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
-                    default_value = dtv.to_string();
+                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS) {
+                        const int32_t scale_factor = static_cast<int32_t>(int_exp10(9 - precision));
+                        const int32_t truncated_nano_seconds =
+                                nano_seconds / scale_factor * scale_factor;
+                        TimeStampNsValue value;
+                        DORIS_CHECK(value.from_datetime(
+                                dtv, static_cast<uint16_t>(
+                                             truncated_nano_seconds %
+                                             (TimeStampNsValue::NANOS_PER_SECOND / 1000000))));
+                        default_value = value.to_string(precision);
+                    } else {
+                        default_value = dtv.to_string();
+                    }
                     if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
                         default_value += timezone;
                     }

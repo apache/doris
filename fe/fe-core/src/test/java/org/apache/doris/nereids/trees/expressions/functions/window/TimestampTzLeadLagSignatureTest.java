@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,6 +29,19 @@ import org.junit.jupiter.api.Test;
  * Unit tests ensuring LEAD/LAG select TimeStampTzType signatures when input is TIMESTAMPTZ.
  */
 public class TimestampTzLeadLagSignatureTest {
+
+    @Test
+    public void testLeadAndLagSignaturesMatchTimeStampNs() {
+        SlotReference slot = SlotReference.of("ts", TimeStampNsType.INSTANCE);
+
+        FunctionSignature leadSignature = new Lead(slot).getSignature();
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, leadSignature.returnType);
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, leadSignature.getArgType(0));
+
+        FunctionSignature lagSignature = new Lag(slot).getSignature();
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, lagSignature.returnType);
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, lagSignature.getArgType(0));
+    }
 
     @Test
     public void testLeadSignatureMatchesTimeStampTz() {

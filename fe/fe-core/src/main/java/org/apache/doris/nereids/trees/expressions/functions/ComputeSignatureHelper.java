@@ -528,19 +528,24 @@ public class ComputeSignatureHelper {
                 DataType inputType = nestedInputTypes.get(j);
                 // corresponding target slot type for inputType
                 DataType nestedTargetType = nestedTargetTypes.get(j);
-                int targetScale = 0;
+                ScaleTimeType promotedType;
 
                 // for string input, try to get the most suitable scale
                 if (arg instanceof StringLikeLiteral) {
                     ScaleTimeType timelikeType = (ScaleTimeType) nestedTargetType;
-                    targetScale = timelikeType.forTypeFromString((StringLikeLiteral) arg).getScale();
+                    promotedType = timelikeType.forTypeFromString((StringLikeLiteral) arg);
                 } else {
                     // for all other input types, get the target scale when cast it to targetType
                     ScaleTimeType targetScaleType = (ScaleTimeType) nestedTargetType;
-                    ScaleTimeType promotedType = targetScaleType.scaleTypeForType(inputType);
-                    targetScale = promotedType.getScale();
+                    promotedType = targetScaleType.scaleTypeForType(inputType);
                 }
 
+                int targetScale = promotedType.getScale();
+                // TimeStampNsType inherits DateTimeV2Type only to reuse civil-time behavior. A
+                // DATETIMEV2 signature must stay within its own precision and physical layout.
+                if (nestedTargetType.getClass() == DateTimeV2Type.class) {
+                    targetScale = Math.min(targetScale, DateTimeV2Type.MAX_SCALE);
+                }
                 finalTypeScale = Math.max(finalTypeScale, targetScale); // init value -1 always promotes
             }
         }
@@ -552,7 +557,8 @@ public class ComputeSignatureHelper {
         // promote the precision of return type
         ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
         for (DataType signatureArgType : signature.argumentsTypes) {
-            newArgTypesBuilder.add(TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType, finalTypeScale));
+            newArgTypesBuilder.add(TypeCoercionUtils.replaceTimesWithTargetPrecision(
+                    signatureArgType, finalTypeScale));
         }
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -560,7 +566,8 @@ public class ComputeSignatureHelper {
                 || signature.returnType instanceof TimeStampTzType
                 || signature.returnType instanceof ComplexDataType) {
             signature = signature.withReturnType(
-                    TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
+                    TypeCoercionUtils.replaceTimesWithTargetPrecision(
+                            signature.returnType, finalTypeScale));
         }
         return signature;
     }

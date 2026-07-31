@@ -798,6 +798,8 @@ public:
             return execute_num_type<TYPE_DATEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATETIMEV2:
             return execute_num_type<TYPE_DATETIMEV2>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_TIMESTAMP_NS:
+            return execute_num_type<TYPE_TIMESTAMP_NS>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TIMESTAMPTZ:
             return execute_num_type<TYPE_TIMESTAMPTZ>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TINYINT:

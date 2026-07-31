@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
@@ -46,9 +47,14 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
             // searching in FunctionSet. So we adjust the return type by hand here.
             if (getArgument(0) instanceof IntegerLikeLiteral) {
                 IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) getArgument(0);
-                signature = signature.withReturnType(DateTimeV2Type.of(integerLikeLiteral.getIntValue()));
+                int scale = integerLikeLiteral.getIntValue();
+                if (scale < 0 || scale > DateTimeV2Type.MAX_SCALE) {
+                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6. Scale was set to: "
+                            + scale);
+                }
+                signature = signature.withReturnType(DateTimeV2Type.of(scale));
             } else {
-                signature = signature.withReturnType(DateTimeV2Type.of(6));
+                signature = signature.withReturnType(DateTimeV2Type.MAX);
             }
         }
         return super.computeSignature(signature);

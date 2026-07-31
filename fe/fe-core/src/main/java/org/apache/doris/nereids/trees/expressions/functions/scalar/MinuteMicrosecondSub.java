@@ -41,8 +41,8 @@ public class MinuteMicrosecondSub extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.MAX)
-                    .args(DateTimeV2Type.MAX, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeStampTzType.MAX)
                     .args(TimeStampTzType.MAX, VarcharType.SYSTEM_DEFAULT)
     );
@@ -80,6 +80,12 @@ public class MinuteMicrosecondSub extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
-        return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
+        if (getArgument(0).getDataType() instanceof TimeStampTzType
+                || signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+            return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
+        }
+        DateTimeV2Type returnType = DateTimeV2Type.forTypeWithMinimumScale(
+                getArgument(0).getDataType(), DateTimeV2Type.MAX_SCALE);
+        return signature.withArgumentType(0, returnType).withReturnType(returnType);
     }
 }

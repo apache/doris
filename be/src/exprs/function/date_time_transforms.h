@@ -145,6 +145,10 @@ struct ToDateImpl {
         } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             t.cast_to_date();
             return t;
+        } else if constexpr (std::is_same_v<DateType, TimeStampNsValue>) {
+            auto datetime = t.to_datetime();
+            return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                    static_cast<UInt32>(datetime.to_date_int_val() >> TIME_PART_LENGTH));
         } else {
             return binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
                     (UInt32)(t.to_date_int_val() >> TIME_PART_LENGTH));

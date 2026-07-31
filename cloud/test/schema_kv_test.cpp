@@ -335,6 +335,20 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
         ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
         EXPECT_EQ(saved_schema.schema_version(), schema_version);
     }
+
+    {
+        doris::TabletSchemaCloudPB timestamp_ns_schema;
+        auto* timestamp_ns_column = timestamp_ns_schema.add_column();
+        timestamp_ns_column->set_unique_id(1);
+        timestamp_ns_column->set_type("TIMESTAMP_NS");
+
+        doris::TabletSchemaCloudPB saved_schema(timestamp_ns_schema);
+        EXPECT_TRUE(check_tablet_schema(timestamp_ns_schema, saved_schema));
+
+        doris::TabletSchemaCloudPB datetimev2_schema(timestamp_ns_schema);
+        datetimev2_schema.mutable_column(0)->set_type("DATETIMEV2");
+        EXPECT_FALSE(check_tablet_schema(datetimev2_schema, saved_schema));
+    }
 }
 
 static void begin_txn(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,

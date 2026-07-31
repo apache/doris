@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -37,11 +38,7 @@ import java.util.Collections;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
-/**
- * Utility class providing a static factory method for creating {@link DateLiteral} instances
- * from string representations. This replicates the parsing logic of the
- * {@code DateLiteral(String, Type)} constructor and its {@code init()} method.
- */
+/** Utility methods for parsing legacy date-like literals from strings. */
 public class DateLiteralUtils {
 
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
@@ -49,16 +46,22 @@ public class DateLiteralUtils {
     private DateLiteralUtils() {
     }
 
-    /**
-     * Creates a {@link DateLiteral} by parsing the given string, replicating the exact behavior
-     * of the {@code DateLiteral(String, Type)} constructor and its internal {@code init()} method.
-     *
-     * @param s    the date/datetime string to parse
-     * @param type the target date type, or {@code null} for auto-detection
-     * @return a new {@link DateLiteral} instance
-     * @throws AnalysisException if the string cannot be parsed or the resulting value is out of range
-     */
+    /** Parse a DATE, DATETIME, DATETIMEV2, TIMESTAMPTZ, or TIMESTAMP_NS literal. */
+    public static LiteralExpr createLiteral(String s, @Nullable Type type) throws AnalysisException {
+        return createDateTimeLiteral(s, type);
+    }
+
+    /** Parse a literal that is represented by {@link DateLiteral}. */
     public static DateLiteral createDateLiteral(String s, @Nullable Type type) throws AnalysisException {
+        LiteralExpr literal = createDateTimeLiteral(s, type);
+        if (!(literal instanceof DateLiteral)) {
+            throw new AnalysisException("date literal [" + s
+                    + "] resolves to TIMESTAMP_NS; use DateLiteralUtils.createLiteral instead");
+        }
+        return (DateLiteral) literal;
+    }
+
+    private static LiteralExpr createDateTimeLiteral(String s, @Nullable Type type) throws AnalysisException {
         try {
             if (type != null) {
                 Preconditions.checkArgument(type.isDateType());
@@ -82,6 +85,12 @@ public class DateLiteralUtils {
                     s = s.substring(0, s.length() - 6);
                 }
                 sourceZone = ZoneId.of(tzString);
+            }
+
+            int nanosecondGuardDigit = -1;
+            if (type != null && (type.isDatetimeV2() || type.isTimeStampNs())) {
+                nanosecondGuardDigit = DateUtils.getNanosecondGuardDigit(s);
+                s = DateUtils.truncateFractionalSecondForJavaParser(s);
             }
 
             if (!s.contains("-")) {
@@ -140,7 +149,8 @@ public class DateLiteralUtils {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
                 if (timePart.length == 0 && type != null
-                        && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
+                        && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2)
+                        || type.equals(Type.TIMESTAMP_NS))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
@@ -159,7 +169,7 @@ public class DateLiteralUtils {
                                             ? timePart[i].split("\\.")[0].length()
                                             : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                                builder.appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true);
                             }
                             break;
                         default:
@@ -183,29 +193,32 @@ public class DateLiteralUtils {
             long hour = getOrDefault(dateTime, ChronoField.HOUR_OF_DAY, 0);
             long minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
             long second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
-            long microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
+            long nanosecond = getOrDefault(dateTime, ChronoField.NANO_OF_SECOND, 0);
+            long microsecond = nanosecond / 1000;
 
             if (type != null) {
-                if (microsecond != 0 && type.isDatetime()) {
+                if (nanosecond != 0 && type.isDatetime()) {
                     int dotIndex = s.lastIndexOf(".");
                     int scale = s.length() - dotIndex - 1;
-                    type = ScalarType.createDatetimeV2Type(scale);
+                    type = scale > ScalarType.MAX_DATETIMEV2_SCALE
+                            ? ScalarType.createTimeStampNsType()
+                            : ScalarType.createDatetimeV2Type(scale);
                 }
             } else {
-                if (hour == 0 && minute == 0 && second == 0 && microsecond == 0) {
+                if (hour == 0 && minute == 0 && second == 0 && nanosecond == 0) {
                     type = ScalarType.getDefaultDateType(Type.DATE);
                 } else {
                     type = ScalarType.getDefaultDateType(Type.DATETIME);
-                    if (type.isDatetimeV2() && microsecond != 0) {
-                        int scale = 6;
-                        for (int i = 0; i < 6; i++) {
-                            if (microsecond % Math.pow(10.0, i + 1) > 0) {
-                                break;
-                            } else {
-                                scale -= 1;
-                            }
+                    if (type.isDatetimeV2() && nanosecond != 0) {
+                        int scale = ScalarType.TIMESTAMP_NS_SCALE;
+                        long fractionalSecond = nanosecond;
+                        while (fractionalSecond % 10 == 0) {
+                            fractionalSecond /= 10;
+                            scale--;
                         }
-                        type = ScalarType.createDatetimeV2Type(scale);
+                        type = scale > ScalarType.MAX_DATETIMEV2_SCALE
+                                ? ScalarType.createTimeStampNsType()
+                                : ScalarType.createDatetimeV2Type(scale);
                     }
                 }
             }
@@ -230,7 +243,8 @@ public class DateLiteralUtils {
                 }
                 LocalDateTime parsedLdt = LocalDateTime.of(
                         (int) year, (int) month, (int) day,
-                        (int) hour, (int) minute, (int) second);
+                        (int) hour, (int) minute, (int) second,
+                        (int) nanosecond);
                 Instant targetInstant = parsedLdt.atZone(sourceZone).toInstant();
                 LocalDateTime destLdt = LocalDateTime.ofInstant(targetInstant, dorisZone);
                 year = destLdt.getYear();
@@ -243,11 +257,31 @@ public class DateLiteralUtils {
                 // the original init() behavior (not affected by zone conversion)
             }
 
-            // Construct DateLiteral using the appropriate constructor based on the determined type
+            if (type.isDatetimeV2() || type.isTimeStampNs()) {
+                LocalDateTime roundedDateTime = roundFractionalSecond(
+                        year, month, day, hour, minute, second, nanosecond,
+                        type.isTimeStampNs() ? 9 : ((ScalarType) type).getScalarScale(), nanosecondGuardDigit);
+                year = roundedDateTime.getYear();
+                month = roundedDateTime.getMonthValue();
+                day = roundedDateTime.getDayOfMonth();
+                hour = roundedDateTime.getHour();
+                minute = roundedDateTime.getMinute();
+                second = roundedDateTime.getSecond();
+                nanosecond = roundedDateTime.getNano();
+                microsecond = nanosecond / 1000;
+            }
+
+            if (type.isTimeStampNs()) {
+                TimeStampNsLiteral result = new TimeStampNsLiteral(
+                        year, month, day, hour, minute, second, nanosecond);
+                result.checkValueValid();
+                return result;
+            }
+
             DateLiteral result;
             if (type.isDate() || type.isDateV2()) {
                 result = new DateLiteral(year, month, day, type);
-            } else if (microsecond != 0 && (type.isDatetimeV2() || type.isTimeStampTz())) {
+            } else if (nanosecond != 0 && (type.isDatetimeV2() || type.isTimeStampTz())) {
                 result = new DateLiteral(year, month, day, hour, minute, second, microsecond, type);
             } else {
                 result = new DateLiteral(year, month, day, hour, minute, second, type);
@@ -256,6 +290,7 @@ public class DateLiteralUtils {
             if (result.checkRange() || result.checkDate()) {
                 throw new AnalysisException("Datetime value is out of range");
             }
+            result.checkValueValid();
             return result;
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
@@ -264,6 +299,20 @@ public class DateLiteralUtils {
 
     private static int getOrDefault(TemporalAccessor accessor, ChronoField field, int defaultValue) {
         return accessor.isSupported(field) ? accessor.get(field) : defaultValue;
+    }
+
+    private static LocalDateTime roundFractionalSecond(long year, long month, long day, long hour,
+            long minute, long second, long nanosecond, int scale, int nanosecondGuardDigit) {
+        long factor = (long) Math.pow(10, ScalarType.TIMESTAMP_NS_SCALE - scale);
+        long roundingOffset = scale == ScalarType.TIMESTAMP_NS_SCALE && nanosecondGuardDigit >= 5
+                ? 1 : factor / 2;
+        long roundedNanosecond = (nanosecond + roundingOffset) / factor * factor;
+        LocalDateTime result = LocalDateTime.of(
+                (int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second);
+        if (roundedNanosecond == 1000000000L) {
+            return result.plusSeconds(1);
+        }
+        return result.withNano((int) roundedNanosecond);
     }
 
     private static boolean haveTimeZoneOffset(String arg) {

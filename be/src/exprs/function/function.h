@@ -66,7 +66,8 @@ struct FunctionAttr {
     for (auto it : arguments) {                                                                \
         is_nullable = is_nullable || it.type->is_nullable();                                   \
         is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 ||               \
-                    it.type->get_primitive_type() == TYPE_DATETIMEV2;                          \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2 ||                        \
+                    it.type->get_primitive_type() == TYPE_TIMESTAMP_NS;                        \
     }                                                                                          \
     return is_nullable || !is_datev2                                                           \
                    ? make_nullable(                                                            \

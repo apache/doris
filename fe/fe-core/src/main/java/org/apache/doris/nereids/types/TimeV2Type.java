@@ -117,7 +117,7 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
             return TimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
         }
         if (dataType instanceof DateTimeV2Type) {
-            return TimeV2Type.of(((DateTimeV2Type) dataType).getScale());
+            return TimeV2Type.of(Math.min(((DateTimeV2Type) dataType).getScale(), MAX_SCALE));
         }
         return MAX;
     }

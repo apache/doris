@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -184,6 +185,19 @@ public class TimeV2LiteralTest {
         Assertions.assertEquals(23, dateTime.getHour());
         Assertions.assertEquals(59, dateTime.getMinute());
         Assertions.assertEquals(59, dateTime.getSecond());
+    }
+
+    @Test
+    public void testCastToTimeStampNsKeepsTargetScale() {
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(6), "12:34:56.123456");
+
+        TimeStampNsLiteral dateTime = (TimeStampNsLiteral) literal.uncheckedCastTo(TimeStampNsType.INSTANCE);
+
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, dateTime.getDataType());
+        Assertions.assertEquals(12, dateTime.getHour());
+        Assertions.assertEquals(34, dateTime.getMinute());
+        Assertions.assertEquals(56, dateTime.getSecond());
+        Assertions.assertEquals(123456000, dateTime.getNanoSecond());
     }
 
 }

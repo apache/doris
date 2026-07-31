@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/vdatetime_value.h"
@@ -267,6 +268,17 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 check_function<DataTypeDecimal64, true>(func_name, input_types, data_set, 6, 18));
     }
 
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_TIMESTAMP_NS};
+        DataSet data_set = {
+                {{std::string("1970-01-01 08:00:00.123456789")}, DECIMAL128V3(0, 123456789, 9)},
+                {{std::string("2022-05-24 12:34:56.789123456")},
+                 DECIMAL128V3(1653366896, 789123456, 9)},
+        };
+        static_cast<void>(
+                check_function<DataTypeDecimal128, true>(func_name, input_types, data_set, 9, 21));
+    }
+
     // test out of range
     {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
@@ -341,6 +353,23 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                              std::string("2021-10-31 00:15:30.123456")}};
         static_cast<void>(check_function<DataTypeDateTimeV2, true>(func_name, input_types_scale6,
                                                                    data_set, 6));
+    }
+
+    {
+        InputTypeSet input_types_timestamp_ns = {PrimitiveType::TYPE_TIMESTAMP_NS,
+                                                 PrimitiveType::TYPE_VARCHAR,
+                                                 PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {{{std::string {"1970-01-01 08:00:00.123456789"},
+                              std::string {"Asia/Shanghai"}, std::string {"UTC"}},
+                             std::string("1970-01-01 00:00:00.123456789")},
+                            {{std::string {"2021-03-28 02:15:30.123456789"},
+                              std::string {"Europe/Paris"}, std::string {"UTC"}},
+                             std::string("2021-03-28 01:00:00.000000000")},
+                            {{std::string {"2021-03-28 03:00:30.123456789"},
+                              std::string {"Europe/Paris"}, std::string {"UTC"}},
+                             std::string("2021-03-28 01:00:30.123456789")}};
+        static_cast<void>(check_function<DataTypeTimeStampNs, true>(
+                func_name, input_types_timestamp_ns, data_set));
     }
 
     {
@@ -1449,6 +1478,22 @@ TEST(VTimestampFunctionsTest, dayname_test) {
 
 TEST(VTimestampFunctionsTest, datetrunc_test) {
     std::string func_name = "date_trunc";
+    {
+        InputTypeSet input_types = {AnyType {PrimitiveType::TYPE_TIMESTAMP_NS, 9},
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
+        DataSet data_set = {{{std::string("2023-10-17 12:34:56.123456789"), std::string("day")},
+                             std::string("2023-10-17 00:00:00.000000000")}};
+        static_cast<void>(
+                check_function<DataTypeTimeStampNs, true>(func_name, input_types, data_set, 9));
+    }
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    AnyType {PrimitiveType::TYPE_TIMESTAMP_NS, 9}};
+        DataSet data_set = {{{std::string("day"), std::string("2023-10-17 12:34:56.123456789")},
+                             std::string("2023-10-17 00:00:00.000000000")}};
+        static_cast<void>(
+                check_function<DataTypeTimeStampNs, true>(func_name, input_types, data_set, 9));
+    }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
                                     Consted {PrimitiveType::TYPE_VARCHAR}};

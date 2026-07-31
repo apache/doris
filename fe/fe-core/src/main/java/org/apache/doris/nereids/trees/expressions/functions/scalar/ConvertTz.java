@@ -142,8 +142,8 @@ public class ConvertTz extends ScalarFunction
          * Partition pruning folds both endpoints before deriving the function range, so a fall-back
          * instant inside (fromInstant(lower), fromInstant(upper)] disables the monotonic shortcut.
          */
-        Instant lowerInstant = DateTimeLiteral.convertLocalToInstant(lowerDateTime, fromZone);
-        Instant upperInstant = DateTimeLiteral.convertLocalToInstant(upperDateTime, fromZone);
+        Instant lowerInstant = DateUtils.convertLocalToInstant(lowerDateTime, fromZone);
+        Instant upperInstant = DateUtils.convertLocalToInstant(upperDateTime, fromZone);
         if (upperInstant.isBefore(lowerInstant)) {
             return false;
         }

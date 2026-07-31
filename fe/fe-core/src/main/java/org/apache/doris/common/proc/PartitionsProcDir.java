@@ -149,7 +149,8 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
             long leftVal;
             long rightVal;
-            if (subExpr.getChild(1) instanceof DateLiteral) {
+            if (subExpr.getChild(1) instanceof DateLiteral
+                    || subExpr.getChild(1) instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
                 Type type;
                 switch (subExpr.getChild(1).getType().getPrimitiveType()) {
                     case DATE:
@@ -160,14 +161,15 @@ public class PartitionsProcDir implements ProcDirInterface {
                         type = Type.DATETIMEV2;
                         break;
                     case DATETIMEV2:
+                    case TIMESTAMP_NS:
                     case TIMESTAMPTZ:
                         type = subExpr.getChild(1).getType();
                         break;
                     default:
                         throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
                 }
-                leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
-                rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
+                leftVal = DateLiteralUtils.createLiteral((String) element, type).getLongValue();
+                rightVal = ((LiteralExpr) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());
                 rightVal = ((IntLiteral) subExpr.getChild(1)).getLongValue();

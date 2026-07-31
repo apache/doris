@@ -50,6 +50,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/extended_types.h"
 #include "core/types.h"
@@ -376,6 +377,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             return ResultNullable ? make_nullable(std::make_shared<ResultType>(result_precision,
                                                                                result_scale))
                                   : std::make_shared<ResultType>(result_precision, result_scale);
+        } else if constexpr (std::is_same_v<ResultType, DataTypeTimeStampNs>) {
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>())
+                                  : std::make_shared<ResultType>();
         } else if constexpr (IsDataTypeDateTimeV2<ResultType> ||
                              IsTimeV2Type<ResultType>) { // datetimev2 or timev2
             UInt32 real_scale = 0;
@@ -428,6 +432,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                                   ? make_nullable(std::make_shared<ResultType>(result_precision,
                                                                                result_scale))
                                   : std::make_shared<ResultType>(result_precision, result_scale);
+    } else if constexpr (std::is_same_v<ResultType, DataTypeTimeStampNs>) {
+        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>())
+                                         : std::make_shared<ResultType>();
     } else if constexpr (IsDataTypeDateTimeV2<ResultType> ||
                          IsTimeV2Type<ResultType>) { // datetimev2
         UInt32 real_scale = 0;
