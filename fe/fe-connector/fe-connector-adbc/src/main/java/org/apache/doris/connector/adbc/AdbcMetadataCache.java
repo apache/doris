@@ -36,13 +36,23 @@ import java.util.function.Supplier;
  * read one table's schema -- two of which list <em>every</em> object and therefore cost more the larger the
  * source is. This lives on {@link AdbcConnector} instead, whose lifetime is the catalog's.
  *
- * <p><b>Never answers "there is no such object" from memory.</b> A cached listing is a fine basis for
- * {@code SHOW TABLES}, which is a report on the source and may lag it, but not for deciding that a name does
- * not exist: a table created remotely a second ago would then be missing for as long as the entry lives, and
- * "I just created it and Doris says it isn't there" is the one staleness a user cannot reason their way out
- * of. So a caller that fails to find a name re-reads the listing through {@link #reloadTableNames} /
- * {@link #reloadNamespaces} before concluding anything -- a remote call, but only on the path that was about
- * to raise an error anyway.
+ * <p><b>Never answers "there is no such object" from memory.</b> "I just created it and Doris says it isn't
+ * there" is the one staleness a user cannot reason their way out of, so nothing here is allowed to produce
+ * it. Two rules keep that true, and both are load-bearing:
+ *
+ * <ul>
+ *   <li>A lookup that fails re-reads the listing ({@link #reloadTableNames} / {@link #reloadNamespaces})
+ *       before concluding anything -- a remote call, but only on the path that was about to raise an error
+ *       anyway.</li>
+ *   <li>{@code listDatabaseNames} / {@code listTableNames} are served <b>live</b> and merely refresh what is
+ *       remembered. They look like reports, but the engine loads its own name cache from them and then
+ *       decides existence from that -- including the last-chance re-list it does for a name it has never
+ *       seen ({@code ExternalDatabase.buildTableForInit}). Answering those from a cache would make the
+ *       engine's re-check meaningless and is exactly how a newly created table becomes unreachable.</li>
+ * </ul>
+ *
+ * <p>What is left cached is what a query actually repeats: resolving a database and a table name, and
+ * reading a schema. The engine caches the listings itself, so nothing is paid twice for them.
  *
  * <p><b>Safe to share between users only because ADBC has no per-user identity.</b> Every key here is a
  * plain object name, so anything cached under one is served to whoever asks next. That is correct exactly

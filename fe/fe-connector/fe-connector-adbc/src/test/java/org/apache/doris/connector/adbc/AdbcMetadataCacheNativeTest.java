@@ -152,21 +152,33 @@ class AdbcMetadataCacheNativeTest {
     }
 
     /**
-     * The deliberate asymmetry: SHOW TABLES reports the source as Doris last saw it, while resolving a name
-     * goes back to the source. A listing that lags is a stale report; a name that cannot be resolved is an
-     * error the user is sent to debug.
+     * The listing methods stay live however much is remembered. They read like reports, but the engine loads
+     * its own name cache from them and then decides from that whether a table exists at all -- including the
+     * re-list it does as a last chance for a name it has never seen. A cached answer here would turn that
+     * re-check into a formality and leave a table created a moment ago unreachable.
      */
     @Test
-    void showTablesKeepsServingTheRememberedListingUntilRefresh(@TempDir Path tempDir) {
+    void listingTheTablesAlwaysAsksTheSource(@TempDir Path tempDir) {
         try (AdbcClient client = sqliteClient(tempDir.resolve("cache.db"))) {
             seed(client);
             Assertions.assertEquals(List.of("t1"), metadata(client).listTableNames(null, "main"));
 
             execute(client, "CREATE TABLE t_new (a INTEGER)");
-            Assertions.assertEquals(List.of("t1"), metadata(client).listTableNames(null, "main"));
 
-            cache.invalidateAll();
             Assertions.assertEquals(List.of("t1", "t_new"), metadata(client).listTableNames(null, "main"));
+        }
+    }
+
+    @Test
+    void listingTheDatabasesAlwaysAsksTheSource(@TempDir Path tempDir) {
+        try (AdbcClient client = sqliteClient(tempDir.resolve("cache.db"))) {
+            seed(client);
+            // Plant a database the source does not have. Creating one behind Doris's back is what this
+            // stands in for -- SQLite gains a catalog only by ATTACH, which does not outlive the connection
+            // it ran on -- and it fails the same way: anything answered from memory shows the ghost.
+            cache.namespaces(() -> List.of(new AdbcNamespace("ghost", "")));
+
+            Assertions.assertEquals(List.of("main"), metadata(client).listDatabaseNames(null));
         }
     }
 }

@@ -84,10 +84,18 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
 
     // ========= ConnectorSchemaOps =========
 
+    /**
+     * <b>Reads the source, never the cache</b>, and refreshes the cache with what it read.
+     *
+     * <p>This is not just a report for {@code SHOW DATABASES}: the engine's own name cache is loaded from it
+     * and then decides whether a database exists at all -- including its last-chance re-list for a name it
+     * has never seen. Answering that from a remembered listing would make the re-list pointless and leave a
+     * database created a moment ago unreachable until an entry expired.
+     */
     @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
         List<String> names = new ArrayList<>();
-        for (AdbcNamespace namespace : listNamespaces()) {
+        for (AdbcNamespace namespace : cache.reloadNamespaces(this::readNamespaces)) {
             names.add(namespace.dorisDatabaseName());
         }
         return names;
@@ -100,13 +108,14 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
 
     // ========= ConnectorTableMetadataOps =========
 
+    /** Reads the source, never the cache. Same reason as {@link #listDatabaseNames}, one level down. */
     @Override
     public List<String> listTableNames(ConnectorSession session, String dbName) {
         Optional<AdbcNamespace> namespace = findNamespace(dbName);
         if (!namespace.isPresent()) {
             return List.of();
         }
-        return listTableNames(namespace.get());
+        return cache.reloadTableNames(namespace.get(), () -> readTableNames(namespace.get()));
     }
 
     @Override
@@ -168,10 +177,6 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
 
     // ========= internals =========
 
-    private List<AdbcNamespace> listNamespaces() {
-        return cache.namespaces(this::readNamespaces);
-    }
-
     private List<AdbcNamespace> readNamespaces() {
         return client.withConnection(connection -> {
             try (ArrowReader reader = connection.getObjects(
@@ -184,13 +189,13 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     /**
      * Resolves a Doris database name, asking the source again before deciding there is no such database.
      *
-     * <p>The second read is what keeps a cached listing from being able to say "no". Between the two, a
-     * database created remotely since the listing was cached is found rather than denied, and the cost falls
-     * only on the path that was about to fail anyway. {@code SHOW DATABASES} takes the cached listing as it
-     * stands -- a report may lag the source; a lookup that errors may not.
+     * <p>This is the path a query takes -- every {@code getTableHandle} starts here -- so it reads what was
+     * remembered. The second read is what keeps that from being able to say "no": a database created since
+     * the listing was cached is found rather than denied, and the extra remote call falls only on the path
+     * that was about to fail anyway.
      */
     private Optional<AdbcNamespace> findNamespace(String dbName) {
-        Optional<AdbcNamespace> found = match(listNamespaces(), dbName);
+        Optional<AdbcNamespace> found = match(cache.namespaces(this::readNamespaces), dbName);
         if (found.isPresent()) {
             return found;
         }
@@ -206,13 +211,9 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
         return Optional.empty();
     }
 
-    private List<String> listTableNames(AdbcNamespace namespace) {
-        return cache.tableNames(namespace, () -> readTableNames(namespace));
-    }
-
     /** The table-level counterpart of {@link #findNamespace}; same reason, same cost. */
     private boolean tableExists(AdbcNamespace namespace, String tableName) {
-        return listTableNames(namespace).contains(tableName)
+        return cache.tableNames(namespace, () -> readTableNames(namespace)).contains(tableName)
                 || cache.reloadTableNames(namespace, () -> readTableNames(namespace)).contains(tableName);
     }
 
