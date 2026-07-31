@@ -218,9 +218,8 @@ jobs:
           printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
 
           auth_object="$(printf '%s\n' \
+            'oss://doris-community-ci/codex/auth.json.1' \
             'oss://doris-community-ci/codex/auth.json.2' \
-            'oss://doris-community-ci/codex/auth.json.3' \
-            'oss://doris-community-ci/codex/auth.json.4' \
             | shuf -n 1)"
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
