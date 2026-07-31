@@ -35,6 +35,7 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.log.InitDatabaseLog;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalDatabase;
@@ -90,7 +91,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private MetaCacheEntry<String, NameCacheValue> tableNames;
     private MetaCacheEntry<String, T> tables;
-    private Map<Long, String> tableIdToName = Maps.newConcurrentMap();
+    private transient IdNameIndex tableIdNameIndex = new IdNameIndex("external table");
 
     private volatile boolean isInitializing = false;
 
@@ -341,7 +342,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (!isInitialized()) {
             return Optional.empty();
         }
-        String tableName = tableIdToName.get(tableId);
+        String tableName = tableIdNameIndex.getName(tableId);
         if (tableName == null) {
             return Optional.empty();
         }
@@ -359,7 +360,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (!isInitialized()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(tableIdToName.get(tableId));
+        return Optional.ofNullable(tableIdNameIndex.getName(tableId));
     }
 
     /**
@@ -543,10 +544,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (finalName == null) {
             return null;
         }
+        long expectedTableId = Util.genIdByName(extCatalog.getName(), name, finalName);
+        tableIdNameIndex.checkCanPut(expectedTableId, finalName);
         return tables.getAndRunIfCurrent(
                 finalName,
-                (localTableName, table) -> !localTableName.equals(tableIdToName.get(table.getId())),
-                (localTableName, table) -> tableIdToName.put(table.getId(), localTableName));
+                (localTableName, table) -> !localTableName.equals(tableIdNameIndex.getName(table.getId())),
+                (localTableName, table) -> tableIdNameIndex.put(table.getId(), localTableName));
     }
 
     // User-session paths resolve table names directly from the remote source and intentionally skip shared caches.
@@ -684,10 +687,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (cachedTable != null) {
             return cachedTable.getName();
         }
-        return tableIdToName.values().stream()
-                .filter(name -> name.equalsIgnoreCase(tableName))
-                .findFirst()
-                .orElse(tableName);
+        String indexedName = tableIdNameIndex.findNameIgnoreCase(tableName);
+        return indexedName == null ? tableName : indexedName;
     }
 
     private void updateTableCache(T table, String remoteTableName, String localTableName) {
@@ -697,6 +698,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected void updateTableCache(T table, String remoteTableName, String localTableName,
             boolean forceUpdateCacheState) {
         buildMetaCache();
+        // Reject a pre-existing identity conflict before names/object caches can publish partial new state.
+        // The final put remains inside computeAndRun to keep the ID side effect ordered with object invalidation.
+        tableIdNameIndex.checkCanPut(table.getId(), localTableName);
         // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         // By default, incremental updates keep cold names/object cache entries cold.
@@ -713,7 +717,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         tables.computeAndRun(
                 localTableName,
                 (ignored, current) -> (forceUpdateCacheState || current != null) ? table : null,
-                () -> tableIdToName.put(table.getId(), localTableName));
+                () -> tableIdNameIndex.put(table.getId(), localTableName));
     }
 
     protected void invalidateTableCache(String localTableName) {
@@ -725,10 +729,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (tables != null) {
             tables.invalidateKeyAndRun(
                     localTableName,
-                    () -> tableIdToName.entrySet().removeIf(
-                            entry -> entry.getValue().equals(localTableName)));
+                    () -> tableIdNameIndex.removeName(localTableName));
         } else {
-            tableIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localTableName));
+            tableIdNameIndex.removeName(localTableName);
         }
     }
 
@@ -739,13 +742,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (tables != null) {
             tables.invalidateAll();
         }
-        tableIdToName.clear();
+        tableIdNameIndex.clear();
     }
 
     @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
-        String tableName = tableIdToName.get(tableId);
+        String tableName = tableIdNameIndex.getName(tableId);
         if (tableName == null) {
             return null;
         }
@@ -764,7 +767,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void gsonPostProcess() throws IOException {
         this.initialized = false;
         rwLock = new MonitoredReentrantReadWriteLock(true);
-        tableIdToName = Maps.newConcurrentMap();
+        tableIdNameIndex = new IdNameIndex("external table");
     }
 
     @Override
@@ -852,10 +855,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void addTableForTest(T tbl) {
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
+        tableIdNameIndex.checkCanPut(tbl.getId(), tbl.getName());
         tables.computeAndRun(
                 tbl.getName(),
                 (ignored, current) -> tbl,
-                () -> tableIdToName.put(tbl.getId(), tbl.getName()));
+                () -> tableIdNameIndex.put(tbl.getId(), tbl.getName()));
     }
 
     /**
@@ -890,7 +894,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @VisibleForTesting
     @Nullable
     public String getCachedTableNameByIdForTest(long tableId) {
-        return tableIdToName.get(tableId);
+        return tableIdNameIndex.getName(tableId);
     }
 
     public void resetMetaCacheNames() {

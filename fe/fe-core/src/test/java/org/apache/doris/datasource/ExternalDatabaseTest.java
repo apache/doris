@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.PrimitiveType;
@@ -28,11 +29,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -194,7 +197,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     };
             objectEntry.put(table.getName(), table);
             setTablesEntryForTest(db, objectEntry);
-            extractTableIdToName(db).clear();
+            extractTableIdNameIndex(db).clear();
 
             Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
             Assertions.assertTrue(valueObserved.await(3L, TimeUnit.SECONDS));
@@ -236,7 +239,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     };
             objectEntry.put(table.getName(), table);
             setTablesEntryForTest(db, objectEntry);
-            extractTableIdToName(db).clear();
+            extractTableIdNameIndex(db).clear();
 
             // First lookup: id->name is empty, so the action runs (takes the publication lock) and writes the mapping.
             TestExternalTable first = db.getTableNullable(table.getName());
@@ -278,7 +281,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     refreshExecutor,
                     false);
             setTablesEntryForTest(db, objectEntry);
-            extractTableIdToName(db).clear();
+            extractTableIdNameIndex(db).clear();
 
             Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
             Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
@@ -320,7 +323,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     false,
                     MetaCacheEntry.singleKeyStripeCount());
             setTablesEntryForTest(db, objectEntry);
-            extractTableIdToName(db).clear();
+            extractTableIdNameIndex(db).clear();
 
             Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
             Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
@@ -397,7 +400,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
                     refreshExecutor,
                     false);
             setTablesEntryForTest(db, disabledEntry);
-            extractTableIdToName(db).clear();
+            extractTableIdNameIndex(db).clear();
 
             Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
             Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
@@ -422,7 +425,7 @@ public class ExternalDatabaseTest extends TestWithFeService {
         InspectableDatabase db = new InspectableDatabase(catalog, 301L, "db1", "db1");
         db.setInitializedForTest(true);
         long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), "tbl_base");
-        extractTableIdToName(db).put(tableId, "tbl_base");
+        extractTableIdNameIndex(db).put(tableId, "tbl_base");
 
         Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
 
@@ -433,6 +436,33 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Assertions.assertEquals("tbl_base", table.getName());
         Assertions.assertSame(table, db.getCachedTableForTest("tbl_base"));
         Assertions.assertEquals(1, db.getBuildTableCallCount());
+    }
+
+    @Test
+    public void testImageRestoreDoesNotRepublishLegacyTableId() {
+        InspectableCatalog catalog = new InspectableCatalog();
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 302L, "db1", "db1");
+        db.setInitializedForTest(true);
+        long legacyId = Util.genIdByName(catalog.getName(), db.getFullName(), "Tbl_Base");
+        TestExternalTable legacyTable =
+                new TestExternalTable(legacyId, "tbl_base", "Tbl_Base", catalog, db);
+        db.addTableForTest(legacyTable);
+        Assertions.assertEquals("tbl_base", db.getTableNameForReplay(legacyId).orElse(null));
+
+        String json = GsonUtils.GSON.toJson(db, DatabaseIf.class);
+        Assertions.assertFalse(json.contains("tableIdNameIndex"));
+        TestExternalDatabase restored =
+                (TestExternalDatabase) GsonUtils.GSON.fromJson(json, DatabaseIf.class);
+        restored.setExtCatalog(catalog);
+        restored.setInitializedForTest(true);
+
+        Assertions.assertTrue(restored.getTableNameForReplay(legacyId).isEmpty());
+        TestExternalTable loadedTable = restored.getTableNullable("tbl_base");
+        long canonicalId = Util.genIdByName(catalog.getName(), restored.getFullName(), "tbl_base");
+        Assertions.assertNotNull(loadedTable);
+        Assertions.assertEquals(canonicalId, loadedTable.getId());
+        Assertions.assertEquals("tbl_base", restored.getTableNameForReplay(canonicalId).orElse(null));
+        Assertions.assertTrue(restored.getTableNameForReplay(legacyId).isEmpty());
     }
 
     @Test
@@ -520,6 +550,44 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Assertions.assertNull(db.getCachedTableForTest("tbl_conflict"));
         Assertions.assertEquals("tbl_original", db.getCachedTableNameByIdForTest(501L));
         Assertions.assertNull(db.getCachedTableNameByIdForTest(502L));
+    }
+
+    @Test
+    public void testForceUpdateTableCacheIdConflictLeavesStateUnchanged() {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 510L, "db1", "db1");
+        db.setInitializedForTest(true);
+        TestExternalTable original =
+                new TestExternalTable(511L, "tbl_shared", "remote_shared", catalog, db);
+        TestExternalTable conflicted =
+                new TestExternalTable(512L, "tbl_shared", "remote_shared", catalog, db);
+
+        db.forceUpdateTableCache(original);
+        NameCacheValue namesBefore = db.getCachedTableNamesForTest();
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> db.forceUpdateTableCache(conflicted));
+        Assertions.assertSame(namesBefore, db.getCachedTableNamesForTest());
+        Assertions.assertSame(original, db.getCachedTableForTest("tbl_shared"));
+        Assertions.assertEquals("tbl_shared", db.getCachedTableNameByIdForTest(511L));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(512L));
+    }
+
+    @Test
+    public void testNamedTableConflictDoesNotPublishMissLoadedObject() throws Exception {
+        InspectableCatalog catalog = new InspectableCatalog();
+        InspectableDatabase db = new InspectableDatabase(catalog, 520L, "db1", "db1");
+        db.setInitializedForTest(true);
+        long tableId = Util.genIdByName(catalog.getName(), db.getFullName(), "tbl_base");
+        extractTableIdNameIndex(db).put(tableId, "stale_table");
+
+        Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> db.getTableNullable("tbl_base"));
+
+        Assertions.assertNull(db.getCachedTableForTest("tbl_base"));
+        Assertions.assertEquals("stale_table", db.getCachedTableNameByIdForTest(tableId));
+        Assertions.assertEquals(0, db.getBuildTableCallCount());
     }
 
     @Test
@@ -858,11 +926,10 @@ public class ExternalDatabaseTest extends TestWithFeService {
         tablesField.set(db, tablesEntry);
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<Long, String> extractTableIdToName(InspectableDatabase db) throws Exception {
-        Field idMapField = ExternalDatabase.class.getDeclaredField("tableIdToName");
-        idMapField.setAccessible(true);
-        return (Map<Long, String>) idMapField.get(db);
+    private IdNameIndex extractTableIdNameIndex(InspectableDatabase db) throws Exception {
+        Field idIndexField = ExternalDatabase.class.getDeclaredField("tableIdNameIndex");
+        idIndexField.setAccessible(true);
+        return (IdNameIndex) idIndexField.get(db);
     }
 
     private void setTableNamesEntryForTest(InspectableDatabase db,

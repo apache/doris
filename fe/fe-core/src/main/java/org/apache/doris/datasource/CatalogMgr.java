@@ -731,10 +731,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ExternalDatabase<?> externalDatabase = (ExternalDatabase<?>) db;
         String localTableName = externalDatabase.canonicalLocalTableNameFromRemote(tableName);
         long tblId = Util.genIdByName(catalogName, db.getFullName(), localTableName);
-        // -1L means it will be dropped later, ignore
-        if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
-            return;
-        }
 
         db.writeLock();
         try {
@@ -771,15 +767,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             throw new DdlException("Only support create ExternalCatalog databases");
         }
 
-        long dbId = Util.genIdByName(catalogName, dbName);
-        // -1L means it will be dropped later, ignore
-        if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
-            return;
-        }
-
         // Plugin-driven catalogs implement event registration; the generic ExternalCatalog base throws
         // (fail-loud for catalogs that cannot register).
-        ((ExternalCatalog) catalog).registerDatabase(dbId, dbName);
+        ((ExternalCatalog) catalog).registerDatabase(dbName);
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,

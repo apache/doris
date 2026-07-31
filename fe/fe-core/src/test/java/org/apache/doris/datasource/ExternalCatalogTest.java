@@ -38,6 +38,7 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -810,16 +811,74 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
-    public void testIncrementalDatabaseRegisterReplacesExistingIdMapping() {
+    public void testIncrementalDatabaseRegisterRejectsConflictingIdMapping() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
+        ExternalDatabase<? extends ExternalTable> existingDb = catalog.getDbNullable("db_by_id");
+        Assertions.assertNotNull(existingDb);
+        NameCacheValue namesBefore = catalog.getCachedDatabaseNamesForTest();
+        Assertions.assertNotNull(namesBefore);
+        Assertions.assertSame(existingDb, catalog.getCachedDatabaseForTest("db_by_id"));
 
-        // The event object's actual ID must replace any stale navigation entry for that ID.
-        catalog.seedDatabaseIdNameForTest(110L, "stale_db");
-        TestExternalDatabase db = new TestExternalDatabase(catalog, 110L, "db_hot", "db_hot");
-        catalog.simulateIncrementalRegisterDatabase(db);
+        // A pre-existing ID conflict must fail before publishing the event's names/object state.
+        catalog.clearDatabaseIdNamesForTest();
+        catalog.seedDatabaseIdNameForTest(existingDb.getId(), "stale_db");
+        TestExternalDatabase db =
+                new TestExternalDatabase(catalog, existingDb.getId(), "db_hot", "db_hot");
 
-        Assertions.assertEquals("db_hot", catalog.getCachedDatabaseNameByIdForTest(110L));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> catalog.simulateIncrementalRegisterDatabase(db));
+        Assertions.assertSame(namesBefore, catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertFalse(catalog.getCachedDatabaseNamesForTest().containsLocalName("db_hot"));
+        Assertions.assertSame(existingDb, catalog.getCachedDatabaseForTest("db_by_id"));
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_hot"));
+        Assertions.assertEquals("stale_db",
+                catalog.getCachedDatabaseNameByIdForTest(existingDb.getId()));
+    }
+
+    @Test
+    public void testNamedDatabaseConflictDoesNotPublishMissLoadedObject() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+        long dbId = Util.genIdByName(catalog.getName(), "db_by_id");
+        catalog.seedDatabaseIdNameForTest(dbId, "stale_db");
+
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_by_id"));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> catalog.getDbNullable("db_by_id"));
+
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_by_id"));
+        Assertions.assertEquals("stale_db", catalog.getCachedDatabaseNameByIdForTest(dbId));
+        Assertions.assertEquals(0, catalog.getBuildDatabaseCallCount());
+    }
+
+    @Test
+    public void testImageRestoreDoesNotRepublishLegacyDatabaseId() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("catalog_provider.class", IncrementalCatalogProvider.class.getName());
+        props.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "1");
+        TestExternalCatalog catalog =
+                new TestExternalCatalog(1200L, "image_identity_test", "", props, "");
+        catalog.setInitializedForTest(true);
+        long legacyId = Util.genIdByName(catalog.getName(), "Db_By_Id");
+        TestExternalDatabase legacyDb =
+                new TestExternalDatabase(catalog, legacyId, "db_by_id", "Db_By_Id");
+        catalog.addDatabaseForTest(legacyDb);
+        Assertions.assertEquals("db_by_id", catalog.getDbNameForReplay(legacyId).orElse(null));
+
+        String json = GsonUtils.GSON.toJson(catalog, CatalogIf.class);
+        Assertions.assertFalse(json.contains("dbIdNameIndex"));
+        TestExternalCatalog restored =
+                (TestExternalCatalog) GsonUtils.GSON.fromJson(json, CatalogIf.class);
+        restored.setInitializedForTest(true);
+
+        Assertions.assertTrue(restored.getDbNameForReplay(legacyId).isEmpty());
+        ExternalDatabase<? extends ExternalTable> loadedDb = restored.getDbNullable("db_by_id");
+        long canonicalId = Util.genIdByName(restored.getName(), "db_by_id");
+        Assertions.assertNotNull(loadedDb);
+        Assertions.assertEquals(canonicalId, loadedDb.getId());
+        Assertions.assertEquals("db_by_id", restored.getDbNameForReplay(canonicalId).orElse(null));
+        Assertions.assertTrue(restored.getDbNameForReplay(legacyId).isEmpty());
     }
 
     @Test
@@ -1421,7 +1480,7 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
 
         void seedDatabaseIdNameForTest(long dbId, String localDbName) {
-            dbIdToName.put(dbId, localDbName);
+            dbIdNameIndex.put(dbId, localDbName);
         }
 
         void setDatabaseNamesEntryForTest(MetaCacheEntry<String, NameCacheValue> namesEntry) {
@@ -1434,7 +1493,7 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
 
         void clearDatabaseIdNamesForTest() {
-            dbIdToName.clear();
+            dbIdNameIndex.clear();
         }
 
         NameCacheValue getCachedDatabaseNamesForTest() {
@@ -1446,7 +1505,7 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
 
         String getCachedDatabaseNameByIdForTest(long dbId) {
-            return dbIdToName.get(dbId);
+            return dbIdNameIndex.getName(dbId);
         }
 
         @Override
@@ -1609,7 +1668,7 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
 
         String getCachedDatabaseNameByIdForTest(long dbId) {
-            return dbIdToName.get(dbId);
+            return dbIdNameIndex.getName(dbId);
         }
 
         private static Map<String, String> buildNameMissCatalogProps(int mode) {

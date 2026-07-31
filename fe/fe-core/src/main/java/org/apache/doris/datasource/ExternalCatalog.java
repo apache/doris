@@ -43,6 +43,7 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
@@ -168,7 +169,7 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
     protected MetaCacheEntry<String, NameCacheValue> databaseNames;
     protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
-    protected Map<Long, String> dbIdToName = Maps.newConcurrentMap();
+    protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
@@ -533,16 +534,8 @@ public abstract class ExternalCatalog
         }).collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
-            String localDbName = fromRemoteDatabaseName(remoteDbName);
-            // Apply lower_case_database_names mode to local name
-            int dbNameMode = getLowerCaseDatabaseNames();
-            if (dbNameMode == 1) {
-                localDbName = localDbName.toLowerCase(Locale.ROOT);
-            } else if (dbNameMode == 2) {
-                // Mode 2: preserve original remote case for display
-                localDbName = remoteDbName;
-            }
-            remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
+            remoteToLocalPairs.add(Pair.of(
+                    remoteDbName, canonicalLocalDatabaseNameFromRemote(remoteDbName)));
         }
 
         // Check for conflicts when lower_case_meta_names = true or lower_case_database_names = 2
@@ -734,10 +727,12 @@ public abstract class ExternalCatalog
             dbName = localDbName;
         }
 
+        long expectedDbId = Util.genIdByName(name, dbName);
+        dbIdNameIndex.checkCanPut(expectedDbId, dbName);
         return databases.getAndRunIfCurrent(
                 dbName,
-                (localDbName, db) -> !localDbName.equals(dbIdToName.get(db.getId())),
-                (localDbName, db) -> dbIdToName.put(db.getId(), localDbName));
+                (localDbName, db) -> !localDbName.equals(dbIdNameIndex.getName(db.getId())),
+                (localDbName, db) -> dbIdNameIndex.put(db.getId(), localDbName));
     }
 
     /**
@@ -794,7 +789,7 @@ public abstract class ExternalCatalog
             return null;
         }
 
-        String dbName = dbIdToName.get(dbId);
+        String dbName = dbIdNameIndex.getName(dbId);
         if (dbName == null) {
             return null;
         }
@@ -872,7 +867,7 @@ public abstract class ExternalCatalog
         if (!isInitialized()) {
             return Optional.empty();
         }
-        String dbName = dbIdToName.get(dbId);
+        String dbName = dbIdNameIndex.getName(dbId);
         if (dbName == null) {
             return Optional.empty();
         }
@@ -889,7 +884,7 @@ public abstract class ExternalCatalog
         if (!isInitialized()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(dbIdToName.get(dbId));
+        return Optional.ofNullable(dbIdNameIndex.getName(dbId));
     }
 
     /**
@@ -1064,16 +1059,17 @@ public abstract class ExternalCatalog
         if (tableAutoAnalyzePolicy == null) {
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
-        this.dbIdToName = Maps.newConcurrentMap();
+        this.dbIdNameIndex = new IdNameIndex("external database");
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.
+        dbIdNameIndex.checkCanPut(db.getId(), db.getFullName());
         databases.computeAndRun(
                 db.getFullName(),
                 (ignored, current) -> db,
-                () -> dbIdToName.put(db.getId(), db.getFullName()));
+                () -> dbIdNameIndex.put(db.getId(), db.getFullName()));
     }
 
     /**
@@ -1155,7 +1151,7 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), localDbName);
     }
 
-    public void registerDatabase(long dbId, String dbName) {
+    public void registerDatabase(String dbName) {
         throw new NotImplementedException("registerDatabase not implemented");
     }
 
@@ -1239,6 +1235,25 @@ public abstract class ExternalCatalog
     }
 
     /**
+     * Convert one remote database name to the canonical local name used by names snapshots and object-cache keys.
+     *
+     * <p>This helper performs only per-name canonicalization. Listing, filtering, and conflict detection remain in
+     * {@link #getFilteredDatabaseNames()}.
+     */
+    protected final String canonicalLocalDatabaseNameFromRemote(String remoteDbName) {
+        String localDbName = fromRemoteDatabaseName(remoteDbName);
+        int mode = getLowerCaseDatabaseNames();
+        if (mode == 1) {
+            return localDbName.toLowerCase(Locale.ROOT);
+        }
+        if (mode == 2) {
+            // Mode 2 preserves the original remote case for display and object-cache keys.
+            return remoteDbName;
+        }
+        return localDbName;
+    }
+
+    /**
      * Get the local database name based on the lower_case_database_names mode.
      * Handles case-insensitive database lookup similar to ExternalDatabase.getLocalTableName().
      */
@@ -1319,10 +1334,8 @@ public abstract class ExternalCatalog
         if (cachedDb != null) {
             return cachedDb.getFullName();
         }
-        return dbIdToName.values().stream()
-                .filter(name -> name.equalsIgnoreCase(dbName))
-                .findFirst()
-                .orElse(dbName);
+        String indexedName = dbIdNameIndex.findNameIgnoreCase(dbName);
+        return indexedName == null ? dbName : indexedName;
     }
 
     @Nullable
@@ -1341,6 +1354,9 @@ public abstract class ExternalCatalog
             ExternalDatabase<? extends ExternalTable> db, boolean forceUpdateCacheState) {
         buildMetaCache();
         long dbId = db.getId();
+        // Reject a pre-existing identity conflict before names/object caches can publish partial new state.
+        // The final put remains inside computeAndRun to keep the ID side effect ordered with object invalidation.
+        dbIdNameIndex.checkCanPut(dbId, localDbName);
         // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
         // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         // By default, incremental updates keep cold names/object cache entries cold.
@@ -1357,7 +1373,7 @@ public abstract class ExternalCatalog
         databases.computeAndRun(
                 localDbName,
                 (ignored, current) -> (forceUpdateCacheState || current != null) ? db : null,
-                () -> dbIdToName.put(dbId, localDbName));
+                () -> dbIdNameIndex.put(dbId, localDbName));
     }
 
     protected void invalidateDatabaseCache(String localDbName) {
@@ -1369,9 +1385,9 @@ public abstract class ExternalCatalog
         if (databases != null) {
             databases.invalidateKeyAndRun(
                     localDbName,
-                    () -> dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName)));
+                    () -> dbIdNameIndex.removeName(localDbName));
         } else {
-            dbIdToName.entrySet().removeIf(entry -> entry.getValue().equals(localDbName));
+            dbIdNameIndex.removeName(localDbName);
         }
     }
 
@@ -1388,7 +1404,7 @@ public abstract class ExternalCatalog
         if (databases != null) {
             databases.invalidateAll();
         }
-        dbIdToName.clear();
+        dbIdNameIndex.clear();
     }
 
     public String bindBrokerName() {

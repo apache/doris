@@ -33,6 +33,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
@@ -445,8 +446,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * (buildDbForInit + the shared metadata-cache update protocol) and mirrors the legacy HMS implementation.
      */
     @Override
-    public void registerDatabase(long dbId, String dbName) {
-        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
+    public void registerDatabase(String dbName) {
+        String localDbName = canonicalLocalDatabaseNameFromRemote(dbName);
+        long dbId = Util.genIdByName(getName(), localDbName);
+        ExternalDatabase<? extends ExternalTable> db =
+                buildDbForInit(dbName, localDbName, dbId, logType, false);
         if (isInitialized()) {
             updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
         }
