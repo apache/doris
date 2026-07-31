@@ -422,29 +422,43 @@ public class IcebergScanNode extends FileQueryScanNode {
         return IcebergUtils.getCommonIdentityPartitionColumns(icebergTable);
     }
 
+    private List<String> getOrderedPartitionMetadataKeys() {
+        if (isSystemTable || icebergTable == null) {
+            return Collections.emptyList();
+        }
+        if (sessionVariable.enableFileScannerV2) {
+            return IcebergUtils.getIdentityPartitionColumns(icebergTable);
+        }
+        return getOrderedPathPartitionKeys();
+    }
+
     @VisibleForTesting
     void setPartitionValues(TFileRangeDesc rangeDesc, Map<String, String> partitionValues) {
         rangeDesc.unsetColumnsFromPathKeys();
         rangeDesc.unsetColumnsFromPath();
         rangeDesc.unsetColumnsFromPathIsNull();
 
-        List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
-        if (orderedPartitionKeys.isEmpty()) {
+        List<String> orderedPartitionKeys = getOrderedPartitionMetadataKeys();
+        if (orderedPartitionKeys.isEmpty() || partitionValues == null || partitionValues.isEmpty()) {
             return;
         }
-        Preconditions.checkState(partitionValues != null,
-                "Missing partition values for Iceberg identity-partitioned table");
 
+        List<String> fromPathKeys = new ArrayList<>(orderedPartitionKeys.size());
         List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
         List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
         for (String partitionKey : orderedPartitionKeys) {
-            Preconditions.checkState(partitionValues.containsKey(partitionKey),
-                    "Missing partition value for Iceberg partition key: %s", partitionKey);
+            if (!partitionValues.containsKey(partitionKey)) {
+                continue;
+            }
             String partitionValue = partitionValues.get(partitionKey);
+            fromPathKeys.add(partitionKey);
             fromPathValues.add(partitionValue == null ? "" : partitionValue);
             fromPathIsNull.add(partitionValue == null);
         }
-        rangeDesc.setColumnsFromPathKeys(orderedPartitionKeys);
+        if (fromPathKeys.isEmpty()) {
+            return;
+        }
+        rangeDesc.setColumnsFromPathKeys(fromPathKeys);
         rangeDesc.setColumnsFromPath(fromPathValues);
         rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
     }

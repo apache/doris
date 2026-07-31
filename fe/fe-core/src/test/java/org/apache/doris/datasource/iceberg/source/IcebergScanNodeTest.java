@@ -263,6 +263,84 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSetPartitionValuesUsesPerSpecMetadataWithFileScannerV2() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "Category", Types.StringType.get()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("Dt")
+                .identity("Category")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(oldSpec.specId(), oldSpec);
+        specs.put(currentSpec.specId(), currentSpec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.specs()).thenReturn(specs);
+        setIcebergTable(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Category", "books");
+        partitionValues.put("Dt", null);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Arrays.asList("Dt", "Category"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Arrays.asList("", "books"), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Arrays.asList(true, false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void testSetPartitionValuesKeepsCommonMetadataWithLegacyFileScanner() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = false;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "Region", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(3, "Category", Types.StringType.get()));
+        PartitionSpec oldSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("Region")
+                .identity("Dt")
+                .build();
+        PartitionSpec currentSpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("Dt")
+                .identity("Category")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(oldSpec.specId(), oldSpec);
+        specs.put(currentSpec.specId(), currentSpec);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(currentSpec);
+        Mockito.when(table.specs()).thenReturn(specs);
+        setIcebergTable(node, table);
+
+        Map<String, String> partitionValues = new HashMap<>();
+        partitionValues.put("Region", "cn");
+        partitionValues.put("Dt", "2026-07-31");
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        node.setPartitionValues(rangeDesc, partitionValues);
+
+        Assert.assertEquals(Collections.singletonList("Dt"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(Collections.singletonList("2026-07-31"), rangeDesc.getColumnsFromPath());
+        Assert.assertEquals(Collections.singletonList(false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
     public void testExtractNameMappingDistinguishesAbsentAndEmpty() throws Exception {
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         Table table = Mockito.mock(Table.class);
