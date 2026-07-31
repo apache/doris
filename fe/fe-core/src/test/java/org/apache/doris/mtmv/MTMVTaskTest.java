@@ -666,7 +666,31 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testExecuteIvmAttemptChecksBrokenBaselineBeforeEmptyRefreshScope() throws Exception {
+    public void testExecuteIvmAttemptPrefersBrokenBinlogOverMissingRefreshSnapshot() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setBinlogBroken(true);
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                        RefreshMode.INCREMENTAL, true, null));
+
+        try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class)) {
+            Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+            Object result = Deencapsulation.invoke(task, "executeIvmAttempt",
+                    mockIvmIncrRefreshContext(), request, new ConnectContext(), Lists.newArrayList());
+
+            Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
+            Assert.assertTrue(ignored.constructed().isEmpty());
+        }
+        Assert.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    @Test
+    public void testExecuteIvmAttemptChecksBrokenBaselineBeforeRefreshScope() throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         IvmInfo ivmInfo = new IvmInfo();
@@ -674,15 +698,13 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         MTMVRefreshContext refreshContext = mockIvmIncrRefreshContext();
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
-                Mockito.same(refreshContext), Mockito.nullable(Set.class))).thenReturn(Collections.emptyList());
-
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         Object result = Deencapsulation.invoke(task, "executeIvmAttempt", refreshContext, request,
                 new ConnectContext(), Lists.newArrayList());
 
         Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
-        Assert.assertTrue(((List<?>) Deencapsulation.getField(task, "needRefreshPartitions")).isEmpty());
+        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.same(refreshContext), Mockito.nullable(Set.class)), Mockito.never());
         Assert.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
     }
