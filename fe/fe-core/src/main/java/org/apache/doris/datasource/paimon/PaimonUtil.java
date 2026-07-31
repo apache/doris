@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -342,6 +343,8 @@ public class PaimonUtil {
                     return ScalarType.createTimeStampTzType(tsScale);
                 }
                 return ScalarType.createDatetimeV2Type(tsScale);
+            case VARIANT:
+                return VariantType.COMPUTE_V2_INSTANCE;
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
                 Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType(), enableVarbinaryMapping,
@@ -360,8 +363,6 @@ public class PaimonUtil {
                         .map(field -> new org.apache.doris.catalog.StructField(field.name(),
                                 paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping)))
                         .collect(Collectors.toCollection(ArrayList::new)));
-            case VARIANT:
-                return Type.VARIANT;
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:
