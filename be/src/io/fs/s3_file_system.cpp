@@ -88,10 +88,6 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        if (conf.get_hash() == _conf.get_hash()) {
-            return Status::OK(); // Same conf
-        }
-
         reset_conf = _conf;
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
@@ -101,11 +97,18 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.max_connections = conf.max_connections;
         reset_conf.request_timeout_ms = conf.request_timeout_ms;
         reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
+        reset_conf.is_internal_bucket = conf.is_internal_bucket;
 
         reset_conf.role_arn = conf.role_arn;
         reset_conf.external_id = conf.external_id;
         reset_conf.cred_provider_type = conf.cred_provider_type;
-        // Should check endpoint here?
+
+        // Compare full-field equality of the merged conf, not get_hash(): the hash is
+        // an XOR of crc32s and distinct configurations can collide, which would skip a
+        // required client rebuild (e.g. a credential update).
+        if (reset_conf == _conf) {
+            return Status::OK(); // Same conf
+        }
     }
 
     auto client = S3ClientFactory::instance().create(reset_conf);
