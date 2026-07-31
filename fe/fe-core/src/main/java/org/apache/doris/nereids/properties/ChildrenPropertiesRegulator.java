@@ -384,6 +384,25 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
 
         DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftDistributionSpec;
         DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightDistributionSpec;
+        DistributionSpec leftRequiredSpec = requiredProperties.get(0).getDistributionSpec();
+        DistributionSpec rightRequiredSpec = requiredProperties.get(1).getDistributionSpec();
+        boolean leftRequiresColocateMapping = leftRequiredSpec instanceof DistributionSpecHash
+                && ((DistributionSpecHash) leftRequiredSpec).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE;
+        boolean rightRequiresColocateMapping = rightRequiredSpec instanceof DistributionSpecHash
+                && ((DistributionSpecHash) rightRequiredSpec).getShuffleType()
+                        == ShuffleType.COLOCATE_MAPPING_REQUIRE;
+        Preconditions.checkState(leftRequiresColocateMapping == rightRequiresColocateMapping,
+                "colocate mapping join requires matching child properties");
+        if (leftRequiresColocateMapping) {
+            if (!leftHashSpec.satisfy(leftRequiredSpec)
+                    || !rightHashSpec.satisfy(rightRequiredSpec)
+                    || !JoinUtils.couldColocateJoin(
+                            leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+                return ImmutableList.of();
+            }
+            return ImmutableList.of(originChildrenProperties);
+        }
 
         Optional<PhysicalProperties> updatedForLeft = Optional.empty();
         Optional<PhysicalProperties> updatedForRight = Optional.empty();

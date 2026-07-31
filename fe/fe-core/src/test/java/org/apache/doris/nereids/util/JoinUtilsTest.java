@@ -193,6 +193,14 @@ public class JoinUtilsTest {
             Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, ImmutableList.of(
                     new EqualTo(leftD1, rightD1), new EqualTo(leftK2, rightK2),
                     new EqualTo(leftExtra, rightExtra))));
+            DistributionMapping rightMappingWithDifferentId = new DistributionMapping(
+                    "different_mapping", ImmutableList.of(new ExprId(6)), ImmutableList.of(0));
+            DistributionSpecHash rightWithDifferentMappingId = new DistributionSpecHash(
+                    ImmutableList.of(new ExprId(3), new ExprId(4)), ShuffleType.NATURAL,
+                    2L, 2L, Collections.emptySet(),
+                    ImmutableList.of(rightMappingWithDifferentId, rightMapping2));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(
+                    left, rightWithDifferentMappingId, directAndMapping));
             Assertions.assertFalse(JoinUtils.couldColocateJoin(
                     left, right, ImmutableList.of(new EqualTo(leftD1, rightD1))));
             Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, ImmutableList.of(
