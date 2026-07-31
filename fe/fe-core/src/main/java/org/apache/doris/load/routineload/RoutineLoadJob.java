@@ -1354,7 +1354,6 @@ public abstract class RoutineLoadJob
                     // TODO(ml): use previous be id depend on change reason
                 }
                 if (txnStatusChangeReason != TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
-                    updateErrorLogInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
                     String msg = "be " + taskBeId + " abort task,"
                             + " task id: " + routineLoadTaskInfo.getId()
                             + " job id: " + routineLoadTaskInfo.getJobId()
@@ -1362,7 +1361,6 @@ public abstract class RoutineLoadJob
                     updateState(JobState.PAUSED,
                             new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
                             false /* not replay */);
-                    return;
                 }
                 // step2: commit task , update progress, maybe create a new task
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState,
@@ -1427,7 +1425,11 @@ public abstract class RoutineLoadJob
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
-        updateErrorLogInfo(rlTaskTxnCommitAttachment);
+        if (rlTaskTxnCommitAttachment != null
+                && !Strings.isNullOrEmpty(rlTaskTxnCommitAttachment.getErrorLogUrl())) {
+            errorLogUrls.add(rlTaskTxnCommitAttachment.getErrorLogUrl());
+            firstErrorMsg = Strings.nullToEmpty(rlTaskTxnCommitAttachment.getFirstErrorMsg());
+        }
 
         routineLoadTaskInfo.setTxnStatus(txnStatus);
 
@@ -1440,13 +1442,6 @@ public abstract class RoutineLoadJob
                 // or if publish version task has some error,
                 // there will be lots of COMMITTED txns in GlobalTransactionMgr
             }
-        }
-    }
-
-    private void updateErrorLogInfo(RLTaskTxnCommitAttachment attachment) {
-        if (attachment != null && !Strings.isNullOrEmpty(attachment.getErrorLogUrl())) {
-            errorLogUrls.add(attachment.getErrorLogUrl());
-            firstErrorMsg = Strings.nullToEmpty(attachment.getFirstErrorMsg());
         }
     }
 
