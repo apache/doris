@@ -2062,7 +2062,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * Maps a file format name string to the corresponding TFileFormatType.
      */
-    private static TFileFormatType mapFileFormatType(String format) {
+    /** Package-visible and static so the mapping is unit-testable without a planner. */
+    static TFileFormatType mapFileFormatType(String format) {
         switch (format.toLowerCase()) {
             case "parquet":
                 return TFileFormatType.FORMAT_PARQUET;
@@ -2080,6 +2081,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return TFileFormatType.FORMAT_AVRO;
             case "es_http":
                 return TFileFormatType.FORMAT_ES_HTTP;
+            case "arrow":
+                // A connector whose reader hands BE Arrow record batches rather than a file (adbc, and the
+                // remote_doris scan node already outside this switch). Without this the format falls to
+                // FORMAT_JNI below and BE never enters the Arrow reader path.
+                return TFileFormatType.FORMAT_ARROW;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }
