@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 
 #include "arrow/array/builder_binary.h"
@@ -107,10 +108,19 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
         std::string json_string =
                 JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-        RETURN_IF_ERROR(
-                checkArrowStatus(builder.Append(json_string.data(),
-                                                cast_set<int, size_t, false>(json_string.size())),
-                                 column, *array_builder));
+        // JSONB is stored as binary but rendered to (usually larger) JSON text here, so the
+        // physical column size does not bound the arrow payload. Reject before narrowing
+        // size_t -> int32: an unchecked cast of a length > INT32_MAX would wrap to a bogus
+        // small/negative value that Arrow silently accepts, corrupting the result.
+        if (json_string.size() > std::numeric_limits<int32_t>::max()) {
+            return Status::InternalError(
+                    "JSONB value rendered to {} bytes of JSON text, exceeding the Arrow utf8 "
+                    "int32 offset limit ({}); cannot be sent over Arrow Flight.",
+                    json_string.size(), std::numeric_limits<int32_t>::max());
+        }
+        RETURN_IF_ERROR(checkArrowStatus(
+                builder.Append(json_string.data(), static_cast<int>(json_string.size())), column,
+                *array_builder));
     }
     return Status::OK();
 }

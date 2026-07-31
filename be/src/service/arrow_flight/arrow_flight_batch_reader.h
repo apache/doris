@@ -20,6 +20,7 @@
 #include <cctz/time_zone.h>
 #include <gen_cpp/Types_types.h>
 
+#include <deque>
 #include <memory>
 #include <utility>
 
@@ -62,6 +63,11 @@ protected:
     std::atomic<int64_t> _convert_arrow_batch_timer = 0;
     std::atomic<int64_t> _deserialize_block_timer = 0;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+
+    // Batches produced from the current block but not yet returned. A single result block may be
+    // split into multiple RecordBatches (see convert_to_arrow_batches) when a string/binary
+    // column would overflow the int32 offset limit; ReadNext drains this queue one at a time.
+    std::deque<std::shared_ptr<arrow::RecordBatch>> _pending_batches;
 };
 
 class ArrowFlightBatchLocalReader : public ArrowFlightBatchReaderBase {

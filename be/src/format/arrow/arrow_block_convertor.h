@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -116,6 +117,16 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
                               arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj, size_t start_row,
                               size_t end_row);
+
+// Convert a Block to one or more Arrow RecordBatches for the Arrow Flight result path, whose
+// stream schema is fixed to utf8/binary (int32 offsets). If any string/binary column's data in
+// this block would reach config::arrow_flight_result_max_utf8_bytes, the block is split by rows
+// so every emitted batch stays within the int32 offset limit. Returns an error if a single value
+// alone exceeds the limit (it cannot be represented with int32 offsets).
+Status convert_to_arrow_batches(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                                arrow::MemoryPool* pool,
+                                std::vector<std::shared_ptr<arrow::RecordBatch>>* results,
+                                const cctz::time_zone& timezone_obj);
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
                                     std::shared_ptr<arrow::RecordBatch>* result);

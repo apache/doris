@@ -94,6 +94,14 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
+
+    // Drain any batches left over from splitting the previous block.
+    if (!_pending_batches.empty()) {
+        *out = std::move(_pending_batches.front());
+        _pending_batches.pop_front();
+        return arrow::Status::OK();
+    }
+
     TUniqueId tid = UniqueId(_statement->query_id).to_thrift();
     std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
     RETURN_ARROW_STATUS_IF_ERROR(
@@ -108,16 +116,23 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     }
 
     {
-        // convert one batch
+        // convert one block, splitting into multiple batches if a string/binary column would
+        // overflow the int32 offset limit
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
-        st = convert_to_arrow_batch(*result, _schema, arrow::default_memory_pool(), out,
-                                    _timezone_obj);
+        std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+        st = convert_to_arrow_batches(*result, _schema, arrow::default_memory_pool(), &batches,
+                                      _timezone_obj);
         st.prepend("ArrowFlightBatchLocalReader convert block to arrow batch failed");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
+        for (auto& batch : batches) {
+            _pending_batches.push_back(std::move(batch));
+        }
     }
 
     _packet_seq++;
-    if (*out != nullptr) {
+    if (!_pending_batches.empty()) {
+        *out = std::move(_pending_batches.front());
+        _pending_batches.pop_front();
         VLOG_NOTICE << "ArrowFlightBatchLocalReader read next: " << (*out)->num_rows() << ", "
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
@@ -295,22 +310,37 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
+
+    // Drain any batches left over from splitting the previous block.
+    if (!_pending_batches.empty()) {
+        *out = std::move(_pending_batches.front());
+        _pending_batches.pop_front();
+        return arrow::Status::OK();
+    }
+
     ARROW_RETURN_NOT_OK(_fetch_data());
     if (_block == nullptr) {
         // eof, normal path end, last _fetch_data return block is nullptr
         return arrow::Status::OK();
     }
     {
-        // convert one batch
+        // convert one block, splitting into multiple batches if a string/binary column would
+        // overflow the int32 offset limit
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
-        auto st = convert_to_arrow_batch(*_block, _schema, arrow::default_memory_pool(), out,
-                                         _timezone_obj);
+        std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+        auto st = convert_to_arrow_batches(*_block, _schema, arrow::default_memory_pool(), &batches,
+                                           _timezone_obj);
         st.prepend("ArrowFlightBatchRemoteReader convert block to arrow batch failed");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
+        for (auto& batch : batches) {
+            _pending_batches.push_back(std::move(batch));
+        }
     }
     _block = nullptr;
 
-    if (*out != nullptr) {
+    if (!_pending_batches.empty()) {
+        *out = std::move(_pending_batches.front());
+        _pending_batches.pop_front();
         VLOG_NOTICE << "ArrowFlightBatchRemoteReader read next: " << (*out)->num_rows() << ", "
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }
