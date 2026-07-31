@@ -21,9 +21,16 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,8 +38,14 @@ import java.util.Map;
  */
 public class AdbcConnector implements Connector {
 
+    private static final Logger LOG = LogManager.getLogger(AdbcConnector.class);
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
+
+    private volatile AdbcClient client;
+    private volatile boolean closed;
 
     public AdbcConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
@@ -41,11 +54,107 @@ public class AdbcConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        throw new DorisConnectorException("ADBC catalog metadata is not wired up yet");
+        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy, properties);
     }
 
     @Override
-    public void close() throws IOException {
-        // Nothing held yet.
+    public ConnectorTestResult testConnection(ConnectorSession session) {
+        try {
+            List<String> databases = getMetadata(session).listDatabaseNames(session);
+            return ConnectorTestResult.success(
+                    "Connected successfully, found " + databases.size() + " databases");
+        } catch (Exception e) {
+            LOG.warn("ADBC connection test failed", e);
+            return ConnectorTestResult.failure("ADBC connection failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Runs on CREATE and ALTER CATALOG only -- never on edit-log replay or at query time -- so it is the
+     * one place that may reach the filesystem and the remote source without risking FE startup.
+     */
+    @Override
+    public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
+        resolveDriverPath();
+        checkRemoteCatalogIsPinned();
+    }
+
+    /**
+     * Verifies that {@code uri} pins a remote catalog, which is what lets ADBC's three naming levels be
+     * shown as Doris's two without concatenating anything (see {@link AdbcNamespace}).
+     *
+     * <p><b>A driver that cannot answer is trusted, not refused.</b> {@code getCurrentCatalog} is optional
+     * in ADBC and drivers implement these context getters one by one -- the SQLite driver answers
+     * {@code getCurrentCatalog} but rejects {@code getCurrentDbSchema} with {@code NOT_FOUND}, so the
+     * failure status does not even reliably say "not implemented". Refusing on any error would therefore
+     * lock out drivers over a missing self-check rather than a misconfiguration, and a genuinely unpinned
+     * uri still surfaces clearly at the first {@code SHOW DATABASES}. Only an answer that arrives and is
+     * empty is treated as a real "not pinned".
+     */
+    private void checkRemoteCatalogIsPinned() {
+        String currentCatalog;
+        try {
+            currentCatalog = getOrCreateClient().withConnection(
+                    connection -> connection.getCurrentCatalog());
+        } catch (DorisConnectorException e) {
+            // AdbcClient already funnels every driver-side failure (any AdbcException, whatever its status)
+            // into this one type, so catching it covers "the driver could not answer" in full.
+            LOG.info("ADBC driver cannot report its current catalog, so the '{}' property is accepted"
+                            + " as written: {}", AdbcConnectorProperties.URI, e.toString());
+            return;
+        }
+        if (currentCatalog != null && currentCatalog.isEmpty()) {
+            throw new DorisConnectorException("The ADBC source reports no current catalog, so '"
+                    + AdbcConnectorProperties.URI + "' does not pin one. Name the remote catalog in the"
+                    + " uri (for example postgresql://host:5432/mydb) or through a driver option, because"
+                    + " a Doris catalog maps exactly one remote catalog.");
+        }
+    }
+
+    private Path resolveDriverPath() {
+        Map<String, String> env = context.getEnvironment();
+        Path driverPath = AdbcDriverPathResolver.resolve(
+                properties.get(AdbcConnectorProperties.DRIVER_URL),
+                env.get(AdbcConnectorProperties.ENV_DRIVERS_DIR),
+                env.get(AdbcConnectorProperties.ENV_DRIVER_SECURE_PATH));
+        AdbcDriverPathResolver.checkExists(driverPath, properties.get(AdbcConnectorProperties.DRIVER_URL));
+        return driverPath;
+    }
+
+    private AdbcClient getOrCreateClient() {
+        if (closed) {
+            throw new DorisConnectorException("AdbcConnector has been closed");
+        }
+        AdbcClient existing = client;
+        if (existing != null) {
+            return existing;
+        }
+        synchronized (this) {
+            if (closed) {
+                throw new DorisConnectorException("AdbcConnector has been closed");
+            }
+            if (client == null) {
+                // Deliberately NOT in the constructor: an FE follower replaying the edit log builds every
+                // catalog, and its filesystem layout need not match the leader's, so resolving the driver
+                // here would let a missing file stop FE from starting.
+                client = new AdbcClient(resolveDriverPath(),
+                        properties.get(AdbcConnectorProperties.DRIVER_URL),
+                        properties.get(AdbcConnectorProperties.DRIVER_ENTRYPOINT),
+                        AdbcConnectorProperties.require(properties, AdbcConnectorProperties.URI),
+                        properties.get(AdbcConnectorProperties.USER),
+                        properties.get(AdbcConnectorProperties.PASSWORD),
+                        AdbcConnectorProperties.driverOptions(properties));
+            }
+            return client;
+        }
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+        closed = true;
+        if (client != null) {
+            client.close();
+            client = null;
+        }
     }
 }
