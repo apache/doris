@@ -948,7 +948,17 @@ public class StatementContext implements Closeable {
             // reuse one handle while different selectors never overwrite each other.
             snapshot = snapshots.get(mvccTableInfo);
             if (snapshot == null) {
-                snapshot = ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams);
+                MvccTable mvccTable = (MvccTable) specificTable;
+                if (mvccTable.requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+                    MvccTableInfo latestKey = new MvccTableInfo(specificTable);
+                    MvccSnapshot latestFence = latestSnapshots.computeIfAbsent(latestKey,
+                            key -> mvccTable.loadSnapshot(Optional.empty(), Optional.empty()));
+                    // Planning options still need separate projections, but their version selector
+                    // must come from one statement fence rather than separate live latest reads.
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams, Optional.of(latestFence));
+                } else {
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams);
+                }
                 snapshots.put(mvccTableInfo, snapshot);
                 scanParams.flatMap(TableScanParams::getResolvedMapParams)
                         .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));

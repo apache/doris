@@ -88,6 +88,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -110,6 +111,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
     private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
     private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "jni.io_manager.impl_class";
+    private static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
@@ -214,7 +217,17 @@ public class PaimonScanNode extends FileQueryScanNode {
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
-        backendPaimonOptions = getBackendPaimonOptions();
+        backendPaimonOptions = new HashMap<>(getBackendPaimonOptions());
+        OptionalInt manifestCap;
+        if (source.getExternalTable() instanceof PaimonSysExternalTable) {
+            manifestCap = ((PaimonSysExternalTable) source.getExternalTable())
+                    .runtimeSafeManifestParallelism(getScanParams());
+        } else {
+            manifestCap = PaimonReaderOptions.runtimeSafeManifestParallelism(processedTable);
+        }
+        // The hidden planner's option is not visible on a serialized system wrapper.
+        manifestCap.ifPresent(cap -> backendPaimonOptions.put(
+                DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
         }

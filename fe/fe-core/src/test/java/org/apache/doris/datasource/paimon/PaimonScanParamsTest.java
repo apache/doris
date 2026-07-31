@@ -419,6 +419,15 @@ public class PaimonScanParamsTest {
         Assert.assertEquals("17", resolved.get("scan.snapshot-id"));
     }
 
+    @Test
+    public void testPlanningOptionsCanBePinnedToStatementSnapshot() {
+        Map<String, String> resolved = PaimonScanParams.pinOptionsToSnapshot(
+                ImmutableMap.of("scan.manifest.parallelism", "1"), 7L);
+
+        Assert.assertEquals("7", resolved.get("scan.snapshot-id"));
+        Assert.assertEquals("1", resolved.get("scan.manifest.parallelism"));
+    }
+
     private static boolean containsNull(Map<String, String> options, String key) {
         return options.containsKey(key) && options.get(key) == null;
     }

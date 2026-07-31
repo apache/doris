@@ -30,6 +30,8 @@ import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -51,6 +53,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -72,6 +75,8 @@ public class PaimonJniScanner extends JniScanner {
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
+    static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
     static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
@@ -665,6 +670,9 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
+        table = applyBackendManifestParallelism(table,
+                params.get(PAIMON_OPTION_PREFIX + DORIS_MANIFEST_PARALLELISM_CAP),
+                Runtime.getRuntime().availableProcessors());
         table = applyDefaultReadBatchSize(table, batchSize);
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
@@ -673,10 +681,10 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     static Table applyDefaultReadBatchSize(Table table, int dorisBatchSize) {
-        if (table.options().containsKey(CoreOptions.READ_BATCH_SIZE.key())) {
+        validateSerializedReaderOptions(table);
+        if (hasReadBatchSize(table)) {
             // Doris' output block size and Paimon's reader batch are independent controls; an
-            // explicitly validated Paimon value must survive transport to the actual reader.
-            validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
+            // explicitly validated value on any hidden reader must survive transport unchanged.
             return table;
         }
         // The serialized table may pin an older data snapshot while carrying the latest schema
@@ -689,7 +697,85 @@ public class PaimonJniScanner extends JniScanner {
                 : table.copy(readOptions);
     }
 
+    static Table applyBackendManifestParallelism(
+            Table table, String feParallelismCap, int localCapacity) {
+        int safeParallelism;
+        if (feParallelismCap != null) {
+            safeParallelism = parsePositiveManifestParallelism(feParallelismCap);
+            if (safeParallelism <= localCapacity) {
+                return table;
+            }
+            safeParallelism = localCapacity;
+        } else {
+            List<Integer> configuredValues = new ArrayList<>();
+            collectManifestParallelism(table, configuredValues);
+            if (configuredValues.isEmpty()
+                    || configuredValues.stream().noneMatch(value -> value > localCapacity)) {
+                return table;
+            }
+            safeParallelism = Math.min(
+                    configuredValues.stream().mapToInt(Integer::intValue).min().getAsInt(),
+                    localCapacity);
+        }
+        Map<String, String> cap = Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeParallelism));
+        // Preserve the FE-selected schema while lowering only the BE-local execution bound.
+        return table instanceof FileStoreTable
+                ? ((FileStoreTable) table).copyWithoutTimeTravel(cap)
+                : table.copy(cap);
+    }
+
+    private static int parsePositiveManifestParallelism(String value) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed < 1) {
+                throw new IllegalArgumentException("Paimon manifest parallelism cap must be positive.");
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Paimon manifest parallelism cap must be an integer.", e);
+        }
+    }
+
+    private static void collectManifestParallelism(Table table, List<Integer> values) {
+        String configured = table.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key());
+        if (configured != null) {
+            values.add(parsePositiveManifestParallelism(configured));
+        }
+        if (table instanceof FallbackReadFileStoreTable) {
+            collectManifestParallelism(((FallbackReadFileStoreTable) table).fallback(), values);
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            collectManifestParallelism(((DelegatedFileStoreTable) table).wrapped(), values);
+        }
+    }
+
+    private static boolean hasReadBatchSize(Table table) {
+        if (table.options().containsKey(CoreOptions.READ_BATCH_SIZE.key())) {
+            return true;
+        }
+        if (table instanceof FallbackReadFileStoreTable
+                && hasReadBatchSize(((FallbackReadFileStoreTable) table).fallback())) {
+            return true;
+        }
+        return table instanceof DelegatedFileStoreTable
+                && hasReadBatchSize(((DelegatedFileStoreTable) table).wrapped());
+    }
+
+    private static void validateSerializedReaderOptions(Table table) {
+        validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
+        if (table instanceof FallbackReadFileStoreTable) {
+            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());
+        }
+    }
+
     private static void validateSerializedReadBatchSize(String value) {
+        if (value == null) {
+            return;
+        }
         try {
             int batchSize = Integer.parseInt(value);
             if (batchSize < 1 || batchSize > 65536) {

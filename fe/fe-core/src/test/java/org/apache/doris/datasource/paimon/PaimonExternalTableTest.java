@@ -325,10 +325,17 @@ public class PaimonExternalTableTest {
                 ImmutableMap.of("scan.manifest.parallelism", "2"), Collections.emptyList());
         PaimonSnapshotCacheValue firstValue = Mockito.mock(PaimonSnapshotCacheValue.class);
         PaimonSnapshotCacheValue secondValue = Mockito.mock(PaimonSnapshotCacheValue.class);
+        PaimonMvccSnapshot latestFence = new PaimonMvccSnapshot(firstValue);
+        Mockito.doReturn(latestFence).when(externalTable)
+                .loadSnapshot(Optional.empty(), Optional.empty());
+        // OPTIONS projections now enter through the fenced overload; stub that boundary so this
+        // descriptor test keeps exercising projection selection without opening a real catalog.
         Mockito.doReturn(new PaimonMvccSnapshot(firstValue)).when(externalTable)
-                .loadSnapshot(Optional.empty(), Optional.of(firstParams));
+                .loadSnapshot(Mockito.eq(Optional.empty()), Mockito.eq(Optional.of(firstParams)),
+                        Mockito.eq(Optional.of(latestFence)));
         Mockito.doReturn(new PaimonMvccSnapshot(secondValue)).when(externalTable)
-                .loadSnapshot(Optional.empty(), Optional.of(secondParams));
+                .loadSnapshot(Mockito.eq(Optional.empty()), Mockito.eq(Optional.of(secondParams)),
+                        Mockito.eq(Optional.of(latestFence)));
         PaimonSchemaCacheValue schema = new PaimonSchemaCacheValue(
                 Collections.singletonList(new Column("id", Type.INT)), Collections.emptyList(), null);
         ConnectContext previousContext = ConnectContext.get();

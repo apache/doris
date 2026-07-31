@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /** Validation shared by catalog-scoped and relation-scoped Paimon reader tuning. */
@@ -193,6 +194,17 @@ public final class PaimonReaderOptions {
 
     public static Table runtimeSafeTable(Table table, Map<String, String> copyOptions) {
         return table.copy(runtimeSafeCopyOptions(table, copyOptions));
+    }
+
+    public static OptionalInt runtimeSafeManifestParallelism(Table table) {
+        List<Integer> configuredValues = new ArrayList<>();
+        collectManifestParallelism(table, configuredValues);
+        if (configuredValues.isEmpty()) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of(Math.min(
+                configuredValues.stream().mapToInt(Integer::intValue).min().getAsInt(),
+                Runtime.getRuntime().availableProcessors()));
     }
 
     private static void collectManifestParallelism(Table table, List<Integer> configuredValues) {

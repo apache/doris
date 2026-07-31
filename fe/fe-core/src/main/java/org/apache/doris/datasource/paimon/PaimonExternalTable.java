@@ -371,6 +371,37 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
+    public boolean requiresLatestSnapshotFence(
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        return !tableSnapshot.isPresent()
+                && scanParams.isPresent()
+                && scanParams.get().isOptions()
+                && PaimonScanParams.usesStatementSnapshot(scanParams.get().getMapParams());
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot(
+            Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Optional<MvccSnapshot> latestSnapshotFence) {
+        if (!latestSnapshotFence.isPresent()
+                || !requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+            return loadSnapshot(tableSnapshot, scanParams);
+        }
+        PaimonMvccSnapshot fence = (PaimonMvccSnapshot) latestSnapshotFence.get();
+        long snapshotId = fence.getSnapshotCacheValue().getSnapshot().getSnapshotId();
+        TableScanParams params = scanParams.get();
+        params.reuseResolvedMapParams(PaimonScanParams.pinOptionsToSnapshot(
+                params.getMapParams(), snapshotId));
+        if (snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+            // An empty table is a real statement state; reopening a projection after a concurrent
+            // first commit would otherwise turn only the later alias non-empty.
+            return new PaimonMvccSnapshot(fence.getSnapshotCacheValue());
+        }
+        return loadSnapshot(tableSnapshot, scanParams);
+    }
+
+    @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem();
     }

@@ -76,6 +76,34 @@ public class StatementContextMvccSnapshotTest {
     }
 
     @Test
+    public void differentPlanningOptionsShareOneLatestSnapshotFence() {
+        StatementContext context = new StatementContext(new ConnectContext(), null);
+        MvccTable table = mockTable();
+        MvccSnapshot latestFence = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot firstProjection = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot secondProjection = Mockito.mock(MvccSnapshot.class);
+        TableScanParams first = options("true");
+        TableScanParams second = options("false");
+        Mockito.when(table.requiresLatestSnapshotFence(Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(latestFence);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(first), Optional.of(latestFence)))
+                .thenReturn(firstProjection);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(second), Optional.of(latestFence)))
+                .thenReturn(secondProjection);
+
+        context.loadSnapshots(table, Optional.empty(), Optional.of(first));
+        context.loadSnapshots(table, Optional.empty(), Optional.of(second));
+
+        // Projection identity includes planning options, while the version identity is one
+        // statement fence so a commit between aliases cannot produce an S/S+1 self-join.
+        Assertions.assertSame(firstProjection,
+                context.getSnapshot(table, Optional.empty(), Optional.of(first)).orElse(null));
+        Assertions.assertSame(secondProjection,
+                context.getSnapshot(table, Optional.empty(), Optional.of(second)).orElse(null));
+        Mockito.verify(table, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    @Test
     public void optionAndPlainAliasesAreOrderIndependent() {
         MvccTable table = mockTable();
         MvccSnapshot plain = Mockito.mock(MvccSnapshot.class);

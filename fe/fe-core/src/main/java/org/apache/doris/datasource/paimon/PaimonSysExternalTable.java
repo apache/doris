@@ -47,6 +47,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Represents a Paimon system table (e.g., snapshots, binlog, audit_log) that wraps a source data table.
@@ -174,6 +175,16 @@ public class PaimonSysExternalTable extends ExternalTable {
         } else {
             PaimonReaderOptions.validateEffectiveTable(PaimonReaderOptions.runtimeSafeTable(dataTable));
         }
+    }
+
+    public OptionalInt runtimeSafeManifestParallelism(TableScanParams scanParams) {
+        Table dataTable = getRawSysPaimonDataTable();
+        Table effectiveDataTable = scanParams != null && scanParams.isOptions()
+                ? PaimonScanParams.applyOptions(dataTable, resolvedOptions(scanParams))
+                : PaimonReaderOptions.runtimeSafeTable(dataTable);
+        // The serialized system wrapper does not expose this hidden value, so transport the
+        // FE-safe bound separately for a smaller BE to lower after deserialization.
+        return PaimonReaderOptions.runtimeSafeManifestParallelism(effectiveDataTable);
     }
 
     private Map<String, String> resolvedOptions(TableScanParams scanParams) {
