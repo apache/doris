@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -46,6 +47,7 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                         .when(LogicalAggregate::isDistinct))
                         .when(limit ->
                                 ConnectContext.get() != null
+                                        && !Utils.addOverflows(limit.getLimit(), limit.getOffset())
                                         && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                         >= limit.getLimit() + limit.getOffset())
                         .then(limit -> {
@@ -64,6 +66,12 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 logicalLimit(logicalAggregate(logicalProject(logicalJoin()).when(LogicalProject::isAllSlots))
                         .when(LogicalAggregate::isDistinct))
                         .then(limit -> {
+                            // limit + offset overflowing means no child can hold that many rows, so the
+                            // push-down cannot reduce anything; skip it. (The direct branch is gated the
+                            // same way via topn_opt_limit_threshold.)
+                            if (Utils.addOverflows(limit.getLimit(), limit.getOffset())) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = limit.child();
                             LogicalProject<LogicalJoin<Plan, Plan>> project = agg.child();
                             LogicalJoin<Plan, Plan> join = project.child();

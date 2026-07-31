@@ -2078,6 +2078,7 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
 
     // commit txn
     CommitTxnRequest req;
+    int64_t version_update_time_ms = 0;
     {
         brpc::Controller cntl;
         req.set_cloud_unique_id("test_cloud_unique_id");
@@ -2110,6 +2111,9 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_version_update_time_ms());
+        ASSERT_GT(res.version_update_time_ms(), 0);
+        version_update_time_ms = res.version_update_time_ms();
         // std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
@@ -2211,18 +2215,24 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         std::string ver_val;
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
         VersionPB version;
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p2});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p1});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 3);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         // table version
         std::string table_ver_key = table_version_key({mock_instance, db_id, t1});
@@ -4914,6 +4924,28 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+void check_delete_bitmap_lock_id(MetaServiceProxy* meta_service, int64_t table_id,
+                                 int64_t expected_lock_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_instance", table_id, -1});
+    std::string lock_val;
+    ASSERT_EQ(txn->get(lock_key, &lock_val), TxnErrorCode::TXN_OK);
+    DeleteBitmapUpdateLockPB lock_info;
+    ASSERT_TRUE(lock_info.ParseFromString(lock_val));
+    EXPECT_EQ(lock_info.lock_id(), expected_lock_id);
+}
+
+void check_mow_tablet_job_key(MetaServiceProxy* meta_service, int64_t table_id, int64_t initiator,
+                              bool expected_exists) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key = mow_tablet_job_key({"test_instance", table_id, initiator});
+    std::string job_val;
+    EXPECT_EQ(txn->get(job_key, &job_val),
+              expected_exists ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
@@ -5130,7 +5162,33 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 11: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 11: urgent load can force take compaction lock but not schema change lock
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(100);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    req.set_lock_id(888);
+    req.set_initiator(-1);
+    req.set_expiration(60);
+    req.set_urgent(true);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID
+                                           ? MetaServiceCode::LOCK_CONFLICT
+                                           : MetaServiceCode::OK);
+    req.set_urgent(false);
+    remove_req.set_lock_id(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? job_lock_id : 888);
+    remove_req.set_initiator(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? 100 : -1);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // case 12: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
     sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
         auto lock_id = (try_any_cast<const GetDeleteBitmapUpdateLockRequest*>(args[1]))->lock_id();
@@ -5154,7 +5212,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 12: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 13: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
     req.set_lock_id(300);
     req.set_initiator(-1);
     req.set_expiration(1);
@@ -5171,7 +5229,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
-    // case 13: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    // case 14: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -5187,6 +5245,70 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+}
+
+void testUrgentLoadDeleteBitmapLock(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
+    auto meta_service = get_meta_service();
+    int64_t table_id = 90 + lock_version;
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.add_partition_ids(123);
+
+    auto get_lock = [&](int64_t lock_id, int64_t initiator, int64_t expiration, bool urgent) {
+        req.set_lock_id(lock_id);
+        req.set_initiator(initiator);
+        req.set_expiration(expiration);
+        req.set_urgent(urgent);
+        res.Clear();
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        return res.status().code();
+    };
+
+    // An urgent load must preserve an active schema change lock.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 100, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 100, true);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // Expired schema change locks still follow the ordinary stale-lock cleanup path.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 101, 1, false), MetaServiceCode::OK);
+    sleep(2);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 101, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for compaction locks is unchanged.
+    ASSERT_EQ(get_lock(COMPACTION_DELETE_BITMAP_LOCK_ID, 102, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 102, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for another load lock is unchanged.
+    ASSERT_EQ(get_lock(777, -1, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+}
+
+TEST(MetaServiceTest, UrgentLoadDeleteBitmapLock) {
+    testUrgentLoadDeleteBitmapLock(2);
+    testUrgentLoadDeleteBitmapLock(1);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
@@ -10495,6 +10617,52 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
             ASSERT_EQ(get_obj.id(), "4") << get_obj.id();
             ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE)
                     << get_obj.obj_info().cred_provider_type();
+        }
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_credential_provider_bucket");
+        vault.mutable_obj_info()->set_prefix("test_credential_provider_prefix");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::CONTAINER);
+
+        vault.set_name("s3_vault_with_credential_provider");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        {
+            InstanceInfoPB instance;
+            get_test_instance(instance);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "5"}), &val),
+                      TxnErrorCode::TXN_OK);
+            StorageVaultPB get_obj;
+            get_obj.ParseFromString(val);
+            ASSERT_TRUE(get_obj.obj_info().ak().empty()) << get_obj.obj_info().ak();
+            ASSERT_TRUE(get_obj.obj_info().sk().empty()) << get_obj.obj_info().sk();
+            ASSERT_FALSE(get_obj.obj_info().has_role_arn());
+            ASSERT_FALSE(get_obj.obj_info().has_external_id());
+            ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER)
+                    << get_obj.obj_info().cred_provider_type();
+            ASSERT_EQ(get_obj.obj_info().bucket(), "test_credential_provider_bucket")
+                    << get_obj.obj_info().bucket();
+            ASSERT_EQ(get_obj.obj_info().prefix(), "test_credential_provider_prefix")
+                    << get_obj.obj_info().prefix();
+            ASSERT_EQ(get_obj.id(), "5") << get_obj.id();
         }
     }
 

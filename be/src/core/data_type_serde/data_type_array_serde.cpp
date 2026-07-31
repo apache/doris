@@ -19,6 +19,7 @@
 
 #include <arrow/array/builder_nested.h>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -27,6 +28,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/get_least_supertype.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
@@ -304,12 +306,10 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
     auto* nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
         if (null_map && (*null_map)[array_idx]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
             continue;
         }
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
-                                         array_builder->type()->name()));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
         RETURN_IF_ERROR(nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
                                                             offsets[array_idx - 1],
                                                             offsets[array_idx], ctz));
@@ -325,6 +325,9 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
     const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
     auto arrow_offsets_array = concrete_array->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    if (config::enable_arrow_input_validation) {
+        check_arrow_list_offsets(*concrete_array, start, end);
+    }
     auto prev_size = offsets_data.back();
     const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
     const size_t offset_element_size = sizeof(int32_t);

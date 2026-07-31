@@ -88,6 +88,7 @@ private:
     CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
     RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _total_read_time = nullptr;
     int64_t _mtime;
 #ifdef USE_HADOOP_HDFS
     HDFSProfile _hdfs_profile;

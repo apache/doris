@@ -66,6 +66,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
@@ -82,7 +83,7 @@ auto s3_rate_limit(doris::S3RateLimitType op, Func callback) -> decltype(callbac
     if (!doris::config::enable_s3_rate_limiter) {
         return callback();
     }
-    auto sleep_duration = doris::S3ClientFactory::instance().rate_limiter(op)->add(1);
+    auto sleep_duration = doris::apply_s3_rate_limit(op);
     if (sleep_duration < 0) {
         return T(s3_error_factory());
     }
@@ -97,6 +98,10 @@ auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
 template <typename Func>
 auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
     return s3_rate_limit(doris::S3RateLimitType::PUT, std::move(callback));
+}
+
+void record_s3_request_failed(const Aws::S3::S3Error& error) {
+    doris::record_object_request_failed(static_cast<int>(error.GetResponseCode()));
 }
 } // namespace
 
@@ -140,6 +145,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
             << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key;
 
     if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
         auto st = s3fs_error(outcome.GetError(), fmt::format("failed to CreateMultipartUpload: {} ",
                                                              opts.path.native()));
         LOG(WARNING) << st << " request_id=" << request_id;
@@ -177,6 +183,7 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
                                                  : outcome.GetError().GetRequestId();
 
     if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
         auto st = s3fs_error(outcome.GetError(),
                              fmt::format("failed to put object: {}", opts.path.native()));
         LOG(WARNING) << st << ", request_id=" << request_id;
@@ -222,6 +229,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_upload_one_part", &outcome);
     if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
         auto st = Status::IOError(
                 "failed to UploadPart bucket={}, key={}, part_num={}, upload_id={}, message={}, "
                 "exception_name={}, response_code={}, request_id={}",
@@ -275,6 +283,7 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
                                                  : outcome.GetError().GetRequestId();
 
     if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
         auto st = s3fs_error(outcome.GetError(),
                              fmt::format("failed to CompleteMultipartUpload: {}, upload_id={}",
                                          opts.path.native(), *opts.upload_id));
@@ -305,6 +314,7 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {convert_to_obj_response(Status::Error<ErrorCode::NOT_FOUND, false>(""))}};
     } else {
+        record_s3_request_failed(outcome.GetError());
         return {.resp = {convert_to_obj_response(
                                  s3fs_error(outcome.GetError(),
                                             fmt::format("failed to check exists {}", opts.key))),
@@ -324,6 +334,7 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
     auto outcome = s3_get_rate_limit([&]() { return _client->GetObject(request); });
     if (!outcome.IsSuccess()) {
+        record_s3_request_failed(outcome.GetError());
         return {convert_to_obj_response(s3fs_error(
                         outcome.GetError(), fmt::format("failed to read from {}", opts.key))),
                 static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -362,6 +373,7 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
                 return ObjectStorageResponse::OK();
             }
 
+            record_s3_request_failed(outcome.GetError());
             return {convert_to_obj_response(s3fs_error(
                             outcome.GetError(), fmt::format("failed to list {}", opts.prefix))),
                     static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -406,6 +418,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
     auto delete_outcome =
             s3_put_rate_limit([&]() { return _client->DeleteObjects(delete_request); });
     if (!delete_outcome.IsSuccess()) {
+        record_s3_request_failed(delete_outcome.GetError());
         return {convert_to_obj_response(
                         s3fs_error(delete_outcome.GetError(),
                                    fmt::format("failed to delete dir {}", opts.key))),
@@ -433,6 +446,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathO
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return ObjectStorageResponse::OK();
     }
+    record_s3_request_failed(outcome.GetError());
     return {convert_to_obj_response(s3fs_error(outcome.GetError(),
                                                fmt::format("failed to delete file {}", opts.key))),
             static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -453,6 +467,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             outcome = s3_get_rate_limit([&]() { return _client->ListObjectsV2(request); });
         }
         if (!outcome.IsSuccess()) {
+            record_s3_request_failed(outcome.GetError());
             return {convert_to_obj_response(s3fs_error(
                             outcome.GetError(),
                             fmt::format("failed to list objects when delete dir {}", opts.prefix))),
@@ -473,6 +488,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             auto delete_outcome =
                     s3_put_rate_limit([&]() { return _client->DeleteObjects(delete_request); });
             if (!delete_outcome.IsSuccess()) {
+                record_s3_request_failed(delete_outcome.GetError());
                 return {convert_to_obj_response(
                                 s3fs_error(delete_outcome.GetError(),
                                            fmt::format("failed to delete dir {}", opts.key))),

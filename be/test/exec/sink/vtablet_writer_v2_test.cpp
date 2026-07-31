@@ -235,7 +235,7 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     Rows rows;
     rows.partition_id = 1;
     rows.index_id = index_id;
-    rows.row_idxes.push_back(0);
+    rows.row_payload.row_idxs.push_back(0);
 
     const auto first_write_status = creator_writer->_write_memtable(block, 100, rows);
     ASSERT_TRUE(first_write_status.ok()) << first_write_status;
@@ -279,6 +279,27 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     DebugPoints::instance()->remove("DeltaWriterV2.write.flush_limit_wait");
 
     current_writer->_cancel(Status::Cancelled("test cleanup"));
+}
+
+TEST_F(TestVTabletWriterV2, close_wait_notifier_should_be_scoped_to_load_stream_map) {
+    UniqueId load_id1;
+    UniqueId load_id2;
+    load_id2.lo = 1;
+    std::shared_ptr<LoadStreamMap> load_stream_map1 =
+            std::make_shared<LoadStreamMap>(load_id1, src_id, 1, 1, nullptr);
+    std::shared_ptr<LoadStreamMap> load_stream_map2 =
+            std::make_shared<LoadStreamMap>(load_id2, src_id, 1, 1, nullptr);
+    auto streams1 = load_stream_map1->get_or_create(1001);
+    auto streams2 = load_stream_map2->get_or_create(1002);
+    streams1->mark_open();
+    streams2->mark_open();
+
+    int64_t version1 = load_stream_map1->close_wait_version();
+    int64_t version2 = load_stream_map2->close_wait_version();
+    streams1->select_one_stream()->cancel(Status::Cancelled("test"));
+
+    ASSERT_GT(load_stream_map1->close_wait_version(), version1);
+    ASSERT_EQ(load_stream_map2->close_wait_version(), version2);
 }
 
 TEST_F(TestVTabletWriterV2, one_replica) {
@@ -469,6 +490,34 @@ TEST_F(TestVTabletWriterV2, fail_two_miss_one_same_tablet) {
     auto st = writer->_create_commit_info(tablet_commit_infos, load_stream_map);
     // BE should detect and abort commit if majority of replicas failed
     ASSERT_EQ(st, Status::InternalError("test"));
+}
+
+TEST_F(TestVTabletWriterV2, quorum_excludes_streams_not_closing_in_current_stage) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto initial_streams = load_stream_map->get_or_create(1001);
+    auto incremental_streams_1 = load_stream_map->get_or_create(1002, true);
+    auto incremental_streams_2 = load_stream_map->get_or_create(1003, true);
+
+    auto writer = create_vtablet_writer();
+    writer->_load_stream_map = load_stream_map;
+    writer->_tablets_by_node[1002].insert(1);
+    writer->_tablets_by_node[1003].insert(1);
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams {
+            initial_streams->streams().front()};
+    std::unordered_set<int64_t> need_finish_tablets {1};
+
+    // The incremental streams do not participate in the first close stage. They must not be
+    // treated as finished just because they are absent from unfinished_streams.
+    ASSERT_FALSE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
+
+    // Once the incremental streams participate in the second stage and finish, they can satisfy
+    // quorum normally.
+    incremental_streams_1->streams().front()->_is_closing.store(true);
+    incremental_streams_2->streams().front()->_is_closing.store(true);
+    unfinished_streams.clear();
+    ASSERT_TRUE(writer->_quorum_success(unfinished_streams, need_finish_tablets));
 }
 
 } // namespace doris

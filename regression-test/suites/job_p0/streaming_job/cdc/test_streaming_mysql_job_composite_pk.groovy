@@ -121,12 +121,12 @@ suite("test_streaming_mysql_job_composite_pk", "p0,external,mysql,external_docke
         def showTbl = sql """show create table ${currentDb}.${table1}"""
         def createInfo = showTbl[0][1]
         log.info("create table: " + createInfo)
-        assert createInfo.contains("UNIQUE KEY(`order_id`, `tenant_id`)")
+        assert createInfo.contains("UNIQUE KEY(`tenant_id`, `order_id`)")
 
         def showTbl2 = sql """show create table ${currentDb}.${table2}"""
         def createInfo2 = showTbl2[0][1]
         log.info("create table2: " + createInfo2)
-        assert createInfo2.contains("UNIQUE KEY(`role_id`, `user_id`)")
+        assert createInfo2.contains("UNIQUE KEY(`user_id`, `role_id`)")
 
         qt_desc_composite_pk """desc ${currentDb}.${table1};"""
         qt_select_snapshot """select tenant_id, order_id, order_no, amount from ${currentDb}.${table1} order by tenant_id, order_id;"""

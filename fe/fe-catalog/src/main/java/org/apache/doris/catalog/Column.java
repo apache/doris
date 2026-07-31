@@ -61,6 +61,8 @@ public class Column implements GsonPostProcessable {
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+    // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
+    public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
     // table stream columns
     public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
     public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
@@ -73,14 +75,14 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
     public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
-            new Column(STREAM_SEQ_COL, Type.BIGINT, false, null, false, null, false);
+            new Column(STREAM_SEQ_COL, Type.BIGINT, false, null, true, null, false);
     public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
-            new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, false, null, false);
+            new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, true, null, false);
 
     // columns for binlog schema
     // explicit columns
+    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
     public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
-    public static final String BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
     // implicit columns
     public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
     public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
@@ -99,6 +101,11 @@ public class Column implements GsonPostProcessable {
         Column afterValueColumn = new Column(column);
         afterValueColumn.setComment("after value (" + column.getName() + ")");
         afterValueColumn.setAggregationType(AggregateType.NONE, true);
+        afterValueColumn.setIsAllowNull(true);
+        // clear default value
+        afterValueColumn.defaultValue = null;
+        afterValueColumn.defaultValueExprDef = null;
+        afterValueColumn.realDefaultValue = null;
         return afterValueColumn;
     }
 
@@ -135,6 +142,10 @@ public class Column implements GsonPostProcessable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean nullableSpecified;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean commentSpecified;
     @SerializedName(value = "isAutoInc")
     private boolean isAutoInc;
 
@@ -174,6 +185,15 @@ public class Column implements GsonPostProcessable {
     private int clusterKeyId = -1;
 
     private boolean isCompoundKey = false;
+
+    // Marks a connector-reserved passthrough column (e.g. iceberg v3 row-lineage _row_id /
+    // _last_updated_sequence_number). Set by ConnectorColumnConverter from the connector-declared
+    // ConnectorColumn.reservedPassthrough(); read by engine MERGE/UPDATE and sink binding so they recognize the
+    // synthetic passthrough column generically instead of string-matching source column names. NOT persisted
+    // (no @SerializedName on purpose): it is an external-table-only marker rebuilt each load from connector
+    // metadata and must never enter an internal-table schema image; on replay it stays at its default false
+    // (mirrors the runtime-only isCompoundKey / defineExpr fields).
+    private boolean reservedPassthrough = false;
 
     @SerializedName(value = "hasOnUpdateDefaultValue")
     private boolean hasOnUpdateDefaultValue = false;
@@ -361,6 +381,8 @@ public class Column implements GsonPostProcessable {
         this.isKey = column.isKey();
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.nullableSpecified = column.isNullableSpecified();
+        this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.realDefaultValue = column.realDefaultValue;
@@ -369,6 +391,7 @@ public class Column implements GsonPostProcessable {
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getRealDefineName();
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
@@ -500,6 +523,11 @@ public class Column implements GsonPostProcessable {
                 && nameEquals(SKIP_BITMAP_COL, true);
     }
 
+    public boolean isCommitTsoColumn() {
+        // aggregationType is NONE for duplicate table and unique table with merge on write.
+        return !visible && aggregationType == AggregateType.NONE && nameEquals(COMMIT_TSO_COL, true);
+    }
+
     // now we only support BloomFilter on (same behavior with BE):
     // smallint/int/bigint/largeint
     // string/varchar/char/variant
@@ -571,6 +599,14 @@ public class Column implements GsonPostProcessable {
         return isAllowNull;
     }
 
+    public boolean isNullableSpecified() {
+        return nullableSpecified;
+    }
+
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     public boolean isAutoInc() {
         return isAutoInc;
     }
@@ -581,6 +617,14 @@ public class Column implements GsonPostProcessable {
 
     public void setIsAllowNull(boolean isAllowNull) {
         this.isAllowNull = isAllowNull;
+    }
+
+    public void setNullableSpecified(boolean nullableSpecified) {
+        this.nullableSpecified = nullableSpecified;
+    }
+
+    public void setCommentSpecified(boolean commentSpecified) {
+        this.commentSpecified = commentSpecified;
     }
 
     public String getDefaultValue() {
@@ -973,6 +1017,14 @@ public class Column implements GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public boolean isReservedPassthrough() {
+        return reservedPassthrough;
+    }
+
+    public void setReservedPassthrough(boolean reservedPassthrough) {
+        this.reservedPassthrough = reservedPassthrough;
     }
 
     public long getAutoIncInitValue() {

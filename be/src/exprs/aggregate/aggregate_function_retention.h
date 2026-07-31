@@ -27,6 +27,8 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -89,7 +91,7 @@ struct RetentionState {
     }
 
     void insert_result_into(IColumn& to, size_t events_size, const uint8_t* arg_events) const {
-        auto& data_to = assert_cast<ColumnUInt8&>(to).get_data();
+        auto& data_to = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(to).get_data();
 
         ColumnArray::Offset64 current_offset = data_to.size();
         data_to.resize(current_offset + events_size);
@@ -112,7 +114,16 @@ class AggregateFunctionRetention final
 public:
     AggregateFunctionRetention(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>(
-                      argument_types_) {}
+                      argument_types_) {
+        // RetentionState only has room for MAX_EVENTS(32) events (fixed-size events[] array,
+        // plus an int64 serialized bitmap). More params would overflow events[] in add()/
+        // insert_result_into() and corrupt the heap, so reject it at construction time.
+        if (argument_types_.size() > RetentionState::MAX_EVENTS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "retention function can accept at most {} params, but got {}",
+                            RetentionState::MAX_EVENTS, argument_types_.size());
+        }
+    }
 
     String get_name() const override { return "retention"; }
 
@@ -132,6 +143,12 @@ public:
         }
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        for (size_t i = 0; i < get_argument_types().size(); ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
+    }
+
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).merge(this->data(rhs));
@@ -147,7 +164,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
         if (is_column_nullable(to_nested_col)) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);

@@ -21,6 +21,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 
@@ -78,7 +79,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };
@@ -618,7 +619,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    if (!_parent->cast<typename Derived::Parent>().can_push_down_column_predicate(*slot_desc)) {
+    if (!can_push_down_column_predicate(*slot_desc)) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -1046,6 +1047,12 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
+    return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
+}
+
+template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
 }
@@ -1229,6 +1236,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
+    }
+    if (tnode.__isset.push_down_count_slot_ids) {
+        _push_down_count_slot_ids = tnode.push_down_count_slot_ids;
     }
 
     if (tnode.__isset.topn_filter_source_node_ids) {

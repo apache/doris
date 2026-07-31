@@ -202,7 +202,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
      * Get the current balance type for a compute group, falling back to global balance type if not found
      */
     private BalanceTypeEnum getCurrentBalanceType(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             LOG.debug("compute group not found, use global balance type, id {}", clusterId);
             return globalBalanceTypeEnum;
@@ -219,7 +219,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
      * Get the current task timeout for a compute group, falling back to global timeout if not found
      */
     private int getCurrentTaskTimeout(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             return Config.cloud_pre_heating_time_limit_sec;
         }
@@ -233,15 +233,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private boolean isComputeGroupBalanceChanged(String clusterId) {
-        ComputeGroup cg = cloudSystemInfoService.getComputeGroupById(clusterId);
+        CloudComputeGroupMeta cg = cloudSystemInfoService.getComputeGroupById(clusterId);
         if (cg == null) {
             return false;
         }
 
         BalanceTypeEnum computeGroupBalanceType = cg.getBalanceType();
         int computeGroupTimeout = cg.getBalanceWarmUpTaskTimeout();
-        return computeGroupBalanceType != ComputeGroup.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
-               || computeGroupTimeout != ComputeGroup.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
+        return computeGroupBalanceType != CloudComputeGroupMeta.DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
+               || computeGroupTimeout != CloudComputeGroupMeta.DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT;
     }
 
     public CloudTabletRebalancer(CloudSystemInfoService cloudSystemInfoService) {
@@ -1498,6 +1498,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
             req.setHost(srcBackend.getHost());
             req.setBrpcPort(srcBackend.getBrpcPort());
             req.setTabletIds(new ArrayList<>(tabletIds));
+            // Tell the receiving BE its own compute group id, so it can set _self_compute_group_id.
+            // In normal intra-CG rebalance, src and dest belong to the same compute group.
+            String srcComputeGroupId = srcBackend.getCloudClusterId();
+            if (srcComputeGroupId != null && !srcComputeGroupId.isEmpty()) {
+                req.setCloudComputeGroupId(srcComputeGroupId);
+            }
             TWarmUpCacheAsyncResponse result = client.warmUpCacheAsync(req);
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 LOG.warn("pre cache failed status {} {}", result.getStatus().getStatusCode(),

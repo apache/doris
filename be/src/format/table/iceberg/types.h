@@ -289,6 +289,8 @@ public:
         return ss.str();
     }
 
+    int get_length() const { return length; }
+
 private:
     int length;
 };

@@ -23,8 +23,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisInputStream;
 import org.apache.doris.filesystem.DorisOutputFile;
@@ -82,7 +81,7 @@ public class RepositoryTest {
     private MockedStatic<FrontendOptions> mockedFrontendOptions;
     private MockedStatic<FileSystemFactory> mockedFileSystemFactory;
 
-    private final BrokerProperties testProps = BrokerProperties.of("broker", Maps.newHashMap());
+    private final StorageAdapter testProps = StorageAdapter.ofBroker("broker", Maps.newHashMap());
 
     @Before
     public void setUp() throws Exception {
@@ -97,7 +96,7 @@ public class RepositoryTest {
 
         mockedFileSystemFactory = Mockito.mockStatic(FileSystemFactory.class);
         mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.anyMap())).thenReturn(mockFs);
-        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageProperties.class))).thenReturn(mockFs);
+        mockedFileSystemFactory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class))).thenReturn(mockFs);
         mockedFileSystemFactory.when(() -> FileSystemFactory.getBrokerFileSystem(
                 Mockito.anyString(), Mockito.anyInt(), Mockito.anyString(), Mockito.anyMap())).thenReturn(mockFs);
 
@@ -435,7 +434,7 @@ public class RepositoryTest {
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        repo = new Repository(10000, "repo", false, location, StorageProperties.createPrimary(properties));
+        repo = new Repository(10000, "repo", false, location, StorageAdapter.of(properties));
 
         File file = new File("./Repository");
         try {
@@ -514,7 +513,7 @@ public class RepositoryTest {
 
     /**
      * H1: Verify migration when legacy props contain HDFS-specific keys that are recognized by
-     * {@link StorageProperties#createPrimary(java.util.Map)} (primary path, not broker fallback).
+     * {@link StorageAdapter#of(java.util.Map)} (primary path, not broker fallback).
      */
     @Test
     public void testGsonPostProcessLegacyHdfsFormat() {

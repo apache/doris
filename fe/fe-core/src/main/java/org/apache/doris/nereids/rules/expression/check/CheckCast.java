@@ -58,6 +58,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -356,7 +357,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
         if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
+            ConnectContext connectContext = ConnectContext.get();
+            return (connectContext != null && connectContext.getSessionVariable().isEnableVariantV2())
+                    || originalType.equals(targetType);
         }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array

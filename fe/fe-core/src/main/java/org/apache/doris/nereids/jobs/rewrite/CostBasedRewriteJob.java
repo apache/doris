@@ -149,7 +149,8 @@ public class CostBasedRewriteJob implements RewriteJob {
         List<RuleType> ruleWhiteList = new ArrayList<>(Arrays.asList(
                 RuleType.PUSH_DOWN_AGG_THROUGH_JOIN,
                 RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE,
-                RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN));
+                RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN,
+                RuleType.PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE));
         if (!ruleWhiteList.isEmpty() && ruleWhiteList.contains(ruleType)) {
             return true;
         }

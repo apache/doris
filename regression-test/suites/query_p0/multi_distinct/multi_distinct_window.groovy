@@ -42,4 +42,9 @@ suite('multi_distinct_window') {
 
     qt_distinct_group_concat "select id, v1, group_concat(distinct v2) over() from multi order by id;"
 
+    test {
+        sql """select id, count(distinct v1, v2) over() from multi order by id;"""
+        exception "COUNT with DISTINCT only support 1 parameter in analytic function"
+    }
+
 }

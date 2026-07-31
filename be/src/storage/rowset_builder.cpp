@@ -147,7 +147,7 @@ void RowsetBuilder::_garbage_collection(bool cancel_txn) {
 Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
     DCHECK(is_data_builder());
 
-    std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
+    std::lock_guard lck(tablet()->get_header_lock());
     _max_version_in_flush_phase = tablet()->max_version_unlocked();
     std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.

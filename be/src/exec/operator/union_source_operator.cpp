@@ -30,7 +30,6 @@
 #include "exec/operator/union_sink_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "runtime/descriptors.h"
-#include "util/defer_op.h"
 
 namespace doris {
 class RuntimeState;
@@ -93,49 +92,33 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_shared_state) {
-        fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
-                       _shared_state->data_queue.is_all_finish(),
-                       _shared_state->data_queue.has_more_data());
+        fmt::format_to(debug_string_buffer, ", data_queue: {}",
+                       _shared_state->data_queue.debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
 
 Status UnionSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
-    Defer set_eos {[&]() {
-        // the eos check of union operator is complex, need check all logical if you want modify
-        // could ref this PR: https://github.com/apache/doris/pull/29677
-        // have executing const expr, queue have no data anymore, and child could be closed
-        if (_child_size == 0 && !local_state._need_read_for_const_expr) {
-            *eos = true;
-        } else if (_has_data(state)) {
-            *eos = false;
-        } else if (local_state._shared_state->data_queue.is_all_finish()) {
-            // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
-            // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
-            *eos = !_has_data(state);
-        } else {
-            *eos = false;
-        }
-    }};
-
+    *eos = false;
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
             RETURN_IF_ERROR(get_next_const(state, block));
         }
         local_state._need_read_for_const_expr = has_more_const(state);
+        if (_child_size == 0 && !local_state._need_read_for_const_expr) {
+            *eos = true;
+        }
     } else if (_child_size != 0) {
-        std::unique_ptr<Block> output_block;
-        int child_idx = 0;
-        RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
-                                                                                   &child_idx));
-        if (!output_block) {
+        auto queue_block = DORIS_TRY(local_state._shared_state->data_queue.get_block_from_queue());
+        *eos = queue_block.eos;
+        if (!queue_block.block) {
             return Status::OK();
         }
-        block->swap(*output_block);
-        output_block->clear_column_data(row_descriptor().num_materialized_slots());
-        local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
+        block->swap(*queue_block.block);
+        queue_block.block->clear_column_data(row_descriptor().num_materialized_slots());
+        local_state._shared_state->data_queue.push_free_block(std::move(queue_block));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();

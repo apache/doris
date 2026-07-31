@@ -190,7 +190,7 @@ Status JdbcJniReader::_cast_string_to_special_type(const SlotDescriptor* slot_de
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
-    argument_template.emplace_back(std::move(input_col), input_string_type, "java.sql.String");
+    argument_template.emplace_back(input_col, input_string_type, "java.sql.String");
     argument_template.emplace_back(cast_param, cast_param_data_type, target_data_type_name);
 
     FunctionBasePtr func_cast = SimpleFunctionFactory::instance().get_function(

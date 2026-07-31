@@ -68,19 +68,16 @@ public:
         const auto first_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnArray& first_col_array = assert_cast<const ColumnArray&>(*first_column);
-        const auto& first_off_data = first_col_array.get_offsets_column();
-
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
         const auto nested_column = nested_nullable_column.get_nested_column_ptr();
         const size_t nested_column_size = nested_column->size();
-        MutableColumnPtr result_null_map =
-                nested_nullable_column.get_null_map_column_ptr()->clone_resized(nested_column_size);
+        ColumnPtr result_null_map = nested_nullable_column.get_null_map_column_ptr();
 
         // 2. compute result
         auto result_column = ColumnUInt8::create(nested_column_size, 0);
         auto* __restrict result_column_data = result_column->get_data().data();
-        MutableColumnPtr result_offset_column = first_off_data.clone_resized(first_off_data.size());
+        ColumnPtr result_offset_column = first_col_array.get_offsets_ptr();
         const auto* __restrict nested_column_data =
                 assert_cast<const ColumnUInt8&>(*nested_column).get_data().data();
 
@@ -89,9 +86,8 @@ public:
         }
 
         ColumnPtr result_nullalble_column =
-                ColumnNullable::create(std::move(result_column), std::move(result_null_map));
-        ColumnPtr column_array =
-                ColumnArray::create(result_nullalble_column, std::move(result_offset_column));
+                ColumnNullable::create(result_column->get_ptr(), result_null_map);
+        ColumnPtr column_array = ColumnArray::create(result_nullalble_column, result_offset_column);
         block.replace_by_position(result, column_array);
         return Status::OK();
     }

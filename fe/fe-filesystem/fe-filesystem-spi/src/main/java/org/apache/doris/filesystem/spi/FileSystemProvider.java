@@ -20,10 +20,12 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemCapability;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -50,6 +52,33 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
      * @return true if this provider supports the configuration
      */
     boolean supports(Map<String, String> properties);
+
+    /**
+     * Returns true if the raw user properties explicitly declare this provider via its
+     * {@code fs.<x>.support=true} flag (or a provider-specific legacy alias such as
+     * {@code oss.hdfs.enabled}).
+     *
+     * <p>Part of the raw-props binding contract used by registry-level {@code bindPrimary/bindAll}
+     * selection: when ANY explicit flag is present in the map, heuristic {@link #supportsGuess}
+     * detection is disabled globally, so an ambiguous endpoint (e.g. {@code aliyuncs.com}
+     * matching both OSS and S3 heuristics) can never override an explicit declaration.
+     * Unlike {@link #supports(Map)}, this must not depend on converter-injected markers
+     * ({@code _STORAGE_TYPE_}, {@code HDFS_URI}) — the input is the user's raw map.</p>
+     */
+    default boolean supportsExplicit(Map<String, String> properties) {
+        return false;
+    }
+
+    /**
+     * Returns true if this provider heuristically recognizes the raw user properties
+     * (endpoint patterns, uri schemes, identifying keys) — the port of fe-core's
+     * per-type {@code guessIsMe}. Only consulted when no explicit {@code fs.<x>.support}
+     * flag is present anywhere in the map. Must be cheap and deterministic, and must not
+     * depend on converter-injected markers.
+     */
+    default boolean supportsGuess(Map<String, String> properties) {
+        return false;
+    }
 
     /**
      * Binds raw key-value storage configuration into a provider-owned typed properties model.
@@ -107,6 +136,23 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
      */
     default Set<String> sensitivePropertyKeys() {
         return Collections.emptySet();
+    }
+
+    /**
+     * Negotiates the capabilities this provider exposes for the given bound configuration.
+     *
+     * <p>Capability is a function of the resolved configuration, not of the provider type alone:
+     * the same provider may expose different capabilities depending on the config (e.g. Ozone via
+     * the S3 gateway has no {@link FileSystemCapability#ATOMIC_RENAME}, but Ozone via {@code ofs://}
+     * does). Defaults to the empty set; providers override to declare what they support.
+     *
+     * <p>Capability negotiation is intentionally typed: the caller binds the raw property map via
+     * {@link #bind(Map)} first, then negotiates against the resulting configuration. There is no
+     * raw-map bridge here — a legacy provider that has not migrated to {@link #bind(Map)} cannot be
+     * negotiated against, and a silent fallback would hide that instead of surfacing it.
+     */
+    default Set<FileSystemCapability> capabilities(P boundProperties) {
+        return EnumSet.noneOf(FileSystemCapability.class);
     }
 
     /**

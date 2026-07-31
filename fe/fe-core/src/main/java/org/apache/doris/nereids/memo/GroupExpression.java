@@ -344,6 +344,21 @@ public class GroupExpression {
         this.estOutputRowCount = estOutputRowCount;
     }
 
+    public double getEstOutputRowCount() {
+        return estOutputRowCount;
+    }
+
+    /**
+     * Clear cost-related state (cost, lowestCostTable, requestPropertiesMap).
+     * Does NOT reset estOutputRowCount — that is stats state, set during the
+     * stats computation phase which runs before cost recomputation.
+     */
+    public void clearCostState() {
+        cost = null;
+        lowestCostTable.clear();
+        requestPropertiesMap.clear();
+    }
+
     public Map<PhysicalProperties, PhysicalProperties> getRequestPropertiesMap() {
         return ImmutableMap.copyOf(requestPropertiesMap);
     }

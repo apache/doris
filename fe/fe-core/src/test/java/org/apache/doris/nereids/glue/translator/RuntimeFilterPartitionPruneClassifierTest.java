@@ -17,14 +17,44 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TTargetExprMonotonicity;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Map;
+import java.util.function.Function;
 
 class RuntimeFilterPartitionPruneClassifierTest {
     @Test
@@ -46,5 +76,88 @@ class RuntimeFilterPartitionPruneClassifierTest {
 
         Assertions.assertTrue(RuntimeFilterPartitionPruneClassifier.hasInputSlotOnlyInMonotonicChild(
                 dateTrunc, monotonic.getMonotonicFunctionChildIndex()));
+    }
+
+    @Test
+    void testBloomRangePartitionUnsupported() {
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.BLOOM, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("BLOOM"));
+        Assertions.assertTrue(classification.getPartitionMonotonicity().isEmpty());
+    }
+
+    @Test
+    void testBloomListPartitionSupported() {
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.BLOOM, PartitionType.LIST, ListPartitionItem.DUMMY_ITEM);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
+    void testInOrBloomRangePartitionStillSupported() {
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN_OR_BLOOM, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
+    void testRejectNoneMovableListTargetExpression() {
+        RuntimeFilterPartitionPruneClassifier.Classification classification = classify(
+                TRuntimeFilterType.IN, PartitionType.LIST, ListPartitionItem.DUMMY_ITEM,
+                targetSlot -> new FunctionCallExpr("assert_true", ImmutableList.of(
+                        new BinaryPredicate(BinaryPredicate.Operator.NE, targetSlot, new IntLiteral(0)),
+                        new StringLiteral("rfpp_expr_in_only_error")), false),
+                targetSlot -> new AssertTrue(
+                        new GreaterThan(targetSlot, new IntegerLiteral(0)),
+                        new VarcharLiteral("rfpp_expr_in_only_error")));
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getUnsupportedReason().contains("non-movable"));
+        Assertions.assertTrue(classification.getPartitionMonotonicity().isEmpty());
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem) {
+        return classify(filterType, partitionType, partitionItem, targetSlot -> targetSlot,
+                targetSlot -> targetSlot);
+    }
+
+    private RuntimeFilterPartitionPruneClassifier.Classification classify(
+            TRuntimeFilterType filterType, PartitionType partitionType, PartitionItem partitionItem,
+            Function<SlotRef, Expr> legacyTargetFactory,
+            Function<SlotReference, Expression> nereidsTargetFactory) {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(1), new TupleId(1));
+        slotDescriptor.setColumn(partitionColumn);
+        slotDescriptor.setType(partitionColumn.getType());
+        SlotRef targetSlot = new SlotRef(slotDescriptor);
+        SlotReference nereidsTarget = new SlotReference("part_col", IntegerType.INSTANCE);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        PartitionInfo partitionInfo = Mockito.mock(PartitionInfo.class);
+        OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
+        Mockito.when(scanNode.getOlapTable()).thenReturn(table);
+        Mockito.when(scanNode.getSelectedPartitionIds()).thenReturn(ImmutableList.of(1L, 2L));
+        Mockito.when(table.getPartitionInfo()).thenReturn(partitionInfo);
+        Mockito.when(partitionInfo.getType()).thenReturn(partitionType);
+        Mockito.when(partitionInfo.getPartitionColumns()).thenReturn(ImmutableList.of(partitionColumn));
+        Mockito.when(partitionInfo.getItem(1L)).thenReturn(partitionItem);
+        Mockito.when(partitionInfo.getItem(2L)).thenReturn(partitionItem);
+
+        return RuntimeFilterPartitionPruneClassifier.classify(filterType,
+                legacyTargetFactory.apply(targetSlot), nereidsTargetFactory.apply(nereidsTarget), scanNode);
+    }
+
+    private void assertSupportedIncreasingPartitions(
+            RuntimeFilterPartitionPruneClassifier.Classification classification) {
+        Assertions.assertTrue(classification.canPrunePartitions());
+        Map<Long, TTargetExprMonotonicity> monotonicity = classification.getPartitionMonotonicity();
+        Assertions.assertEquals(2, monotonicity.size());
+        Assertions.assertEquals(TTargetExprMonotonicity.MONOTONIC_INCREASING, monotonicity.get(1L));
+        Assertions.assertEquals(TTargetExprMonotonicity.MONOTONIC_INCREASING, monotonicity.get(2L));
     }
 }

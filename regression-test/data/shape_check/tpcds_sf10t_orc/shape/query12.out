@@ -17,7 +17,7 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ----------------------------PhysicalProject
-------------------------------filter(i_category IN ('Books', 'Electronics', 'Women'))
+------------------------------filter(item.i_category IN ('Books', 'Electronics', 'Women'))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_date <= '1998-02-05') and (date_dim.d_date >= '1998-01-06'))

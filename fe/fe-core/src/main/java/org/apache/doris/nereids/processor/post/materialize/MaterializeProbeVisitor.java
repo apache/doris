@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor.ProbeContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -56,10 +53,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     protected static final Logger LOG = LogManager.getLogger(MaterializeProbeVisitor.class);
 
     private static Set<Class> SUPPORT_RELATION_TYPES = ImmutableSet.of(
-            OlapTable.class,
-            HiveTable.class,
-            IcebergExternalTable.class,
-            HMSExternalTable.class
+            OlapTable.class
     );
 
     /**
@@ -87,13 +81,15 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
                                                            ProbeContext context) {
         if (SessionVariable.getTopNLazyMaterializationUsingIndex() && filter.child() instanceof PhysicalOlapScan) {
-            // agg table do not support lazy materialize
+            // agg table / non-light-schema-change table do not support lazy materialize
             OlapTable table = ((PhysicalOlapScan) filter.child()).getTable();
-            if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+            if (!supportOlapTopnLazyMaterialize(table)) {
                 return Optional.empty();
             }
             if (filter.getInputSlots().contains(context.slot)) {
-                return Optional.of(new MaterializeSource((Relation) filter.child(), context.slot));
+                Relation relation = (Relation) filter.child();
+                return Optional.of(new MaterializeSource(
+                        relation, findRelationOutputSlot(relation, context.slot).orElse(context.slot)));
             } else {
                 return filter.child().accept(this, context);
             }
@@ -122,14 +118,44 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     }
 
     boolean checkRelationTableSupportedType(PhysicalCatalogRelation relation) {
-        if (!SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass())) {
+        boolean supported = SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass());
+        if (!supported && relation.getTable() instanceof PluginDrivenExternalTable) {
+            // Post-flip iceberg becomes PluginDrivenMvccExternalTable (not in the legacy exact-class set);
+            // admit it via the connector capability instead of the legacy IcebergExternalTable.class member.
+            // Row/passthrough plugin connectors (jdbc/es) do not declare the capability, so they stay excluded.
+            supported = ((PluginDrivenExternalTable) relation.getTable()).supportsTopNLazyMaterialize();
+        }
+        if (!supported) {
             return false;
         }
 
-        if (relation.getTable() instanceof HMSExternalTable) {
-            HMSExternalTable hmsExternalTable = (HMSExternalTable) relation.getTable();
-            return (hmsExternalTable.getDlaType() == DLAType.HIVE && hmsExternalTable.supportedHiveTopNLazyTable())
-                    || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
+        if (relation.getTable() instanceof OlapTable) {
+            return supportOlapTopnLazyMaterialize((OlapTable) relation.getTable());
+        }
+        return true;
+    }
+
+    /**
+     * Whether an OLAP table can perform topn lazy materialization.
+     *
+     * <p>Two hard requirements:
+     * <ul>
+     *   <li>Not an AGG_KEYS table: aggregate tables cannot locate a single source row for a value.</li>
+     *   <li>light_schema_change is enabled: lazy materialization appends a synthetic global row-id
+     *       column to the scan and relies on the BE rebuilding the tablet schema from FE's
+     *       columns_desc (keyed by column uniqueId). For non-light-schema-change tables every
+     *       column's uniqueId is -1, so the BE keeps its own on-disk schema and never installs the
+     *       synthetic row-id column. That path either fails with "field name is invalid" during the
+     *       scan or silently returns NULL for the lazily-fetched columns. Disable the optimization
+     *       for such tables and fall back to normal topn.</li>
+     * </ul>
+     */
+    private boolean supportOlapTopnLazyMaterialize(OlapTable table) {
+        if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+            return false;
+        }
+        if (!table.getEnableLightSchemaChange()) {
+            return false;
         }
         return true;
     }
@@ -153,15 +179,16 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()) {
             return Optional.empty();
         }
-        // agg table do not support lazy materialize
+        // agg table / non-light-schema-change table do not support lazy materialize
         OlapTable table = scan.getTable();
-        if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+        if (!supportOlapTopnLazyMaterialize(table)) {
             return Optional.empty();
         }
         if (context.requiredMaterializedSlots.contains(context.slot)) {
             return Optional.empty();
         }
-        return Optional.of(new MaterializeSource(scan, context.slot));
+        return Optional.of(
+                new MaterializeSource(scan, findRelationOutputSlot(scan, context.slot).orElse(context.slot)));
     }
 
     @Override
@@ -173,7 +200,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                     && !context.requiredMaterializedSlots.contains(context.slot)) {
             // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
-                return Optional.of(new MaterializeSource(relation, context.slot));
+                return Optional.of(new MaterializeSource(
+                        relation, findRelationOutputSlot(relation, context.slot).orElse(context.slot)));
             } else {
                 context.requiredMaterializedSlots.addAll(relation.getOutputSet());
                 LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
@@ -190,7 +218,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                 && !context.requiredMaterializedSlots.contains(context.slot)) {
             // lazy materialize slot must be backed by a base column.
             if (context.slot.getOriginalColumn().isPresent()) {
-                return Optional.of(new MaterializeSource(tvfRelation, context.slot));
+                return Optional.of(new MaterializeSource(
+                        tvfRelation, findRelationOutputSlot(tvfRelation, context.slot).orElse(context.slot)));
             } else {
                 LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
             }
@@ -248,6 +277,13 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                 return Optional.empty();
             }
         }
+    }
+
+    private Optional<SlotReference> findRelationOutputSlot(Relation relation, SlotReference contextSlot) {
+        return relation.getOutput().stream()
+                .filter(slot -> slot instanceof SlotReference && slot.equals(contextSlot))
+                .map(slot -> (SlotReference) slot)
+                .findFirst();
     }
 
 }

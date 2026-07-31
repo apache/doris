@@ -59,6 +59,7 @@ import java.lang.reflect.Method;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -300,13 +301,14 @@ public class NereidsParser {
     }
 
     public Expression parseExpression(String expression) {
-        if (isSimpleIdentifier(expression)) {
+        if (isValidUnquotedIdentifier(expression)) {
             return new UnboundSlot(expression);
         }
         return parse(expression, DorisParser::expressionWithEof);
     }
 
-    private static boolean isSimpleIdentifier(String expression) {
+    /** Return whether the text can be emitted as an unquoted Nereids identifier. */
+    public static boolean isValidUnquotedIdentifier(String expression) {
         if (expression == null || expression.isEmpty()) {
             return false;
         }
@@ -323,7 +325,7 @@ public class NereidsParser {
         if (!hasLetter) {
             return false;
         }
-        String upperCase = expression.toUpperCase();
+        String upperCase = expression.toUpperCase(Locale.ROOT);
         return (NON_RESERVED_KEYWORDS.contains(upperCase) || !LITERAL_TOKENS.containsKey(upperCase));
     }
 

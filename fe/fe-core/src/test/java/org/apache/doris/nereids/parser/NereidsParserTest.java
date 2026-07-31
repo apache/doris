@@ -34,7 +34,9 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
@@ -180,6 +182,100 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertNotNull(emptyIncrRelation);
         Assertions.assertEquals("incr", emptyIncrRelation.getScanParams().getParamType());
         Assertions.assertTrue(emptyIncrRelation.getScanParams().getMapParams().isEmpty());
+    }
+
+    @Test
+    public void testParseTableOptionsParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.`orders$files`"
+                        + "@options('scan.snapshot-id'='12345', 'scan.mode'='from-snapshot')"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals("options", relation.getScanParams().getParamType());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "12345", "scan.mode", "from-snapshot"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectOptionsWithoutKeyValuePairs() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> nereidsParser.parseSingle("select * from t@options()"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> nereidsParser.parseSingle("select * from t@options(foo, bar)"));
+    }
+
+    @Test
+    public void testCreateViewParserPreservesTableOptions() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseForCreateView(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectOptionsInBaseTableRefCommand() {
+        NereidsParser nereidsParser = new NereidsParser();
+        ParseException exception = Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle(
+                        "show replica distribution from db1.t"
+                                + "@options('scan.snapshot-id'='1')"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "OPTIONS scan params are only supported in query relations"));
+    }
+
+    @Test
+    public void testParseIndependentDataTableOptionsParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1') left_orders "
+                        + "join paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='2') right_orders "
+                        + "on left_orders.id = right_orders.id");
+
+        List<UnboundRelation> relations = new ArrayList<>();
+        collectUnboundRelations(plan, relations);
+        Assertions.assertEquals(2, relations.size());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                relations.get(0).getScanParams().getMapParams());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "2"),
+                relations.get(1).getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectConflictingTableScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1')"
+                        + "@options('scan.snapshot-id'='2')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders@incr("
+                        + "'startSnapshotId'=1, 'endSnapshotId'=2)"
+                        + "@options('scan.snapshot-id'='1')"));
+    }
+
+    @Test
+    public void testOptionsHintIsNotTableScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders "
+                        + "/*+ OPTIONS('scan.snapshot-id'='1') */"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNull(relation.getScanParams());
     }
 
     @Test
@@ -389,6 +485,19 @@ public class NereidsParserTest extends ParserTestBase {
         logicalPlan = (LogicalPlan) nereidsParser.parseSingle(crossJoin).child(0);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
         Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
+    }
+
+    @Test
+    public void testParseAsofJoinRejectNullSafeEquality() {
+        parsePlan("SELECT t1.a FROM t1 ASOF INNER JOIN t2 "
+                + "MATCH_CONDITION(t1.dt < t2.dt) ON t1.id <=> t2.id")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts");
+
+        parsePlan("SELECT t1.a FROM t1 ASOF LEFT JOIN t2 "
+                + "MATCH_CONDITION(t1.dt < t2.dt) ON t1.id <=> t2.id")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts");
     }
 
     @Test
@@ -1008,6 +1117,15 @@ public class NereidsParserTest extends ParserTestBase {
         return null;
     }
 
+    private void collectUnboundRelations(Plan plan, List<UnboundRelation> relations) {
+        if (plan instanceof UnboundRelation) {
+            relations.add((UnboundRelation) plan);
+        }
+        for (Plan child : plan.children()) {
+            collectUnboundRelations(child, relations);
+        }
+    }
+
     @Test
     public void testBlockSqlAst() {
         String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
@@ -1444,14 +1562,31 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testCreateTableVariantNestedGroupPropertyIsRejected() {
+    public void testCreateTableVariantNestedGroupPropertyIsAccepted() {
         NereidsParser parser = new NereidsParser();
         String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
                 + "\"variant_enable_nested_group\" = \"true\")>) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        org.apache.doris.nereids.types.VariantType variantType =
+                (org.apache.doris.nereids.types.VariantType) createTableCommand.getCreateTableInfo()
+                        .getColumnDefinitions().get(1).getType();
+        Assertions.assertTrue(variantType.getEnableNestedGroup());
+    }
+
+    @Test
+    public void testCreateTableVariantNestedGroupPropertyConflictsWithDocMode() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
+                + "\"variant_enable_nested_group\" = \"true\", "
+                + "\"variant_enable_doc_mode\" = \"true\")>) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
         NotSupportedException exception =
                 Assertions.assertThrowsExactly(NotSupportedException.class, () -> parser.parseSingle(sql));
-        Assertions.assertTrue(exception.getMessage().contains("variant_enable_nested_group is not supported now"));
+        Assertions.assertTrue(exception.getMessage()
+                .contains("variant_enable_nested_group and variant_enable_doc_mode cannot both be true"));
     }
 
     @Test
@@ -1731,5 +1866,23 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(EqualTo.class, expression);
         Assertions.assertInstanceOf(Not.class, expression.child(0));
         Assertions.assertInstanceOf(IsNull.class, expression.child(0).child(0));
+    }
+
+    @Test
+    public void testIsTrueAndIsFalseExpression() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Expression expression = nereidsParser.parseExpression("X IS TRUE");
+        Assertions.assertInstanceOf(IsTrue.class, expression);
+
+        expression = nereidsParser.parseExpression("X IS FALSE");
+        Assertions.assertInstanceOf(IsFalse.class, expression);
+
+        expression = nereidsParser.parseExpression("X IS NOT TRUE");
+        Assertions.assertInstanceOf(Not.class, expression);
+        Assertions.assertInstanceOf(IsTrue.class, expression.child(0));
+
+        expression = nereidsParser.parseExpression("X IS NOT FALSE");
+        Assertions.assertInstanceOf(Not.class, expression);
+        Assertions.assertInstanceOf(IsFalse.class, expression.child(0));
     }
 }

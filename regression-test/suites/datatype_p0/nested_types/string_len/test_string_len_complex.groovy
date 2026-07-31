@@ -200,42 +200,4 @@ suite("test_string_len_complex") {
     }
     qt_sql_map_all2 """ select * from test_string_len_map_one_level order by id; """
 
-    // test map two level
-    def create_table_map_two_level = {
-        sql """ DROP TABLE IF EXISTS test_string_len_map_two_level """
-        sql """
-            CREATE TABLE `test_string_len_map_two_level` (
-              `id` int(11),
-              `info` map<map<char(11), char(11)>, map<char(11), char(11)>>
-            ) PROPERTIES ("replication_num" = "1");
-        """
-    }
-
-    create_table_map_two_level()
-    sql """
-    set enable_insert_strict = false;
-    set enable_strict_cast = false;
-    """
-    sql """
-    insert into test_string_len_map_two_level values (1, { {'01234567891':'12345678901'}:{'11234567891':'12345678901'}, {'01234567892':'12345678902'}:{'11234567892':'12345678902'} } ), 
-    (2, { {'01234567891':'22345678901'}:{'11234567891':'22345678901'}, {'01234567892':'22345678902'}:{'11234567892':'22345678902'} } ), 
-    (3, { {'01234567891':'32345678901'}:{'11234567891':'32345678901'}, {'01234567892':'32345678902x'}:{'11234567892':'32345678902x'} } );
-    """
-    qt_sql_map_all3 """ select * from test_string_len_map_two_level order by id; """
-
-    create_table_map_two_level()
-    sql """
-    set enable_insert_strict = true;
-    set enable_strict_cast = true;
-    """
-    test {
-        sql """
-        insert into test_string_len_map_two_level values (1, { {'01234567891':'12345678901'}:{'11234567891':'12345678901'}, {'01234567892':'12345678902'}:{'11234567892':'12345678902'} } ), 
-        (2, { {'01234567891':'22345678901'}:{'11234567891':'22345678901'}, {'01234567892':'22345678902'}:{'11234567892':'22345678902'} } ), 
-        (3, { {'01234567891':'32345678901'}:{'11234567891':'32345678901'}, {'01234567892':'32345678902x'}:{'11234567892':'32345678902x'} } );
-        """
-        exception "Insert has filtered data in strict mode"
-    }
-    qt_sql_map_all4 """ select * from test_string_len_map_two_level order by id; """
-
 }

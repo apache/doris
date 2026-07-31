@@ -88,16 +88,23 @@ class FSFileCacheStorage;
 // Note that Blocks are updated in batch, internal order is not important.
 class NeedUpdateLRUBlocks {
 public:
+    struct Entry {
+        FileBlockSPtr block;
+        int64_t first_access_time_ms;
+        int64_t last_access_time_ms;
+    };
+
     NeedUpdateLRUBlocks() = default;
 
-    // Insert a block into the pending set. Returns true only when the block
-    // was not already queued. Null inputs are ignored.
-    bool insert(FileBlockSPtr block, size_t max_queue_size = std::numeric_limits<size_t>::max());
+    // Insert a block into the pending set. Repeated accesses update the time range
+    // of the existing entry. Returns true only when the block was not already queued.
+    bool insert(FileBlockSPtr block, int64_t access_time_ms,
+                size_t max_queue_size = std::numeric_limits<size_t>::max());
 
     // Drain up to `limit` unique blocks into `output`. The method returns how
     // many blocks were actually drained and shrinks the internal size
     // accordingly.
-    size_t drain(size_t limit, std::vector<FileBlockSPtr>* output);
+    size_t drain(size_t limit, std::vector<Entry>* output);
 
     // Remove every pending block from the structure and reset the size.
     void clear();
@@ -111,7 +118,7 @@ private:
 
     struct Shard {
         std::mutex mutex;
-        std::unordered_map<FileBlock*, FileBlockSPtr> entries;
+        std::unordered_map<FileBlock*, Entry> entries;
     };
 
     size_t shard_index(FileBlock* ptr) const;
@@ -132,11 +139,22 @@ struct FileBlockCell {
     std::optional<LRUQueue::Iterator> queue_iterator;
 
     mutable int64_t atime {0};
+    /// The first access after a block enters COLD_NORMAL. Unlike atime, this is not
+    /// refreshed by subsequent accesses and is the promotion-window anchor.
+    mutable int64_t cold_normal_first_access_time {0};
+
+    void update_atime(int64_t access_time) const {
+        atime = access_time;
+        if (file_block && file_block->cache_type() == FileCacheType::COLD_NORMAL &&
+            cold_normal_first_access_time == 0) {
+            cold_normal_first_access_time = access_time;
+        }
+    }
 
     void update_atime() const {
-        atime = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch())
-                        .count();
+        update_atime(std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count());
     }
 
     /// Pointer to file block is always hold by the cache itself.
@@ -154,7 +172,8 @@ struct FileBlockCell {
     FileBlockCell(FileBlockCell&& other) noexcept
             : file_block(std::move(other.file_block)),
               queue_iterator(other.queue_iterator),
-              atime(other.atime) {
+              atime(other.atime),
+              cold_normal_first_access_time(other.cold_normal_first_access_time) {
         file_block->cell = this;
     }
 
@@ -239,9 +258,18 @@ public:
                                 CacheContext& context);
 
     /**
+     * Return existing downloaded blocks only if they fully cover [offset, offset + size).
+     * This lookup is read-only: it does not reserve cache space or create EMPTY blocks.
+     */
+    Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
+                                                  size_t size, const CacheContext& context,
+                                                  FileBlocks* blocks, bool* fully_covered);
+
+    /**
      * record blocks read directly by CachedRemoteFileReader
      */
     void add_need_update_lru_block(FileBlockSPtr block);
+    void add_need_update_lru_block(FileBlockSPtr block, int64_t access_time_ms);
 
     /**
      * Clear all cached data for this cache instance async
@@ -249,7 +277,7 @@ public:
      * @returns summary message
      */
     std::string clear_file_cache_async();
-    std::string clear_file_cache_directly();
+    std::string clear_file_cache_sync();
 
     /**
      * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
@@ -313,9 +341,6 @@ public:
     void try_evict_in_advance(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
-
-    void pause_ttl_manager();
-    void resume_ttl_manager();
 
     std::map<std::string, double> get_stats();
 
@@ -399,6 +424,11 @@ public:
     Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
+    // Shared scan used by both clear modes. It keeps the FileBlock holder lifecycle intact:
+    // releasable blocks are removed immediately, while blocks held by readers are only marked
+    // deleting and are later removed by FileBlocksHolder destruction.
+    std::string clear_file_cache_impl(bool sync_remove);
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
@@ -419,7 +449,8 @@ private:
 
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
-    void update_block_lru(FileBlockSPtr block, std::lock_guard<std::mutex>& cache_lock);
+    void update_block_lru(const NeedUpdateLRUBlocks::Entry& update,
+                          std::lock_guard<std::mutex>& cache_lock);
 
     void use_cell(FileBlockCell& cell, FileBlocks* result, bool not_need_move,
                   std::lock_guard<std::mutex>& cache_lock);
@@ -434,8 +465,8 @@ private:
     std::vector<FileCacheType> get_other_cache_type(FileCacheType cur_cache_type);
     std::vector<FileCacheType> get_other_cache_type_without_ttl(FileCacheType cur_cache_type);
 
-    bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t offset, int64_t cur_time,
-                                      std::lock_guard<std::mutex>& cache_lock,
+    bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t size,
+                                      int64_t cur_time_ms, std::lock_guard<std::mutex>& cache_lock,
                                       bool evict_in_advance = false);
 
     size_t get_available_cache_size(FileCacheType cache_type) const;
@@ -480,7 +511,7 @@ private:
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
-                                                       size_t size, int64_t cur_time,
+                                                       size_t size, int64_t cur_time_ms,
                                                        std::lock_guard<std::mutex>& cache_lock,
                                                        bool evict_in_advance);
 
@@ -628,9 +659,14 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
-    std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
-    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
-    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
+    std::array<std::shared_ptr<bvar::LatencyRecorder>, FILE_CACHE_TYPE_COUNT>
+            _lru_recorder_queue_length_recorder;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, FILE_CACHE_TYPE_COUNT>
+            _lru_recorder_queue_produce_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, FILE_CACHE_TYPE_COUNT>
+            _lru_recorder_queue_consume_metrics;
+    std::array<std::shared_ptr<bvar::Status<size_t>>, FILE_CACHE_TYPE_COUNT>
+            _lru_recorder_shadow_queue_element_count_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash

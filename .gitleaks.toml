@@ -7,6 +7,12 @@ useDefault = true
 id = "generic-api-key"
 
 [[rules.allowlists]]
+description = "Ignore prose 'version token: iceberg/paimon' in code comments/plan-doc — a cache version-token discussion, not a credential (generic-api-key false positive: 'iceberg/paimon' entropy 3.52 barely clears the 3.5 threshold)"
+condition = "AND"
+regexTarget = "match"
+regexes = ['''token:\s*iceberg/paimon''']
+
+[[rules.allowlists]]
 description = "Ignore the fake OIDC token fixture in AuthenticatorManagerTest"
 condition = "AND"
 regexTarget = "line"
@@ -33,6 +39,16 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^tools/release-tools/release\.env$''']
 regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
+
+[[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Ignore the fake JWT fixture in DelegatedCredentialTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/datasource/DelegatedCredentialTest\.java$''']
+regexes = ['''"eyJhbGciOiJub25lIn0\.eyJleHAiOjE3MDAwMDAwMDB9\."''']
 
 [[rules]]
 id = "private-key"

@@ -26,6 +26,12 @@ import java.util.Objects;
  */
 public final class ConnectorDatabaseMetadata {
 
+    /**
+     * Property key carrying the database (namespace) base location, used by SHOW CREATE DATABASE to
+     * render the {@code LOCATION '...'} clause. Trino-aligned ({@code IcebergSchemaProperties.LOCATION_PROPERTY}).
+     */
+    public static final String LOCATION_PROPERTY = "location";
+
     private final String name;
     private final Map<String, String> properties;
 

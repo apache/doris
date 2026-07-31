@@ -64,7 +64,9 @@ struct AnnIndexStats {
               ivf_on_disk_cache_miss_cnt(TUnit::UNIT, 0),
               topn_cache_hits(TUnit::UNIT, 0),
               range_cache_hits(TUnit::UNIT, 0),
-              fall_back_brute_force_cnt(0) {}
+              fall_back_brute_force_cnt(0),
+              range_fallback_by_small_candidate_cnt(0),
+              range_fallback_small_candidate_rows(0) {}
 
     AnnIndexStats(const AnnIndexStats& other)
             : search_costs_ns(TUnit::TIME_NS, other.search_costs_ns.value()),
@@ -81,7 +83,9 @@ struct AnnIndexStats {
               ivf_on_disk_cache_miss_cnt(TUnit::UNIT, other.ivf_on_disk_cache_miss_cnt.value()),
               topn_cache_hits(TUnit::UNIT, other.topn_cache_hits.value()),
               range_cache_hits(TUnit::UNIT, other.range_cache_hits.value()),
-              fall_back_brute_force_cnt(other.fall_back_brute_force_cnt) {}
+              fall_back_brute_force_cnt(other.fall_back_brute_force_cnt),
+              range_fallback_by_small_candidate_cnt(other.range_fallback_by_small_candidate_cnt),
+              range_fallback_small_candidate_rows(other.range_fallback_small_candidate_rows) {}
 
     AnnIndexStats& operator=(const AnnIndexStats& other) {
         if (this != &other) {
@@ -99,6 +103,8 @@ struct AnnIndexStats {
             topn_cache_hits.set(other.topn_cache_hits.value());
             range_cache_hits.set(other.range_cache_hits.value());
             fall_back_brute_force_cnt = other.fall_back_brute_force_cnt;
+            range_fallback_by_small_candidate_cnt = other.range_fallback_by_small_candidate_cnt;
+            range_fallback_small_candidate_rows = other.range_fallback_small_candidate_rows;
         }
         return *this;
     }
@@ -118,6 +124,8 @@ struct AnnIndexStats {
     RuntimeProfile::Counter topn_cache_hits; // number of cache hits in ANN TopN result cache
     RuntimeProfile::Counter range_cache_hits;
     int64_t fall_back_brute_force_cnt; // fallback count when ANN range search is bypassed
+    int64_t range_fallback_by_small_candidate_cnt;
+    int64_t range_fallback_small_candidate_rows;
 };
 
 struct AnnTopNParam {

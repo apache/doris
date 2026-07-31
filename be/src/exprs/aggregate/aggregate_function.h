@@ -20,8 +20,11 @@
 
 #pragma once
 
+#include <string>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -29,6 +32,7 @@
 #include "core/column/column_complex.h"
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_buffer.hpp"
@@ -188,6 +192,8 @@ public:
 
     /// Inserts results into a column.
     // todo: Consider whether this passes a ConstAggregateDataPtr
+    // Hot path. Callers must validate `to` with check_result_column_type() before calling
+    // insert_result_into()/insert_result_into_vec()/insert_result_into_range().
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
@@ -225,6 +231,19 @@ public:
 
     virtual void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                                    const size_t num_rows, Arena&) const = 0;
+
+    virtual void check_input_columns_type(const IColumn** columns) const {
+        check_columns_type(argument_types, columns);
+    }
+
+    virtual void check_result_column_type(const IColumn& column) const {
+        auto status = get_return_type()->check_column(column);
+        if (UNLIKELY(!status.ok())) {
+            throw doris::Exception(
+                    Status::InternalError("Aggregate function {} result type check failed: {}",
+                                          get_name(), status.msg()));
+        }
+    }
 
     const DataTypes& get_argument_types() const { return argument_types; }
 
@@ -300,6 +319,39 @@ public:
     }
 
 protected:
+    void check_columns_type(const DataTypes& types, const IColumn** columns) const {
+        for (size_t i = 0; i < types.size(); ++i) {
+            auto status = types[i]->check_column(*columns[i]);
+            if (UNLIKELY(!status.ok())) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} argument {} type check failed: {}", get_name(), i,
+                        status.msg()));
+            }
+        }
+    }
+
+    template <typename ColumnType>
+    void check_argument_column_type(const IColumn* column) const {
+        if (UNLIKELY(check_and_get_column<ColumnType>(*column) == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} argument type check failed: Column type {} ({}) does "
+                    "not match expected physical column type {}",
+                    get_name(), column->get_name(), typeid(*column).name(),
+                    typeid(ColumnType).name()));
+        }
+    }
+
+    template <typename ColumnType>
+    void check_result_column_type_as(const IColumn& column) const {
+        if (UNLIKELY(check_and_get_column<ColumnType>(column) == nullptr)) {
+            throw doris::Exception(Status::InternalError(
+                    "Aggregate function {} result type check failed: Column type {} ({}) does not "
+                    "match expected physical column type {}",
+                    get_name(), column.get_name(), typeid(column).name(),
+                    typeid(ColumnType).name()));
+        }
+    }
+
     DataTypes argument_types;
     int version {};
 };

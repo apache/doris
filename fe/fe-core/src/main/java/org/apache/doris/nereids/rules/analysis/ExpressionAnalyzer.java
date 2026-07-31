@@ -58,6 +58,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -397,7 +400,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
 
-        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        List<Slot> scopeSlots = qualifier.isEmpty() ? getScope().getAsteriskSlots() : getScope().getSlots();
         ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
         for (Slot slot : scopeSlots) {
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
@@ -940,6 +943,24 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     @Override
+    public Expression visitIsTrue(IsTrue isTrue, ExpressionRewriteContext context) {
+        Expression child = isTrue.child().accept(this, context);
+        if (!child.getDataType().isBooleanType()) {
+            child = new Cast(child, BooleanType.INSTANCE);
+        }
+        return new And(child, new Not(new IsNull(child)));
+    }
+
+    @Override
+    public Expression visitIsFalse(IsFalse isFalse, ExpressionRewriteContext context) {
+        Expression child = isFalse.child().accept(this, context);
+        if (!child.getDataType().isBooleanType()) {
+            child = new Cast(child, BooleanType.INSTANCE);
+        }
+        return new And(new Not(child), new Not(new IsNull(child)));
+    }
+
+    @Override
     public Expression visitInSubquery(InSubquery inSubquery, ExpressionRewriteContext context) {
         // analyze subquery
         inSubquery = (InSubquery) super.visitInSubquery(inSubquery, context);
@@ -1010,6 +1031,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+        CascadesContext cascadesContext = getCascadesContext();
+        if (cast.isExplicitType() && cascadesContext != null
+                && cascadesContext.getConnectContext().getSessionVariable().isEnableVariantV2()
+                && VariantType.containsVariant(cast.getDataType())) {
+            // TODO: Remove this V1/V2 compatibility conversion after legacy Variant V1 is removed.
+            cast = cast.withTargetType(VariantType.toComputeV2(cast.getDataType()));
+        }
 
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {

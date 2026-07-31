@@ -17,7 +17,7 @@
 
 #include "storage/predicate/like_column_predicate.h"
 
-#include "core/column/predicate_column.h"
+#include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
 #include "exprs/function/like.h"
@@ -25,32 +25,25 @@
 
 namespace doris {
 
-template <PrimitiveType T>
-LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
-                                            doris::FunctionContext* fn_ctx, doris::StringRef val)
-        : ColumnPredicate(column_id, col_name, T, opposite), pattern(val) {
-    static_assert(T == TYPE_VARCHAR || T == TYPE_CHAR || T == TYPE_STRING,
-                  "LikeColumnPredicate only supports the following types: TYPE_VARCHAR, TYPE_CHAR, "
-                  "TYPE_STRING");
+LikeColumnPredicate::LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
+                                         doris::FunctionContext* fn_ctx, doris::StringRef val)
+        : ColumnPredicate(column_id, col_name, TYPE_STRING, opposite), pattern(val) {
     _state = reinterpret_cast<StateType*>(
             fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
     THROW_IF_ERROR(_state->search_state.clone(_like_state));
 }
 
-template <PrimitiveType T>
-void LikeColumnPredicate<T>::evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
+void LikeColumnPredicate::evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
     _evaluate_vec<false>(column, size, flags);
 }
 
-template <PrimitiveType T>
-void LikeColumnPredicate<T>::evaluate_and_vec(const IColumn& column, uint16_t size,
-                                              bool* flags) const {
+void LikeColumnPredicate::evaluate_and_vec(const IColumn& column, uint16_t size,
+                                           bool* flags) const {
     _evaluate_vec<true>(column, size, flags);
 }
 
-template <PrimitiveType T>
-uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
-                                                 uint16_t size) const {
+uint16_t LikeColumnPredicate::_evaluate_inner(const IColumn& column, uint16_t* sel,
+                                              uint16_t size) const {
     uint16_t new_size = 0;
     if (is_column_nullable(column)) {
         auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
@@ -80,7 +73,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 }
             }
         } else {
-            auto* str_col = assert_cast<const PredicateColumnType<T>*>(&nested_col);
+            auto* str_col = assert_cast<const ColumnString*>(&nested_col);
             if (!nullable_col->has_null()) {
                 ColumnUInt8::Container res(size, 0);
                 for (uint16_t i = 0; i != size; i++) {
@@ -121,7 +114,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 new_size += _opposite ^ flag;
             }
         } else {
-            const auto* str_col = assert_cast<const PredicateColumnType<T>*>(&column);
+            const auto* str_col = assert_cast<const ColumnString*>(&column);
 
             ColumnUInt8::Container res(size, 0);
             for (uint16_t i = 0; i != size; i++) {
@@ -136,8 +129,5 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
     }
     return new_size;
 }
-
-template class LikeColumnPredicate<TYPE_CHAR>;
-template class LikeColumnPredicate<TYPE_STRING>;
 
 } //namespace doris

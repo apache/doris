@@ -657,7 +657,9 @@ test {
         ALTER TABLE ${catalog_name}.${db_name}.${table_name}
         EXECUTE publish_changes ("wap_id" = "test_wap_001") WHERE id > 0
     """
-    exception "Action 'publish_changes' does not support WHERE condition"
+    // Engine-layer generic wording for any SINGLE_CALL EXECUTE action (see ConnectorExecuteAction) — the same
+    // message test_iceberg_rewrite_manifests aligned to in commit 8b4eefcd349 (异常文案对齐).
+    exception "WHERE condition is not supported for this EXECUTE action"
 }
 
   

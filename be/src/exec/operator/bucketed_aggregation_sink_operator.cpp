@@ -89,8 +89,7 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
 
         // Detect simple_count: exactly one COUNT(*) with no args, with GROUP BY present.
         // Bucketed agg always has GROUP BY (without-key not supported).
-        if (p._aggregate_evaluators.size() == 1 &&
-            p._aggregate_evaluators[0]->function()->is_simple_count()) {
+        if (p._aggregate_evaluators.size() == 1 && p._aggregate_evaluators[0]->is_simple_count()) {
             shared_state.use_simple_count = true;
         }
         return Status::OK();
@@ -150,8 +149,7 @@ Status BucketedAggSinkLocalState::_create_agg_status(AggregateDataPtr data) {
 Status BucketedAggSinkLocalState::_destroy_agg_status(AggregateDataPtr data) {
     auto& shared_state = *Base::_shared_state;
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->function()->destroy(data +
-                                                      shared_state.offsets_of_aggregate_states[i]);
+        _aggregate_evaluators[i]->destroy(data + shared_state.offsets_of_aggregate_states[i]);
     }
     return Status::OK();
 }
@@ -454,12 +452,11 @@ Status BucketedAggSinkOperatorX::prepare(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
-        const auto& agg_function = _aggregate_evaluators[i]->function();
+        const auto* agg_function = _aggregate_evaluators[i];
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
         if (i + 1 < _aggregate_evaluators.size()) {
-            size_t alignment_of_next_state =
-                    _aggregate_evaluators[i + 1]->function()->align_of_data();
+            size_t alignment_of_next_state = _aggregate_evaluators[i + 1]->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
                 return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }

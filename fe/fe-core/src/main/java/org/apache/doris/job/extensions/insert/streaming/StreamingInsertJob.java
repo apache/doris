@@ -39,7 +39,9 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
@@ -75,6 +77,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -134,12 +137,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("props")
     private Map<String, String> properties;
     private StreamingJobProperties jobProperties;
+    // Soft cap on produced-but-unconsumed splits buffered on FE; checked before each round,
+    // so the actual backlog may overshoot by up to one fetch batch.
+    private static final int MAX_PENDING_SPLITS = 512;
     @Getter
     @SerializedName("tvf")
     private String tvfType;
     private Map<String, String> originTvfProps;
     @Getter
-    AbstractStreamingTask runningStreamTask;
+    volatile AbstractStreamingTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Getter
     @Setter
@@ -179,6 +185,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @SerializedName("st")
     private List<String> syncTables;
+
+    // Incremental(binlog) phase: bound BE for reader reuse; <=0 = unbound (replay-safe default).
+    @SerializedName("bbe")
+    private volatile long boundBackendId;
+
+    // previous task ended abnormally (or FE restarted), next dispatch must rebuild the cdc reader
+    @Getter
+    @Setter
+    private transient volatile boolean needRebuildReader = true;
 
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
@@ -232,9 +247,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * Initialize job from source to database, like multi table mysql to doris.
-     * 1. get mysql connection info from sourceProperties
-     * 2. fetch table list from mysql
+     * Initialize a multi-table job from an external database source to Doris.
+     * 1. get source connection info from sourceProperties
+     * 2. fetch the source table list
      * 3. create doris table if not exists
      * 4. check whether need full data sync
      * 5. need => fetch split and write to system table
@@ -243,6 +258,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             init();
             checkRequiredSourceProperties();
+            DataSourceConfigValidator.validateSourceBeforeTableCreation(
+                    dataSourceType, sourceProperties);
             List<String> createTbls = createTableIfNotExists();
             this.syncTables = createTbls;
             if (sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) == null) {
@@ -256,7 +273,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
-            throw new RuntimeException(ex.getMessage());
+            throw new RuntimeException(ex.getMessage(), ex);
         }
     }
 
@@ -282,11 +299,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
-        // Key: source table name (PG/MySQL); Value: CreateTableCommand for the Doris target table.
+        Map<String, String> effectiveSourceProperties = buildConvertedSourceProperties(sourceProperties);
+        // Key: source table name; Value: CreateTableCommand for the Doris target table.
         // The two names differ when "table.<src>.target_table" is configured.
         LinkedHashMap<String, CreateTableCommand> createTblCmds =
                 StreamingJobUtils.generateCreateTableCmds(targetDb,
-                        dataSourceType, sourceProperties, targetProperties);
+                        dataSourceType, effectiveSourceProperties, targetProperties);
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
         Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
         for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
@@ -295,7 +313,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
                 createTblCmd.run(ConnectContext.get(), null);
             }
-            // Use the source (upstream) table name so CDC monitors the correct PG/MySQL table
+            // Use the upstream table name so CDC monitors the correct source table.
             syncTbls.add(srcTable);
         }
         return syncTbls;
@@ -393,6 +411,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             provider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, jdbcSourceProps);
         }
         provider.setCloudCluster(this.cloudCluster);
+        provider.setBoundBackendId(boundBackendId);
         return provider;
     }
 
@@ -520,7 +539,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Map<String, String> mergedSourceProperties = new HashMap<>(this.sourceProperties);
             mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
             Map<String, String> newConvertedSourceProperties =
-                    StreamingJobUtils.convertCertFile(getDbId(), mergedSourceProperties);
+                    buildConvertedSourceProperties(mergedSourceProperties);
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
@@ -628,29 +647,49 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } else {
             this.runningStreamTask = createStreamingMultiTblTask();
         }
-        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
+        // Set PENDING before registering, else the scheduler thread may set RUNNING first and we clobber it.
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         log.info("create new streaming insert task for job {}, task {} ",
                 getJobId(), runningStreamTask.getTaskId());
         recordTasks(runningStreamTask);
         return runningStreamTask;
     }
 
-    /**
-     * for From MySQL TO Database
-     * @return
-     */
+    /** Create a task for a FROM source TO DATABASE streaming job. */
     private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
                 offsetProvider, getConvertedSourceProperties(), targetDb, targetProperties, jobProperties,
                 getCreateUser(), cloudCluster);
     }
 
+    // Binlog phase: prefer the bound BE in selectBackend; rebind + persist on change.
+    public Backend resolveBoundBackend() throws JobException {
+        Backend selected = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
+        if (selected.getId() != boundBackendId) {
+            log.info("bind job {} to backend {} (was {})", getJobId(), selected.getId(), boundBackendId);
+            boundBackendId = selected.getId();
+            logUpdateOperation();
+        }
+        offsetProvider.setBoundBackendId(boundBackendId);
+        return selected;
+    }
+
     private Map<String, String> getConvertedSourceProperties() throws JobException {
         if (convertedSourceProperties == null) {
-            this.convertedSourceProperties = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
+            this.convertedSourceProperties = buildConvertedSourceProperties(sourceProperties);
         }
         return convertedSourceProperties;
+    }
+
+    private Map<String, String> buildConvertedSourceProperties(Map<String, String> inputProperties)
+            throws JobException {
+        Map<String, String> convertedProperties =
+                StreamingJobUtils.convertCertFile(getDbId(), inputProperties);
+        convertedProperties.put(DataSourceConfigKeys.JDBC_URL,
+                StreamingJdbcUrlNormalizer.normalize(dataSourceType,
+                        convertedProperties.get(DataSourceConfigKeys.JDBC_URL)));
+        return convertedProperties;
     }
 
     private Map<String, String> getOriginTvfProps() {
@@ -709,12 +748,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
                 // When a job is manually paused, it does not need to be set again,
                 // otherwise, it may be woken up by auto resume.
+                // Pause before setting the reason: updateJobStatus's writeLock orders this after any
+                // task-success callback that clears failureReason, so a success can't wipe the reason.
+                this.updateJobStatus(JobStatus.PAUSED);
                 this.setFailureReason(
                         new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                                 "Failed to fetch meta, " + ex.getMessage()));
-                // If fetching meta fails, the job is paused
-                // and auto resume will automatically wake it up.
-                this.updateJobStatus(JobStatus.PAUSED);
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -737,8 +776,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider.noMoreSplits()) {
             return;
         }
+        // Admit as many splits as possible this tick until the pending backlog hits the soft cap,
+        // then yield before the next tick (deadline) which resumes the rest.
+        long intervalMs = jobProperties.getMaxIntervalSecond() * 1000L;
+        long deadline = System.currentTimeMillis() + intervalMs - Math.min(1000L, intervalMs / 10);
         try {
-            offsetProvider.advanceSplits();
+            while (!offsetProvider.noMoreSplits()
+                    && offsetProvider.pendingSplitCount() < MAX_PENDING_SPLITS
+                    && System.currentTimeMillis() < deadline) {
+                int before = offsetProvider.pendingSplitCount();
+                offsetProvider.advanceSplits();
+                if (offsetProvider.pendingSplitCount() <= before) {
+                    break; // nothing produced this round; avoid spin
+                }
+            }
         } catch (Exception ex) {
             log.warn("advance splits failed, job id: {}", getJobId(), ex);
             if (this.getFailureReason() == null
@@ -770,6 +821,28 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    // Command entry for a manual status change: reset the failure/retry budget, and on manual pause
+    // release the reader (keep slot). "Manual" is decided by the caller, never by reading failureReason.
+    public void onManualStatusAltered(JobStatus newStatus, FailureReason reason) {
+        AbstractStreamingTask taskToRelease = null;
+        lock.writeLock().lock();
+        try {
+            resetFailureInfo(reason);
+            if (JobStatus.PAUSED.equals(newStatus) && runningStreamTask != null) {
+                // Force resume to swap in a fresh reader, in case the release RPC races or fails.
+                this.needRebuildReader = true;
+                taskToRelease = runningStreamTask;
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+        // Release outside the write lock: the RPC may block on first brpc connect and this is
+        // best-effort (needRebuildReader already forces a fresh reader; a stale release is a no-op).
+        if (taskToRelease != null) {
+            taskToRelease.releaseRemoteReader();
+        }
+    }
+
     public boolean hasMoreDataToConsume() {
         return offsetProvider.hasMoreDataToConsume();
     }
@@ -791,9 +864,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskFail(AbstractStreamingTask task) throws JobException {
         try {
+            this.needRebuildReader = true;
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            this.failureReason = new FailureReason(task.getErrMsg());
+            // Don't overwrite a manual pause: a late failure callback would otherwise let auto resume wake it.
+            if (this.getFailureReason() == null
+                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
+                this.failureReason = new FailureReason(task.getErrMsg());
+            }
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_TASK_FAILED_COUNT.increase(1L);
             }
@@ -805,6 +883,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
         try {
+            this.needRebuildReader = false;
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
             lastTaskSuccessTime = System.currentTimeMillis();
@@ -980,6 +1059,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
         setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
+        this.boundBackendId = replayJob.boundBackendId;
     }
 
     /**
@@ -1402,6 +1482,34 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (null == lock) {
             this.lock = new ReentrantReadWriteLock(true);
         }
+
+        // a stale reader may survive on the bound BE across FE restart/failover
+        this.needRebuildReader = true;
+    }
+
+    /**
+     * Push from cdc_client: fail the running task immediately on a hard write failure.
+     * Reports whose taskId no longer matches the current running task are dropped.
+     */
+    public void reportTaskFailure(TaskFailureRequest request) throws JobException {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        if (runningMultiTask.getTaskId() != request.getTaskId()) {
+            return;
+        }
+        writeLock();
+        try {
+            if (this.runningStreamTask == runningMultiTask
+                    && runningMultiTask.getTaskId() == request.getTaskId()
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())) {
+                runningMultiTask.onFail(request.getReason());
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     /**
@@ -1409,15 +1517,21 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * Only applies to StreamingMultiTask.
      */
     public void processTimeoutTasks() throws JobException {
-        if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
             return;
         }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        if (!runningMultiTask.isLocalTimeout()) {
+            return;
+        }
+        StreamingTaskStatus status = runningMultiTask.fetchTaskStatus();
         writeLock();
         try {
-            StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
-            if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
-                    && runningMultiTask.isTimeout()) {
-                String timeoutReason = runningMultiTask.getTimeoutReason();
+            if (this.runningStreamTask == runningMultiTask
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
+                    && runningMultiTask.isTimeout(status)) {
+                String timeoutReason = status == null ? "" : status.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
                     timeoutReason = "task failed cause timeout";
                 }
@@ -1443,6 +1557,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     log.info("Streaming multi table job {} skip late commit offset on canceled task "
                                     + "(expected: {}, actual: {})",
                             getJobId(), this.runningStreamTask.getTaskId(), offsetRequest.getTaskId());
+                    return;
+                }
+                // Reject a late commit from an already-failed task (e.g. brpc timeout) reviving a paused job.
+                if (!TaskStatus.RUNNING.equals(this.runningStreamTask.getStatus())) {
+                    log.info("Streaming multi table job {} skip late commit offset on non-running task {} "
+                                    + "(status: {}, actual: {})",
+                            getJobId(), this.runningStreamTask.getTaskId(),
+                            this.runningStreamTask.getStatus(), offsetRequest.getTaskId());
                     return;
                 }
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
@@ -1528,6 +1650,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider != null) {
             // when fe restart, offsetProvider.jobId/sourceProperties may be null
             offsetProvider.ensureInitialized(getJobId(), getProviderProps());
+            // replayOnUpdated skips the transient provider; resync routing BE.
+            offsetProvider.setBoundBackendId(boundBackendId);
             offsetProvider.replayIfNeed(this);
         }
     }
@@ -1570,7 +1694,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (JobException ex) {
                 log.warn("refresh provider props before cleanMeta failed, job id: {}", getJobId(), ex);
             }
-            ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId());
+            long runtimeBackendId = runningStreamTask != null ? runningStreamTask.getRunningBackendId() : -1;
+            ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId(), runtimeBackendId);
         }
     }
 }

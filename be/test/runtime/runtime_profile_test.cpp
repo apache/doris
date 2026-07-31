@@ -19,8 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include <barrier>
 #include <cstdlib>
 #include <sstream>
+#include <thread>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/object_pool.h"
@@ -76,7 +79,7 @@ TEST(RuntimeProfileTest, Basic) {
     counter_a->update(10);
     counter_a->update(-5);
     EXPECT_EQ(counter_a->value(), 5);
-    counter_a->set(1L);
+    counter_a->set(int64_t(1));
     EXPECT_EQ(counter_a->value(), 1);
 
     counter_b = profile_a2.add_counter("B", TUnit::BYTES);
@@ -149,7 +152,7 @@ TEST(RuntimeProfileTest, ProtoBasic) {
     counter_a->update(10);
     counter_a->update(-5);
     EXPECT_EQ(counter_a->value(), 5);
-    counter_a->set(1L);
+    counter_a->set(int64_t(1));
     EXPECT_EQ(counter_a->value(), 1);
 
     counter_b = profile_a2.add_counter("B", TUnit::BYTES);
@@ -441,7 +444,7 @@ TEST(RuntimeProfileTest, DerivedCounters) {
     RuntimeProfile::Counter* bytes_counter = profile.add_counter("bytes", TUnit::BYTES);
     RuntimeProfile::Counter* ticks_counter = profile.add_counter("ticks", TUnit::TIME_NS);
     // set to 1 sec
-    ticks_counter->set(1000L * 1000L * 1000L);
+    ticks_counter->set(int64_t(1000L * 1000L * 1000L));
 
     RuntimeProfile::DerivedCounter* throughput_counter = profile.add_derived_counter(
             "throughput", TUnit::BYTES,
@@ -450,9 +453,9 @@ TEST(RuntimeProfileTest, DerivedCounters) {
             },
             RuntimeProfile::ROOT_COUNTER);
 
-    bytes_counter->set(10L);
+    bytes_counter->set(int64_t(10));
     EXPECT_EQ(throughput_counter->value(), 10);
-    bytes_counter->set(20L);
+    bytes_counter->set(int64_t(20));
     EXPECT_EQ(throughput_counter->value(), 20);
     ticks_counter->set(ticks_counter->value() / 2);
     EXPECT_EQ(throughput_counter->value(), 40);
@@ -576,6 +579,34 @@ TEST(RuntimeProfileTest, TestGetChild) {
     // Verify original children still accessible
     ASSERT_EQ(child1, root.get_child("Child1"));
     ASSERT_EQ(child2, root.get_child("Child2"));
+}
+
+TEST(RuntimeProfileTest, ConcurrentGetOrCreateChildReturnsSingleSharedProfile) {
+    RuntimeProfile root("Root");
+    constexpr size_t kThreadCount = 32;
+    std::barrier start(kThreadCount);
+    std::vector<RuntimeProfile*> children(kThreadCount);
+    std::vector<std::thread> threads;
+    threads.reserve(kThreadCount);
+
+    for (size_t i = 0; i < kThreadCount; ++i) {
+        threads.emplace_back([&, i] {
+            start.arrive_and_wait();
+            children[i] = root.get_or_create_child("SharedChild");
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_NE(children.front(), nullptr);
+    for (const auto* child : children) {
+        EXPECT_EQ(child, children.front());
+    }
+    std::vector<RuntimeProfile*> profile_children;
+    root.get_children(&profile_children);
+    ASSERT_EQ(profile_children.size(), 1);
+    EXPECT_EQ(profile_children.front(), children.front());
 }
 
 } // namespace doris

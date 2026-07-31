@@ -99,7 +99,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     private Set<String> completedSplitIds = ConcurrentHashMap.newKeySet();
 
     // Parallel polling support
-    private ExecutorService pollExecutor;
+    private ExecutorService snapshotPollExecutor;
     private volatile List<CompletableFuture<PollResult>> activePollFutures;
 
     // Stream/binlog reader (single reader for stream split)
@@ -123,7 +123,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                         config.getOrDefault(
                                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
-        this.pollExecutor =
+        this.snapshotPollExecutor =
                 Executors.newFixedThreadPool(
                         parallelism,
                         r -> {
@@ -358,7 +358,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                                         split.splitId(),
                                         split.getTableId().identifier());
                             },
-                            pollExecutor));
+                            snapshotPollExecutor));
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -399,19 +399,47 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     "No tableSchemas available for stream split, discovering via JDBC for job {}",
                     baseReq.getJobId());
             Map<TableId, TableChanges.TableChange> discovered = getTableSchemas(baseReq);
-            this.tableSchemas = new java.util.concurrent.ConcurrentHashMap<>(discovered);
-            this.serializer.setTableSchemas(this.tableSchemas);
+            setTableSchemas(new java.util.concurrent.ConcurrentHashMap<>(discovered));
             LOG.info(
                     "Discovered {} table schema(s) for job {}",
                     discovered.size(),
                     baseReq.getJobId());
         }
         Tuple2<SourceSplitBase, Boolean> splitFlag = createStreamSplit(offsetMeta, baseReq);
-        this.streamSplit = splitFlag.f0.asStreamSplit();
+        StreamSplit newStreamSplit = splitFlag.f0.asStreamSplit();
 
-        // Close previous stream reader to release resources (e.g. PG replication slot)
-        // before creating a new one. This prevents connection leaks when a cancelled
-        // task's reader is still active while a new task arrives.
+        // offset guard: reuse only when request start == reader's consumed position. Compare by
+        // compareTo (LSN), NOT equals -- PG drops lsn_proc/commit so same position differs by map.
+        if (this.streamReader != null && this.streamSplitState != null) {
+            Offset requestStart = newStreamSplit.getStartingOffset();
+            Offset readerPos = this.streamSplitState.getStartingOffset();
+            if (requestStart != null
+                    && readerPos != null
+                    && requestStart.compareTo(readerPos) == 0) {
+                LOG.info(
+                        "Reuse live stream reader for job {} at offset {}",
+                        baseReq.getJobId(),
+                        requestStart);
+                // Refresh split so commitSourceOffset advances PG confirmed_lsn to the FE-committed
+                // offset (== reader pos); poll/offset keep using streamSplitState.
+                this.streamSplit = newStreamSplit;
+                SplitReadResult reuseResult = new SplitReadResult();
+                reuseResult.setSplits(Collections.singletonList(this.streamSplit));
+                Map<String, Object> reuseStates = new HashMap<>();
+                reuseStates.put(this.streamSplit.splitId(), this.streamSplitState);
+                reuseResult.setSplitStates(reuseStates);
+                return reuseResult;
+            }
+            LOG.info(
+                    "Rebuild stream reader for job {}: requestStart={}, readerPos={}",
+                    baseReq.getJobId(),
+                    requestStart,
+                    readerPos);
+        }
+
+        this.streamSplit = newStreamSplit;
+        // Close previous stream reader (rebuild path) before creating a new one. This prevents
+        // connection leaks when a cancelled task's reader is still active while a new task arrives.
         if (this.streamReader != null) {
             LOG.info(
                     "Closing previous stream reader before creating new one for job {}",
@@ -419,6 +447,10 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             closeReaderInternal(this.streamReader);
             this.streamReader = null;
         }
+
+        // Rebuild path: fail loudly if the source position is gone (e.g. slot dropped) instead of
+        // silently re-locating from a lost offset.
+        validateStreamSource(offsetMeta, baseReq);
 
         this.streamReader = getBinlogSplitReader(baseReq);
 
@@ -442,6 +474,10 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         LOG.info("Success prepared stream split: {}", this.streamSplit.toString());
         return result;
     }
+
+    // Source-specific check before (re)building the stream reader; default no-op.
+    protected void validateStreamSource(
+            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {}
 
     @Override
     public Iterator<SourceRecord> pollRecords() throws Exception {
@@ -550,7 +586,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                                 }
                                 return null;
                             },
-                            pollExecutor);
+                            snapshotPollExecutor);
 
             activePollFutures.add(future);
         }
@@ -697,7 +733,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                         splitStart,
                         splitEnd,
                         null,
-                        tableSchemas);
+                        Collections.singletonMap(tableId, tableChange));
         return split;
     }
 
@@ -965,9 +1001,17 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     public synchronized void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
         finishSplitRecords();
+        shutdownSnapshotPollExecutor();
         if (tableSchemas != null) {
             tableSchemas.clear();
             tableSchemas = null;
+        }
+    }
+
+    @Override
+    protected void shutdownSnapshotPollExecutor() {
+        if (snapshotPollExecutor != null) {
+            snapshotPollExecutor.shutdownNow();
         }
     }
 
@@ -1018,6 +1062,11 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                         Offset position = createOffset(element.sourceOffset());
                         splitState.asStreamSplitState().setStartingOffset(position);
                     }
+                    nextRecord = element;
+                    return true;
+                } else if (SourceRecordUtils.isSchemaChangeEvent(element)) {
+                    // PostgresSchemaRecord is synthetic and has no source offset. Keep the current
+                    // stream offset; the following DML or heartbeat advances it.
                     nextRecord = element;
                     return true;
                 } else if (SourceRecordUtils.isDataChangeRecord(element)) {

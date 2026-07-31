@@ -56,8 +56,8 @@ suite("test_file_cache_normal_queue_2qlru", "external_docker,hive,external_docke
     assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
             fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG)
 
-    def enableFileCacheNormalQueue2qlruResult = sql """show backend config like 'file_cache_2qlru_cold_blocks_promotion_ms';"""
-    logger.info("file_cache_2qlru_cold_blocks_promotion_ms configuration: " + enableFileCacheNormalQueue2qlruResult)
+    def enableFileCacheNormalQueue2qlruResult = sql """show backend config like 'enable_file_cache_normal_queue_2qlru';"""
+    logger.info("enable_file_cache_normal_queue_2qlru configuration: " + enableFileCacheNormalQueue2qlruResult)
 
     if (enableFileCacheNormalQueue2qlruResult.size() == 0 || enableFileCacheNormalQueue2qlruResult[0][3] == null ||
                     !enableFileCacheNormalQueue2qlruResult[0][3].equalsIgnoreCase("true")) {

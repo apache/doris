@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.nereids.types.StringType;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -32,5 +34,13 @@ public class ColumnDefinitionTest {
         String otherColName2 = "col2";
         boolean expected2 = false;
         Assertions.assertEquals(expected2, columnDefinition.nameEquals(otherColName2, false));
+    }
+
+    @Test
+    public void testToSqlHandlesNullComment() {
+        ColumnDefinition columnDefinition = new ColumnDefinition("col1", StringType.INSTANCE, true, null);
+
+        String sql = columnDefinition.toSql();
+        Assertions.assertTrue(sql.endsWith("COMMENT \"\""));
     }
 }

@@ -34,7 +34,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.LongStream;
 
 public class LocalTablet extends Tablet {
     private static final Logger LOG = LogManager.getLogger(LocalTablet.class);
@@ -133,17 +132,34 @@ public class LocalTablet extends Tablet {
     // due to dataSize not write to image
     @Override
     public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
-        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
-                .mapToLong(Replica::getDataSize);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+        long dataSize = 0;
+        int replicaNum = 0;
+        for (Replica replica : getReplicas()) {
+            if (replica.getState() != ReplicaState.NORMAL) {
+                continue;
+            }
+            long replicaDataSize = replica.getDataSize();
+            if (filterSizeZero && replicaDataSize <= 0) {
+                continue;
+            }
+            dataSize += replicaDataSize;
+            replicaNum++;
+        }
+        return singleReplica && replicaNum > 0 ? dataSize / replicaNum : dataSize;
     }
 
     @Override
     public long getRowCount(boolean singleReplica) {
-        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .mapToLong(Replica::getRowCount);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+        long rowCount = 0;
+        int replicaNum = 0;
+        for (Replica replica : getReplicas()) {
+            if (replica.getState() != ReplicaState.NORMAL) {
+                continue;
+            }
+            rowCount += replica.getRowCount();
+            replicaNum++;
+        }
+        return singleReplica && replicaNum > 0 ? rowCount / replicaNum : rowCount;
     }
 
     // Get the least row count among all valid replicas.

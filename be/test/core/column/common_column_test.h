@@ -28,6 +28,7 @@
 
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_map.h"
 #include "core/cow.h"

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TWorkloadMetricType;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -341,6 +342,51 @@ public class WorkloadSchedPolicyMgrTest {
                     e.getMessage().contains("<workload_group>"));
             Assert.assertTrue("message should mention non-cloud mode; got: " + e.getMessage(),
                     e.getMessage().contains("non-cloud mode"));
+        }
+    }
+
+    @Test
+    public void testRemoteScanBytesMetricCanCreateBePolicy() throws UserException {
+        List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+        // Verify the new metric string can be parsed into a BE-side workload condition.
+        conditionMetas.add(new WorkloadConditionMeta("be_scan_bytes_from_remote_storage", ">", "100"));
+        List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+        actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
+
+        mgr.createWorkloadSchedPolicy("policy_remote_scan_bytes", false, conditionMetas, actionMetas, null);
+
+        Assert.assertTrue(WorkloadSchedPolicyMgr.BE_METRIC_SET.contains(
+                WorkloadMetricType.BE_SCAN_BYTES_FROM_REMOTE_STORAGE));
+        Assert.assertEquals(TWorkloadMetricType.BE_SCAN_BYTES_FROM_REMOTE_STORAGE,
+                WorkloadSchedPolicyMgr.METRIC_MAP.get(WorkloadMetricType.BE_SCAN_BYTES_FROM_REMOTE_STORAGE));
+    }
+
+    @Test
+    public void testRemoteScanBytesMetricRejectsNegativeValue() throws UserException {
+        try {
+            // Reject negative thresholds for the remote scan bytes breaker.
+            WorkloadCondition.createWorkloadCondition(
+                    new WorkloadConditionMeta("be_scan_bytes_from_remote_storage", ">", "-1"));
+            Assert.fail("Should throw exception for negative remote scan bytes value");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("remote scan bytes"));
+        }
+    }
+
+    @Test
+    public void testRemoteScanBytesMetricCanNotMixWithFeAction() throws UserException {
+        try {
+            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+            // Validate the new metric follows the existing BE-only action compatibility rules.
+            conditionMetas.add(new WorkloadConditionMeta("be_scan_bytes_from_remote_storage", ">", "100"));
+            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+            actionMetas.add(new WorkloadActionMeta("set_session_variable", "workload_group=normal"));
+
+            mgr.createWorkloadSchedPolicy("policy_remote_scan_bytes_with_fe_action", false, conditionMetas,
+                    actionMetas, null);
+            Assert.fail("Should throw exception for remote scan bytes metric with FE action");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("action and metric must run in FE together or run in BE together"));
         }
     }
 }

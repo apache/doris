@@ -23,6 +23,8 @@ import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -554,7 +556,7 @@ class AuthenticatorManagerTest {
                         .password(new ClearPassword(OIDC_ID_TOKEN))
                         .remoteHost(REMOTE_IP)
                         .clientType("mysql")
-                        .credentialType(CredentialType.OAUTH_TOKEN)
+                        .credentialType(CredentialType.OIDC_ID_TOKEN)
                         .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
                         .build()));
 
@@ -605,7 +607,7 @@ class AuthenticatorManagerTest {
                         .password(new ClearPassword(OIDC_ID_TOKEN))
                         .remoteHost(REMOTE_IP)
                         .clientType("mysql")
-                        .credentialType(CredentialType.OAUTH_TOKEN)
+                        .credentialType(CredentialType.OIDC_ID_TOKEN)
                         .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
                         .build()));
 
@@ -736,6 +738,51 @@ class AuthenticatorManagerTest {
         Assertions.assertInstanceOf(ClearPassword.class, chainRequest.getPassword());
         Assertions.assertEquals("oidc-token", ((ClearPassword) chainRequest.getPassword()).getPassword());
         Mockito.verify(channel, Mockito.times(1)).fetchOnePacket();
+    }
+
+    @Test
+    void testAuthenticateStoresOidcIdTokenAsDatasourceDelegatedCredential() throws Exception {
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(AuthenticateRequest.builder()
+                        .userName(USER_NAME)
+                        .password(new ClearPassword(OIDC_ID_TOKEN))
+                        .remoteHost(REMOTE_IP)
+                        .clientType("mysql")
+                        .credentialType(CredentialType.OIDC_ID_TOKEN)
+                        .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
+                        .build()));
+        long expiresAtMillis = 1_700_000_000_000L;
+        AuthenticateResponse authenticateResponse = new AuthenticateResponse(true,
+                org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
+                false);
+        authenticateResponse.setCredentialExpiresAtMillis(expiresAtMillis);
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any())).thenReturn(authenticateResponse);
+
+        AuthenticatorManager manager = new AuthenticatorManager(AuthenticateType.DEFAULT.name());
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.SSL_CAPABILITY);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                MysqlSerializer.newInstance(), authPacket, Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertTrue(result);
+        ArgumentCaptor<SessionContext> sessionContextCaptor = ArgumentCaptor.forClass(SessionContext.class);
+        Mockito.verify(context).setSessionContext(sessionContextCaptor.capture());
+        DelegatedCredential delegatedCredential = sessionContextCaptor.getValue().getDelegatedCredential().get();
+        Assertions.assertEquals(DelegatedCredential.Type.ID_TOKEN, delegatedCredential.getType());
+        Assertions.assertEquals(OIDC_ID_TOKEN, delegatedCredential.getToken());
+        Assertions.assertTrue(delegatedCredential.getExpiresAtMillis().isPresent());
+        Assertions.assertEquals(expiresAtMillis, delegatedCredential.getExpiresAtMillis().getAsLong());
     }
 
     @Test

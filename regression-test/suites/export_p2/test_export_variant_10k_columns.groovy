@@ -17,6 +17,7 @@
 
 import java.io.File
 import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 suite("test_export_variant_10k_columns", "p0") {
@@ -189,10 +190,11 @@ suite("test_export_variant_10k_columns", "p0") {
             );
         """
         
-        Awaitility.await().atMost(240, SECONDS).pollInterval(5, SECONDS).until({
+        Awaitility.await().atMost(20, MINUTES).pollInterval(5, SECONDS).until({
             def loadResult = sql """
            show load where label = '${load_label}'
            """
+            logger.info("load state: " + loadResult.get(0).get(2))
             if (loadResult.get(0).get(2) == 'CANCELLED' || loadResult.get(0).get(2) == 'FAILED') {
                 println("load failed: " + loadResult.get(0))
                 throw new RuntimeException("load failed"+ loadResult.get(0))

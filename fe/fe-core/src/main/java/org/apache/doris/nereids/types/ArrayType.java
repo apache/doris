@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import java.util.Objects;
@@ -55,6 +56,14 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
 
     public DataType getItemType() {
         return itemType;
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof ArrayType) {
+            return itemType.isInjectiveCastTo(((ArrayType) target).itemType);
+        }
+        return target instanceof CharacterType;
     }
 
     @Override

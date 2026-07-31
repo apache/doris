@@ -262,9 +262,8 @@ private:
                 res_null_map[i] |= outer[i];
             }
         }
-        block.replace_by_position(
-                result, ColumnNullable::create(res_nested->clone_resized(input_rows_count),
-                                               std::move(res_null_column)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(res_nested, std::move(res_null_column)));
         return Status::OK();
     }
 

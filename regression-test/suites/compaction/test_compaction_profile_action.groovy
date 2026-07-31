@@ -25,11 +25,6 @@ suite("test_compaction_profile_action", "p0") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
 
-    String backend_id = backendId_to_backendIP.keySet()[0]
-    def beHost = backendId_to_backendIP[backend_id]
-    def beHttpPort = backendId_to_backendHttpPort[backend_id]
-    def baseUrl = "http://${beHost}:${beHttpPort}/api/compaction/profile"
-
     try {
         // Step 2: Create table, insert data, trigger compaction, wait for completion
         sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -64,6 +59,10 @@ suite("test_compaction_profile_action", "p0") {
         assertTrue(tablets.size() > 0)
         def tablet = tablets[0]
         String tablet_id = tablet.TabletId
+        String backend_id = tablet.BackendId
+        def beHost = backendId_to_backendIP[backend_id]
+        def beHttpPort = backendId_to_backendHttpPort[backend_id]
+        def baseUrl = "http://${beHost}:${beHttpPort}/api/compaction/profile"
 
         // Trigger compaction and wait for completion
         trigger_and_wait_compaction(tableName, "cumulative")

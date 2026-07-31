@@ -101,22 +101,24 @@ private:
         auto& nested_column_concrete = *nested_column;
 
         size_t input_rows_count = expr_column.size();
+        const auto* expr_data = expr_column_concrete.get_data().data();
+        const auto* min_value_data = min_value_column_concrete.get_data().data();
+        const auto* max_value_data = max_value_column_concrete.get_data().data();
+        auto* nested_data = nested_column_concrete.get_data().data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto min_value = min_value_column_concrete.get_data()[i];
-            auto max_value = max_value_column_concrete.get_data()[i];
+            auto min_value = min_value_data[i];
+            auto max_value = max_value_data[i];
             auto average_value = (max_value - min_value) / (1.0 * num_buckets);
-            if (expr_column_concrete.get_data()[i] < min_value) {
+            if (expr_data[i] < min_value) {
                 continue;
-            } else if (expr_column_concrete.get_data()[i] >= max_value) {
-                nested_column_concrete.get_data()[i] = num_buckets + 1;
+            } else if (expr_data[i] >= max_value) {
+                nested_data[i] = num_buckets + 1;
             } else {
                 if ((max_value - min_value) / num_buckets == 0) {
                     continue;
                 }
-                nested_column_concrete.get_data()[i] =
-                        (int64_t)(1 +
-                                  (expr_column_concrete.get_data()[i] - min_value) / average_value);
+                nested_data[i] = (int64_t)(1 + (expr_data[i] - min_value) / average_value);
             }
         }
     }

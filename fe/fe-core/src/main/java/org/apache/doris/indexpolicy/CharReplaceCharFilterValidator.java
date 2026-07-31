@@ -17,10 +17,13 @@
 
 package org.apache.doris.indexpolicy;
 
+import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -39,25 +42,20 @@ public class CharReplaceCharFilterValidator extends BasePolicyValidator {
 
     @Override
     protected void validateSpecific(Map<String, String> props) throws DdlException {
+        Map<String, String> charFilterProperties = new HashMap<>();
+        charFilterProperties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE,
+                InvertedIndexUtil.INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE);
         if (props.containsKey("pattern")) {
-            String pattern = props.get("pattern");
-            if (pattern != null && !pattern.isEmpty()) {
-                for (int i = 0; i < pattern.length(); i++) {
-                    if (pattern.charAt(i) > 255) {
-                        throw new DdlException(
-                                "pattern must contain only single-byte characters in [0,255]");
-                    }
-                }
-            }
+            charFilterProperties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, props.get("pattern"));
         }
         if (props.containsKey("replacement")) {
-            String replacement = props.get("replacement");
-            if (replacement == null || replacement.length() != 1) {
-                throw new DdlException("replacement must be exactly one byte");
-            }
-            if (replacement.charAt(0) > 255) {
-                throw new DdlException("replacement must be in [0,255]");
-            }
+            charFilterProperties.put(InvertedIndexUtil.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
+                    props.get("replacement"));
+        }
+        try {
+            InvertedIndexUtil.checkCharFilterProperties(charFilterProperties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage(), e);
         }
     }
 }

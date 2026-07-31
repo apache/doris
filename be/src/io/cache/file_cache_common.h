@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -44,6 +45,20 @@ enum FileCacheType {
     TTL = 3,
     COLD_NORMAL = 4,
 };
+
+// Newly admitted ordinary data starts in the cold queue when 2Q LRU is enabled.
+// Restore paths choose their cache type separately and must not use this helper.
+inline FileCacheType normal_cache_type_for_admission() {
+    return config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL
+                                                        : FileCacheType::NORMAL;
+}
+
+inline static constexpr size_t FILE_CACHE_TYPE_COUNT =
+        static_cast<size_t>(FileCacheType::COLD_NORMAL) + 1;
+inline static constexpr std::array<FileCacheType, FILE_CACHE_TYPE_COUNT> FILE_CACHE_TYPES = {
+        FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::INDEX, FileCacheType::TTL,
+        FileCacheType::COLD_NORMAL};
+
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
@@ -163,25 +178,32 @@ struct CacheContext {
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
         } else {
-            cache_type = doris::config::enable_file_cache_normal_queue_2qlru
-                                 ? FileCacheType::COLD_NORMAL
-                                 : FileCacheType::NORMAL;
+            cache_type = normal_cache_type_for_admission();
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
         is_warmup = io_context->is_warmup;
+        remote_scan_cache_write_limiter = io_context->remote_scan_cache_write_limiter;
+        admit_cache_write_by_remote_scan_limiter =
+                remote_scan_cache_write_limiter != nullptr &&
+                io_context->reader_type == ReaderType::READER_QUERY &&
+                (!io_context->is_index_data || io_context->is_inverted_index ||
+                 config::enable_file_cache_query_limit_segment_meta) &&
+                !io_context->is_warmup;
     }
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
         return query_id == rhs.query_id && cache_type == rhs.cache_type &&
                expiration_time == rhs.expiration_time && is_cold_data == rhs.is_cold_data;
     }
-    TUniqueId query_id;
-    FileCacheType cache_type;
+    TUniqueId query_id {};
+    FileCacheType cache_type {FileCacheType::NORMAL};
     int64_t expiration_time {0};
     bool is_cold_data {false};
-    ReadStatistics* stats;
+    ReadStatistics* stats {nullptr};
     bool is_warmup {false};
     int64_t tablet_id {0};
+    RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr;
+    bool admit_cache_write_by_remote_scan_limiter {false};
 };
 
 template <class Lock>
@@ -254,6 +276,8 @@ public:
     Iterator end() { return queue.end(); }
 
     void remove_all(std::lock_guard<std::mutex>& cache_lock);
+
+    bool pop_front(std::lock_guard<std::mutex>& cache_lock);
 
     Iterator get(const UInt128Wrapper& hash, size_t offset,
                  std::lock_guard<std::mutex>& /* cache_lock */) const;

@@ -37,3 +37,7 @@
 -- !project_under_topn_consumed_slot --
 1	hello	{"city":null, "zip":10001}	[1, 2, 3]	{"a":1, "b":2}	1	\N
 
+-- !sparse_struct_map_array_result --
+3	9	9	3	false
+1	7	7	3	false
+

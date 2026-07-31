@@ -16,10 +16,10 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
 --------------------------PhysicalProject
-----------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
+----------------------------filter(supplier.s_city IN ('UNITED KI1', 'UNITED KI5'))
 ------------------------------PhysicalOlapScan[supplier]
 ----------------------PhysicalProject
-------------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
+------------------------filter(customer.c_city IN ('UNITED KI1', 'UNITED KI5'))
 --------------------------PhysicalOlapScan[customer]
 ------------------PhysicalProject
 --------------------filter((dates.d_year <= 1997) and (dates.d_year >= 1992))

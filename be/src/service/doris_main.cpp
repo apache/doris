@@ -48,7 +48,11 @@
 
 #include "cloud/cloud_backend_service.h"
 #include "cloud/config.h"
+#include "common/phdr_cache.h"
 #include "common/stack_trace.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
@@ -313,6 +317,21 @@ struct Checker {
         __attribute__((init_priority(101))) /// Run before other static initializers.
 #endif
         ;
+
+// A startup failure that happens after ExecEnv::init() has run must terminate the
+// process the same way normal shutdown does (see the _exit(0) at the end of main):
+// in the default mode we _exit() immediately, skipping global destructors and the
+// LeakSanitizer atexit check. Init-time singletons (e.g. the internal workload
+// group's task scheduler) intentionally live for the whole process lifetime, so
+// running the leak check on this abnormal-exit path reports them as false-positive
+// leaks. enable_graceful_exit_check is honored so memleak-check mode still runs LSAN.
+[[noreturn]] static void exit_on_startup_failure() {
+    google::FlushLogFiles(google::GLOG_INFO);
+    if (!doris::config::enable_graceful_exit_check) {
+        _exit(1);
+    }
+    exit(1);
+}
 
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
@@ -585,10 +604,18 @@ int main(int argc, char** argv) {
     LOG(INFO) << doris::DiskInfo::debug_string();
     LOG(INFO) << doris::MemInfo::debug_string();
 
-    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
-    // will work only after additional call of this function.
-    // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
-    // updatePHDRCache();
+    // Doris-patched GNU libunwind reads PHDR metadata from our lock-free snapshot instead of
+    // entering glibc dl_iterate_phdr while jemalloc profiling or signal-context unwinding may
+    // already be involved in loader-lock-sensitive code. Configure libunwind before daemon threads
+    // start so all later heap-profile and stack-trace unwinds use the same lock-safe policy.
+    configureLibunwindPHDRCache();
+    updatePHDRCache();
+    LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index = doris::SymbolIndex::instance();
+    LOG(INFO) << "SymbolIndex preloaded: objects=" << symbol_index->objects().size()
+              << " symbols=" << symbol_index->symbols().size();
+#endif
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }
@@ -598,7 +625,7 @@ int main(int argc, char** argv) {
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
-        return 0;
+        exit_on_startup_failure();
     }
 
     // Start concurrency stats manager
@@ -613,7 +640,7 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             std::cerr << msg << '\n';
             service->stop_works();
-            exit(-1);
+            exit_on_startup_failure();
         }
     };
 

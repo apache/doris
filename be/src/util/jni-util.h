@@ -606,6 +606,14 @@ public:
 
     bool uninitialized() const { return _obj == nullptr; }
 
+    void reset(JNIEnv* env) {
+        if (_obj == nullptr) {
+            return;
+        }
+        RefHelper<Ref>::destroy(env, _obj);
+        _obj = nullptr;
+    }
+
     template <RefType T>
     bool equal(JNIEnv* env, const Object<T>& other) {
         DCHECK(!uninitialized());

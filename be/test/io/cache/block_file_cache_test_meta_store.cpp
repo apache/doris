@@ -260,10 +260,10 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
         // then check the log replay
         ASSERT_EQ(cache.replay_lru_logs_once(), 20);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
 
         // do some REMOVE
         {
@@ -271,12 +271,13 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
 
         ASSERT_EQ(cache.replay_lru_logs_once(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 0);
-        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
         EXPECT_EQ(cache.replay_lru_logs_once(), 0);
         EXPECT_EQ(cache._lru_recorder_log_replay_idle_metrics->get_value(), 1);
+        cache.dump_lru_queues(true);
 
         // check the meta store to see the content
         {
@@ -312,8 +313,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             verify_meta_key(*meta_store, 50, "key4", 300000, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 400000, FileCacheType::DISPOSABLE, 0, 100000);
         }
-        std::this_thread::sleep_for(
-                std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
     }
 
     { // cache2
@@ -448,6 +447,112 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+}
+
+TEST_F(BlockFileCacheTest, cold_normal_meta_store_restart) {
+    const auto old_enable_2qlru = config::enable_file_cache_normal_queue_2qlru;
+    const auto old_promotion_ms = config::file_cache_2qlru_cold_blocks_promotion_ms;
+    const auto old_dump_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    const auto old_query_limit = config::enable_file_cache_query_limit;
+    Defer defer {[old_enable_2qlru, old_promotion_ms, old_dump_tail_record_num, old_async_touch,
+                  old_query_limit] {
+        config::enable_file_cache_normal_queue_2qlru = old_enable_2qlru;
+        config::file_cache_2qlru_cold_blocks_promotion_ms = old_promotion_ms;
+        config::file_cache_background_lru_dump_tail_record_num = old_dump_tail_record_num;
+        config::enable_file_cache_async_touch_on_get_or_set = old_async_touch;
+        config::enable_file_cache_query_limit = old_query_limit;
+    }};
+
+    config::enable_file_cache_normal_queue_2qlru = true;
+    config::file_cache_2qlru_cold_blocks_promotion_ms = 0;
+    config::file_cache_background_lru_dump_tail_record_num = 0;
+    config::enable_file_cache_async_touch_on_get_or_set = false;
+    config::enable_file_cache_query_limit = false;
+
+    std::string cache_path = caches_dir / "cold_normal_meta_store_restart" / "";
+    if (fs::exists(cache_path)) {
+        fs::remove_all(cache_path);
+    }
+    fs::create_directories(cache_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1_mb;
+    settings.query_queue_elements = 16;
+    settings.cold_query_queue_size = 1_mb;
+    settings.cold_query_queue_elements = 16;
+    settings.capacity = 2_mb;
+    settings.max_file_block_size = 100_kb;
+    settings.max_query_cache_size = settings.capacity;
+
+    constexpr size_t block_size = 100_kb;
+    constexpr int64_t tablet_id = 7001;
+    auto key = io::BlockFileCache::hash("cold_normal_meta_store_restart_key");
+
+    {
+        io::BlockFileCache cache(cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+
+        io::CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
+        context.cache_type = io::FileCacheType::COLD_NORMAL;
+        context.tablet_id = tablet_id;
+
+        for (size_t offset : {size_t {0}, block_size}) {
+            auto holder = cache.get_or_set(key, offset, block_size, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+            std::string data(block_size, '0');
+            ASSERT_TRUE(blocks[0]->append(Slice(data.data(), data.size())).ok());
+            ASSERT_TRUE(blocks[0]->finalize().ok());
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        {
+            auto holder = cache.get_or_set(key, 0, block_size, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            EXPECT_EQ(blocks[0]->cache_type(), io::FileCacheType::NORMAL);
+        }
+
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 1);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::COLD_NORMAL), 1);
+
+        auto* storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+        ASSERT_NE(storage, nullptr);
+        for (size_t offset : {size_t {0}, block_size}) {
+            BlockMetaKey meta_key(tablet_id, key, offset);
+            std::optional<BlockMeta> meta;
+            for (int i = 0; i < 100 && !meta.has_value(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                meta = storage->_meta_store->get(meta_key);
+            }
+            ASSERT_TRUE(meta.has_value());
+            EXPECT_EQ(meta->type, io::FileCacheType::COLD_NORMAL);
+        }
+    }
+
+    {
+        io::BlockFileCache cache(cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 0);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::COLD_NORMAL), 2);
+    }
+
+    config::enable_file_cache_normal_queue_2qlru = false;
+    {
+        io::BlockFileCache cache(cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 2);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::COLD_NORMAL), 0);
+    }
+
+    fs::remove_all(cache_path);
 }
 
 TEST_F(BlockFileCacheTest, sharded_writer_map_tracks_multiple_inflight_writers) {
@@ -628,14 +733,16 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     context.tablet_id = 314;
     auto key = io::BlockFileCache::hash("meta_clear_key");
 
-    auto holder = cache.get_or_set(key, 0, 100000, context);
-    auto blocks = fromHolder(holder);
-    ASSERT_EQ(blocks.size(), 1);
-    assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
-    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-    download(blocks[0]);
-    assert_range(2, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::DOWNLOADED);
-    blocks.clear();
+    {
+        auto holder = cache.get_or_set(key, 0, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 99999), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(0, 99999),
+                     io::FileBlock::State::DOWNLOADED);
+    }
 
     auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
     ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
@@ -645,15 +752,17 @@ TEST_F(BlockFileCacheTest, clear_retains_meta_directory_and_clears_meta_entries)
     verify_meta_key(*meta_store, context.tablet_id, "meta_clear_key", 0, FileCacheType::NORMAL, 0,
                     100000);
 
-    cache.clear_file_cache_directly();
+    cache.clear_file_cache_sync();
 
     std::string meta_dir = cache.get_base_path() + "/meta";
     ASSERT_TRUE(fs::exists(meta_dir));
     ASSERT_TRUE(fs::is_directory(meta_dir));
 
     BlockMetaKey mkey(context.tablet_id, key, 0);
-    auto meta = meta_store->get(mkey);
-    ASSERT_FALSE(meta.has_value());
+    for (int i = 0; i < 100 && meta_store->get(mkey).has_value(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_FALSE(meta_store->get(mkey).has_value());
 
     auto iterator = meta_store->get_all();
     if (iterator != nullptr) {

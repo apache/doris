@@ -27,7 +27,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF0
 ----------------------------------PhysicalProject
-------------------------------------filter(i_color IN ('chiffon', 'lace', 'smoke'))
+------------------------------------filter(item.i_color IN ('chiffon', 'lace', 'smoke'))
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2001))
@@ -51,7 +51,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF4
 ----------------------------------PhysicalProject
-------------------------------------filter(i_color IN ('chiffon', 'lace', 'smoke'))
+------------------------------------filter(item.i_color IN ('chiffon', 'lace', 'smoke'))
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2001))
@@ -75,7 +75,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item] apply RFs: RF8
 ----------------------------------PhysicalProject
-------------------------------------filter(i_color IN ('chiffon', 'lace', 'smoke'))
+------------------------------------filter(item.i_color IN ('chiffon', 'lace', 'smoke'))
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 2001))

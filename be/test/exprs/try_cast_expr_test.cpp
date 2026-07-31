@@ -277,4 +277,12 @@ TEST_F(TryCastExprTest, row_exec3) {
     EXPECT_FALSE(st.ok()) << st.msg();
 }
 
+TEST_F(TryCastExprTest, selected_row_safety) {
+    VCastExpr cast_expr;
+    cast_expr.add_child(std::make_shared<MockVExprForTryCast>());
+
+    EXPECT_FALSE(cast_expr.is_safe_to_execute_on_selected_rows());
+    EXPECT_TRUE(try_cast_expr.is_safe_to_execute_on_selected_rows());
+}
+
 } // namespace doris

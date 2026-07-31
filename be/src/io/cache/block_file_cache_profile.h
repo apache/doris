@@ -38,6 +38,8 @@ struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
     std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
     std::atomic<int64_t> num_io_bytes_read_from_peer = 0;
+    std::atomic<int64_t> inverted_index_bytes_read_from_remote = 0;
+    std::atomic<int64_t> segment_footer_index_bytes_read_from_remote = 0;
 };
 class FileCacheMetrics {
 public:
@@ -68,6 +70,8 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
                                                const FileCacheStatistics& previous);
 
 struct FileCacheProfileReporter {
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* total_time = nullptr;
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
     RuntimeProfile::Counter* num_peer_io_total = nullptr;
@@ -86,6 +90,8 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* lock_wait_timer = nullptr;
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_triggered = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* remote_only_on_miss_threshold_bytes = nullptr;
 
     RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
@@ -97,8 +103,36 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_write_into_cache = nullptr;
 
-    FileCacheProfileReporter(RuntimeProfile* profile);
+    RuntimeProfile::Counter* segment_footer_index_num_local_io_total = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_num_peer_io_total = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_scanned_from_peer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_local_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_write_cache_io_timer = nullptr;
+    RuntimeProfile::Counter* segment_footer_index_bytes_write_into_cache = nullptr;
+
+    // Cross-CG / Same-CG peer read counters
+    RuntimeProfile::Counter* num_cross_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_cross_cg_peer = nullptr;
+    RuntimeProfile::Counter* cross_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_same_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_same_cg_peer = nullptr;
+    RuntimeProfile::Counter* same_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_peer_race_peer_win = nullptr;
+    RuntimeProfile::Counter* num_peer_race_s3_win = nullptr;
+    RuntimeProfile::Counter* num_peer_lazy_fetch = nullptr;
+    RuntimeProfile::Counter* peer_lazy_fetch_timer = nullptr;
+
+    explicit FileCacheProfileReporter(
+            RuntimeProfile* profile,
+            const std::string& parent_counter = RuntimeProfile::ROOT_COUNTER);
     void update(const FileCacheStatistics* statistics) const;
 };
 

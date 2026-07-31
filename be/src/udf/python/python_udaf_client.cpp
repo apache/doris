@@ -30,6 +30,7 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "format/arrow/arrow_utils.h"
+#include "runtime/exec_env.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
 #include "util/unaligned.h"
@@ -509,7 +510,7 @@ Status PythonUDAFClient::_create_data_request_batch(const arrow::RecordBatch& in
         columns.push_back(input_data.column(num_input_columns - 1));
     } else {
         // Create NULL places column for single-place mode
-        arrow::Int64Builder places_builder;
+        arrow::Int64Builder places_builder(ExecEnv::GetInstance()->arrow_memory_pool());
         std::shared_ptr<arrow::Array> places_array;
         RETURN_DORIS_STATUS_IF_ERROR(places_builder.AppendNulls(input_data.num_rows()));
         RETURN_DORIS_STATUS_IF_ERROR(places_builder.Finish(&places_array));
@@ -517,7 +518,7 @@ Status PythonUDAFClient::_create_data_request_batch(const arrow::RecordBatch& in
     }
 
     // Add NULL binary_data column
-    arrow::BinaryBuilder binary_builder;
+    arrow::BinaryBuilder binary_builder(ExecEnv::GetInstance()->arrow_memory_pool());
     std::shared_ptr<arrow::Array> binary_array;
     RETURN_DORIS_STATUS_IF_ERROR(binary_builder.AppendNulls(input_data.num_rows()));
     RETURN_DORIS_STATUS_IF_ERROR(binary_builder.Finish(&binary_array));
@@ -538,7 +539,7 @@ Status PythonUDAFClient::_create_binary_request_batch(
     for (int i = 0; i < num_data_columns; ++i) {
         std::unique_ptr<arrow::ArrayBuilder> builder;
         std::shared_ptr<arrow::Array> null_array;
-        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(arrow::default_memory_pool(),
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(ExecEnv::GetInstance()->arrow_memory_pool(),
                                                         _schema->field(i)->type(), &builder));
         RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
         RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
@@ -546,7 +547,7 @@ Status PythonUDAFClient::_create_binary_request_batch(
     }
 
     // Create binary_data column
-    arrow::BinaryBuilder binary_builder;
+    arrow::BinaryBuilder binary_builder(ExecEnv::GetInstance()->arrow_memory_pool());
     std::shared_ptr<arrow::Array> binary_array;
     RETURN_DORIS_STATUS_IF_ERROR(
             binary_builder.Append(binary_data->data(), static_cast<int32_t>(binary_data->size())));
@@ -571,8 +572,8 @@ Status PythonUDAFClient::_get_empty_request_batch(std::shared_ptr<arrow::RecordB
         auto field = _schema->field(i);
         std::unique_ptr<arrow::ArrayBuilder> builder;
         std::shared_ptr<arrow::Array> null_array;
-        RETURN_DORIS_STATUS_IF_ERROR(
-                arrow::MakeBuilder(arrow::default_memory_pool(), field->type(), &builder));
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::MakeBuilder(ExecEnv::GetInstance()->arrow_memory_pool(),
+                                                        field->type(), &builder));
         RETURN_DORIS_STATUS_IF_ERROR(builder->AppendNull());
         RETURN_DORIS_STATUS_IF_ERROR(builder->Finish(&null_array));
         columns.push_back(null_array);

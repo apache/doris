@@ -198,7 +198,39 @@ TEST_F(WorkloadSchedPolicyTest, one_policy_one_condition) {
                 << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_bytes();
     }
 
-    // 5 check query be memory bytes
+    // 5 check remote scan bytes
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(
+                TWorkloadMetricType::type::BE_SCAN_BYTES_FROM_REMOTE_STORAGE,
+                TCompareOperator::type::GREATER, "1000"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        // Updating total scan bytes alone must not satisfy the remote read condition.
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes(1001);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_bytes();
+
+        // Updating remote scan bytes below the threshold must still miss.
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes_from_remote_storage(999);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->io_context()->scan_bytes_from_remote_storage();
+
+        // Only the remote scan bytes counter should drive this metric to a match.
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes_from_remote_storage(2);
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->io_context()->scan_bytes_from_remote_storage();
+    }
+
+    // 6 check query be memory bytes
     {
         std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
         std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;

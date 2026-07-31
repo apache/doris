@@ -311,6 +311,34 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertFalse((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
     }
 
+    @Test
+    public void testDisplayCustomPropertiesMasksKinesisSecrets() {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put(KinesisConfiguration.KINESIS_ACCESS_KEY.getName(), "aws_access_key");
+        customProperties.put(KinesisConfiguration.KINESIS_SECRET_KEY.getName(), "aws_secret");
+        customProperties.put(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName(), "aws_session_secret");
+        customProperties.put("aws.role_arn", "role_arn_value");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
+        Map<String, String> showCreateCustomProperties = routineLoadJob.getCustomProperties();
+
+        Assert.assertFalse(customPropertiesJson.contains("aws_access_key"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.role_arn\":\"role_arn_value\""));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
+        Assert.assertEquals("role_arn_value", showCreateCustomProperties.get("property.aws.role_arn"));
+    }
+
     private Set<String> collectAssignedShards(KinesisRoutineLoadJob routineLoadJob) {
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
                 Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");

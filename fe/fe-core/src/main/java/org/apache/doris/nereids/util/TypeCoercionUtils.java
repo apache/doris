@@ -43,8 +43,8 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -110,7 +110,6 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 
@@ -209,6 +208,9 @@ public class TypeCoercionUtils {
                 }
             }
             return Optional.of(new StructType(newFields));
+        } else if (input instanceof VariantType && expected instanceof JsonType) {
+            // JSON functions require users to make this representation change explicit.
+            return Optional.empty();
         } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
             // variant could implicit cast to numric types and string like types
             return Optional.of(expected);
@@ -655,27 +657,13 @@ public class TypeCoercionUtils {
                     && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
             } else if (dataType.isTimeStampTzType() && DateTimeChecker.isValidDateTime(value)) {
-                if (DateTimeChecker.hasTimeZone(value)) {
-                    // Signature search can pass TIMESTAMPTZ(*) here. TimestampTzLiteral rounds by scale,
-                    // so derive a concrete scale from the literal before preserving its explicit offset.
-                    TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
-                    if (timeStampTzType.getScale() < 0) {
-                        timeStampTzType = TimeStampTzType.forTypeFromString(value);
-                    }
-                    ret = new TimestampTzLiteral(timeStampTzType, value);
-                } else {
-                    DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeLiteral
-                                    .parseDateTimeLiteral(value, true).orElse(null);
-                    if (dtV2Lit != null) {
-                        dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                                dtV2Lit,
-                                new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                                new StringLiteral("UTC")));
-                        ret = new TimestampTzLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                                dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
-                                dtV2Lit.getMicroSecond());
-                    }
+                // Signature search can pass TIMESTAMPTZ(*) here. TimestampTzLiteral rounds by scale,
+                // so derive a concrete scale from the literal before parsing.
+                TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
+                if (timeStampTzType.getScale() < 0 || timeStampTzType.getScale() == TimeStampTzType.MAX_SCALE) {
+                    timeStampTzType = TimeStampTzType.forTypeFromString(value);
                 }
+                ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
@@ -1120,6 +1108,8 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (right instanceof NullType) {
             return Optional.of(left);
+        } else if (left instanceof VariantType && right instanceof VariantType) {
+            return findCommonVariantType((VariantType) left, (VariantType) right);
         } else if (left instanceof VariantType) {
             return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
                             replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
@@ -1186,6 +1176,13 @@ public class TypeCoercionUtils {
             return Optional.of(new StructType(newFields));
         }
         return Optional.empty();
+    }
+
+    private static Optional<DataType> findCommonVariantType(VariantType left, VariantType right) {
+        if (!left.isExecutionCompatibleWith(right)) {
+            return Optional.empty();
+        }
+        return Optional.of(left.isComputeV2() ? VariantType.COMPUTE_V2_INSTANCE : left);
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
@@ -1296,6 +1293,19 @@ public class TypeCoercionUtils {
         Expression left = comparisonPredicate.left();
         Expression right = comparisonPredicate.right();
 
+        boolean leftIsVariant = left.getDataType().isVariantType();
+        boolean rightIsVariant = right.getDataType().isVariantType();
+        boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
+                && ((leftIsVariant && left instanceof ElementAt)
+                        || (rightIsVariant && right instanceof ElementAt));
+        if ((leftIsVariant || rightIsVariant)
+                && !isDirectVariantSubpathScalarComparison) {
+            DataType variantDataType = leftIsVariant
+                    ? left.getDataType() : right.getDataType();
+            throw new AnalysisException("data type " + variantDataType
+                    + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()
+                    + ". " + VariantType.UNSUPPORTED_ORDERING_COMPARISON_MESSAGE);
+        }
         // TODO: remove this restriction after supporting varbinary comparison in BE
         if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
             throw new AnalysisException("data type varbinary "
@@ -1950,6 +1960,10 @@ public class TypeCoercionUtils {
         }
         if (t2.isNullType()) {
             return Optional.of(t1);
+        }
+
+        if (t1 instanceof VariantType && t2 instanceof VariantType) {
+            return findCommonVariantType((VariantType) t1, (VariantType) t2);
         }
 
         // objectType only support compare with itself, so return empty here.

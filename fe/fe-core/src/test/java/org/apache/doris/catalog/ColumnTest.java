@@ -166,6 +166,85 @@ public class ColumnTest {
         oldColumn.checkSchemaChangeAllowed(newColumn);
     }
 
+    @Test
+    public void testStrictNestedPrimitivePromotionRules() {
+        Assert.assertTrue(ColumnType.isSupportedStrictNestedPrimitivePromotion(Type.TINYINT, Type.INT));
+        Assert.assertTrue(ColumnType.isSupportedStrictNestedPrimitivePromotion(Type.FLOAT, Type.DOUBLE));
+
+        Assert.assertFalse(ColumnType.isSupportedStrictNestedPrimitivePromotion(Type.INT, Type.FLOAT));
+        Assert.assertFalse(ColumnType.isSupportedStrictNestedPrimitivePromotion(Type.VARCHAR, Type.INT));
+        Assert.assertFalse(ColumnType.isSupportedStrictNestedPrimitivePromotion(
+                ScalarType.createDecimalV3Type(5, 2), ScalarType.createDecimalV3Type(10, 2)));
+        Assert.assertFalse(ColumnType.isSupportedStrictNestedPrimitivePromotion(
+                ScalarType.createDecimalV3Type(10, 2), ScalarType.createDecimalV3Type(5, 2)));
+        Assert.assertFalse(ColumnType.isSupportedStrictNestedPrimitivePromotion(
+                ScalarType.createDecimalV3Type(5, 2), ScalarType.createDecimalV3Type(10, 3)));
+    }
+
+    @Test
+    public void testIcebergNestedDecimalPromotionRules() {
+        Assert.assertTrue(ColumnType.isSupportedIcebergNestedDecimalPromotion(
+                ScalarType.createDecimalV3Type(5, 2), ScalarType.createDecimalV3Type(10, 2)));
+
+        Assert.assertFalse(ColumnType.isSupportedIcebergNestedDecimalPromotion(Type.INT, Type.BIGINT));
+        Assert.assertFalse(ColumnType.isSupportedIcebergNestedDecimalPromotion(
+                ScalarType.createDecimalV3Type(10, 2), ScalarType.createDecimalV3Type(5, 2)));
+        Assert.assertFalse(ColumnType.isSupportedIcebergNestedDecimalPromotion(
+                ScalarType.createDecimalV3Type(5, 2), ScalarType.createDecimalV3Type(10, 3)));
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeArrayDecimalPrecisionPromotionRejectedForInternalTable() throws DdlException {
+        Column oldColumn = new Column("a", ArrayType.create(ScalarType.createDecimalV3Type(5, 2), true),
+                false, null, true, "0", "");
+        Column newColumn = new Column("a", ArrayType.create(ScalarType.createDecimalV3Type(10, 2), true),
+                false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeMapDecimalValuePrecisionPromotionRejectedForInternalTable() throws DdlException {
+        Column oldColumn = new Column("a", new MapType(Type.INT, ScalarType.createDecimalV3Type(5, 2)),
+                false, null, true, "0", "");
+        Column newColumn = new Column("a", new MapType(Type.INT, ScalarType.createDecimalV3Type(10, 2)),
+                false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeStructDecimalFieldPrecisionPromotionRejectedForInternalTable() throws DdlException {
+        Column oldColumn = new Column("a",
+                new StructType(new StructField("d", ScalarType.createDecimalV3Type(5, 2))),
+                false, null, true, "0", "");
+        Column newColumn = new Column("a",
+                new StructType(new StructField("d", ScalarType.createDecimalV3Type(10, 2))),
+                false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeArrayDecimalPrecisionNarrowing() throws DdlException {
+        Column oldColumn = new Column("a", ArrayType.create(ScalarType.createDecimalV3Type(10, 2), true),
+                false, null, true, "0", "");
+        Column newColumn = new Column("a", ArrayType.create(ScalarType.createDecimalV3Type(5, 2), true),
+                false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeArrayDecimalScaleChange() throws DdlException {
+        Column oldColumn = new Column("a", ArrayType.create(ScalarType.createDecimalV3Type(5, 2), true),
+                false, null, true, "0", "");
+        Column newColumn = new Column("a", ArrayType.create(ScalarType.createDecimalV3Type(10, 3), true),
+                false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
     @Test(expected = DdlException.class)
     public void testSchemaChangeArrayToArrayDowngrade() throws DdlException {
         Column oldColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");

@@ -38,6 +38,7 @@ namespace doris {
 class BetaRowset;
 
 namespace io {
+struct IOContext;
 class RemoteFileSystem;
 } // namespace io
 struct RowsetId;
@@ -78,7 +79,8 @@ public:
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status load_segment(int64_t seg_id, OlapReaderStatistics* read_stats,
-                        segment_v2::SegmentSharedPtr* segment);
+                        segment_v2::SegmentSharedPtr* segment,
+                        const io::IOContext* io_ctx = nullptr);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
@@ -92,7 +94,8 @@ public:
                                   rapidjson::Document::AllocatorType& allocator);
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
-                                OlapReaderStatistics* read_stats);
+                                OlapReaderStatistics* read_stats,
+                                const io::IOContext* io_ctx = nullptr);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,

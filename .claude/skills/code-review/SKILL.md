@@ -25,6 +25,7 @@ Use this when you need to review code, whether it is code you just completed or 
 ### 1.1 Core Invariants
 
 Always focus on the following core invariants during review:
+
 1. **Data Correctness**: Data from any committed transaction must be visible to subsequent queries and not lost; data from uncommitted transactions must not be visible
 2. **Version Consistency**: Partition visible version is the sole standard for data visibility; BE must strictly read data not exceeding this version
 3. **Delete Bitmap Consistency** (MoW tables): delete bitmap must be strictly aligned with rowset versions; sentinel marks and `TEMP_VERSION`-style placeholders must be replaced with actual versions before use
@@ -134,7 +135,7 @@ If it involves the judgment of concurrent scenarios, it is necessary to find the
 
 - [ ] **Reservation**: `try_reserve()` before large allocations, with guaranteed release on every exit path
 - [ ] **Allocator-aware ownership**: In BE code, for memory-owning containers or buffers that should be tracked by Doris memory accounting, prefer allocator-aware types from `be/src/core/custom_allocator.h` such as `DorisVector`, `DorisMap`, and `DorisUniqueBufferPtr` instead of `std::vector`, `std::map`, and `std::unique_ptr`
-- [ ] **Ownership**: See `be/src/runtime/AGENTS.md` for cache-handle, shared_ptr-cycle, and factory-creator rules
+- [ ] **Ownership**: See `be/src/runtime/AGENTS.md` for cache-handle, shared_ptr-cycle, and factory-creator rules. See `be/src/core/AGENTS.md` for Proper application of the cow mechanism related to `IColumn`, `Block`...
 
 #### 1.3.4 Data Correctness (High Priority)
 

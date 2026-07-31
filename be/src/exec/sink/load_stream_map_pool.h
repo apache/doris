@@ -96,6 +96,10 @@ public:
     // only call this method after release() returns true.
     void close_load(bool incremental);
 
+    int64_t close_wait_version() const;
+
+    void wait_for_close_event(int64_t observed_version, int64_t timeout_ms);
+
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
         decltype(_streams_for_node) snapshot;
         {
@@ -116,6 +120,7 @@ private:
     LoadStreamMapPool* _pool = nullptr;
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
+    std::shared_ptr<CloseWaitNotifier> _close_wait_notifier;
 
     std::mutex _tablets_to_commit_mutex;
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_to_commit;

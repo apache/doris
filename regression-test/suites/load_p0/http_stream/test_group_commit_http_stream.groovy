@@ -94,9 +94,11 @@ suite("test_group_commit_http_stream") {
         """
 
         // stream load with compress file
-        String[] compressionTypes = new String[]{"gz", "bz2", /*"lzo",*/ "lz4frame"} //, "deflate"}
+        String[] compressionTypes = new String[]{"gz", "bz2", /*"lzo",*/ "lz4frame", "zstd"} //, "deflate"}
         for (final def compressionType in compressionTypes) {
-            def fileName = "test_compress.csv." + (compressionType.equals("lz4frame") ? "lz4" : compressionType)
+            def fileSuffix = compressionType.equals("lz4frame") ? "lz4" : compressionType
+            fileSuffix = fileSuffix.equals("zstd") ? "zst" : fileSuffix
+            def fileName = "test_compress.csv." + fileSuffix
             streamLoad {
                 set 'version', '1'
                 set 'sql', """
@@ -249,7 +251,7 @@ suite("test_group_commit_http_stream") {
             }
         }
 
-        getRowCount(19)
+        getRowCount(26)
         qt_sql " SELECT * FROM ${tableName} order by id, name, score asc; "
 
         // group commit http stream (SELECT * FROM http_stream(...)) should not register load jobs

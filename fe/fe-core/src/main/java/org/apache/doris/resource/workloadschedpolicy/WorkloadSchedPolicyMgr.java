@@ -105,7 +105,9 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
 
     public static final ImmutableSet<WorkloadMetricType> BE_METRIC_SET
             = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.BE_SCAN_ROWS)
-            .add(WorkloadMetricType.BE_SCAN_BYTES).add(WorkloadMetricType.QUERY_TIME)
+            .add(WorkloadMetricType.BE_SCAN_BYTES)
+            // Treat remote scan bytes as a BE-only runtime metric.
+            .add(WorkloadMetricType.BE_SCAN_BYTES_FROM_REMOTE_STORAGE).add(WorkloadMetricType.QUERY_TIME)
             .add(WorkloadMetricType.QUERY_BE_MEMORY_BYTES).add(WorkloadMetricType.USERNAME).build();
 
     // used for convert fe type to thrift type
@@ -114,6 +116,9 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
             .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME)
             .put(WorkloadMetricType.BE_SCAN_ROWS, TWorkloadMetricType.BE_SCAN_ROWS)
             .put(WorkloadMetricType.BE_SCAN_BYTES, TWorkloadMetricType.BE_SCAN_BYTES)
+            // Map the new FE metric enum to the appended thrift metric enum.
+            .put(WorkloadMetricType.BE_SCAN_BYTES_FROM_REMOTE_STORAGE,
+                    TWorkloadMetricType.BE_SCAN_BYTES_FROM_REMOTE_STORAGE)
             .put(WorkloadMetricType.QUERY_BE_MEMORY_BYTES, TWorkloadMetricType.QUERY_BE_MEMORY_BYTES)
             .put(WorkloadMetricType.USERNAME, TWorkloadMetricType.USERNAME).build();
     public static final ImmutableMap<WorkloadActionType, TWorkloadActionType> ACTION_MAP

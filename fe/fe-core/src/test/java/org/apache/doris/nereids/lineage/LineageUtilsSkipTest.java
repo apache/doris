@@ -41,17 +41,12 @@ import java.util.UUID;
 public class LineageUtilsSkipTest extends TestWithFeService {
 
     private String[] originalPlugins;
-    private boolean originalEnableInternalSchemaDb;
 
     @Override
-    protected void beforeCluster() {
-        originalEnableInternalSchemaDb = FeConstants.enableInternalSchemaDb;
-        FeConstants.enableInternalSchemaDb = true;
-    }
-
-    @Override
-    protected void runAfterAll() throws Exception {
-        FeConstants.enableInternalSchemaDb = originalEnableInternalSchemaDb;
+    protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
+        InternalSchemaInitializer.createDb();
+        InternalSchemaInitializer.createTbl();
     }
 
     @BeforeEach
@@ -72,9 +67,6 @@ public class LineageUtilsSkipTest extends TestWithFeService {
         useDatabase(dbName);
         createTable("create table " + dbName + ".src(k1 int) "
                 + "distributed by hash(k1) buckets 1 properties('replication_num'='1');");
-
-        InternalSchemaInitializer.createDb();
-        InternalSchemaInitializer.createTbl();
 
         String sql = "insert into `internal`.`__internal_schema`.`column_statistics`"
                 + "(`id`, `catalog_id`, `db_id`, `tbl_id`, `idx_id`, `col_id`, `part_id`,"

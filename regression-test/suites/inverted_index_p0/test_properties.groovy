@@ -119,6 +119,49 @@ suite("test_properties", "p0"){
     create_table_with_inverted_index_properties(missing_char_filter_pattern, "Missing 'char_filter_pattern' for 'char_replace' filter type")
     assertEquals(success, false)
 
+    def valid_dot_char_filter_pattern = """
+        CREATE TABLE IF NOT EXISTS ${indexTblName}(
+            `id` int(11) NULL,
+            `c` text NULL,
+            INDEX c_idx(`c`) USING INVERTED PROPERTIES(
+                "parser"="english",
+                "char_filter_type"="char_replace",
+                "char_filter_pattern"=".",
+                "char_filter_replacement"="_"
+            ) COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES(
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    create_table_with_inverted_index_properties(valid_dot_char_filter_pattern, "")
+    assertEquals(success, true)
+
+    def non_ascii_char_filter_replacement = """
+        CREATE TABLE IF NOT EXISTS ${indexTblName}(
+            `id` int(11) NULL,
+            `c` text NULL,
+            INDEX c_idx(`c`) USING INVERTED PROPERTIES(
+                "parser"="english",
+                "char_filter_type"="char_replace",
+                "char_filter_pattern"=".",
+                "char_filter_replacement"="é"
+            ) COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES(
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    create_table_with_inverted_index_properties(non_ascii_char_filter_replacement,
+            "'char_filter_replacement' must contain only ASCII characters")
+    assertEquals(success, false)
+
     def invalid_property_key = """
         CREATE TABLE IF NOT EXISTS ${indexTblName}(
             `id` int(11) NULL,

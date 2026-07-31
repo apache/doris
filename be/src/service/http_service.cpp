@@ -35,6 +35,7 @@
 #include "service/http/action/adjust_log_level.h"
 #include "service/http/action/batch_download_action.h"
 #include "service/http/action/be_proc_thread_action.h"
+#include "service/http/action/be_thread_stack_action.h"
 #include "service/http/action/calc_file_crc_action.h"
 #include "service/http/action/check_encryption_action.h"
 #include "service/http/action/check_rpc_channel_action.h"
@@ -59,6 +60,7 @@
 #include "service/http/action/meta_action.h"
 #include "service/http/action/metrics_action.h"
 #include "service/http/action/pad_rowset_action.h"
+#include "service/http/action/peer_cache_action.h"
 #include "service/http/action/pipeline_task_action.h"
 #include "service/http/action/pprof_actions.h"
 #include "service/http/action/reload_tablet_action.h"
@@ -143,7 +145,7 @@ Status HttpService::start() {
                                       streamload_2pc_action);
 
     // register stream load forward handler
-    auto* forward_handler = _pool.add(new StreamLoadForwardHandler());
+    auto* forward_handler = _pool.add(new StreamLoadForwardHandler(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_forward",
                                       forward_handler);
 
@@ -195,6 +197,10 @@ Status HttpService::start() {
     BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
                                       be_proc_thread_action);
+
+    // Dump C++ stack traces for current BE threads.
+    BeThreadStackAction* be_thread_stack_action = _pool.add(new BeThreadStackAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/stack_trace", be_thread_stack_action);
 
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
@@ -528,6 +534,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
                                       check_encryption_action);
+
+    // Peer cache admin/debug endpoints
+    PeerCacheAction* peer_cache_get = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/peer_cache", peer_cache_get);
+    PeerCacheAction* peer_cache_post = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/peer_cache", peer_cache_post);
 }
 // NOLINTEND(readability-function-size)
 

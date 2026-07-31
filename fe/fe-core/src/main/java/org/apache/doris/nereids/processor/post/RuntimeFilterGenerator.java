@@ -60,12 +60,15 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -87,6 +90,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             JoinType.ASOF_LEFT_OUTER_JOIN,
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
+
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
 
     private static final Set<Class<? extends PhysicalPlan>> SPJ_PLAN = ImmutableSet.of(
             PhysicalRelation.class,
@@ -157,6 +162,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         }
                         if (rfsToPushDown.isEmpty()) {
                             break;
+                        }
+                        if (!canPushDownRuntimeFiltersIntoCTEProducer(rfsToPushDown, cteId)) {
+                            continue;
                         }
 
                         // the most right deep buildNode from rfsToPushDown is used as buildNode for pushDown rf
@@ -872,6 +880,35 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return expression instanceof Slot ? ((Slot) expression) : null;
     }
 
+    /**
+     * Check whether runtime filters on CTE consumers can be pushed into their shared CTE producer.
+     */
+    @VisibleForTesting
+    public static boolean canPushDownRuntimeFiltersIntoCTEProducer(
+            List<RuntimeFilter> rfsToPushDown, CTEId cteId) {
+        if (rfsToPushDown.isEmpty()) {
+            LOG.warn("Skip pushing runtime filters into CTE producer because no runtime filters exist for cteId: {}",
+                    cteId);
+            return false;
+        }
+        Set<Expression> producerTargetExpressions = rfsToPushDown.stream()
+                .map(rf -> getProducerTargetExpression(rf, cteId))
+                .collect(Collectors.toSet());
+        return producerTargetExpressions.size() == 1;
+    }
+
+    private static Expression getProducerTargetExpression(RuntimeFilter rf, CTEId cteId) {
+        PhysicalRelation rel = rf.getTargetScan();
+        Preconditions.checkArgument(rel instanceof PhysicalCTEConsumer
+                && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId));
+        PhysicalCTEConsumer consumer = (PhysicalCTEConsumer) rel;
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        for (Slot slot : rf.getTargetExpression().getInputSlots()) {
+            replaceMap.put(slot, consumer.getProducerSlot(slot));
+        }
+        return ExpressionUtils.replace(rf.getTargetExpression(), replaceMap);
+    }
+
     private boolean doPushDownIntoCTEProducerInternal(RuntimeFilter rf, Expression targetExpression,
                                                     RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer) {
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
@@ -895,7 +932,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         // Map consumer slot to producer slot
         Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
-        if (producerSlot == null) {
+        Expression producerTargetExpression = getProducerTargetExpression(rf, cteProducer.getCteId());
+        Slot producerTargetSlot = checkTargetChild(producerTargetExpression);
+        if (!producerSlot.equals(producerTargetSlot)) {
             return false;
         }
         if (!checkCanPushDownIntoBasicTable(inputPlanNode)) {
@@ -904,7 +943,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // Use the PushDownVisitor to push inside the CTE producer subtree
         RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                 RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
-                        ctx, rf.getBuilderNode(), rf.getSrcExpr(), producerSlot,
+                        ctx, rf.getBuilderNode(), rf.getSrcExpr(), producerTargetExpression,
                         rf.getType(), rf.gettMinMaxType(),
                         !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder());
         if (pushDownContext.isValid()) {

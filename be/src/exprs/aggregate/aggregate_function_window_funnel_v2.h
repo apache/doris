@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
@@ -136,10 +137,10 @@ struct WindowFunnelStateV2 {
         window = win;
         window_funnel_mode = mode;
 
-        auto timestamp =
-                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*arg_columns[2])
-                        .get_data()[row_num]
-                        .to_date_int_val();
+        auto timestamp = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                     TypeCheckOnRelease::DISABLE>(*arg_columns[2])
+                                 .get_data()[row_num]
+                                 .to_date_int_val();
 
         // Iterate from last event to first (reverse order).
         // This ensures that after stable_sort, events with the same timestamp
@@ -150,8 +151,9 @@ struct WindowFunnelStateV2 {
         // subsequent events from the same row have continuation=1 (bit 7 set).
         bool first_match = true;
         for (int i = event_count - 1; i >= 0; --i) {
-            auto event_val =
-                    assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num];
+            auto event_val = assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(
+                                     *arg_columns[3 + i])
+                                     .get_data()[row_num];
             if (event_val) {
                 UInt8 packed_idx = cast_set<UInt8>(i + 1);
                 if (!first_match) {
@@ -644,10 +646,21 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        const auto& win = assert_cast<const ColumnInt64&>(*columns[0]).get_data()[row_num];
+        const auto& win = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                                  .get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, win,
                               string_to_window_funnel_mode(mode.to_string()));
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnInt64>(columns[0]);
+        this->template check_argument_column_type<ColumnString>(columns[1]);
+        this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                columns[2]);
+        for (size_t i = 3; i < this->argument_types.size(); ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -666,7 +679,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
-        assert_cast<ColumnInt32&>(to).get_data().push_back(
+        assert_cast<ColumnInt32&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
                                              AggregateFunctionWindowFunnelV2<T>>::data(place)
                         .get());

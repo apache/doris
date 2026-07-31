@@ -31,8 +31,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
             ADD_COUNTER_WITH_LEVEL(custom_profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
-    if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE ||
-        _exchanger->get_type() == ExchangeType::BUCKET_HASH_SHUFFLE) {
+    if (is_shuffled_exchange(_exchanger->get_type())) {
         _copy_data_timer = ADD_TIMER(custom_profile(), "CopyDataTime");
     }
 
@@ -60,7 +59,7 @@ Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
 }
 
 std::vector<Dependency*> LocalExchangeSourceLocalState::dependencies() const {
-    if ((_exchanger->get_type() == ExchangeType::PASS_TO_ONE) && _channel_id != 0) {
+    if ((_exchanger->get_type() == TLocalPartitionType::PASS_TO_ONE) && _channel_id != 0) {
         // If this is a PASS_TO_ONE exchange and is not the first task, source operators always
         // return empty result so no dependencies here.
         return {};

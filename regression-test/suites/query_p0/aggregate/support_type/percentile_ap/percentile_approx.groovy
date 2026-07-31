@@ -49,6 +49,15 @@ suite("percentile_approx") {
         properties("replication_num" = "1");
     """
 
+    qt_percentile_approx_tinyint_empty """select percentile_approx(col_tinyint, 0.5) from d_table;"""
+    qt_percentile_approx_smallint_empty """select percentile_approx(col_smallint, 0.5) from d_table;"""
+    qt_percentile_approx_int_empty """select percentile_approx(col_int, 0.5) from d_table;"""
+    qt_percentile_approx_bigint_empty """select percentile_approx(col_bigint, 0.5) from d_table;"""
+    qt_percentile_approx_largeint_empty """select percentile_approx(col_largeint, 0.5) from d_table;"""
+    qt_percentile_approx_float_empty """select percentile_approx(col_float, 0.5) from d_table;"""
+    qt_percentile_approx_double_empty """select percentile_approx(col_double, 0.5) from d_table;"""
+
+
     // 插入测试数据
     sql """
     insert into d_table values 

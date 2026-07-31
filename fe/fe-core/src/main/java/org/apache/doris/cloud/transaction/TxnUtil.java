@@ -256,6 +256,9 @@ public class TxnUtil {
         if (rtTaskTxnCommitAttachment.getErrorLogUrl() != null) {
             builder.setErrorLogUrl(rtTaskTxnCommitAttachment.getErrorLogUrl());
         }
+        if (rtTaskTxnCommitAttachment.getFirstErrorMsg() != null) {
+            builder.setFirstErrorMsg(rtTaskTxnCommitAttachment.getFirstErrorMsg());
+        }
 
         attachementBuilder.setRlTaskTxnCommitAttachment(builder.build());
         return attachementBuilder.build();

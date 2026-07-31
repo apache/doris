@@ -37,7 +37,7 @@ FileBlockSPtr create_block(int idx) {
 
 void insert_blocks(NeedUpdateLRUBlocks* pending, int count, int start_idx = 0) {
     for (int i = 0; i < count; ++i) {
-        ASSERT_TRUE(pending->insert(create_block(start_idx + i)))
+        ASSERT_TRUE(pending->insert(create_block(start_idx + i), /*access_time_ms=*/i + 1))
                 << "Block " << (start_idx + i) << " should be inserted";
     }
 }
@@ -47,21 +47,22 @@ void insert_blocks(NeedUpdateLRUBlocks* pending, int count, int start_idx = 0) {
 TEST(NeedUpdateLRUBlocksTest, InsertRejectsNullAndDeduplicates) {
     NeedUpdateLRUBlocks pending;
     FileBlockSPtr null_block;
-    EXPECT_FALSE(pending.insert(null_block));
+    EXPECT_FALSE(pending.insert(null_block, /*access_time_ms=*/1));
     EXPECT_EQ(0, pending.size());
 
     auto block = create_block(0);
-    EXPECT_TRUE(pending.insert(block));
+    EXPECT_TRUE(pending.insert(block, /*access_time_ms=*/1));
     EXPECT_EQ(1, pending.size());
 
-    EXPECT_FALSE(pending.insert(block)) << "Same pointer should not enqueue twice";
+    EXPECT_FALSE(pending.insert(block, /*access_time_ms=*/2))
+            << "Same pointer should not enqueue twice";
     EXPECT_EQ(1, pending.size());
 }
 
 TEST(NeedUpdateLRUBlocksTest, DrainHandlesZeroLimitAndNullOutput) {
     NeedUpdateLRUBlocks pending;
     insert_blocks(&pending, 3);
-    std::vector<FileBlockSPtr> drained;
+    std::vector<NeedUpdateLRUBlocks::Entry> drained;
 
     EXPECT_EQ(0, pending.drain(0, &drained));
     EXPECT_TRUE(drained.empty());
@@ -74,7 +75,7 @@ TEST(NeedUpdateLRUBlocksTest, DrainHandlesZeroLimitAndNullOutput) {
 TEST(NeedUpdateLRUBlocksTest, DrainRespectsLimitAndLeavesRemainder) {
     NeedUpdateLRUBlocks pending;
     insert_blocks(&pending, 5);
-    std::vector<FileBlockSPtr> drained;
+    std::vector<NeedUpdateLRUBlocks::Entry> drained;
 
     size_t drained_now = pending.drain(2, &drained);
     EXPECT_EQ(2u, drained_now);
@@ -89,7 +90,7 @@ TEST(NeedUpdateLRUBlocksTest, DrainRespectsLimitAndLeavesRemainder) {
 
 TEST(NeedUpdateLRUBlocksTest, DrainFromEmptyReturnsZero) {
     NeedUpdateLRUBlocks pending;
-    std::vector<FileBlockSPtr> drained;
+    std::vector<NeedUpdateLRUBlocks::Entry> drained;
     EXPECT_EQ(0u, pending.drain(4, &drained));
     EXPECT_TRUE(drained.empty());
 }
@@ -105,7 +106,7 @@ TEST(NeedUpdateLRUBlocksTest, ClearIsIdempotent) {
     pending.clear();
     EXPECT_EQ(0u, pending.size());
 
-    std::vector<FileBlockSPtr> drained;
+    std::vector<NeedUpdateLRUBlocks::Entry> drained;
     EXPECT_EQ(0u, pending.drain(4, &drained));
 }
 
@@ -123,7 +124,7 @@ TEST(NeedUpdateLRUBlocksTest, UpdateBlockLRUIgnoresNullAndCorruptedCellPointer) 
     {
         std::lock_guard<std::mutex> cache_lock(mgr._mutex);
         FileBlockSPtr null_block;
-        mgr.update_block_lru(null_block, cache_lock);
+        mgr.update_block_lru(NeedUpdateLRUBlocks::Entry {null_block, 1, 1}, cache_lock);
     }
 
     FileCacheKey key;
@@ -143,7 +144,7 @@ TEST(NeedUpdateLRUBlocksTest, UpdateBlockLRUIgnoresNullAndCorruptedCellPointer) 
 
     {
         std::lock_guard<std::mutex> cache_lock(mgr._mutex);
-        mgr.update_block_lru(block, cache_lock);
+        mgr.update_block_lru(NeedUpdateLRUBlocks::Entry {block, 1, 1}, cache_lock);
     }
 }
 

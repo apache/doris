@@ -27,13 +27,6 @@ import java.util.List;
 public interface DiffOutputInAsterisk extends Plan {
     @Override
     default List<Slot> getAsteriskOutput() {
-        boolean outputMayDiff = false;
-        for (Plan child : children()) {
-            if (child instanceof DiffOutputInAsterisk) {
-                outputMayDiff = true;
-                break;
-            }
-        }
-        return outputMayDiff ? getLogicalProperties().getAsteriskOutput() : getLogicalProperties().getOutput();
+        return getLogicalProperties().getAsteriskOutput();
     }
 }

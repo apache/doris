@@ -117,9 +117,13 @@ public class ExportMgr {
         try {
             // delete existing files
             if (Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                // Concrete filesystems only accept their native schemes; normalize legacy
+                // compatibility schemes (e.g. cos:// with s3.* properties) before crossing
+                // the plugin boundary.
+                String exportPath = job.getBrokerDesc().getFileLocation(job.getExportPath());
                 try (org.apache.doris.filesystem.FileSystem fs =
                         FileSystemFactory.getFileSystem(job.getBrokerDesc())) {
-                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(job.getExportPath())), true);
+                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(exportPath)), true);
                 } catch (java.io.IOException e) {
                     throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
                 }

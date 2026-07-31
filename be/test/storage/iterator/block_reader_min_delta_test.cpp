@@ -42,8 +42,8 @@ TEST_F(BlockReaderMinDeltaTest, ValidOperationPairs) {
             {ROW_BINLOG_UPDATE, ROW_BINLOG_APPEND, ResultType::UPDATE_BEFORE_AFTER},
             {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE, ResultType::UPDATE_BEFORE_AFTER},
             {ROW_BINLOG_UPDATE, ROW_BINLOG_DELETE, ResultType::DELETE},
-            {ROW_BINLOG_DELETE, ROW_BINLOG_APPEND, ResultType::INSERT},
-            {ROW_BINLOG_DELETE, ROW_BINLOG_UPDATE, ResultType::INSERT},
+            {ROW_BINLOG_DELETE, ROW_BINLOG_APPEND, ResultType::UPDATE_BEFORE_AFTER},
+            {ROW_BINLOG_DELETE, ROW_BINLOG_UPDATE, ResultType::UPDATE_BEFORE_AFTER},
             {ROW_BINLOG_DELETE, ROW_BINLOG_DELETE, ResultType::DELETE},
     };
 
@@ -84,9 +84,9 @@ TEST_F(BlockReaderMinDeltaTest, SemanticScenarios) {
     EXPECT_EQ(ResultType::DELETE, binlog::AggregateFunctionMinDelta::calculate_result(
                                           ROW_BINLOG_UPDATE, ROW_BINLOG_DELETE));
 
-    // Scenario 3: delete then insert (rebuild) is treated as INSERT.
-    EXPECT_EQ(ResultType::INSERT, binlog::AggregateFunctionMinDelta::calculate_result(
-                                          ROW_BINLOG_DELETE, ROW_BINLOG_APPEND));
+    // Scenario 3: delete then re-add means the key existed before the window and is treated as UPDATE.
+    EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER, binlog::AggregateFunctionMinDelta::calculate_result(
+                                                       ROW_BINLOG_DELETE, ROW_BINLOG_APPEND));
 }
 
 TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
@@ -120,8 +120,9 @@ TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
     // Scenario 3: key1 appended in one rowset and deleted in a later rowset -> SKIP.
     EXPECT_EQ(ResultType::SKIP, calc_from_rowsets({{ROW_BINLOG_APPEND}, {ROW_BINLOG_DELETE}}));
 
-    // Scenario 4: key1 deleted first, then appended in later rowset -> INSERT.
-    EXPECT_EQ(ResultType::INSERT, calc_from_rowsets({{ROW_BINLOG_DELETE}, {ROW_BINLOG_APPEND}}));
+    // Scenario 4: key1 deleted first, then appended in later rowset -> UPDATE_BEFORE_AFTER.
+    EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
+              calc_from_rowsets({{ROW_BINLOG_DELETE}, {ROW_BINLOG_APPEND}}));
 
     // Scenario 5: empty rowsets around the same key should not affect folding.
     EXPECT_EQ(ResultType::DELETE,

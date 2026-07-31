@@ -1853,7 +1853,11 @@ void MetaServiceImpl::commit_txn_immediately(
                 int64_t table_id = i.first;
                 std::string ver_key = table_version_key({instance_id, db_id, table_id});
                 std::string ver_val;
-                err = txn->get(ver_key, &ver_val);
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
                 int64_t table_version = 0;
                 if (err == TxnErrorCode::TXN_OK) {
                     if (!txn->decode_atomic_int(ver_val, &table_version)) {
@@ -2190,6 +2194,7 @@ void MetaServiceImpl::commit_txn_eventually(
         std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         KVStats& stats) {
+    response->set_is_lazy_commit(true);
     StopWatch sw;
     DORIS_CLOUD_DEFER {
         if (config::use_detailed_metrics && !instance_id.empty()) {
@@ -2556,7 +2561,11 @@ void MetaServiceImpl::commit_txn_eventually(
                 int64_t table_id = i.first;
                 std::string ver_key = table_version_key({instance_id, db_id, table_id});
                 std::string ver_val;
-                err = txn->get(ver_key, &ver_val);
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
                 int64_t table_version = 0;
                 if (err == TxnErrorCode::TXN_OK) {
                     if (!txn->decode_atomic_int(ver_val, &table_version)) {
@@ -2612,6 +2621,8 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        response->set_is_lazy_commit_incomplete(true);
+
         // set table versions in response
         if (is_versioned_read) {
             Versionstamp vs;
@@ -2641,6 +2652,8 @@ void MetaServiceImpl::commit_txn_eventually(
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
+        } else {
+            response->set_is_lazy_commit_incomplete(false);
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -2990,10 +3003,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         // Save versions
+        int64_t version_update_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        response->set_version_update_time_ms(version_update_time_ms);
         for (auto& [partition_id, new_version] : new_versions) {
             std::string ver_val;
             VersionPB version_pb;
             version_pb.set_version(new_version);
+            version_pb.set_update_time_ms(version_update_time_ms);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
@@ -3007,7 +3024,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             txn->put(version_key, ver_val);
             LOG(INFO) << "put partition_version_key=" << hex(version_key)
                       << " version:" << new_version << " txn_id=" << txn_id
-                      << " partition_id=" << partition_id;
+                      << " partition_id=" << partition_id
+                      << " update_time=" << version_update_time_ms;
 
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << new_version;
@@ -3045,7 +3063,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 int64_t table_id = i.first;
                 std::string ver_key = table_version_key({instance_id, db_id, table_id});
                 std::string ver_val;
-                err = txn->get(ver_key, &ver_val);
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
                 int64_t table_version = 0;
                 if (err == TxnErrorCode::TXN_OK) {
                     if (!txn->decode_atomic_int(ver_val, &table_version)) {
@@ -3265,6 +3287,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_txn, get, put, del);
+    response->set_is_lazy_commit(false);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";

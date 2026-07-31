@@ -18,7 +18,7 @@
 package org.apache.doris.common;
 
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;

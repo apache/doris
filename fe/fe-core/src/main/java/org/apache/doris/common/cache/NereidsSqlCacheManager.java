@@ -33,7 +33,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
@@ -439,7 +439,8 @@ public class NereidsSqlCacheManager {
         for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
             if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW
-                    && tableVersion.type != TableType.HMS_EXTERNAL_TABLE) {
+                    && tableVersion.type != TableType.HMS_EXTERNAL_TABLE
+                    && tableVersion.type != TableType.PLUGIN_EXTERNAL_TABLE) {
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             }
             TableIf tableIf = findTableIf(env, scanTable.getKey());
@@ -472,9 +473,10 @@ public class NereidsSqlCacheManager {
                         return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                     }
                 }
-            } else if (tableIf instanceof HMSExternalTable) {
-                HMSExternalTable hiveTable = (HMSExternalTable) tableIf;
-                if (tableVersion.version != hiveTable.getUpdateTime()) {
+            } else if (tableIf instanceof MTMVRelatedTableIf) {
+                // External MVCC table (flipped hive/iceberg/paimon/hudi): compare the stored data-version
+                // token against the live one. OlapTable/MTMV are matched by the OlapTable arm above.
+                if (tableVersion.version != ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime()) {
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
             } else {
@@ -503,7 +505,9 @@ public class NereidsSqlCacheManager {
                         return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                     }
                 }
-            } else if (!(tableIf instanceof HMSExternalTable)) {
+            } else if (!(tableIf instanceof MTMVRelatedTableIf)) {
+                // External MVCC tables skip per-partition existence tracking (an Olap-only concern);
+                // their freshness is fully covered by the token compare in the used-tables loop above.
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             }
         }

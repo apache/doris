@@ -190,13 +190,17 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy4, 3).size());
 
         BeSelectionPolicy policy5 = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+        Assert.assertTrue(policy5.toString().contains("nonDecommissioned=true"));
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy5, 1).size());
         Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10001L));
         Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10002L));
         Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10005L));
-        Assert.assertEquals(2, infoService.selectBackendIdsByPolicy(policy5, 2).size());
-        Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy5, 2).contains(10003L));
-        Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy5, 2).contains(10004L));
+        Assert.assertFalse(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10004L));
+        Assert.assertTrue(infoService.selectBackendIdsByPolicy(policy5, 1).contains(10003L));
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy5, 2).size());
+        be3.setDecommissioning(true);
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy5, 1).size());
+        be3.setDecommissioning(false);
 
         // 5. set tags
         // reset all be

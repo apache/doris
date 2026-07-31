@@ -1,0 +1,84 @@
+--- a/cpp/src/parquet/column_reader.cc
++++ b/cpp/src/parquet/column_reader.cc
+@@ -30,0 +31,2 @@
++
++#include <lzo/lzo1x.h>
+@@ -268,0 +269 @@
++        compression_codec_(codec),
+@@ -279 +282,7 @@
+-    decompressor_ = GetCodec(codec);
++    if (compression_codec_ == Compression::LZO) {
++      if (lzo_init() != LZO_E_OK) {
++        throw ParquetException("Failed to initialize LZO codec");
++      }
++    } else {
++      decompressor_ = GetCodec(codec);
++    }
+@@ -315,0 +325 @@
++  Compression::type compression_codec_;
+@@ -585 +595 @@
+-  if (decompressor_ == nullptr) {
++  if (decompressor_ == nullptr && compression_codec_ != Compression::LZO) {
+@@ -601,0 +612,61 @@
++  if (compression_codec_ == Compression::LZO) {
++    const uint8_t* input = page_buffer->data() + levels_byte_len;
++    const uint8_t* const input_end = page_buffer->data() + compressed_len;
++    uint8_t* output = decompression_buffer_->mutable_data() + levels_byte_len;
++    uint8_t* const output_end = decompression_buffer_->mutable_data() + uncompressed_len;
++
++    auto load_big_endian_u32 = [](const uint8_t* data) {
++      return (static_cast<uint32_t>(data[0]) << 24) |
++             (static_cast<uint32_t>(data[1]) << 16) |
++             (static_cast<uint32_t>(data[2]) << 8) | static_cast<uint32_t>(data[3]);
++    };
++
++    while (input < input_end) {
++      if (input_end - input < 4) {
++        throw ParquetException("LZO page decompression failed: truncated large block length");
++      }
++
++      uint32_t large_block_uncompressed_len = load_big_endian_u32(input);
++      input += 4;
++      if (static_cast<size_t>(output_end - output) < large_block_uncompressed_len) {
++        throw ParquetException("LZO page decompression failed: output buffer too small");
++      }
++
++      while (large_block_uncompressed_len > 0) {
++        if (input_end - input < 4) {
++          throw ParquetException("LZO page decompression failed: truncated small block length");
++        }
++
++        uint32_t small_block_compressed_len = load_big_endian_u32(input);
++        input += 4;
++        if (static_cast<size_t>(input_end - input) < small_block_compressed_len) {
++          throw ParquetException("LZO page decompression failed: truncated small block data");
++        }
++
++        auto small_block_uncompressed_len =
++            static_cast<lzo_uint>(large_block_uncompressed_len);
++        const int result =
++            lzo1x_decompress_safe(input, static_cast<lzo_uint>(small_block_compressed_len),
++                                  output, &small_block_uncompressed_len, nullptr);
++        if (result != LZO_E_OK) {
++          throw ParquetException("LZO page decompression failed, error: " +
++                                 std::to_string(result));
++        }
++        if (small_block_uncompressed_len > large_block_uncompressed_len) {
++          throw ParquetException("LZO page decompression failed: invalid small block size");
++        }
++
++        input += small_block_compressed_len;
++        output += small_block_uncompressed_len;
++        large_block_uncompressed_len -= small_block_uncompressed_len;
++      }
++    }
++    if (output != output_end) {
++      throw ParquetException("Page didn't decompress to expected size, expected: " +
++                             std::to_string(uncompressed_len - levels_byte_len) + ", but got:" +
++                             std::to_string(output - (decompression_buffer_->mutable_data() +
++                                                      levels_byte_len)));
++    }
++
++    return decompression_buffer_;
++  }
++

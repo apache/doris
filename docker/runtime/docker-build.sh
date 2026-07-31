@@ -93,12 +93,10 @@ echo "distribute binary to corresponding path."
 mkdir -p fe/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
 mkdir -p be/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
 mkdir -p ms/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
-mkdir -p broker/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
 
 mv -f apache-doris-${version}-bin-${url_arch}/fe fe/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
 mv -f apache-doris-${version}-bin-${url_arch}/be be/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
 mv -f apache-doris-${version}-bin-${url_arch}/ms ms/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
-mv -f apache-doris-${version}-bin-${url_arch}/extensions broker/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
 
 echo "docker build base iamge,tag=apache/doris:base-latest"
 cd base-image/ && docker build -t apache/doris:base-latest -f Dockerfile_base .
@@ -115,6 +113,3 @@ cd -
 echo "docker build ms image,tag=doris.ms:${version}"
 cd ms/ && docker build -t doris.ms:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
 cd -
-
-echo "docker build broker image,tag=doris.broker:${version}"
-cd broker/ && docker build -t doris.broker:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "exec/operator/operator.h"
 #include "load/group_commit/group_commit_mgr.h"
 #include "storage/tablet_info.h"
@@ -68,6 +70,8 @@ private:
     // used to calculate if meet the max filter ratio
     std::vector<std::shared_ptr<Block>> _blocks;
     bool _is_block_appended = false;
+    // True once this load's load_id has already been removed from the queue
+    std::atomic<bool> _load_id_removed = false;
     // used for find_partition
     std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
     // reuse for find_tablet.
