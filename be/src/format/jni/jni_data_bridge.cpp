@@ -187,8 +187,7 @@ Status JniDataBridge::_fill_variant_v2_column(TableMetaAddress& address,
                                               MutableColumnPtr& doris_column, size_t num_rows) {
     // VectorColumnVariant publishes these EncodedDataView fields immediately after the null map.
     const auto metadata_count = static_cast<size_t>(address.next_meta_as_long());
-    const auto* metadata_offsets =
-            reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* metadata_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
     const auto* metadata_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
     const auto* metadata_ids = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
     const auto* value_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());

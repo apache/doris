@@ -37,6 +37,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 import org.junit.Assert;
 import org.junit.Test;
 

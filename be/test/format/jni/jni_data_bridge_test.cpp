@@ -49,21 +49,17 @@ TEST(JniDataBridgeTest, FillNullableVariantV2FromEncodedPaimonLayout) {
     std::array<bool, 3> null_map {false, true, false};
     // Paimon metadata contains an empty dictionary and a one-key dictionary for "a".
     std::array<uint32_t, 3> metadata_offsets {0, 3, 8};
-    std::array<char, 8> metadata_bytes {
-            char {0x01}, char {0x00}, char {0x00}, char {0x01},
-            char {0x01}, char {0x00}, char {0x01}, 'a'};
+    std::array<char, 8> metadata_bytes {char {0x01}, char {0x00}, char {0x00}, char {0x01},
+                                        char {0x01}, char {0x00}, char {0x01}, 'a'};
     std::array<uint32_t, 3> metadata_ids {0, 0, 1};
     // Primitive values are true, Variant null (the SQL NULL placeholder), and false.
     std::array<uint32_t, 4> value_offsets {0, 1, 2, 3};
     std::array<char, 3> value_bytes {char {0x04}, char {0x00}, char {0x08}};
 
     std::array<long, 7> meta {
-            address_of(null_map.data()),
-            2,
-            address_of(metadata_offsets.data()),
-            address_of(metadata_bytes.data()),
-            address_of(metadata_ids.data()),
-            address_of(value_offsets.data()),
+            address_of(null_map.data()),         2,
+            address_of(metadata_offsets.data()), address_of(metadata_bytes.data()),
+            address_of(metadata_ids.data()),     address_of(value_offsets.data()),
             address_of(value_bytes.data()),
     };
     JniDataBridge::TableMetaAddress meta_address(address_of(meta.data()));
