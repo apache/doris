@@ -483,7 +483,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         planner,
                         dataSink,
                         physicalSink,
-                        () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
+                        () -> new IcebergInsertExecutor(ctx, icebergExternalTable,
+                                ((PhysicalIcebergTableSink<?>) physicalSink).getTargetIcebergTable(), label, planner,
                                 Optional.of(icebergInsertCtx),
                                 emptyInsert, jobId
                         )

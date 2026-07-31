@@ -29,4 +29,14 @@ public class PaimonMvccSnapshot implements MvccSnapshot {
     public PaimonSnapshotCacheValue getSnapshotCacheValue() {
         return snapshotCacheValue;
     }
+
+    @Override
+    public boolean isSameSnapshot(MvccSnapshot other) {
+        if (!(other instanceof PaimonMvccSnapshot)) {
+            return false;
+        }
+        PaimonSnapshot left = snapshotCacheValue.getSnapshot();
+        PaimonSnapshot right = ((PaimonMvccSnapshot) other).snapshotCacheValue.getSnapshot();
+        return left.getSnapshotId() == right.getSnapshotId() && left.getSchemaId() == right.getSchemaId();
+    }
 }

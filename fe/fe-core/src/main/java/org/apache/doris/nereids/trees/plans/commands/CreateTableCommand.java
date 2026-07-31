@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -99,6 +101,19 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                     ctx.queryId(), createTableInfo.getTableName());
         }
+        LogicalPlan sinkQuery = null;
+        if (!createTableInfo.isIfNotExists()) {
+            // An existence probe is used only to preserve the catalog diagnostic; creation still
+            // goes through the atomic catalog API and is the sole proof of ownership.
+            if (targetTableExists(ctx)) {
+                throw new AnalysisException(ErrorCode.ERR_TABLE_EXISTS_ERROR.formatErrorMsg(
+                        createTableInfo.getTableName()));
+            }
+            // Reject unsupported destinations before publishing metadata; rollback by table name
+            // cannot distinguish this CTAS table from a concurrent replacement with the same name.
+            sinkQuery = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
+        }
         try {
             if (Env.getCurrentEnv().createTable(this.createTableInfo)) {
                 return;
@@ -107,12 +122,16 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
+            if (sinkQuery == null) {
+                // IF NOT EXISTS must honor the catalog's atomic existing-table result before sink
+                // validation, otherwise an unsupported connector turns the required no-op into an error.
+                sinkQuery = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                        ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
+            }
             InsertIntoTableCommand insertCommand = null;
             if (!FeConstants.runningUnitTest) {
-                insertCommand = new InsertIntoTableCommand(query, Optional.empty(),
+                insertCommand = new InsertIntoTableCommand(sinkQuery, Optional.empty(),
                         Optional.empty(), Optional.empty(), true, Optional.empty());
                 insertCommand.run(ctx, executor);
                 if (ctx.getState().getStateType() == MysqlStateType.OK) {
@@ -224,6 +243,16 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             // TODO: refactor it with normal error process.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
         }
+    }
+
+    boolean targetTableExists(ConnectContext ctx) {
+        List<String> qualifiedName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(qualifiedName.get(0));
+        if (catalog == null) {
+            return false;
+        }
+        DatabaseIf<?> database = catalog.getDbNullable(qualifiedName.get(1));
+        return database != null && database.isTableExist(qualifiedName.get(2));
     }
 
     private String getAutoRangePartitionNameOrNull() {

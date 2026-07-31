@@ -38,7 +38,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -61,7 +61,6 @@ import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
@@ -163,6 +162,7 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     protected void doInitialize() throws UserException {
         ExternalTable table = (ExternalTable) desc.getTable();
+        Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
         if (table.isView()) {
             throw new AnalysisException(
                     String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
@@ -205,20 +205,17 @@ public class HudiScanNode extends HiveScanNode {
 
             timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
             TableSnapshot tableSnapshot = getQueryTableSnapshot();
-            if (tableSnapshot != null) {
-                if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
-                    throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
-                }
-                queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
-            } else {
-                Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
-                if (!snapshotInstant.isPresent()) {
-                    prunedPartitions = Collections.emptyList();
-                    partitionInit = true;
-                    return;
-                }
-                queryInstant = snapshotInstant.get().requestedTime();
+            if (tableSnapshot != null && tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
             }
+            Optional<String> resolvedInstant = HudiUtils.resolveQueryInstant(
+                    relationSnapshot, Optional.ofNullable(tableSnapshot), timeline);
+            if (!resolvedInstant.isPresent()) {
+                prunedPartitions = Collections.emptyList();
+                partitionInit = true;
+                return;
+            }
+            queryInstant = resolvedInstant.get();
 
             HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
             columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
@@ -238,7 +235,8 @@ public class HudiScanNode extends HiveScanNode {
         // `table_info_node_ptr` will be `TableSchemaChangeHelper::ConstNode`. When using `ConstNode`,
         // you need to pay special attention to the `case difference` between the `table column name`
         // and `the file column name`.
-        ExternalUtil.initSchemaInfo(params, -1L, table.getColumns());
+        // Split planning and FE-BE schema transport must describe the same pinned Hudi instant.
+        ExternalUtil.initSchemaInfo(params, -1L, table.getFullSchema(relationSnapshot));
     }
 
     @Override
@@ -344,7 +342,7 @@ public class HudiScanNode extends HiveScanNode {
 
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
         NameMapping nameMapping = hmsTable.getOrBuildNameMapping();
-        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
+        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(getRelationSnapshot());
         if (!partitionColumnTypes.isEmpty()) {
             this.totalPartitionNum = selectedPartitions.totalPartitionNum;
             Map<String, PartitionItem> prunedPartitions = selectedPartitions.selectedPartitions;

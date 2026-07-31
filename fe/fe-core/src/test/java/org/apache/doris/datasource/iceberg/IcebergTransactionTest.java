@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TIcebergCommitData;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
@@ -39,6 +40,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -208,7 +210,7 @@ public class IcebergTransactionTest {
                     .thenCallRealMethod();
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.beginInsert(icebergExternalTable, table, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
@@ -321,7 +323,7 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.beginInsert(icebergExternalTable, table, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
@@ -433,7 +435,7 @@ public class IcebergTransactionTest {
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             ctx.setOverwrite(true);
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
@@ -458,7 +460,7 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             ctx.setOverwrite(true);
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
@@ -506,7 +508,7 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
-            txn.beginInsert(icebergExternalTable, Optional.empty());
+            txn.beginInsert(icebergExternalTable, table, Optional.empty());
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
@@ -528,7 +530,7 @@ public class IcebergTransactionTest {
             staticPartitions.put("dt4", "2024-12-11");
             staticPartitions.put("str1", "partition-a");
             ctx.setStaticPartitionValues(staticPartitions);
-            txn.beginInsert(icebergExternalTable, Optional.of(ctx));
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
@@ -598,7 +600,7 @@ public class IcebergTransactionTest {
                             ArgumentMatchers.anyList()))
                     .thenReturn(Collections.singletonList(newDeleteFile));
 
-            txn.beginDelete(icebergExternalTable);
+            txn.beginDelete(icebergExternalTable, icebergTable);
             txn.setRewrittenDeleteFilesByReferencedDataFile(
                     Collections.singletonMap(referencedDataFile, Arrays.asList(oldDeleteFile1, oldDeleteFile2)));
             txn.finishDelete(NameMapping.createForTest(dbName, tbWithoutPartition));
@@ -659,7 +661,7 @@ public class IcebergTransactionTest {
                             ArgumentMatchers.anyList()))
                     .thenReturn(Collections.singletonList(newDeleteFile));
 
-            txn.beginDelete(icebergExternalTable);
+            txn.beginDelete(icebergExternalTable, icebergTable);
             txn.setRewrittenDeleteFilesByReferencedDataFile(
                     Collections.singletonMap(referencedDataFile, Collections.singletonList(oldDeleteFile)));
             txn.finishDelete(NameMapping.createForTest(dbName, tbWithoutPartition));
@@ -672,6 +674,147 @@ public class IcebergTransactionTest {
             Mockito.verify(rowDelta, Mockito.never()).removeDeletes(ArgumentMatchers.any(DeleteFile.class));
         }
         Mockito.verify(rowDelta).commit();
+    }
+
+    @Test
+    public void testBeginInsertUsesRetainedTargetTable() throws UserException {
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn("retained_target");
+        Table retainedTable = Mockito.mock(Table.class);
+        org.apache.iceberg.Transaction retainedTransaction =
+                Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(retainedTable.newTransaction()).thenReturn(retainedTransaction);
+
+        IcebergTransaction txn = getTxn();
+        txn.beginInsert(dorisTable, retainedTable, Optional.empty());
+
+        Mockito.verify(retainedTable).newTransaction();
+    }
+
+    @Test
+    public void testBeginDeleteUsesRetainedTargetTable() throws UserException {
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn("retained_delete_target");
+        Table retainedTable = Mockito.mock(Table.class);
+        org.apache.iceberg.Transaction retainedTransaction =
+                Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(retainedTable.newTransaction()).thenReturn(retainedTransaction);
+
+        IcebergTransaction txn = getTxn();
+        txn.beginDelete(dorisTable, retainedTable);
+
+        Mockito.verify(retainedTable).newTransaction();
+    }
+
+    @Test
+    public void testRetainedGenerationCommitsThroughWritableOperations() throws UserException {
+        Table liveTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                Mockito.mock(IcebergPartitionInfo.class), Mockito.mock(IcebergSnapshot.class),
+                Optional.empty(), liveTable);
+        Table retainedTable = cacheValue.getIcebergTable().get();
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("retained-generation.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(liveTable);
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+            txn.beginInsert(dorisTable, retainedTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
+            txn.commit();
+        }
+
+        Assert.assertNotNull(ops.getCatalog().loadTable(
+                TableIdentifier.of(dbName, tbWithoutPartition)).currentSnapshot());
+    }
+
+    @Test
+    public void testRetainedGenerationRejectsConcurrentMetadataAdvance() throws UserException {
+        Table liveTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                Mockito.mock(IcebergPartitionInfo.class), Mockito.mock(IcebergSnapshot.class),
+                Optional.empty(), liveTable);
+        Table retainedTable = cacheValue.getIcebergTable().get();
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("stale-retained-generation.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(liveTable);
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+            txn.beginInsert(dorisTable, retainedTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
+
+            liveTable.updateProperties().set("concurrent-update", "true").commit();
+            Assert.assertThrows(CommitFailedException.class, txn::commit);
+        }
+    }
+
+    @Test
+    public void testRetainedGenerationRetriesAfterConcurrentDataCommit() throws UserException, IOException {
+        Table liveTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                Mockito.mock(IcebergPartitionInfo.class), Mockito.mock(IcebergSnapshot.class),
+                Optional.empty(), liveTable);
+        Table retainedTable = cacheValue.getIcebergTable().get();
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("retry-after-concurrent-data-commit.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(liveTable);
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+            txn.beginInsert(dorisTable, retainedTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
+
+            Path concurrentFile = Files.createTempFile("concurrent-data-commit-", ".parquet");
+            liveTable.newFastAppend()
+                    .appendFile(DataFiles.builder(liveTable.spec())
+                            .withPath(concurrentFile.toString())
+                            .withFileSizeInBytes(1)
+                            .withRecordCount(1)
+                            .withFormat(FileFormat.PARQUET)
+                            .build())
+                    .commit();
+            txn.commit();
+        }
+
+        Table refreshedTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        Assert.assertEquals(2, refreshedTable.history().size());
+    }
+
+    @Test
+    public void testStaticPartitionFilterRejectsUnknownKey() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "day", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("day").build();
+
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> getTxn().buildPartitionFilter(
+                        Collections.singletonMap("unknown", "2026-01-01"), spec, schema));
     }
 
     private DeleteFile buildDeletionVectorDeleteFile(String puffinPath, String referencedDataFile,

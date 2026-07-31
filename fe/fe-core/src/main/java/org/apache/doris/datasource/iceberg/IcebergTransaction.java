@@ -61,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,12 +127,15 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
+    /** Begin an insert against the metadata generation retained during sink binding. */
+    public void beginInsert(ExternalTable dorisTable, Table targetTable,
+            Optional<InsertCommandContext> ctx) throws UserException {
         ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
-                // create and start the iceberg transaction
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                // Planning, BE serialization, and commit must share one Iceberg metadata
+                // generation even if the catalog refreshes between those phases.
+                this.table = targetTable;
                 this.baseSnapshotId = null;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
@@ -145,28 +149,26 @@ public class IcebergTransaction implements Transaction {
                                         + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
                 }
-                this.transaction = table.newTransaction();
+                this.transaction = createTransactionTable(dorisTable, table).newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
         } catch (Exception e) {
             throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
-                    + "because: " + e.getMessage(), e);
+                    + " because: " + e.getMessage(), e);
         }
 
     }
 
-    /**
-     * Begin rewrite transaction for data file rewrite operations
-     */
-    public void beginRewrite(ExternalTable dorisTable) throws UserException {
+    /** Begin a rewrite against the same retained table used by every rewrite task. */
+    public void beginRewrite(ExternalTable dorisTable, Table targetTable) throws UserException {
         // For rewrite operations, we work directly on the main table
         this.branchName = null;
         this.isRewriteMode = true;
 
         try {
             ops.getExecutionAuthenticator().execute(() -> {
-                // create and start the iceberg transaction
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                // A rewrite group must not silently switch to refreshed metadata mid-transaction.
+                this.table = targetTable;
                 this.baseSnapshotId = null;
 
                 // Capture the starting snapshot ID for validation during rewrite commit
@@ -175,7 +177,7 @@ public class IcebergTransaction implements Transaction {
 
                 // For rewrite operations, we work directly on the main table
                 // No branch information needed
-                this.transaction = table.newTransaction();
+                this.transaction = createTransactionTable(dorisTable, table).newTransaction();
                 LOG.info("Started rewrite transaction for table: {} (main table)",
                         dorisTable.getName());
                 return null;
@@ -265,11 +267,12 @@ public class IcebergTransaction implements Transaction {
     /**
      * Begin delete operation for Iceberg table
      */
-    public void beginDelete(ExternalTable dorisTable) throws UserException {
+    public void beginDelete(ExternalTable dorisTable, Table targetTable) throws UserException {
         try {
             ops.getExecutionAuthenticator().execute(() -> {
-                // create and start the iceberg transaction
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                // RowDelta's validation base must match the generation used to select row IDs;
+                // reloading the live table here could silently include a concurrent commit.
+                this.table = targetTable;
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
                 if (table instanceof org.apache.iceberg.HasTableOperations) {
                     int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
@@ -279,7 +282,7 @@ public class IcebergTransaction implements Transaction {
                                 + " must have format version 2 or higher for position deletes");
                     }
                 }
-                this.transaction = table.newTransaction();
+                this.transaction = createTransactionTable(dorisTable, table).newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
@@ -289,14 +292,23 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    /**
-     * Begin merge operation for Iceberg UPDATE (single scan RowDelta).
-     */
-    public void beginMerge(ExternalTable dorisTable) throws UserException {
+    private Table createTransactionTable(ExternalTable dorisTable, Table retainedTable) {
+        if (!IcebergSnapshotCacheValue.isFrozenGeneration(retainedTable)) {
+            return retainedTable;
+        }
+        // Reads stay on the retained generation; commit refreshes may follow data-only snapshots,
+        // while writer-contract changes still invalidate files produced for the retained metadata.
+        return IcebergSnapshotCacheValue.createWritableTable(
+                retainedTable, IcebergUtils.getIcebergTable(dorisTable));
+    }
+
+    /** Begin UPDATE/MERGE against the metadata generation retained by the merge sink. */
+    public void beginMerge(ExternalTable dorisTable, Table targetTable) throws UserException {
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 this.branchName = null;
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                // Keep row binding, partition routing, writer schema, and commit on one generation.
+                this.table = targetTable;
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
                 if (table instanceof org.apache.iceberg.HasTableOperations) {
                     int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
@@ -306,7 +318,7 @@ public class IcebergTransaction implements Transaction {
                                 + " must have format version 2 or higher for position deletes");
                     }
                 }
-                this.transaction = table.newTransaction();
+                this.transaction = createTransactionTable(dorisTable, table).newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started merge transaction for table: {}", dorisTable.getName());
                 return null;
@@ -913,7 +925,7 @@ public class IcebergTransaction implements Transaction {
      * @param schema Schema of the table
      * @return Iceberg Expression for partition filtering
      */
-    private Expression buildPartitionFilter(
+    Expression buildPartitionFilter(
             Map<String, String> staticPartitions,
             PartitionSpec spec,
             Schema schema) {
@@ -922,6 +934,7 @@ public class IcebergTransaction implements Transaction {
         }
 
         List<Expression> predicates = new ArrayList<>();
+        HashSet<String> matchedPartitionNames = new HashSet<>();
 
         for (PartitionField field : spec.fields()) {
             String partitionColName = field.name();
@@ -949,11 +962,18 @@ public class IcebergTransaction implements Transaction {
                     eqExpr = Expressions.equal(sourceColName, partitionValue);
                 }
                 predicates.add(eqExpr);
+                matchedPartitionNames.add(partitionColName);
             }
         }
 
-        if (predicates.isEmpty()) {
-            return Expressions.alwaysTrue();
+        if (matchedPartitionNames.size() != staticPartitions.size()) {
+            HashSet<String> unmatchedPartitionNames = new HashSet<>(staticPartitions.keySet());
+            unmatchedPartitionNames.removeAll(matchedPartitionNames);
+            // Falling back to alwaysTrue here would turn a misspelled/static stale key into a
+            // whole-table overwrite, so every user-specified key must bind to the retained spec.
+            throw new IllegalArgumentException(
+                    "Static partition columns are not present in the Iceberg partition spec: "
+                            + unmatchedPartitionNames);
         }
 
         // Combine all predicates with AND

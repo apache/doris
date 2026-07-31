@@ -23,14 +23,6 @@ suite("test_iceberg_write_nullable_truncate_negative",
         return
     }
 
-    // This opt-in switch isolates a BE-fatal negative scenario from the shared P0 cluster.
-    // Enable it only in a cluster whose BE processes can be restarted after the suite.
-    String crashTestEnabled = context.config.otherConfigs.get("enableIcebergCrashTest")
-    if (crashTestEnabled == null || !crashTestEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Iceberg crash regression")
-        return
-    }
-
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

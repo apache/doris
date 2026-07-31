@@ -206,7 +206,10 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = implicitCast(inputFields.get(i).getDataType(),
                         expectedFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
-                    newFields.add(inputFields.get(i).withDataType(newDataType.get()));
+                    // The struct layout must also admit NULLs introduced by a fallible child cast.
+                    boolean nullable = inputFields.get(i).isNullable() || expectedFields.get(i).isNullable()
+                            || Cast.castNullable(false, inputFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(inputFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -456,7 +459,8 @@ public class TypeCoercionUtils {
                 return false;
             }
             for (int i = 0; i < inputFields.size(); i++) {
-                if (!matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                if (inputFields.get(i).isNullable() != targetFields.get(i).isNullable()
+                        || !matchesType(inputFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
                     return false;
                 }
             }
@@ -1200,7 +1204,11 @@ public class TypeCoercionUtils {
                         leftFields.get(i).getDataType(), rightFields.get(i).getDataType(),
                         overflowToDouble, stringIsHighPriority);
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // The common layout must admit NULLs produced while either child is cast to it.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || Cast.castNullable(false, leftFields.get(i).getDataType(), newDataType.get())
+                            || Cast.castNullable(false, rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1720,7 +1728,11 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = findWiderTypeForTwoForComparison(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType(), intStringToString);
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // The common layout must admit NULLs produced while either child is cast to it.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || Cast.castNullable(false, leftFields.get(i).getDataType(), newDataType.get())
+                            || Cast.castNullable(false, rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }
@@ -1965,7 +1977,12 @@ public class TypeCoercionUtils {
                 Optional<DataType> newDataType = findWiderTypeForTwoForCaseWhen(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
-                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                    // Legacy CASE must admit both declared NULLs and NULLs introduced by either
+                    // arm's cast, independent of the order in which arms are reduced.
+                    boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable()
+                            || Cast.castNullable(false, leftFields.get(i).getDataType(), newDataType.get())
+                            || Cast.castNullable(false, rightFields.get(i).getDataType(), newDataType.get());
+                    newFields.add(leftFields.get(i).withDataTypeAndNullable(newDataType.get(), nullable));
                 } else {
                     return Optional.empty();
                 }

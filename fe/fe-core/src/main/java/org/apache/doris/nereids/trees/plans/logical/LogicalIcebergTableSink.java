@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.iceberg.Table;
 
 import java.util.List;
 import java.util.Objects;
@@ -46,6 +47,7 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
     // bound data sink
     private final IcebergExternalDatabase database;
     private final IcebergExternalTable targetTable;
+    private final Table targetIcebergTable;
     private final DMLCommandType dmlCommandType;
 
     /**
@@ -53,6 +55,7 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
      */
     public LogicalIcebergTableSink(IcebergExternalDatabase database,
                                    IcebergExternalTable targetTable,
+                                   Table targetIcebergTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
                                    DMLCommandType dmlCommandType,
@@ -62,6 +65,8 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
         super(PlanType.LOGICAL_ICEBERG_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergTableSink");
+        this.targetIcebergTable = Objects.requireNonNull(
+                targetIcebergTable, "targetIcebergTable != null in LogicalIcebergTableSink");
         this.dmlCommandType = dmlCommandType;
     }
 
@@ -69,19 +74,19 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, output,
+        return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, output,
                 dmlCommandType, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergTableSink only accepts one child");
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalIcebergTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 dmlCommandType, Optional.empty(), Optional.empty(), child());
     }
 
@@ -91,6 +96,10 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     public IcebergExternalTable getTargetTable() {
         return targetTable;
+    }
+
+    public Table getTargetIcebergTable() {
+        return targetIcebergTable;
     }
 
     public DMLCommandType getDmlCommandType() {
@@ -111,12 +120,14 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
         LogicalIcebergTableSink<?> that = (LogicalIcebergTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
                 && Objects.equals(database, that.database)
-                && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols);
+                && Objects.equals(targetTable, that.targetTable)
+                && Objects.equals(targetIcebergTable, that.targetIcebergTable)
+                && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType);
+        return Objects.hash(super.hashCode(), database, targetTable, targetIcebergTable, cols, dmlCommandType);
     }
 
     @Override
@@ -137,14 +148,14 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergTableSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 }

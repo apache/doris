@@ -218,14 +218,14 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     // test branch/tag with schema change
     qt_sc01 """select * from tmp_schema_change_branch order by id;"""
-    /// select by branch will use table schema
+    // A named branch fixes the rows at its head but still exposes the table's current schema.
     qt_sc02 """select * from tmp_schema_change_branch@branch(test_branch) order by id;;"""
     qt_sc03 """select * from tmp_schema_change_branch for version as of "test_branch" order by id;;"""
     List<List<Object>> refs = sql """select * from tmp_schema_change_branch\$refs order by name"""
     String s_main = refs.get(0)[2]
     String s_test_branch = refs.get(1)[2]
 
-    /// select by version will use branch schema
+    // A numeric snapshot keeps the historical schema recorded by that snapshot.
     qt_sc04 """SELECT * FROM tmp_schema_change_branch for VERSION AS OF ${s_test_branch} order by id;"""
     qt_sc05 """SELECT * FROM tmp_schema_change_branch for VERSION AS OF ${s_main} order by id;"""
 

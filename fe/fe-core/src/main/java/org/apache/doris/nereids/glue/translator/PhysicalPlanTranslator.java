@@ -613,7 +613,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         icebergTableSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
+        IcebergTableSink sink = new IcebergTableSink(
+                (IcebergExternalTable) icebergTableSink.getTargetTable(),
+                icebergTableSink.getTargetIcebergTable());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
         return rootFragment;
@@ -655,6 +657,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
         IcebergDeleteSink sink = new IcebergDeleteSink(
                 (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
+                icebergDeleteSink.getTargetIcebergTable(),
                 icebergDeleteSink.getDeleteContext());
         rootFragment.setSink(sink);
         return rootFragment;
@@ -684,7 +687,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputExprs(outputExprs);
         IcebergMergeSink sink = new IcebergMergeSink(
                 (IcebergExternalTable) icebergMergeSink.getTargetTable(),
-                icebergMergeSink.getDeleteContext());
+                icebergMergeSink.getTargetIcebergTable(),
+                icebergMergeSink.getDeleteContext(),
+                icebergMergeSink.isRequireMergeCardinalityCheck());
         rootFragment.setSink(sink);
         return rootFragment;
     }
@@ -804,6 +809,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (scanNode instanceof FileQueryScanNode) {
             FileQueryScanNode fileQueryScanNode = (FileQueryScanNode) scanNode;
+            fileQueryScanNode.setRelationSnapshot(fileScan.getRelationSnapshot());
             fileScan.getTableSnapshot().ifPresent(fileQueryScanNode::setQueryTableSnapshot);
             fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
@@ -883,10 +889,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                 hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
                 directoryLister, context.getScanContext());
-        if (fileScan.getTableSnapshot().isPresent()) {
-            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
-        }
+        // Split planning must reuse the timeline frozen during binding instead of resolving Hudi metadata again.
         HudiScanNode hudiScanNode = (HudiScanNode) scanNode;
+        hudiScanNode.setRelationSnapshot(hudiScan.getRelationSnapshot());
+        if (hudiScan.getTableSnapshot().isPresent()) {
+            hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
+        }
         hudiScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }

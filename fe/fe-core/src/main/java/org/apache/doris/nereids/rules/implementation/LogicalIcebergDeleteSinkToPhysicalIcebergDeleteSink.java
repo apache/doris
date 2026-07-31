@@ -36,6 +36,7 @@ public class LogicalIcebergDeleteSinkToPhysicalIcebergDeleteSink extends OneImpl
             return new PhysicalIcebergDeleteSink<>(
                     sink.getDatabase(),
                     sink.getTargetTable(),
+                    sink.getTargetIcebergTable(),
                     sink.getCols(),
                     sink.getOutputExprs(),
                     sink.getDeleteContext(),

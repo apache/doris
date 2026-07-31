@@ -25,6 +25,8 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
+// Keep third-party imports lexical to preserve the repository's CustomImportOrder invariant.
+import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,21 +37,24 @@ import java.util.Optional;
  */
 public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(IcebergInsertExecutor.class);
+    private final Table targetIcebergTable;
 
     /**
      * constructor
      */
     public IcebergInsertExecutor(ConnectContext ctx, IcebergExternalTable table,
+            Table targetIcebergTable,
             String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx,
             boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+        this.targetIcebergTable = targetIcebergTable;
     }
 
     @Override
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginInsert((IcebergExternalTable) table, insertCtx);
+        transaction.beginInsert((IcebergExternalTable) table, targetIcebergTable, insertCtx);
     }
 
     @Override

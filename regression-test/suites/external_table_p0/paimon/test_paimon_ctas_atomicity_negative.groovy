@@ -23,14 +23,6 @@ suite("test_paimon_ctas_atomicity_negative",
         return
     }
 
-    // CTAS currently creates Paimon metadata before discovering that no Paimon data sink exists.
-    // Keep this opt-in until the product rejects or rolls back the statement atomically.
-    String knownBugEnabled = context.config.otherConfigs.get("enablePaimonKnownBugTest")
-    if (knownBugEnabled == null || !knownBugEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Paimon known-bug regression")
-        return
-    }
-
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String catalogName = "test_paimon_ctas_atomicity_negative"
@@ -58,15 +50,31 @@ suite("test_paimon_ctas_atomicity_negative",
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
 
-        // A failed CTAS must not leave metadata that makes a retry fail with TABLE ALREADY EXISTS.
+        // branch-4.1 has a native Paimon sink, so CTAS must publish metadata and rows atomically.
+        sql """
+            create table ctas_target engine=paimon
+            as select cast(1 as int) as id, cast('candidate' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        assertEquals([[1, "candidate"]], sql("""select * from ctas_target"""))
+
+        // IF NOT EXISTS must remain a no-op for an existing Paimon CTAS target.
+        sql """
+            create table if not exists ctas_target engine=paimon
+            as select cast(2 as int) as id, cast('ignored' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        assertEquals([[1, "candidate"]], sql("""select * from ctas_target"""))
+
+        // An existing non-idempotent target must keep catalog error precedence and its original rows.
         test {
             sql """
                 create table ctas_target engine=paimon
-                as select cast(1 as int) as id, cast('candidate' as string) as payload
+                as select cast(2 as int) as id, cast('replacement' as string) as payload
             """
-            exception "PaimonExternalCatalog"
+            exception "already exists"
         }
-        assertEquals(0, (sql """show tables like 'ctas_target'""").size())
+        assertEquals([[1, "candidate"]], sql("""select * from ctas_target"""))
     } finally {
         spark_paimon """drop table if exists paimon.${dbName}.ctas_target"""
         sql """drop catalog if exists ${catalogName}"""

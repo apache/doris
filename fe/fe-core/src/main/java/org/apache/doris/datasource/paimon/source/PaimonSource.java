@@ -26,6 +26,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.thrift.TFileAttributes;
 
@@ -33,6 +34,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
+import java.util.Map;
 import java.util.Optional;
 
 public class PaimonSource {
@@ -48,9 +50,13 @@ public class PaimonSource {
     }
 
     public PaimonSource(TupleDescriptor desc) {
+        this(desc, MvccUtil.getSnapshotFromContext((ExternalTable) desc.getTable()));
+    }
+
+    public PaimonSource(TupleDescriptor desc, Optional<MvccSnapshot> snapshot) {
         this.desc = desc;
         this.paimonExtTable = (ExternalTable) desc.getTable();
-        this.originTable = resolvePaimonTable(paimonExtTable);
+        this.originTable = resolvePaimonTable(paimonExtTable, snapshot);
     }
 
     public TupleDescriptor getDesc() {
@@ -63,6 +69,15 @@ public class PaimonSource {
 
     public Table getPaimonTable(TableScanParams scanParams) {
         if (paimonExtTable instanceof PaimonExternalTable) {
+            if (scanParams != null && scanParams.isOptions()
+                    && PaimonScanParams.usesStatementSnapshot(scanParams.getMapParams())
+                    && !PaimonScanParams.selectsSchema(scanParams.getMapParams())) {
+                Map<String, String> resolvedOptions = scanParams.getOrResolveMapParams(
+                        options -> PaimonScanParams.resolveOptions(originTable, options));
+                // Behavioral OPTIONS must decorate this relation's retained table; consulting the
+                // statement cache here can borrow another relation's historical generation.
+                return PaimonScanParams.applyOptions(originTable, resolvedOptions);
+            }
             return ((PaimonExternalTable) paimonExtTable).getPaimonTable(scanParams);
         }
         if (paimonExtTable instanceof PaimonSysExternalTable) {
@@ -80,8 +95,7 @@ public class PaimonSource {
         return paimonExtTable;
     }
 
-    private Table resolvePaimonTable(ExternalTable table) {
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table);
+    private Table resolvePaimonTable(ExternalTable table, Optional<MvccSnapshot> snapshot) {
         if (table instanceof PaimonExternalTable) {
             return ((PaimonExternalTable) table).getPaimonTable(snapshot);
         }

@@ -29,8 +29,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
@@ -285,6 +287,13 @@ public class InsertUtils {
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = analyzeContext.map(CascadesContext::getStatementContext)
+                .orElseGet(() -> connectContext == null ? null : connectContext.getStatementContext());
+        if (table instanceof MvccTable && statementContext != null) {
+            // Default/generated expressions and sink binding must observe one metadata generation.
+            statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+        }
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;
             if (hiveTable.isView()) {
@@ -377,6 +386,8 @@ public class InsertUtils {
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
+        // Iceberg branch writes follow the shared table schema; historical schemas only apply
+        // when a branch is read, not when INSERT values are bound.
         List<Column> columns = table.getBaseSchema(false);
         Map<String, Expression> staticPartitions = null;
         if (unboundLogicalSink instanceof UnboundIcebergTableSink) {

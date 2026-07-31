@@ -41,6 +41,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
@@ -85,6 +87,8 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -97,6 +101,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
@@ -105,6 +110,7 @@ import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
@@ -118,11 +124,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -239,7 +247,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         long startTime = System.currentTimeMillis();
         try {
+            getRelationSnapshot();
             icebergTable = source.getIcebergTable();
+            icebergTable = useFrozenTableGeneration(icebergTable);
             partitionMapInfos = new HashMap<>();
             isPartitionedTable = icebergTable.spec().isPartitioned();
             // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
@@ -266,13 +276,20 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private Optional<Map<Integer, List<String>>> extractNameMapping() {
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
         if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
             // The mapping must come from the same metadata generation as the pinned schema; a
             // property-only refresh can otherwise change alias semantics within one statement.
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getNameMapping();
         }
         return IcebergUtils.getNameMapping(icebergTable);
+    }
+
+    private Optional<MvccSnapshot> getPinnedRelationSnapshot() {
+        Optional<MvccSnapshot> snapshot = getRelationSnapshot();
+        // Legacy planner paths do not transport relation-local metadata, but their statement
+        // context still owns the same fence; use it only when the scan itself has none.
+        return snapshot.isPresent() ? snapshot : MvccUtil.getSnapshotFromContext(source.getTargetTable());
     }
 
     @Override
@@ -499,7 +516,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         // historical names, types, and initial defaults when an old data file lacks such a key.
         // An identity partition column can also be a physical field in files written by an older
         // partition spec, so preserving the complete schema is required for partition evolution.
-        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, source.getTargetTable().getColumns(),
+        List<Column> columns = source.getTargetTable() instanceof ExternalTable
+                ? ((ExternalTable) source.getTargetTable()).getFullSchema(getPinnedRelationSnapshot())
+                : source.getTargetTable().getColumns();
+        ExternalUtil.initSchemaInfoForAllColumn(params, -1L, columns,
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
                 getBase64EncodedInitialDefaultsForScan());
     }
@@ -520,10 +540,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
         }
         IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
-        Optional<MvccSnapshot> mvccSnapshot = MvccUtil.getSnapshotFromContext(source.getTargetTable());
         Schema scanSchema = null;
-        if (mvccSnapshot.isPresent() && mvccSnapshot.get() instanceof IcebergMvccSnapshot) {
-            long schemaId = ((IcebergMvccSnapshot) mvccSnapshot.get())
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            long schemaId = ((IcebergMvccSnapshot) snapshot.get())
                     .getSnapshotCacheValue().getSnapshot().getSchemaId();
             scanSchema = icebergTable.schemas().get(Math.toIntExact(schemaId));
         } else {
@@ -638,6 +658,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return icebergTableScan;
         }
 
+        icebergTable = useFrozenTableGeneration(icebergTable);
         TableScan scan = icebergTable.newScan().metricsReporter(new IcebergMetricsReporter());
 
         // set snapshot
@@ -648,12 +669,22 @@ public class IcebergScanNode extends FileQueryScanNode {
             } else {
                 scan = scan.useSnapshot(info.getSnapshotId());
             }
+            if (!isSystemTable) {
+                Schema selectedSchema = icebergTable.schemas().get(info.getSchemaId());
+                // The snapshot fences data, while this projection preserves the schema bound for a
+                // branch instead of letting useSnapshot replace it with the snapshot's old schema.
+                scan = scan.project(Preconditions.checkNotNull(
+                        selectedSchema, "Schema %s for Iceberg scan is null", info.getSchemaId()));
+            }
         }
+        Schema scanSchema = scan.schema();
 
         // set filter
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, icebergTable.schema());
+            // Ref/snapshot selection can change field IDs and names, so every pruning expression
+            // must be bound against the schema selected by this scan rather than the current table.
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -666,6 +697,82 @@ public class IcebergScanNode extends FileQueryScanNode {
         icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
         return icebergTableScan;
+    }
+
+    private Table useFrozenTableGeneration(Table currentTable) {
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
+        if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
+            IcebergSnapshotCacheValue cacheValue =
+                    ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+            if (cacheValue.getIcebergTable().isPresent()) {
+                Table frozenBaseTable = cacheValue.getIcebergTable().get();
+                if (isSystemTable && source.getTargetTable() instanceof IcebergSysExternalTable) {
+                    IcebergSysExternalTable systemTable = (IcebergSysExternalTable) source.getTargetTable();
+                    if (systemTable.supportsSnapshotSelection()) {
+                        MetadataTableType tableType = MetadataTableType.from(systemTable.getSysTableType());
+                        Preconditions.checkArgument(tableType != null,
+                                "Unknown Iceberg system table type: %s", systemTable.getSysTableType());
+                        // Snapshot-selectable metadata tables must derive their scans and schemas
+                        // from the same frozen base generation as the relation's snapshot fence.
+                        return MetadataTableUtils.createMetadataTableInstance(frozenBaseTable, tableType);
+                    }
+                    return currentTable;
+                }
+                // Snapshot selection fences data files, but spec, properties, expiration state,
+                // and schema lookup still come from Table; keep them on the bound generation too.
+                return frozenBaseTable;
+            }
+        }
+        return currentTable;
+    }
+
+    @VisibleForTesting
+    Schema getSystemTableProjectedSchema(List<Expression> expressions, boolean caseSensitive)
+            throws UserException {
+        List<NestedField> projectedFields = new ArrayList<>();
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        List<String> partitionKeys = getPathPartitionKeys();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            Column column = slot.getColumn();
+            String columnName = column.getName();
+            if (!isFileSlot(classifyColumn(slot, partitionKeys))) {
+                continue;
+            }
+
+            NestedField field = caseSensitive
+                    ? icebergTable.schema().findField(columnName)
+                    : icebergTable.schema().caseInsensitiveFindField(columnName);
+            if (field == null) {
+                throw new UserException("Column " + columnName + " not found in Iceberg system table schema");
+            }
+            if (projectedFieldIds.add(field.fieldId())) {
+                projectedFields.add(field);
+            }
+        }
+
+        Set<Integer> filterFieldIds = Binder.boundReferences(
+                icebergTable.schema().asStruct(), expressions, caseSensitive);
+        for (Integer fieldId : filterFieldIds) {
+            NestedField field = getTopLevelSystemTableField(fieldId);
+            if (field == null) {
+                throw new UserException(
+                        "Column with field id " + fieldId + " not found in Iceberg system table schema");
+            }
+            if (!projectedFieldIds.contains(field.fieldId())) {
+                throw new UserException("Iceberg system table filter column " + field.name()
+                        + " is not materialized by the planner");
+            }
+        }
+        return new Schema(projectedFields);
+    }
+
+    private NestedField getTopLevelSystemTableField(int fieldId) {
+        for (NestedField field : icebergTable.schema().columns()) {
+            if (field.fieldId() == fieldId || TypeUtil.getProjectedIds(field.type()).contains(fieldId)) {
+                return field;
+            }
+        }
+        return null;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
@@ -746,11 +853,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new RuntimeException("Iceberg scan target table is not an external table");
         }
         ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
+        Schema scanSchema = scan.schema();
 
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
         Expression filterExpr = conjuncts.stream()
-                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, icebergTable.schema()))
+                .map(conjunct -> IcebergUtils.convertToIcebergExpr(conjunct, scanSchema))
                 .filter(Objects::nonNull)
                 .reduce(Expressions.alwaysTrue(), Expressions::and);
 
@@ -766,7 +874,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         // Create metrics evaluator for file-level pruning based on column statistics
         InclusiveMetricsEvaluator metricsEvaluator =
-                new InclusiveMetricsEvaluator(icebergTable.schema(), filterExpr, caseSensitive);
+                new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
 
         // ========== Phase 1: Load delete files from delete manifests ==========
         List<DeleteFile> deleteFiles = new ArrayList<>();
@@ -843,7 +951,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     tasks.add(new BaseFileScanTask(
                             dataFile,
                             deletes.toArray(new DeleteFile[0]),
-                            SchemaParser.toJson(icebergTable.schema()),
+                            SchemaParser.toJson(scanSchema),
                             PartitionSpecParser.toJson(spec),
                             residualEvaluator));
                 }
@@ -1215,10 +1323,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                 scan = scan.useSnapshot(info.getSnapshotId());
             }
         }
+        Schema scanSchema = scan.schema();
 
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : conjuncts) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, icebergTable.schema());
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, scanSchema);
             if (expression != null) {
                 expressions.add(expression);
             }
@@ -1335,6 +1444,24 @@ public class IcebergScanNode extends FileQueryScanNode {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
         TableScanParams scanParams = getScanParams();
         Optional<TableScanParams> params = Optional.ofNullable(scanParams);
+        Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
+        if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
+            if (source.getTargetTable() instanceof IcebergSysExternalTable
+                    && !((IcebergSysExternalTable) source.getTargetTable()).supportsSnapshotSelection()) {
+                return null;
+            }
+            IcebergSnapshot pinnedSnapshot =
+                    ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getSnapshot();
+            // Empty Iceberg tables use -1 as a cache sentinel; passing it to useSnapshot would
+            // turn a valid empty scan (including metadata tables) into an unknown-snapshot error.
+            if (pinnedSnapshot.getSnapshotId() < 0) {
+                return null;
+            }
+            // Every bound relation, including latest and metadata tables, must keep the data fence
+            // captured during analysis instead of consulting a newer current snapshot at execution.
+            return new IcebergTableQueryInfo(
+                    pinnedSnapshot.getSnapshotId(), null, Math.toIntExact(pinnedSnapshot.getSchemaId()));
+        }
         if (tableSnapshot != null || IcebergUtils.isIcebergBranchOrTag(params)) {
             return IcebergUtils.getQuerySpecSnapshot(
                 icebergTable,

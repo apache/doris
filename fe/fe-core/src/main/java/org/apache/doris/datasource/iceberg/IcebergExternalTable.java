@@ -291,14 +291,25 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema() {
-        List<Column> schema = IcebergUtils.getIcebergSchema(this);
+        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
         schema = new ArrayList<>(schema);
 
         if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
             schema.add(createIcebergRowIdColumn());
         }
 
-        schema = IcebergUtils.appendRowLineageColumnsForV3(schema, getIcebergTable());
+        Optional<Table> snapshotTable = snapshot
+                .filter(IcebergMvccSnapshot.class::isInstance)
+                .map(IcebergMvccSnapshot.class::cast)
+                .flatMap(value -> value.getSnapshotCacheValue().getIcebergTable());
+        // Row-lineage fields are part of the pinned schema generation, not the refreshable table.
+        schema = IcebergUtils.appendRowLineageColumnsForV3(
+                schema, snapshotTable.orElseGet(this::getIcebergTable));
         return schema;
     }
 
@@ -441,7 +452,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return SQL string representing ORDER BY clause, or empty string if no sort order
      */
     public String getSortOrderSql() {
-        Table table = getIcebergTable();
+        return getSortOrderSql(getIcebergTable());
+    }
+
+    /** Return the sort order SQL for an already resolved Iceberg metadata generation. */
+    public String getSortOrderSql(Table table) {
         org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
         if (sortOrder == null || sortOrder.isUnsorted() || sortOrder.fields().isEmpty()) {
             return "";

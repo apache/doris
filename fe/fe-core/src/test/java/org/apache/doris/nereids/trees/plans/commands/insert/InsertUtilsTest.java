@@ -17,8 +17,32 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
+import org.apache.doris.datasource.iceberg.IcebergSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Test for InsertUtils.getFinalErrorMsg()
@@ -26,6 +50,52 @@ import org.junit.jupiter.api.Test;
 public class InsertUtilsTest {
 
     private static final int MAX_TOTAL_BYTES = 512;
+
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+    }
+
+    @Test
+    public void testNormalizeValuesPinsTargetSnapshotBeforeExpandingDefault() {
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        IcebergMvccSnapshot snapshot = new IcebergMvccSnapshot(new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(2L, 2L)));
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(snapshot);
+        Mockito.when(table.getBaseSchema(false)).thenAnswer(invocation -> {
+            boolean pinned = statementContext.getSnapshot(table).isPresent();
+            String defaultValue = pinned ? "2" : "1";
+            return ImmutableList.of(new Column("id", Type.INT, false, null, false, defaultValue, ""));
+        });
+
+        UnboundInlineTable values = new UnboundInlineTable(ImmutableList.of(ImmutableList.of()));
+        UnboundIcebergTableSink<Plan> sink = new UnboundIcebergTableSink<>(
+                ImmutableList.of("catalog", "db", "table"),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                values);
+
+        Plan normalized = InsertUtils.normalizePlan(sink, table, Optional.empty(), Optional.empty());
+
+        LogicalInlineTable normalizedValues = (LogicalInlineTable) normalized.child(0);
+        List<List<NamedExpression>> rows = normalizedValues.getConstantExprsList();
+        Assertions.assertEquals("2", rows.get(0).get(0).child(0).toSql());
+        Mockito.verify(table, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
 
     private String generateString(int length) {
         return generateString(length, "X");
@@ -217,4 +287,3 @@ public class InsertUtilsTest {
         Assertions.assertTrue(result.length() <= MAX_TOTAL_BYTES);
     }
 }
-

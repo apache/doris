@@ -197,6 +197,8 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         if (tableExist(db.getRemoteName(), tableName)) {
             if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
+                // Existing-table success skips the normal post-create hook, so refresh names here.
+                resetTableNameCache(dbName);
                 return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
@@ -214,6 +216,8 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         if (dorisTable != null) {
             if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
+                // Every successful no-op bypasses the normal post-create hook and must refresh names.
+                resetTableNameCache(dbName);
                 return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
@@ -225,9 +229,19 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         Schema schema = toPaimonSchema(columns, createTableInfo.getPartitionDesc(),
                 createTableInfo.getProperties());
         try {
+            // Let Paimon report a concurrent winner so callers can distinguish an existing table
+            // from the table created by this statement before deciding whether rollback is owned.
             catalog.createTable(new Identifier(createTableInfo.getDbName(), createTableInfo.getTableName()),
-                    schema, createTableInfo.isIfNotExists());
-        } catch (TableAlreadyExistException | DatabaseNotExistException e) {
+                    schema, false);
+        } catch (TableAlreadyExistException e) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                // A concurrent remote creator also bypasses the normal post-create hook.
+                resetTableNameCache(dbName);
+                return true;
+            }
+            throw new RuntimeException(e);
+        } catch (DatabaseNotExistException e) {
             throw new RuntimeException(e);
         }
         return false;
@@ -278,12 +292,17 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterCreateTable(String dbName, String tblName) {
+        Optional<ExternalDatabase<?>> db = resetTableNameCache(dbName);
+        LOG.info("after create table {}.{}.{}, is db exists: {}",
+                dorisCatalog.getName(), dbName, tblName, db.isPresent());
+    }
+
+    private Optional<ExternalDatabase<?>> resetTableNameCache(String dbName) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
             db.get().resetMetaCacheNames();
         }
-        LOG.info("after create table {}.{}.{}, is db exists: {}",
-                dorisCatalog.getName(), dbName, tblName, db.isPresent());
+        return db;
     }
 
     @Override
