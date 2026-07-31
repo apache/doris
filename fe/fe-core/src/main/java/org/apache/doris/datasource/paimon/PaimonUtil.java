@@ -60,6 +60,8 @@ import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.table.Table;
@@ -115,6 +117,37 @@ public class PaimonUtil {
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
+    }
+
+    /**
+     * Peel the decorators Paimon may have stacked on top of the table, down to the fallback-branch
+     * pair - the one layer that must stay on top, because that is what dispatches a read to the
+     * right branch.
+     *
+     * <p>{@code PrivilegedCatalog#getTable} wraps whatever {@code FileStoreTableFactory} built into
+     * a {@code PrivilegedFileStoreTable}, so with file based privileges enabled a
+     * {@code scan.fallback-branch} table reaches Doris as {@code Privileged(FallbackRead(...))}.
+     * Paimon itself never lets a decorator sit above the pair - {@code CatalogUtils#loadTable}
+     * builds system tables straight over the {@code FileStoreTableFactory} result and only wraps
+     * what it returns - and both Paimon and Doris dispatch on a direct {@code instanceof
+     * FallbackReadFileStoreTable}, which looks straight past a decorator and silently falls back to
+     * the delegated main branch alone.
+     *
+     * <p>The decorators are peeled off rather than re-applied, and what that costs differs by
+     * caller. Rebuilding the table the BE gets loses nothing: the privilege wrapper only asserts on
+     * {@code newScan()} / {@code newRead()}, which the FE has already run while planning, and a
+     * plain (non fallback) table loses the wrapper the same way once it is rebuilt out of
+     * fileIO / location / schema. Building a system table over the peeled base does drop that
+     * assertion, but that is Paimon's own semantics rather than a relaxation of it:
+     * {@code PrivilegedCatalog#getTable} wraps only a result that is a {@code FileStoreTable}, and
+     * no system table is one, so {@code db.tbl$ro} never carries the decorator there either.
+     */
+    public static FileStoreTable unwrapToFallbackOrBase(FileStoreTable dataTable) {
+        FileStoreTable current = dataTable;
+        while (current instanceof DelegatedFileStoreTable && !(current instanceof FallbackReadFileStoreTable)) {
+            current = ((DelegatedFileStoreTable) current).wrapped();
+        }
+        return current;
     }
 
     public static List<InternalRow> read(

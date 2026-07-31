@@ -46,26 +46,38 @@ import org.apache.doris.thrift.TPushAggOp;
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.FileSource;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.SnapshotManager;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -1192,6 +1204,540 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(1, PaimonScanNode.getFieldIndex(fieldNames, "mixed_col"));
         Assert.assertEquals(2, PaimonScanNode.getFieldIndex(fieldNames, "part"));
         Assert.assertEquals(-1, PaimonScanNode.getFieldIndex(fieldNames, "missing_col"));
+    }
+
+    @Test
+    public void testSystemTableForBackendFollowsFeWrapperSchemaGeneration() throws Exception {
+        // $audit_log / $binlog / $ro derive their row type from the base table schema. The FE plans
+        // on the wrapper PaimonSysExternalTable holds; rebuilding the table serialized to the BE
+        // over a *different* generation of that base table (the meta cache keeps one for up to 24h,
+        // the catalog its own for 30 min) makes BE reject the query in
+        // PaimonJniScanner#getProjected - "RequiredField c2 not found in schema" - or read a stale
+        // type under the same name. Both wrappers must come from one generation.
+        FileStoreTable planned = newPaimonTable(catalogEnvironment(false, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()), new DataField(1, "c2", DataTypes.INT()));
+        FileStoreTable staleGeneration = newPaimonTable(catalogEnvironment(false, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()));
+        Table feWrapper = SystemTableLoader.load("audit_log", planned);
+
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("audit_log");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(planned);
+        PaimonExternalTable sourceTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.lenient().when(sourceTable.getPaimonTable(Optional.empty())).thenReturn(staleGeneration);
+        Mockito.lenient().when(sysTable.getSourceTable()).thenReturn(sourceTable);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(feWrapper);
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+
+        Table forBackend = invokeGetPaimonTableForBackend(node);
+        Assert.assertEquals(feWrapper.rowType(), forBackend.rowType());
+        Assert.assertTrue(forBackend.rowType().getFieldNames().contains("c2"));
+    }
+
+    @Test
+    public void testDropCatalogLoaderKeepsEverythingButTheLoader() throws Exception {
+        FileStoreTable table = newPaimonTable(catalogEnvironment(false, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()));
+
+        FileStoreTable catalogLess = invokeDropCatalogLoader(table);
+
+        // The loader is the only thing the BE must not deserialize: it drags the whole Hive /
+        // metastore stack onto the BE classpath.
+        Assert.assertNull(catalogLess.catalogEnvironment().catalogLoader());
+        Assert.assertEquals(table.rowType(), catalogLess.rowType());
+        Assert.assertEquals(table.location(), catalogLess.location());
+        Assert.assertEquals(table.schema().id(), catalogLess.schema().id());
+    }
+
+    @Test
+    public void testPinsCatalogVisibleSnapshotForVersionManagedCatalog() throws Exception {
+        // A version-managed (REST / DLF REST) catalog owns the committed snapshot pointer. Without
+        // the catalog loader the BE resolves "latest" by listing the snapshot directory, and can
+        // plan on a snapshot the catalog has not published yet (or one a rollback left behind)
+        // while the FE planned on the previous one. Pin what the catalog sees.
+        FileStoreTable versionManaged = Mockito.spy(newPaimonTable(
+                catalogEnvironment(true, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT())));
+        SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+        Mockito.when(snapshotManager.latestSnapshotId()).thenReturn(42L);
+        Mockito.doReturn(snapshotManager).when(versionManaged).snapshotManager();
+
+        FileStoreTable pinned = invokePinCatalogSnapshot(invokeDropCatalogLoader(versionManaged), versionManaged);
+        Assert.assertEquals("42", pinned.options().get("scan.snapshot-id"));
+
+        // And the table actually handed to the BE must go through that pin: $files is the system
+        // table that re-plans there.
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("files");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(versionManaged);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(SystemTableLoader.load("files", versionManaged));
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+        invokeGetPaimonTableForBackend(node);
+        Mockito.verify(snapshotManager, Mockito.atLeastOnce()).latestSnapshotId();
+
+        // A catalog without version management keeps filesystem semantics, so there is nothing to
+        // pin and the BE must stay on "latest".
+        FileStoreTable plain = newPaimonTable(catalogEnvironment(false, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()));
+        Assert.assertNull(invokePinCatalogSnapshot(invokeDropCatalogLoader(plain), plain)
+                .options().get("scan.snapshot-id"));
+    }
+
+    @Test
+    public void testDeferredScanIsAuthorizedBeforeDroppingTheCatalogLoader() throws Exception {
+        // $files only plans partition-level splits on the FE and re-plans the base table on the BE,
+        // where Catalog#authTableQuery is what enforces query.auth. A loader-less table turns that
+        // check into a no-op, so a denied query would come back as a successful metadata read:
+        // authorize here instead, while the loader is still around.
+        Catalog catalog = Mockito.mock(Catalog.class);
+        Mockito.when(catalog.authTableQuery(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("no privilege for db.tbl"));
+        Map<String, String> options = new HashMap<>();
+        options.put("query-auth.enabled", "true");
+        FileStoreTable authorized = newPaimonTable(catalogEnvironment(true, catalog), options,
+                new DataField(0, "c1", DataTypes.INT()));
+
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("files");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(authorized);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(SystemTableLoader.load("files", authorized));
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+
+        try {
+            invokeGetPaimonTableForBackend(node);
+            Assert.fail("denied query must not reach the BE as a catalog-less table");
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Assert.assertTrue(e.getCause().getMessage().contains("no privilege for db.tbl"));
+        }
+    }
+
+    @Test
+    public void testDataSystemTablesKeepTheirOwnProjectedAuthorization() throws Exception {
+        // $ro / $row_tracking / $audit_log / $binlog keep planning on the FE through
+        // DataTableBatchScan, which already calls Catalog#authTableQuery with the slot projection
+        // (AbstractDataTableScan#authQuery -> auth(readType.getFieldNames())). A second auth(null)
+        // here means "every column", so a user allowed to read only c1 would be rejected for
+        // "SELECT c1 FROM tbl$ro". Only $files, which loses its authorization by re-planning on the
+        // BE, may transfer it.
+        Catalog catalog = Mockito.mock(Catalog.class);
+        Map<String, String> options = new HashMap<>();
+        options.put("query-auth.enabled", "true");
+        FileStoreTable dataTable = newPaimonTable(catalogEnvironment(true, catalog), options,
+                new DataField(0, "c1", DataTypes.INT()));
+
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("ro");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(dataTable);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(SystemTableLoader.load("ro", dataTable));
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+
+        invokeGetPaimonTableForBackend(node);
+
+        Mockito.verify(catalog, Mockito.never())
+                .authTableQuery(ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
+    @Test
+    public void testPinIsKeptOffSystemTablesWhoseRowTypeFollowsTheBaseTable() throws Exception {
+        // PaimonJniScanner#initTable calls table.copy(table.options()) unconditionally, and every
+        // Paimon system-table wrapper delegates copy to FileStoreTable#copy, which time-travels the
+        // schema to scan.snapshot-id. $audit_log / $ro / $binlog / $row_tracking derive their row
+        // type from the base table, so pinning them would rewind the BE schema: c2, added after the
+        // latest snapshot, is planned by the FE and then rejected by getProjected() with
+        // "RequiredField c2 not found in schema". Only the fixed-row-type $files / $partitions,
+        // which re-plan on the BE, get the pin.
+        FileStoreTable versionManaged = Mockito.spy(newPaimonTable(
+                catalogEnvironment(true, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()), new DataField(1, "c2", DataTypes.INT())));
+        SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+        Mockito.lenient().when(snapshotManager.latestSnapshotId()).thenReturn(42L);
+        Mockito.lenient().doReturn(snapshotManager).when(versionManaged).snapshotManager();
+
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("audit_log");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(versionManaged);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(SystemTableLoader.load("audit_log", versionManaged));
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+
+        Table forBackend = invokeGetPaimonTableForBackend(node);
+
+        Assert.assertNull(forBackend.options().get("scan.snapshot-id"));
+        Assert.assertTrue(forBackend.rowType().getFieldNames().contains("c2"));
+        Mockito.verify(snapshotManager, Mockito.never()).latestSnapshotId();
+    }
+
+    @Test
+    public void testPinsCatalogVisibleSnapshotForMetadataTablesThatTravelOnBackend() throws Exception {
+        // $manifests / $table_indexes / $statistics send a stateless marker split from the FE and
+        // pick their snapshot inside the BE reader (ManifestsTable / TableIndexesTable ->
+        // TimeTravelUtil#tryTravelOrLatest, StatisticTable -> AbstractFileStoreTable#statistics ->
+        // the same helper). Without the catalog loader that resolves to whatever the snapshot
+        // directory holds, so a version-managed catalog would expose an unpublished snapshot inside
+        // the publication window, or a rollback-orphaned one. They honor scan.snapshot-id and their
+        // row type is fixed, so pin them like $files / $partitions.
+        for (String sysTableType : Arrays.asList("manifests", "table_indexes", "statistics")) {
+            FileStoreTable versionManaged = Mockito.spy(newPaimonTable(
+                    catalogEnvironment(true, Mockito.mock(Catalog.class)),
+                    new DataField(0, "c1", DataTypes.INT())));
+            SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+            Mockito.when(snapshotManager.latestSnapshotId()).thenReturn(42L);
+            Mockito.doReturn(snapshotManager).when(versionManaged).snapshotManager();
+
+            PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+            Mockito.when(sysTable.getSysTableType()).thenReturn(sysTableType);
+            Mockito.when(sysTable.getSysBaseTable()).thenReturn(versionManaged);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getPaimonTable())
+                    .thenReturn(SystemTableLoader.load(sysTableType, versionManaged));
+            Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+            PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+            node.setSource(source);
+
+            invokeGetPaimonTableForBackend(node);
+
+            Mockito.verify(snapshotManager, Mockito.atLeastOnce()).latestSnapshotId();
+        }
+    }
+
+    @Test
+    public void testRelationOptionsSurviveTheRebuiltSystemTable() throws Exception {
+        // The FE applies @options to the wrapper the meta cache holds (PaimonSysExternalTable
+        // #getSysPaimonTable(scanParams) -> PaimonScanParams#applyOptions), but the BE is handed a
+        // wrapper rebuilt over a catalog-less base - a different object, on which that copy() never
+        // ran. So the options have to be applied again on the way out, otherwise the reader that
+        // materializes this table's splits would silently fall back to the unpinned latest state.
+        FileStoreTable dataTable = newPaimonTable(catalogEnvironment(false, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()));
+
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("ro");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(dataTable);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table planned = SystemTableLoader.load("ro", dataTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(planned);
+        Mockito.when(source.getPaimonTable(ArgumentMatchers.any(TableScanParams.class))).thenReturn(planned);
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "4"),
+                Collections.emptyList());
+        // Binding already resolved these; this node only has to carry that decision to the BE.
+        scanParams.getOrResolveMapParams(options -> options);
+        node.setScanParams(scanParams);
+
+        Table forBackend = invokeGetPaimonTableForBackend(node);
+
+        // $ro delegates options() to the data table it wraps, so this reads the rebuilt base.
+        Assert.assertEquals("4", forBackend.options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testFallbackBranchKeepsTheGenerationTheFeCaptured() throws Exception {
+        // FallbackReadFileStoreTable#schema() only exposes its main branch, so rebuilding it through
+        // FileStoreTableFactory#create re-reads the fallback branch from
+        // SchemaManager(fallbackBranch).latest() instead of the object the FE planned with. After
+        // external DDL publishes a new generation the BE would then get main M1 + fallback F2 and
+        // die in FallbackReadFileStoreTable#validateSchema. Rebuild both branches from the captured
+        // schemas instead.
+        FileStoreTable[] captured = newFallbackBranchPairWithNewerGenerationOnDisk("doris_paimon_fallback_ut");
+
+        FileStoreTable forBackend =
+                invokeDropCatalogLoader(new FallbackReadFileStoreTable(captured[0], captured[1]));
+
+        assertFallbackPairMatchesTheFeGeneration(forBackend, captured[0], captured[1]);
+    }
+
+    @Test
+    public void testFallbackBranchSurvivesAPaimonTableDecorator() throws Exception {
+        // With file based privileges enabled PrivilegedCatalog#getTable hands out
+        // Privileged(FallbackRead(..)). A direct instanceof looks straight past that wrapper and
+        // rebuilds an ordinary table from the delegated main branch, so the BE loses the
+        // FallbackReadFileStoreTable.Read that dispatches a fallback split to the fallback branch -
+        // while the FE keeps planning the wrapper and can still emit one. Peel decorators first.
+        FileStoreTable[] captured = newFallbackBranchPairWithNewerGenerationOnDisk("doris_paimon_privileged_ut");
+        FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
+                new FallbackReadFileStoreTable(captured[0], captured[1]),
+                new AllGrantedPrivilegeChecker(), Identifier.create("db", "tbl"));
+
+        FileStoreTable forBackend = invokeDropCatalogLoader(decorated);
+
+        assertFallbackPairMatchesTheFeGeneration(forBackend, captured[0], captured[1]);
+    }
+
+    @Test
+    public void testFallbackBranchIsAuthorizedBeforeDroppingTheCatalogLoader() throws Exception {
+        // FallbackReadFileStoreTable#newScan builds a FallbackReadScan over both branches' own
+        // scans, so each authorizes itself, and FileStoreTableFactory#create gives the fallback
+        // branch a CatalogEnvironment of its own carrying a branch-qualified Identifier. The pair
+        // delegates catalogEnvironment() to its main branch, so authorizing the pair checks main and
+        // silently skips the fallback branch - and once the loaders are dropped that missing check
+        // is a permanent allow, letting a user denied on the fallback branch read the fallback rows
+        // of $files.
+        Catalog catalog = Mockito.mock(Catalog.class);
+        Identifier mainIdentifier = Identifier.create("db", "tbl");
+        Identifier fallbackIdentifier = new Identifier("db", "tbl", "fb");
+        Map<String, String> mainOptions = new HashMap<>();
+        mainOptions.put("query-auth.enabled", "true");
+        Map<String, String> fallbackOptions = new HashMap<>(mainOptions);
+        fallbackOptions.put("branch", "fb");
+        FileStoreTable main = newPaimonTable(
+                new CatalogEnvironment(mainIdentifier, null, () -> catalog, null, null, true),
+                mainOptions, new DataField(0, "c1", DataTypes.INT()));
+        FileStoreTable fallback = newPaimonTable(
+                new CatalogEnvironment(fallbackIdentifier, null, () -> catalog, null, null, true),
+                fallbackOptions, new DataField(0, "c1", DataTypes.INT()));
+
+        invokeAuthorizeDeferredScan(new FallbackReadFileStoreTable(main, fallback));
+
+        Mockito.verify(catalog).authTableQuery(ArgumentMatchers.eq(mainIdentifier), ArgumentMatchers.isNull());
+        Mockito.verify(catalog).authTableQuery(ArgumentMatchers.eq(fallbackIdentifier), ArgumentMatchers.isNull());
+    }
+
+    @Test
+    public void testIncrementalRangeIsResolvedOnTheCatalogVisibleSnapshot() throws Exception {
+        // Paimon selects the incremental scanner from incremental-between*, so pinCatalogSnapshot's
+        // scan.snapshot-id cannot bound this scan - and isolateIncrementalRead clears it anyway. The
+        // timestamp form would then resolve its endpoints inside the BE reader, through
+        // SnapshotManager#earlierOrEqualTimeMills, whose search runs up to latestSnapshotId(): the
+        // snapshot directory once the loader is gone, so a snapshot the catalog has not published
+        // yet (or one a rollback left behind) would close the range. Resolve them here instead and
+        // hand the BE the explicit id range IncrementalDeltaStartingScanner#betweenTimestamps would
+        // have computed from the catalog's own view.
+        FileStoreTable versionManaged = Mockito.spy(newPaimonTable(
+                catalogEnvironment(true, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT())));
+        SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+        Mockito.doReturn(snapshotManager).when(versionManaged).snapshotManager();
+        // Catalog snapshot 42, committed at t=5000; snapshot 43 may already sit on the filesystem.
+        Snapshot catalogLatest = newSnapshot(42L, 5000L);
+        Snapshot earliest = newSnapshot(10L, 1000L);
+        Snapshot rangeStart = newSnapshot(20L, 2000L);
+        Mockito.when(snapshotManager.latestSnapshot()).thenReturn(catalogLatest);
+        Mockito.when(snapshotManager.earliestSnapshot()).thenReturn(earliest);
+        Mockito.when(snapshotManager.earlierOrEqualTimeMills(2000L)).thenReturn(rangeStart);
+
+        Map<String, String> unbounded = new HashMap<>();
+        unbounded.put("incremental-between-timestamp", "2000," + Long.MAX_VALUE);
+        Map<String, String> bound = invokeBindIncrementalRangeToCatalog(unbounded, versionManaged);
+
+        Assert.assertEquals("20,42", bound.get("incremental-between"));
+        // Cleared rather than dropped: Paimon's copy() removes a key only when it maps to null.
+        Assert.assertTrue(bound.containsKey("incremental-between-timestamp"));
+        Assert.assertNull(bound.get("incremental-between-timestamp"));
+
+        // An end older than the catalog's snapshot already resolves to the same id on both sides,
+        // because every snapshot the catalog has not published yet is younger than it.
+        Map<String, String> past = new HashMap<>();
+        past.put("incremental-between-timestamp", "2000,4000");
+        Assert.assertSame(past, invokeBindIncrementalRangeToCatalog(past, versionManaged));
+
+        // And a catalog that does not manage versions keeps filesystem semantics on both sides.
+        FileStoreTable plain = newPaimonTable(catalogEnvironment(false, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT()));
+        Assert.assertSame(unbounded, invokeBindIncrementalRangeToCatalog(unbounded, plain));
+    }
+
+    @Test
+    public void testIncrementalRangeIsNotBoundOnAFallbackBranchPair() throws Exception {
+        // The two branches keep independent snapshot id sequences, and
+        // FallbackReadFileStoreTable#rewriteFallbackOptions translates only scan.snapshot-id, so
+        // incremental-between reaches the fallback branch verbatim. A main-branch id range bound
+        // here would be validated against the fallback branch's own range in
+        // IncrementalDeltaStartingScanner#betweenSnapshotIds and either fail out of range or select
+        // unrelated commits. The timestamp form is branch-agnostic and each branch resolves it
+        // against its own SnapshotManager, so it has to reach the BE untouched.
+        Catalog catalog = Mockito.mock(Catalog.class);
+        Map<String, String> fallbackOptions = new HashMap<>();
+        fallbackOptions.put("branch", "fb");
+        FileStoreTable main = Mockito.spy(newPaimonTable(catalogEnvironment(true, catalog),
+                new DataField(0, "c1", DataTypes.INT())));
+        FileStoreTable fallback = newPaimonTable(catalogEnvironment(true, catalog), fallbackOptions,
+                new DataField(0, "c1", DataTypes.INT()));
+        // Stubbed so that the main branch alone would have produced a range: without the guard this
+        // test would see "20,42" written into incremental-between, not an unchanged map.
+        SnapshotManager mainSnapshots = Mockito.mock(SnapshotManager.class);
+        Mockito.doReturn(mainSnapshots).when(main).snapshotManager();
+        Snapshot catalogLatest = newSnapshot(42L, 5000L);
+        Snapshot earliest = newSnapshot(10L, 1000L);
+        Snapshot rangeStart = newSnapshot(20L, 2000L);
+        Mockito.lenient().when(mainSnapshots.latestSnapshot()).thenReturn(catalogLatest);
+        Mockito.lenient().when(mainSnapshots.earliestSnapshot()).thenReturn(earliest);
+        Mockito.lenient().when(mainSnapshots.earlierOrEqualTimeMills(2000L)).thenReturn(rangeStart);
+
+        Map<String, String> range = new HashMap<>();
+        range.put("incremental-between-timestamp", "2000," + Long.MAX_VALUE);
+        FileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+
+        Assert.assertSame(range, invokeBindIncrementalRangeToCatalog(range, pair));
+        // And through the decorator PrivilegedCatalog adds, since that is what the meta cache holds.
+        Assert.assertSame(range, invokeBindIncrementalRangeToCatalog(range,
+                PrivilegedFileStoreTable.wrap(pair, new AllGrantedPrivilegeChecker(),
+                        Identifier.create("db", "tbl"))));
+
+        // Not merely "the output equals the input": the main branch's snapshots must never be read,
+        // because reading them is what produces an id range that cannot be carried to the fallback.
+        Mockito.verify(mainSnapshots, Mockito.never())
+                .earlierOrEqualTimeMills(ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    public void testIncrementalPartitionsScanBindsItsRangeBeforeTheBackend() throws Exception {
+        // $partitions is the one system table that both re-plans on the BE
+        // (PartitionsRead#createReader -> newScan().listPartitionEntries()) and accepts @incr, so it
+        // is the one that has to reach the BE with an already-resolved range.
+        FileStoreTable versionManaged = Mockito.spy(newPaimonTable(
+                catalogEnvironment(true, Mockito.mock(Catalog.class)),
+                new DataField(0, "c1", DataTypes.INT())));
+        SnapshotManager snapshotManager = Mockito.mock(SnapshotManager.class);
+        Mockito.doReturn(snapshotManager).when(versionManaged).snapshotManager();
+        Snapshot catalogLatest = newSnapshot(42L, 5000L);
+        Snapshot earliest = newSnapshot(10L, 1000L);
+        Snapshot rangeStart = newSnapshot(20L, 2000L);
+        Mockito.when(snapshotManager.latestSnapshotId()).thenReturn(42L);
+        Mockito.when(snapshotManager.latestSnapshot()).thenReturn(catalogLatest);
+        Mockito.when(snapshotManager.earliestSnapshot()).thenReturn(earliest);
+        Mockito.when(snapshotManager.earlierOrEqualTimeMills(2000L)).thenReturn(rangeStart);
+
+        PaimonSysExternalTable sysTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(sysTable.getSysTableType()).thenReturn("partitions");
+        Mockito.when(sysTable.getSysBaseTable()).thenReturn(versionManaged);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getPaimonTable()).thenReturn(SystemTableLoader.load("partitions", versionManaged));
+        Mockito.when(source.getExternalTable()).thenReturn(sysTable);
+        PaimonScanNode node = newTestNode(new PlanNodeId(1), new TupleId(3), sv);
+        node.setSource(source);
+        node.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ,
+                ImmutableMap.of("startTimestamp", "2000"), Collections.emptyList()));
+
+        invokeGetPaimonTableForBackend(node);
+
+        // The range was closed here, on the catalog's snapshot, instead of inside the BE reader.
+        Mockito.verify(snapshotManager).earlierOrEqualTimeMills(2000L);
+        Mockito.verify(snapshotManager, Mockito.atLeastOnce()).latestSnapshot();
+    }
+
+    private Snapshot newSnapshot(long id, long timeMillis) {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.lenient().when(snapshot.id()).thenReturn(id);
+        Mockito.lenient().when(snapshot.timeMillis()).thenReturn(timeMillis);
+        return snapshot;
+    }
+
+    /**
+     * The {@code {main, fallback}} pair the FE cache captured (M1 / F1), with a newer fallback
+     * generation (F2, one column wider) already published on the filesystem - so a rebuild that
+     * re-reads the branch instead of reusing the captured object is visible in the row type.
+     */
+    private FileStoreTable[] newFallbackBranchPairWithNewerGenerationOnDisk(String prefix) throws Exception {
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory(prefix);
+        Path tablePath = new Path("file://" + tempDir.toString() + "/db.db/tbl");
+        // F2: the generation external DDL has already published on the fallback branch.
+        new SchemaManager(LocalFileIO.create(), tablePath, "fb").createTable(new Schema(
+                Arrays.asList(new DataField(0, "c1", DataTypes.INT()), new DataField(1, "c2", DataTypes.INT())),
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), ""));
+
+        // F1 / M1: what the FE cache captured and planned this query with.
+        Map<String, String> mainOptions = new HashMap<>();
+        mainOptions.put("scan.fallback-branch", "fb");
+        Map<String, String> fallbackOptions = new HashMap<>();
+        fallbackOptions.put("branch", "fb");
+        return new FileStoreTable[] {newBranchTable(tablePath, mainOptions), newBranchTable(tablePath, fallbackOptions)};
+    }
+
+    private void assertFallbackPairMatchesTheFeGeneration(FileStoreTable forBackend, FileStoreTable main,
+            FileStoreTable fallback) {
+        Assert.assertTrue(forBackend instanceof FallbackReadFileStoreTable);
+        FallbackReadFileStoreTable fallbackForBackend = (FallbackReadFileStoreTable) forBackend;
+        // The fallback branch must stay on F1 - not the c2 generation sitting on the filesystem.
+        Assert.assertEquals(fallback.rowType(), fallbackForBackend.fallback().rowType());
+        Assert.assertEquals(main.rowType(), fallbackForBackend.wrapped().rowType());
+        // And neither branch may carry the loader that drags the metastore stack onto the BE.
+        Assert.assertNull(fallbackForBackend.wrapped().catalogEnvironment().catalogLoader());
+        Assert.assertNull(fallbackForBackend.fallback().catalogEnvironment().catalogLoader());
+    }
+
+    private FileStoreTable newPaimonTable(CatalogEnvironment catalogEnvironment, DataField... fields) {
+        return newPaimonTable(catalogEnvironment, new HashMap<>(), fields);
+    }
+
+    private FileStoreTable newPaimonTable(CatalogEnvironment catalogEnvironment, Map<String, String> options,
+            DataField... fields) {
+        List<DataField> fieldList = Arrays.asList(fields);
+        TableSchema schema = new TableSchema(0L, fieldList, fieldList.size() - 1, Collections.emptyList(),
+                Collections.emptyList(), options, "");
+        return FileStoreTableFactory.create(LocalFileIO.create(),
+                new Path("file:///tmp/doris_paimon_ut/db.db/tbl"), schema, catalogEnvironment);
+    }
+
+    /**
+     * One branch of a {@code scan.fallback-branch} pair, built the way Paimon builds them: without
+     * re-expanding the fallback branch, so the caller can wrap the two into a
+     * {@link FallbackReadFileStoreTable} itself.
+     */
+    private FileStoreTable newBranchTable(Path tablePath, Map<String, String> options) {
+        List<DataField> fieldList = Collections.singletonList(new DataField(0, "c1", DataTypes.INT()));
+        TableSchema schema = new TableSchema(0L, fieldList, 0, Collections.emptyList(),
+                Collections.emptyList(), options, "");
+        return FileStoreTableFactory.createWithoutFallbackBranch(LocalFileIO.create(), tablePath, schema,
+                new Options(), catalogEnvironment(false, Mockito.mock(Catalog.class)));
+    }
+
+    private CatalogEnvironment catalogEnvironment(boolean supportsVersionManagement, Catalog catalog) {
+        return new CatalogEnvironment(Identifier.create("db", "tbl"), null, () -> catalog, null, null,
+                supportsVersionManagement);
+    }
+
+    private Table invokeGetPaimonTableForBackend(PaimonScanNode node) throws Exception {
+        Method method = PaimonScanNode.class.getDeclaredMethod("getPaimonTableForBackend");
+        method.setAccessible(true);
+        return (Table) method.invoke(node);
+    }
+
+    private FileStoreTable invokeDropCatalogLoader(FileStoreTable table) throws Exception {
+        Method method = PaimonScanNode.class.getDeclaredMethod("dropCatalogLoader", FileStoreTable.class);
+        method.setAccessible(true);
+        return (FileStoreTable) method.invoke(null, table);
+    }
+
+    private void invokeAuthorizeDeferredScan(FileStoreTable table) throws Exception {
+        Method method = PaimonScanNode.class.getDeclaredMethod("authorizeDeferredScan", FileStoreTable.class);
+        method.setAccessible(true);
+        method.invoke(null, table);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> invokeBindIncrementalRangeToCatalog(Map<String, String> incrementalParams,
+            FileStoreTable dataTable) throws Exception {
+        Method method = PaimonScanNode.class.getDeclaredMethod("bindIncrementalRangeToCatalog", Map.class,
+                FileStoreTable.class);
+        method.setAccessible(true);
+        return (Map<String, String>) method.invoke(null, incrementalParams, dataTable);
+    }
+
+    private FileStoreTable invokePinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable)
+            throws Exception {
+        Method method = PaimonScanNode.class.getDeclaredMethod("pinCatalogSnapshot", FileStoreTable.class,
+                FileStoreTable.class);
+        method.setAccessible(true);
+        return (FileStoreTable) method.invoke(null, catalogLessTable, dataTable);
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {
