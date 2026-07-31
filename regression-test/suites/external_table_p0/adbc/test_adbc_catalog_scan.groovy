@@ -24,13 +24,13 @@
 // on the first real run.
 //
 // To run it you need, in this order:
-//   1. BE built with arrow-adbc (cd thirdparty && ./build-thirdparty.sh arrow_adbc)
-//   2. libadbc_driver_flightsql.so placed at plugins/adbc_drivers/ on the FE
-//      AND on every BE, at the same absolute path. Doris does not ship it; get
-//      it from an arrow-adbc release or the adbc_driver_flightsql PyPI wheel.
-//      FE and BE must load the SAME file -- partition descriptors are
-//      driver-private bytes with no interoperability across builds.
-//   3. adbcDriverPath set in regression-conf.groovy's otherConfigs.
+//   1. BE built with arrow-adbc (cd thirdparty && ./build-thirdparty.sh arrow_adbc),
+//      which also installs the prebuilt libadbc_driver_flightsql.so into
+//      thirdparty. It is a test artifact: no release of Doris ships it.
+//   2. FE and every BE able to read that file at the same absolute path. They
+//      must load the SAME file -- partition descriptors are driver-private
+//      bytes with no interoperability across builds.
+//   3. adbcDriverPath in regression-conf.groovy only to point somewhere else.
 //
 // There is deliberately NO .out baseline. One written without running would be
 // a guess presented as a verified result, and a guess that happened to be
@@ -39,11 +39,24 @@
 // ############################################################################
 
 suite("test_adbc_catalog_scan", "p0,external") {
+    // suitePath is <repo>/regression-test/suites, so two levels up is the repo root.
+    String repoRoot = new File(context.config.suitePath).getParentFile().getParentFile()
+            .getAbsolutePath()
+    String thirdparty = System.getenv("DORIS_THIRDPARTY")
+    if (thirdparty == null || thirdparty.isEmpty()) {
+        thirdparty = "${repoRoot}/thirdparty"
+    }
     String driverPath = context.config.otherConfigs.get("adbcDriverPath")
     if (driverPath == null || driverPath.isEmpty()) {
+        driverPath = "${thirdparty}/installed/lib64/libadbc_driver_flightsql.so"
+    }
+
+    if (!new File(driverPath).canRead()) {
         // Not a pass. Nothing about ADBC has been exercised by this run.
-        logger.info("SKIPPED test_adbc_catalog_scan: otherConfigs.adbcDriverPath is unset, so no "
-                + "ADBC driver is available. THE ADBC SCAN PATH IS NOT BEING TESTED.")
+        logger.info("SKIPPED test_adbc_catalog_scan: no readable ADBC Flight SQL driver at "
+                + "${driverPath}. Install it with 'cd thirdparty && ./build-thirdparty.sh arrow_adbc', "
+                + "or set adbcDriverPath in regression-conf.groovy. "
+                + "THE ADBC SCAN PATH IS NOT BEING TESTED.")
         return
     }
 
