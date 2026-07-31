@@ -56,9 +56,9 @@ jobs:
   code-review:
     runs-on: ubuntu-latest
     # Every pre-finalization step has its own timeout. Their worst-case budget,
-    # including review/failure/status handling and best-effort cleanup, is 153
+    # including review/failure/status handling and best-effort cleanup, is 208
     # minutes, leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 165
+    timeout-minutes: 220
     if: >-
       inputs.pr_number != '' ||
       (
@@ -607,7 +607,7 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 60
+        timeout-minutes: 115
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
