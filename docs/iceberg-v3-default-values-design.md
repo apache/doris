@@ -58,7 +58,8 @@ The reader selects defaults from the schema bound to the query:
 | --- | --- |
 | Ordinary current-table read | `table.schema()` |
 | Explicit snapshot/time travel | Schema recorded by the selected snapshot |
-| Explicit branch/tag/ref | Schema resolved for that reference |
+| Explicit branch | Current table schema over the branch-head snapshot lineage |
+| Explicit tag/ref snapshot | Schema recorded by the selected snapshot |
 
 Using `currentSnapshot.schemaId()` for an ordinary read is incorrect because a schema-only commit
 can update `table.schema()` without creating a snapshot.
@@ -180,13 +181,15 @@ syntax is not expanded beyond syntax Doris already supports when the later DDL P
 
 1. Omitted INSERT columns, explicit `DEFAULT`, reordered/multi-row VALUES, supported
    `DEFAULT(column)`, and MERGE `NOT MATCHED INSERT` consume the typed `write-default` from the
-   statement-pinned schema. A branch target pins the schema at the branch head, matching Spark;
-   columns added after the branch point are unavailable until the branch advances.
+   statement-pinned current table schema. A branch target selects the snapshot lineage that receives
+   the commit; schema evolution remains table-global, so columns added or renamed after the branch
+   point are immediately part of the branch writer schema.
 2. Explicit NULL and explicit values are never replaced. UPDATE and matched MERGE
    `DEFAULT(column)` consume the referenced field's typed `write-default`; other rewrite behavior
    remains unchanged.
 3. A statement uses one field-ID keyed Iceberg write context. Analyzer projections, the sink schema
-   JSON, branch selection, and transaction preflight are pinned to the same schema ID.
+   JSON, and transaction preflight are pinned to the same current schema ID, while branch selection
+   independently chooses the commit target.
 4. Schema skew is rejected before data dispatch; Doris never combines defaults from one schema with
    a writer schema loaded later.
 5. FE constructs typed primitive and complex literals directly from Iceberg values. It does not

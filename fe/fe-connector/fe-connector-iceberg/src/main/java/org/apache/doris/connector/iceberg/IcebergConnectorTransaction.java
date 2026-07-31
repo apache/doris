@@ -213,9 +213,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             this.zone = IcebergTimeUtils.resolveSessionZone(session);
             try {
                 context.executeAuthenticated(() -> {
-                    // A writer must load fresh metadata rather than reuse the scan-side statement object. The
-                    // statement-pinned context is checked against this fresh table before any file is staged.
-                    Table loaded = catalogOps.loadTable(db, tableName);
+                    // Reuse the write planner's mutable table, never the frozen read view: newTransaction
+                    // refreshes operations to establish a fresh OCC base without mutating bound read metadata.
+                    // The pinned write context is validated on this write-only table and again at the final CAS.
+                    Table loaded = IcebergStatementScope.sharedWritableTable(session, db, tableName,
+                            () -> catalogOps.loadTable(db, tableName));
                     this.table = loaded;
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());

@@ -126,8 +126,11 @@ public class IcebergConnectorTransactionTest {
         return new IcebergWriteContext(WriteOperation.OVERWRITE, true, Collections.emptyMap(), Optional.empty());
     }
 
-    private static IcebergWriteContext overwriteStaticCtx(Map<String, String> staticValues) {
-        return new IcebergWriteContext(WriteOperation.OVERWRITE, true, staticValues, Optional.empty());
+    private static IcebergWriteContext overwriteStaticCtx(Table table, Map<String, String> staticValues) {
+        IcebergWriteSchemaContext schemaContext =
+                IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false);
+        return new IcebergWriteContext(
+                WriteOperation.OVERWRITE, true, staticValues, Optional.empty(), -1L, schemaContext);
     }
 
     private static IcebergWriteContext deleteCtx() {
@@ -606,7 +609,8 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
 
         // INSERT OVERWRITE ... PARTITION(region='us') -> OverwriteFiles.overwriteByRowFilter(region == 'us').
-        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(Collections.singletonMap("region", "us")));
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("region", "us")));
         txn.addCommitData(commitBytes(
                 dataFileItem("s3://b/db1/t1/region=us/f1.parquet", 4L, 1024L, Collections.singletonList("us"))));
         txn.commit();

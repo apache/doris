@@ -197,30 +197,30 @@ suite("test_iceberg_write_evolution_refs",
         order by id
     """
 
-    // W01-S05: A branch created before schema evolution initially writes with its branch-head
-    // schema. Columns added or renamed on main are unavailable until the first branch commit
-    // advances the branch to a new snapshot.
+    // W01-S05: A branch selects the snapshot lineage that receives the commit, while Iceberg
+    // schema evolution remains table-global. The writer therefore uses the current table schema
+    // immediately; the renamed historical column is no longer a valid write target.
     test {
         sql """
             insert into evolution_refs@branch(base_branch)
-                (id, zone, bucket_key, event_time, amount, payload, note)
+                (id, region, bucket_key, event_time, amount, payload)
             values
                 (7, 'JP-east', 'branch-a', '2026-04-01 12:00:00', 70.70,
-                    struct(70, 'branch', 'current-schema'), 'not-written')
+                    struct(70, 'branch-insert'))
         """
-        exception "Unknown column 'zone' in target table"
+        exception "Unknown column 'region' in target table"
     }
 
-    // Seed a current-spec partition with the old branch schema. The successful commit advances
-    // the branch, so subsequent reads and writes expose the current names and added fields.
+    // Seed current-spec partitions using the current names and evolved nested shape. The commit
+    // advances only the target branch; main remains unchanged.
     sql """
         insert into evolution_refs@branch(base_branch)
-            (id, region, bucket_key, event_time, amount, payload)
+            (id, zone, bucket_key, event_time, amount, payload, note)
         values
             (7, 'JP-east', 'branch-a', '2026-04-01 12:00:00', 70.70,
-                struct(70, 'branch-insert')),
+                struct(70, 'branch-insert', null), null),
             (8, 'FR-west', 'branch-b', '2026-05-01 13:00:00', 80.80,
-                struct(80, 'branch-overwrite-seed'))
+                struct(80, 'branch-overwrite-seed', null), null)
     """
     order_qt_branch_after_insert """
         select id, zone, payload.label, note

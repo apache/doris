@@ -1117,7 +1117,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         TableScan scan = table.newScan();
         // MVCC / time-travel pin: a tag/branch pins by REF (so a later commit to the ref is honored, legacy
         // parity), else by snapshot id (legacy createTableScan: useRef when info.getRef()!=null else useSnapshot).
-        if (handle.hasSnapshotPin()) {
+        if (handle.hasSnapshotPin() && supportsSnapshotSelection(handle)) {
             if (handle.getRef() != null) {
                 scan = scan.useRef(handle.getRef());
             } else {
@@ -1125,18 +1125,35 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         if (filter.isPresent()) {
-            // Predicate conversion uses the table's CURRENT schema, matching legacy createTableScan:589
-            // (convertToIcebergExpr(conjunct, icebergTable.schema())) — NOT the pinned schema. A predicate on a
-            // column renamed since the pinned snapshot then resolves to no field and drops to BE residual,
-            // exactly like legacy; the common no-rename case is identical (the pinned name == the current name),
-            // and the unbound expression still binds against the pinned snapshot's schema at plan time.
+            // Historical predicates must resolve names to the field ids of the generation used for binding;
+            // using the current schema drops renamed predicates or can bind a later reused name incorrectly.
+            Schema predicateSchema = handle.hasSnapshotPin() ? pinnedSchema(table, handle) : table.schema();
             List<Expression> predicates =
-                    new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+                    new IcebergPredicateConverter(predicateSchema, resolveSessionZone(session)).convert(filter.get());
             for (Expression predicate : predicates) {
                 scan = scan.filter(predicate);
             }
         }
         return scan;
+    }
+
+    /** Whether this table type's scan can actually honor Iceberg's snapshot/ref selection APIs. */
+    private static boolean supportsSnapshotSelection(IcebergTableHandle handle) {
+        if (!handle.isSystemTable()) {
+            return true;
+        }
+        MetadataTableType type = MetadataTableType.from(handle.getSysTableName());
+        // Static and ALL_* metadata tables enumerate metadata history independently of a selected snapshot;
+        // Iceberg's ALL_* scan also throws from useSnapshot/useRef instead of silently ignoring the pin.
+        return type != MetadataTableType.HISTORY
+                && type != MetadataTableType.SNAPSHOTS
+                && type != MetadataTableType.REFS
+                && type != MetadataTableType.METADATA_LOG_ENTRIES
+                && type != MetadataTableType.ALL_DATA_FILES
+                && type != MetadataTableType.ALL_DELETE_FILES
+                && type != MetadataTableType.ALL_FILES
+                && type != MetadataTableType.ALL_MANIFESTS
+                && type != MetadataTableType.ALL_ENTRIES;
     }
 
     /**
@@ -1716,8 +1733,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // schema-dict gate above. Absent / no convertible conjunct → no prop → no EXPLAIN line (legacy parity:
         // IcebergScanNode `if (!pushdownIcebergPredicates.isEmpty())`).
         if (!systemTable && filter.isPresent()) {
-            List<Expression> pushed =
-                    new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+            Schema predicateSchema = iceHandle.hasSnapshotPin() ? pinnedSchema(table, iceHandle) : table.schema();
+            List<Expression> pushed = new IcebergPredicateConverter(
+                    predicateSchema, resolveSessionZone(session)).convert(filter.get());
             if (!pushed.isEmpty()) {
                 StringBuilder sb = new StringBuilder();
                 for (Expression predicate : pushed) {
@@ -2787,9 +2805,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code null} context (offline unit tests / simple-auth) resolves directly.
      */
     private Table resolveTable(ConnectorSession session, IcebergTableHandle handle) {
-        // Per-statement scope (PERF-07): the statement's read metadata, scan planning and write all resolve the
-        // SAME one loaded RAW table. The scope holds the RAW table; wrapTableForScan (the Kerberos doAs FileIO) is
-        // re-applied per call below so no per-request authenticator is ever frozen into the shared object.
+        // Per-statement scope (PERF-07): metadata binding and scan planning share one frozen metadata
+        // generation. wrapTableForScan reapplies the Kerberos FileIO wrapper per consumer.
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces verbatim (it
         // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
@@ -2865,8 +2882,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * task serialization) in ONE scope — no nested wrap here.
      */
     private Table resolveSysTable(ConnectorSession session, IcebergTableHandle handle) {
+        IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        // Keep the raw base shared with metadata binding and ordinary scan properties. The caller already owns
+        // the auth scope, and avoiding a fresh load prevents system-table slots and rows crossing generations.
+        Table base = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                () -> loadRawTable(ops, handle));
         return MetadataTableUtils.createMetadataTableInstance(
-                catalogOpsResolver.apply(session).loadTable(handle.getDbName(), handle.getTableName()),
+                base,
                 MetadataTableType.from(handle.getSysTableName()));
     }
 

@@ -225,6 +225,22 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
+    public void structCarriesRequirednessAndFieldDocs() {
+        // WHY: Iceberg system tables contain required nested fields (for example data_file.file_path in
+        // $entries). Dropping NestedField requiredness makes DESCRIBE silently report those fields nullable,
+        // while dropping docs loses nested schema metadata. Both facets must survive the neutral mapping.
+        Types.StructType struct = Types.StructType.of(
+                Types.NestedField.required(1, "required_field", Types.StringType.get(), "required doc"),
+                Types.NestedField.optional(2, "optional_field", Types.IntegerType.get(), "optional doc"));
+        ConnectorType mapped = mapOff(struct);
+
+        Assertions.assertFalse(mapped.isChildNullable(0), "a required Iceberg field must remain NOT NULL");
+        Assertions.assertTrue(mapped.isChildNullable(1), "an optional Iceberg field must remain nullable");
+        Assertions.assertEquals("required doc", mapped.getChildComment(0));
+        Assertions.assertEquals("optional doc", mapped.getChildComment(1));
+    }
+
+    @Test
     public void nestedFieldIdsCarriedForBeFieldIdScan() {
         // WHY (H-10 L3): post-flip iceberg nested-column pruning requires the per-field iceberg field-id to
         // reach the Doris column tree (legacy IcebergUtils.updateIcebergColumnUniqueId set them recursively).

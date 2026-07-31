@@ -101,6 +101,11 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         if (srcNullable) {
             return true;
         }
+        // Identity casts are inserted while merging unchanged complex-type siblings. They cannot create NULL,
+        // so test exact type equality before the conservative datetime/timestamptz conversion rules below.
+        if (srcType.equals(targetType)) {
+            return false;
+        }
         // Not allowed cast is forbidden in CheckCast, and all the Propagation Nullable cases are handled above
         // and the default return false below.
         // The if branches below only handle 2 cases: always nullable and nullable that may overflow.

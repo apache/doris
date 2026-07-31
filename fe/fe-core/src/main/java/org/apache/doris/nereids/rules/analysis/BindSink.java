@@ -359,7 +359,7 @@ public class BindSink implements AnalysisRuleFactory {
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
         return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
-                boundSink, child, boundSink.getTargetTable().getFullSchema());
+                boundSink, child, sinkTargetFullSchema(boundSink.getTargetTable()));
     }
 
     private static Map<String, NamedExpression> getColumnToOutput(
@@ -661,6 +661,20 @@ public class BindSink implements AnalysisRuleFactory {
     }
 
     /**
+     * Returns the schema of a write target without inheriting a snapshot pinned by a source relation.
+     *
+     * <p>An INSERT may read an older version of the same connector table. The no-arg external-table schema
+     * lookup consults that statement-level ambient pin, but a sink is not that source reference and must bind
+     * against the latest write schema. Non-connector tables retain their existing lookup.</p>
+     */
+    private static List<Column> sinkTargetFullSchema(TableIf table) {
+        if (table instanceof PluginDrivenExternalTable) {
+            return ((PluginDrivenExternalTable) table).getFullSchema(Optional.empty());
+        }
+        return table.getFullSchema();
+    }
+
+    /**
      * Connector analogue of the retired legacy iceberg static-partition validation: validates a
      * flipped-connector table's
      * static-partition spec through the neutral {@code ConnectorMetadata#validateStaticPartitionColumns} SPI, so
@@ -757,7 +771,7 @@ public class BindSink implements AnalysisRuleFactory {
     static Set<String> canonicalStaticPartitionColNames(PluginDrivenExternalTable table,
             Map<String, Expression> staticPartitions) {
         return canonicalStaticPartitionColNames(
-                table.getBaseSchema(true), staticPartitions);
+                sinkTargetFullSchema(table), staticPartitions);
     }
 
     private static Set<String> canonicalStaticPartitionColNames(
@@ -783,7 +797,7 @@ public class BindSink implements AnalysisRuleFactory {
         LogicalPlan child = ((LogicalPlan) sink.child());
         List<Column> targetWriteSchema = ctx.cascadesContext.getStatementContext()
                 .getConnectorWriteSchema(table.getId())
-                .orElseGet(table::getFullSchema);
+                .orElseGet(() -> sinkTargetFullSchema(table));
 
         // Static-partition columns (e.g. MaxCompute `PARTITION(pt='x')`) carry their value via the
         // static partition spec rather than the query output, so they are excluded from the bound
@@ -911,7 +925,7 @@ public class BindSink implements AnalysisRuleFactory {
     @VisibleForTesting
     static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
             List<String> colNames, Set<String> staticPartitionColNames, boolean isRewrite) {
-        return selectConnectorSinkBindColumns(table, table.getBaseSchema(true),
+        return selectConnectorSinkBindColumns(table, sinkTargetFullSchema(table),
                 colNames, staticPartitionColNames, isRewrite);
     }
 

@@ -57,7 +57,8 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external") {
     // Test 3.1.2: Drop column after branch query
     sql """ alter table ${table_name} create branch b2_schema """
     sql """ alter table ${table_name} drop column name """
-    qt_b2_no_dropped_col """select * from ${table_name}@branch(b2_schema) order by id """ // Should not have 'name' column
+    // Named branches resolve rows at the branch head but use the table's current schema.
+    qt_b2_no_dropped_col """select * from ${table_name}@branch(b2_schema) order by id """
 
     // Recreate table for next tests
     sql """ drop table if exists ${table_name} """
@@ -69,13 +70,10 @@ suite("iceberg_branch_tag_schema_change_extended", "p0,external") {
     sql """ alter table ${table_name} modify column id bigint """
     qt_b3_new_type """ select * from ${table_name}@branch(b3_schema) where id = 1 """ // Should use new type
 
-    // Test 3.1.4: Branch writes use the schema pinned to the branch snapshot
+    // Test 3.1.4: Branch writes use the shared latest table schema
     sql """ alter table ${table_name} add column new_col string """
-    test {
-        sql """ insert into ${table_name}@branch(b3_schema)(id, value, new_col) values (3, 30, 'test') """
-        exception "Unknown column 'new_col' in target table"
-    }
-    sql """ insert into ${table_name}@branch(b3_schema)(id, value) values (3, 30) """
+    // Iceberg branch commits advance the branch to a snapshot written with current table metadata.
+    sql """ insert into ${table_name}@branch(b3_schema)(id, value, new_col) values (3, 30, 'test') """
     qt_b3_with_new_col """ select * from ${table_name}@branch(b3_schema) where id = 3 """
 
     // Test 3.2.1: Add column after tag query

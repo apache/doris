@@ -22,7 +22,10 @@ import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.api.ConnectorStatementScopes;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 
 import java.util.List;
 import java.util.Map;
@@ -34,10 +37,9 @@ import java.util.function.Supplier;
  * Connector-private helpers over the neutral {@link ConnectorStatementScope} (reached via
  * {@link ConnectorSession#getStatementScope()}), giving iceberg one place to key its per-statement state.
  *
- * <p>The scope is the per-statement table-load owner: the read metadata path, scan planning, write shaping
- * and {@code beginWrite} all resolve one table through {@link #sharedTable} so a single statement loads each
- * table once and every resolver shares that one RAW object (snapshot pins and auth wraps are applied per
- * consumer, never frozen into the shared object). It also carries the merge-on-read rewritable-delete supply
+ * <p>The scope is the per-statement table-load owner: read metadata and scan planning resolve one frozen
+ * read table through {@link #sharedTable}; write shaping and
+ * {@code beginWrite} use {@link #sharedWritableTable}. It also carries the merge-on-read rewritable-delete supply
  * from the scan seam to the write seam ({@link #rewritableDeleteSupply}), replacing the former per-catalog
  * singleton stash — the scope is per-statement, so a statement's supply is GC'd with it and a reused
  * prepared-statement scope is reset per execution (see {@code ExecuteCommand}).</p>
@@ -55,6 +57,9 @@ final class IcebergStatementScope {
      */
     static final String TABLE_NAMESPACE = "iceberg.table";
 
+    /** Separate namespace for mutable tables used by write planning and transaction creation. */
+    static final String WRITABLE_TABLE_NAMESPACE = "iceberg.writable-table";
+
     /**
      * Namespace for iceberg's per-statement rewritable-delete supply map (a per-statement singleton keyed by
      * catalog id + queryId, with no db/table — it aggregates across all touched data files). Source-prefixed
@@ -67,18 +72,34 @@ final class IcebergStatementScope {
     private IcebergStatementScope() {}
 
     /**
-     * Loads the RAW iceberg {@link Table} for {@code db.tbl} once per statement and shares it across every
-     * resolver. The key includes the catalog id (cross-catalog MERGE isolation) and the statement's queryId
-     * (a reused prepared context sees each execution's own table). {@code loader} runs at most once per
-     * statement — callers pass the raw load (cross-query cache or direct remote) and own the auth scope
-     * (the caller wraps this in {@code executeAuthenticated}).
+     * Loads and freezes the iceberg {@link Table} for {@code db.tbl} once per statement. The frozen operations
+     * prevent another statement's write refresh from changing the metadata generation after slots are bound.
      */
     static Table sharedTable(ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {
         // Delegates to the shared per-statement resolver. The TABLE_NAMESPACE ("iceberg.table") reproduces the
         // historical "iceberg.table:" key prefix byte-for-byte, so the funnel keeps identical hits / misses / NONE
         // fall-through (proved by IcebergStatementScopeTest#sharedTableKeyReproducesLegacyPrefixByteForByte).
+        return ConnectorStatementScopes.resolveInStatement(session, TABLE_NAMESPACE, dbName, tableName,
+                () -> snapshotReadTable(loader.get()));
+    }
+
+    /** Loads the mutable table used only by write planning and transaction creation. */
+    static Table sharedWritableTable(
+            ConnectorSession session, String dbName, String tableName, Supplier<Table> loader) {
         return ConnectorStatementScopes.resolveInStatement(
-                session, TABLE_NAMESPACE, dbName, tableName, loader);
+                session, WRITABLE_TABLE_NAMESPACE, dbName, tableName, loader);
+    }
+
+    private static Table snapshotReadTable(Table table) {
+        if (!(table instanceof BaseTable)) {
+            return table;
+        }
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations operations = baseTable.operations();
+        TableMetadata metadata = operations.current();
+        // Keep IO, encryption and location behavior from the raw table while pinning only metadata.
+        return new BaseTable(new IcebergSnapshotTableOperations(operations, metadata),
+                table.name(), baseTable.reporter());
     }
 
     /**
