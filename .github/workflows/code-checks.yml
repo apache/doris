@@ -17,7 +17,12 @@
 
 name: Code Checks
 
-on: [push, pull_request_target]
+on:
+  push:
+    branches:
+      - master
+      - branch-*
+  pull_request_target:
 
 jobs:
   shellcheck:

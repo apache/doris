@@ -18,7 +18,12 @@
 ---
 name: 'Check Large File'
 
-on: [push, pull_request_target]
+on:
+  push:
+    branches:
+      - master
+      - branch-*
+  pull_request_target:
 
 jobs:
   large-file-checker:
