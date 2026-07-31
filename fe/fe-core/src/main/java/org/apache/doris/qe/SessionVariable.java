@@ -2406,7 +2406,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
-    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
+    @VariableMgr.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
             description = {
                     "用于测试/调试 eager aggregation 下推的匹配 hint。"
                             + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
