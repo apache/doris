@@ -507,15 +507,13 @@ namespace doris::config {
 namespace {
 
 /// Capture all mutable async-write fields after a config update. Returning one complete value
-/// keeps every per-disk service on a coherent set of queue, worker, batch, and watchdog settings.
+/// keeps every per-disk service on a coherent set of memory, worker, and batch settings.
 io::AsyncCacheWriteServiceOptions load_async_write_options_from_config() {
     return io::AsyncCacheWriteServiceOptions {
             .worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk),
-            .max_pending_tasks =
-                    static_cast<size_t>(async_file_cache_write_max_pending_tasks_per_disk),
+            .max_pending_bytes =
+                    static_cast<size_t>(async_file_cache_write_max_pending_bytes_per_disk),
             .batch_size = static_cast<size_t>(async_file_cache_write_batch_size),
-            .watchdog_warn_secs = async_file_cache_write_watchdog_warn_secs,
-            .watchdog_drop_secs = async_file_cache_write_watchdog_drop_secs,
     };
 }
 
@@ -558,20 +556,12 @@ DEFINE_ON_UPDATE(enable_async_file_cache_write, [](bool old_value, bool new_valu
 DEFINE_ON_UPDATE(async_file_cache_write_workers_per_disk, [](int32_t old_value, int32_t new_value) {
     update_async_write_options("async_file_cache_write_workers_per_disk", old_value, new_value);
 });
-DEFINE_ON_UPDATE(async_file_cache_write_max_pending_tasks_per_disk,
+DEFINE_ON_UPDATE(async_file_cache_write_max_pending_bytes_per_disk,
                  [](int64_t old_value, int64_t new_value) {
-                     update_async_write_options("async_file_cache_write_max_pending_tasks_per_disk",
+                     update_async_write_options("async_file_cache_write_max_pending_bytes_per_disk",
                                                 old_value, new_value);
                  });
 DEFINE_ON_UPDATE(async_file_cache_write_batch_size, [](int32_t old_value, int32_t new_value) {
     update_async_write_options("async_file_cache_write_batch_size", old_value, new_value);
-});
-DEFINE_ON_UPDATE(async_file_cache_write_watchdog_warn_secs, [](int64_t old_value,
-                                                               int64_t new_value) {
-    update_async_write_options("async_file_cache_write_watchdog_warn_secs", old_value, new_value);
-});
-DEFINE_ON_UPDATE(async_file_cache_write_watchdog_drop_secs, [](int64_t old_value,
-                                                               int64_t new_value) {
-    update_async_write_options("async_file_cache_write_watchdog_drop_secs", old_value, new_value);
 });
 } // namespace doris::config

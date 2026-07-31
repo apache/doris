@@ -82,8 +82,8 @@ DEFINE_int32(reader_workers, 16, "Async write workers used by the reader compari
 DEFINE_string(worker_counts, "1,4,16",
               "Comma-separated async write worker counts used by service scaling cases");
 DEFINE_uint64(repetitions, 5, "Measured repetitions of every selected benchmark case");
-DEFINE_uint64(backpressure_pending_tasks, 64,
-              "Pending-task limit used by the saturated service case");
+DEFINE_uint64(backpressure_pending_bytes, 64 * 1024 * 1024,
+              "Pending-buffer byte limit used by the saturated service case");
 DEFINE_uint64(queue_sample_interval_us, 50,
               "Sampling interval for pending, queued, and inflight peak values");
 DEFINE_uint64(timeout_seconds, 120, "Maximum time to wait for one benchmark case to drain");
@@ -213,13 +213,12 @@ Status validate_flags(const std::vector<std::string>& modes,
         return Status::InvalidArgument(
                 "reader_operations and service_operations must be at least producer_threads");
     }
-    if (FLAGS_service_task_size == 0 || FLAGS_service_task_size > FLAGS_block_size ||
-        FLAGS_service_key_count == 0 || FLAGS_index_operations_per_thread == 0 ||
-        FLAGS_index_key_count == 0 || FLAGS_backpressure_pending_tasks == 0 ||
-        FLAGS_queue_sample_interval_us == 0 || FLAGS_timeout_seconds == 0 ||
-        FLAGS_repetitions == 0) {
+    if (FLAGS_service_task_size != FLAGS_block_size || FLAGS_service_key_count == 0 ||
+        FLAGS_index_operations_per_thread == 0 || FLAGS_index_key_count == 0 ||
+        FLAGS_backpressure_pending_bytes == 0 || FLAGS_queue_sample_interval_us == 0 ||
+        FLAGS_timeout_seconds == 0 || FLAGS_repetitions == 0) {
         return Status::InvalidArgument(
-                "operation counts, timeouts, and 0 < service_task_size <= block_size are required");
+                "operation counts, timeouts, and service_task_size == block_size are required");
     }
     return Status::OK();
 }
@@ -473,8 +472,8 @@ public:
         config::file_cache_background_ttl_info_update_interval_ms = 100;
         config::file_cache_background_tablet_id_flush_interval_ms = 100;
         config::async_file_cache_write_workers_per_disk = FLAGS_reader_workers;
-        config::async_file_cache_write_max_pending_tasks_per_disk =
-                static_cast<int64_t>(std::max(FLAGS_reader_operations, FLAGS_service_operations));
+        config::async_file_cache_write_max_pending_bytes_per_disk = static_cast<int64_t>(
+                std::max(FLAGS_reader_operations, FLAGS_service_operations) * FLAGS_block_size);
         config::async_file_cache_write_batch_size = 16;
 
         DORIS_CHECK(ExecEnv::GetInstance()->file_cache_factory() == nullptr);
@@ -515,14 +514,12 @@ public:
 
     /// Apply one explicit worker/queue snapshot to the production service.
     /// @param workers Active background writer count.
-    /// @param max_pending Maximum accepted tasks, including active workers.
-    Status configure_service(size_t workers, size_t max_pending) {
+    /// @param max_pending_bytes Maximum accepted buffer-capacity bytes, including active workers.
+    Status configure_service(size_t workers, size_t max_pending_bytes) {
         auto options = service()->options();
         options.worker_count = workers;
-        options.max_pending_tasks = max_pending;
+        options.max_pending_bytes = max_pending_bytes;
         options.batch_size = 16;
-        options.watchdog_warn_secs = static_cast<int64_t>(FLAGS_timeout_seconds);
-        options.watchdog_drop_secs = static_cast<int64_t>(FLAGS_timeout_seconds * 2);
         return service()->update_options(options);
     }
 
@@ -635,7 +632,8 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, s
     RETURN_IF_ERROR(environment->clear_cache());
     RETURN_IF_ERROR(environment->configure_service(
             static_cast<size_t>(FLAGS_reader_workers),
-            static_cast<size_t>(FLAGS_reader_operations + FLAGS_reader_workers)));
+            static_cast<size_t>(FLAGS_reader_operations + FLAGS_reader_workers) *
+                    FLAGS_block_size));
 
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
     const size_t operation_count = static_cast<size_t>(FLAGS_reader_operations);
@@ -761,13 +759,13 @@ struct ServiceTaskRecord {
 /// @param environment Shared real cache, cleared before the case.
 /// @param variant Stable output label.
 /// @param workers Active service consumers.
-/// @param max_pending Bounded pending-task limit.
+/// @param max_pending_bytes Bounded pending-buffer byte limit.
 /// @param repetition One-based repetition index included in output.
 Status run_service_case(BenchmarkEnvironment* environment, std::string variant, size_t workers,
-                        size_t max_pending, size_t repetition) {
+                        size_t max_pending_bytes, size_t repetition) {
     DORIS_CHECK(environment != nullptr);
     RETURN_IF_ERROR(environment->clear_cache());
-    RETURN_IF_ERROR(environment->configure_service(workers, max_pending));
+    RETURN_IF_ERROR(environment->configure_service(workers, max_pending_bytes));
 
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
     const size_t operation_count = static_cast<size_t>(FLAGS_service_operations);
@@ -825,7 +823,7 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
                 AsyncCacheWriteTask task {
                         .cache_hash = hash,
                         .file_offset = offset,
-                        .file_size = buffer->size(),
+                        .write_size = buffer->size(),
                         .buffer = buffer,
                         .admission_ctx = {},
                         .submit_ts_us = MonotonicMicros(),
@@ -1029,13 +1027,15 @@ Status run_benchmarks(const std::vector<std::string>& modes,
             for (size_t workers : worker_counts) {
                 RETURN_IF_ERROR(run_service_case(
                         &environment, "drop_oldest_drain_workers_" + std::to_string(workers),
-                        workers, static_cast<size_t>(FLAGS_service_operations + workers),
+                        workers,
+                        static_cast<size_t>(FLAGS_service_operations + workers) * FLAGS_block_size,
                         repetition));
             }
-            RETURN_IF_ERROR(run_service_case(
-                    &environment, "drop_oldest_backpressure", worker_counts.back(),
-                    std::min<size_t>(FLAGS_backpressure_pending_tasks, FLAGS_service_operations),
-                    repetition));
+            RETURN_IF_ERROR(
+                    run_service_case(&environment, "drop_oldest_backpressure", worker_counts.back(),
+                                     std::min<size_t>(FLAGS_backpressure_pending_bytes,
+                                                      FLAGS_service_operations * FLAGS_block_size),
+                                     repetition));
         }
         if (mode_enabled(modes, "index")) {
             RETURN_IF_ERROR(
