@@ -370,7 +370,6 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsWhenAllPendingTasksAreActive) {
     EXPECT_EQ(service->active_bytes(), 4096);
     EXPECT_EQ(service->_active_get_or_set_count.load(std::memory_order_relaxed), 1);
     EXPECT_GE(service->_reject_backpressure_metric->get_value(), 1);
-    EXPECT_GE(service->_reject_no_queued_victim_metric->get_value(), 1);
     EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
 
     {
@@ -393,7 +392,6 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsTaskLargerThanPendingMemoryLimit) {
 
     const uint64_t baseline_rejected = service->_rejected_metric->get_value();
     const uint64_t baseline_backpressure = service->_reject_backpressure_metric->get_value();
-    const uint64_t baseline_too_large = service->_reject_task_too_large_metric->get_value();
     size_t finalized = 0;
     EXPECT_FALSE(service->try_submit(make_async_write_task(
             service, "task_too_large", 'l', [&](const AsyncCacheWriteTask&) { ++finalized; })));
@@ -401,7 +399,6 @@ TEST_F(AsyncCacheWriteServiceTest, RejectsTaskLargerThanPendingMemoryLimit) {
     EXPECT_EQ(service->pending_bytes(), 0);
     EXPECT_EQ(service->_rejected_metric->get_value() - baseline_rejected, 1);
     EXPECT_EQ(service->_reject_backpressure_metric->get_value() - baseline_backpressure, 1);
-    EXPECT_EQ(service->_reject_task_too_large_metric->get_value() - baseline_too_large, 1);
     EXPECT_EQ(finalized, 0);
 }
 
@@ -1268,7 +1265,7 @@ TEST_F(AsyncCacheWriteServiceTest, RemoveInvalidatesActiveAndQueuedTasksAndClean
     expect_cache_gap(queued_hash);
 }
 
-TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacement) {
+TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseKeepsReplacingOldestQueuedTask) {
     auto cache = create_cache("async_write_service_limit_decrease");
     auto* service = cache->async_write_service();
     ASSERT_NE(service, nullptr);
@@ -1282,7 +1279,7 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacemen
     std::condition_variable cv;
     size_t worker_entries = 0;
     size_t released_entries = 0;
-    std::vector<size_t> finalized(6, 0);
+    std::vector<size_t> finalized(7, 0);
     auto* sync_point = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
@@ -1319,11 +1316,12 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacemen
         ASSERT_TRUE(
                 cv.wait_for(lock, std::chrono::seconds(5), [&]() { return worker_entries == 1; }));
     }
+    const auto first_evicted_hash = BlockFileCache::hash("limit_decrease_b");
     ASSERT_TRUE(service->try_submit(
             make_async_write_task(service, "limit_decrease_b", 'b', finalizer(1))));
     ASSERT_TRUE(service->try_submit(
             make_async_write_task(service, "limit_decrease_c", 'c', finalizer(2))));
-    const auto old_victim_hash = BlockFileCache::hash("limit_decrease_d");
+    const auto second_evicted_hash = BlockFileCache::hash("limit_decrease_d");
     ASSERT_TRUE(service->try_submit(
             make_async_write_task(service, "limit_decrease_d", 'd', finalizer(3))));
     ASSERT_EQ(service->pending_count(), 4);
@@ -1333,15 +1331,15 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacemen
 
     options.max_pending_bytes = 2 * 4096;
     ASSERT_TRUE(service->update_options(options).ok());
-    const uint64_t baseline_above_limit = service->_reject_above_current_limit_metric->get_value();
-    size_t rejected_callback_count = 0;
-    EXPECT_FALSE(service->try_submit(
-            make_async_write_task(service, "limit_decrease_rejected", 'e',
-                                  [&](const AsyncCacheWriteTask&) { ++rejected_callback_count; })));
-    EXPECT_EQ(service->_reject_above_current_limit_metric->get_value() - baseline_above_limit, 1);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 0);
+    const uint64_t baseline_evicted = service->_evicted_oldest_metric->get_value();
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_e", 'e', finalizer(4))));
+    EXPECT_EQ(finalized[1], 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 1);
     EXPECT_EQ(service->pending_count(), 4);
     EXPECT_EQ(service->pending_bytes(), 4 * 4096);
+    EXPECT_EQ(service->queued_count(), 3);
+    EXPECT_EQ(service->queued_bytes(), 3 * 4096);
 
     {
         std::lock_guard lock(mutex);
@@ -1355,9 +1353,15 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacemen
     }
     EXPECT_EQ(service->pending_count(), 3);
     EXPECT_EQ(service->pending_bytes(), 3 * 4096);
-    EXPECT_FALSE(service->try_submit(
-            make_async_write_task(service, "limit_decrease_still_above", 'g',
-                                  [&](const AsyncCacheWriteTask&) { ++rejected_callback_count; })));
+    const auto third_evicted_hash = BlockFileCache::hash("limit_decrease_g");
+    ASSERT_TRUE(service->try_submit(
+            make_async_write_task(service, "limit_decrease_g", 'g', finalizer(5))));
+    EXPECT_EQ(finalized[3], 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 2);
+    EXPECT_EQ(service->pending_count(), 3);
+    EXPECT_EQ(service->pending_bytes(), 3 * 4096);
+    EXPECT_EQ(service->queued_count(), 2);
+    EXPECT_EQ(service->queued_bytes(), 2 * 4096);
 
     {
         std::lock_guard lock(mutex);
@@ -1378,14 +1382,13 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacemen
 
     const auto replacement_hash = BlockFileCache::hash("limit_decrease_f");
     ASSERT_TRUE(service->try_submit(
-            make_async_write_task(service, "limit_decrease_f", 'f', finalizer(5))));
+            make_async_write_task(service, "limit_decrease_f", 'f', finalizer(6))));
     EXPECT_EQ(service->pending_count(), 2);
     EXPECT_EQ(service->pending_bytes(), 2 * 4096);
     EXPECT_EQ(service->queued_count(), 1);
     EXPECT_EQ(service->queued_bytes(), 4096);
-    EXPECT_EQ(finalized[3], 1);
-    EXPECT_EQ(service->_evicted_oldest_metric->get_value(), 1);
-    EXPECT_EQ(rejected_callback_count, 0);
+    EXPECT_EQ(finalized[5], 1);
+    EXPECT_EQ(service->_evicted_oldest_metric->get_value() - baseline_evicted, 3);
 
     {
         std::lock_guard lock(mutex);
@@ -1397,13 +1400,12 @@ TEST_F(AsyncCacheWriteServiceTest, PendingLimitDecreaseConvergesBeforeReplacemen
     }
     ASSERT_EQ(service->pending_count(), 0);
     ASSERT_EQ(service->pending_bytes(), 0);
-    EXPECT_EQ(finalized[0], 1);
-    EXPECT_EQ(finalized[1], 1);
-    EXPECT_EQ(finalized[2], 1);
-    EXPECT_EQ(finalized[3], 1);
-    EXPECT_EQ(finalized[4], 0);
-    EXPECT_EQ(finalized[5], 1);
-    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), old_victim_hash));
+    for (size_t finalized_count : finalized) {
+        EXPECT_EQ(finalized_count, 1);
+    }
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), first_evicted_hash));
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), second_evicted_hash));
+    EXPECT_FALSE(is_cache_range_downloaded(cache.get(), third_evicted_hash));
     EXPECT_TRUE(is_cache_range_downloaded(cache.get(), replacement_hash));
 }
 
