@@ -79,14 +79,20 @@ public final class IcebergTypeMapping {
                 Types.StructType struct = (Types.StructType) icebergType;
                 List<String> names = new ArrayList<>(struct.fields().size());
                 List<ConnectorType> types = new ArrayList<>(struct.fields().size());
+                List<Boolean> nullable = new ArrayList<>(struct.fields().size());
+                List<String> comments = new ArrayList<>(struct.fields().size());
                 List<Integer> fieldIds = new ArrayList<>(struct.fields().size());
                 for (Types.NestedField f : struct.fields()) {
                     names.add(f.name());
                     types.add(fromIcebergType(
                             f.type(), enableMappingVarbinary, enableMappingTimestampTz));
+                    // Requiredness is part of an Iceberg nested schema; defaulting it to nullable makes
+                    // system-table structs such as $entries disagree with their authoritative schema.
+                    nullable.add(f.isOptional());
+                    comments.add(f.doc());
                     fieldIds.add(f.fieldId());
                 }
-                return ConnectorType.structOf(names, types).withChildrenFieldIds(fieldIds);
+                return ConnectorType.structOf(names, types, nullable, comments).withChildrenFieldIds(fieldIds);
             default:
                 // Any non-primitive iceberg type Doris cannot represent (VARIANT today; future non-primitive
                 // typeIds) degrades to UNSUPPORTED: the table still LOADS and only this column is

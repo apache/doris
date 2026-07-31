@@ -165,4 +165,49 @@ TEST(ScannerProjectionTest, merges_padding_block_when_limit_eos_without_extra_fl
     EXPECT_EQ(first_output.rows(), 7);
 }
 
+TEST(ScannerProjectionTest, publishes_shared_column_and_reuses_output_block) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 4;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    op->_output_row_descriptor =
+            std::make_unique<MockRowDescriptor>(std::vector<DataTypePtr> {data_type}, &pool);
+    op->_output_tuple_desc = op->_output_row_descriptor->tuple_descriptors()[0];
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+
+    Block first_input = ColumnHelper::create_block<DataTypeInt32>({1, 2});
+    const auto* first_column = first_input.get_by_position(0).column.get();
+    scanner.add_block(std::move(first_input));
+
+    Block second_input = ColumnHelper::create_block<DataTypeInt32>({3, 4});
+    const auto* second_column = second_input.get_by_position(0).column.get();
+    scanner.add_block(std::move(second_input));
+
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &output, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(output.get_by_position(0).column.get(), first_column);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(0), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(1), 2);
+
+    output.clear_column_data();
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &output, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(output.get_by_position(0).column.get(), second_column);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(0), 3);
+    EXPECT_EQ(output.get_by_position(0).column->get_int(1), 4);
+}
+
 } // namespace doris

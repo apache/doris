@@ -34,6 +34,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -60,6 +61,7 @@ public class BindConnectorSinkStaticPartitionTest {
     private static PluginDrivenExternalTable partitionedTable() {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getBaseSchema(true)).thenReturn(BASE_SCHEMA);
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(BASE_SCHEMA);
         // Model ExternalTable.getColumn, which resolves case-INSENSITIVELY (equalsIgnoreCase) for every
         // external table. Stubbing only the exact spelling would hide the very behavior under test.
         Mockito.when(table.getColumn(Mockito.anyString())).thenAnswer(inv -> {
@@ -90,6 +92,7 @@ public class BindConnectorSinkStaticPartitionTest {
         List<Column> schema = ImmutableList.of(ID, VAL, rowId);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getBaseSchema(true)).thenReturn(schema);
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(schema);
         for (Column c : schema) {
             Mockito.when(table.getColumn(c.getName())).thenReturn(c);
         }
@@ -149,6 +152,24 @@ public class BindConnectorSinkStaticPartitionTest {
                 partitionedTable(), ImmutableList.of("val", "id"), ImmutableSet.of("ds"), false);
         Assertions.assertEquals(ImmutableList.of("val", "id"), names(bound),
                 "explicit column list is bound in user order");
+    }
+
+    @Test
+    public void explicitColumnListUsesLatestTargetSchemaInsteadOfAmbientSourceSnapshot() {
+        Column oldName = new Column("old_name", PrimitiveType.INT);
+        Column newName = new Column("new_name", PrimitiveType.INT);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        // Model a statement whose historical source is the only pinned relation: the no-arg table lookup
+        // therefore sees old_name, while an explicit empty pin means the latest write-target schema.
+        Mockito.when(table.getColumn("id")).thenReturn(ID);
+        Mockito.when(table.getColumn("new_name")).thenReturn(null);
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(ImmutableList.of(ID, newName));
+        Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(ID, oldName));
+
+        List<Column> bound = BindSink.selectConnectorSinkBindColumns(
+                table, ImmutableList.of("id", "new_name"), Collections.emptySet(), false);
+        Assertions.assertEquals(ImmutableList.of("id", "new_name"), names(bound),
+                "a historical source pin must not replace the latest write-target schema");
     }
 
     /**

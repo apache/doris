@@ -135,7 +135,11 @@ public:
                                 const TabletSchema& tablet_schema, Block& full_block,
                                 const std::vector<bool>& use_default_or_null_flag,
                                 bool has_default_or_nullable, uint32_t segment_start_pos,
-                                const Block* block) const;
+                                const Block* block,
+                                std::vector<signed char>* old_delete_signs = nullptr) const;
+    Status fill_old_delete_signs(const Block& old_value_block,
+                                 const std::map<uint32_t, uint32_t>& read_index, size_t num_rows,
+                                 std::vector<signed char>* old_delete_signs) const;
 
 private:
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> plan;

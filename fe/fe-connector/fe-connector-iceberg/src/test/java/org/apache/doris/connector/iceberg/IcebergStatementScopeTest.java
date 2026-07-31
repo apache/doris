@@ -24,6 +24,9 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,9 +40,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
- * Tests for {@link IcebergStatementScope}: the per-statement table memo keying (catalog id + db + table +
- * queryId) that lets a statement's read/scan/write share ONE loaded table, and the rewritable-delete supply
- * map keying (catalog id + queryId) that bridges the scan&rarr;write seam.
+ * Tests for {@link IcebergStatementScope}: per-statement read and writable table memo keying, plus the
+ * rewritable-delete supply map that bridges the scan&rarr;write seam.
  */
 public class IcebergStatementScopeTest {
 
@@ -51,10 +53,17 @@ public class IcebergStatementScopeTest {
                 "s3://b/db1/" + name, Collections.emptyMap());
     }
 
+    private static Table mutableTable(String name) {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        return catalog.createTable(TableIdentifier.of("db1", name), SCHEMA);
+    }
+
     @Test
     public void sameStatementSharesOneLoadedTable() {
-        // The read, scan and write resolvers of one statement resolve the same table through sharedTable; sharing
-        // one scope collapses them onto one load and hands each the SAME instance (read/write share).
+        // Read metadata and scan planning resolve one frozen view through sharedTable; sharing one scope
+        // collapses them onto one load and hands each the same statement instance.
         // MUTATION: not memoizing -> two loads / two instances -> red.
         ScopeSession session = new ScopeSession(7L, "q1", new TestStatementScope());
         AtomicInteger loads = new AtomicInteger();
@@ -71,6 +80,22 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void sameStatementSharesOneWritableTable() {
+        ScopeSession session = new ScopeSession(7L, "q1", new TestStatementScope());
+        AtomicInteger loads = new AtomicInteger();
+        Supplier<Table> loader = () -> {
+            loads.incrementAndGet();
+            return table("t");
+        };
+
+        Table planned = IcebergStatementScope.sharedWritableTable(session, "db1", "t", loader);
+        Table transaction = IcebergStatementScope.sharedWritableTable(session, "db1", "t", loader);
+
+        Assertions.assertSame(planned, transaction);
+        Assertions.assertEquals(1, loads.get());
+    }
+
+    @Test
     public void differentQueryIdIsolatesTheLoad() {
         // A reused prepared statement runs each EXECUTE under its own queryId, so one execution never sees
         // another's table even on the same scope object.
@@ -78,6 +103,21 @@ public class IcebergStatementScopeTest {
         Table a = IcebergStatementScope.sharedTable(new ScopeSession(7L, "q1", scope), "db1", "t", () -> table("t"));
         Table b = IcebergStatementScope.sharedTable(new ScopeSession(7L, "q2", scope), "db1", "t", () -> table("t"));
         Assertions.assertNotSame(a, b, "different queryId -> isolated load");
+    }
+
+    @Test
+    public void readGenerationSurvivesAnotherStatementMutatingCachedBaseTable() {
+        Table mutable = mutableTable("t");
+        Table firstStatement = IcebergStatementScope.sharedTable(
+                new ScopeSession(7L, "q1", new TestStatementScope()), "db1", "t", () -> mutable);
+
+        mutable.updateSchema().addColumn("later", Types.StringType.get()).commit();
+
+        Assertions.assertNull(firstStatement.schema().findField("later"),
+                "a statement read view must not refresh when another statement mutates the shared raw table");
+        Table laterStatement = IcebergStatementScope.sharedTable(
+                new ScopeSession(7L, "q2", new TestStatementScope()), "db1", "t", () -> mutable);
+        Assertions.assertNotNull(laterStatement.schema().findField("later"));
     }
 
     @Test

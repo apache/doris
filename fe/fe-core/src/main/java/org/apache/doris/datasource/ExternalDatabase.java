@@ -86,7 +86,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected boolean initialized = false;
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
-    protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
 
     private MetaCacheEntry<String, NameCacheValue> tableNames;
@@ -103,13 +102,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      * @param name Database name.
      * @param remoteName Remote database name.
      */
-    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName,
-            InitDatabaseLog.Type dbLogType) {
+    public ExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
         this.extCatalog = extCatalog;
         this.id = id;
         this.name = name;
         this.remoteName = remoteName;
-        this.dbLogType = dbLogType;
     }
 
     public void setExtCatalog(ExternalCatalog extCatalog) {

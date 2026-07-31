@@ -384,12 +384,36 @@ Status FixedReadPlan::read_columns_by_plan(
     return Status::OK();
 }
 
+Status FixedReadPlan::fill_old_delete_signs(const Block& old_value_block,
+                                            const std::map<uint32_t, uint32_t>& read_index,
+                                            size_t num_rows,
+                                            std::vector<signed char>* old_delete_signs) const {
+    if (old_delete_signs == nullptr) {
+        return Status::OK();
+    }
+    const auto* old_delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(old_value_block);
+    if (old_delete_sign_column_data == nullptr) {
+        return Status::InternalError("old delete signs column not found, block: {}",
+                                     old_value_block.dump_structure());
+    }
+    old_delete_signs->assign(num_rows, 0);
+    for (size_t idx = 0; idx < num_rows; ++idx) {
+        auto it = read_index.find(cast_set<uint32_t>(idx));
+        if (it != read_index.end()) {
+            (*old_delete_signs)[idx] = old_delete_sign_column_data[it->second];
+        }
+    }
+    return Status::OK();
+}
+
 Status FixedReadPlan::fill_missing_columns(
         const segment_v2::HistoricalRowRetrieverContext& historical_context,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         const TabletSchema& tablet_schema, Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
-        uint32_t segment_start_pos, const Block* block) const {
+        uint32_t segment_start_pos, const Block* block,
+        std::vector<signed char>* old_delete_signs) const {
     auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
     auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
@@ -413,11 +437,14 @@ Status FixedReadPlan::fill_missing_columns(
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, missing_cids, rsid_to_rowset,
                                          old_value_block, &read_index, true, nullptr));
 
-    const auto* old_delete_signs = BaseTablet::get_delete_sign_column_data(old_value_block);
-    if (old_delete_signs == nullptr) {
+    const auto* old_delete_sign_column_data =
+            BaseTablet::get_delete_sign_column_data(old_value_block);
+    if (old_delete_sign_column_data == nullptr) {
         return Status::InternalError("old delete signs column not found, block: {}",
                                      old_value_block.dump_structure());
     }
+    RETURN_IF_ERROR(fill_old_delete_signs(old_value_block, read_index,
+                                          use_default_or_null_flag.size(), old_delete_signs));
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
@@ -439,8 +466,7 @@ Status FixedReadPlan::fill_missing_columns(
 
             bool should_use_default = use_default_or_null_flag[idx];
             if (!should_use_default) {
-                bool old_row_delete_sign =
-                        (old_delete_signs != nullptr && old_delete_signs[pos_in_old_block] != 0);
+                bool old_row_delete_sign = old_delete_sign_column_data[pos_in_old_block] != 0;
                 if (old_row_delete_sign) {
                     if (!tablet_schema.has_sequence_col()) {
                         should_use_default = true;

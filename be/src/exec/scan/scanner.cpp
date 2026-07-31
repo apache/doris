@@ -210,41 +210,50 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     if (rows == 0) {
         return Status::OK();
     }
-    Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
-    for (auto& projections : _intermediate_projections) {
-        result_column_ids.resize(projections.size());
-        for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+    {
+        Block input_block = *origin_block;
+
+        std::vector<int> result_column_ids;
+        for (auto& projections : _intermediate_projections) {
+            result_column_ids.resize(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            }
+            input_block.shuffle_columns(result_column_ids);
         }
-        input_block.shuffle_columns(result_column_ids);
+
+        DCHECK_EQ(rows, input_block.rows());
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                output_block, *_output_row_descriptor);
+        auto& mutable_columns = scoped_mutable_block.mutable_columns();
+        DCHECK_EQ(mutable_columns.size(), _projections.size());
+        Columns shared_columns(mutable_columns.size());
+
+        for (int i = 0; i < mutable_columns.size(); ++i) {
+            ColumnPtr column_ptr;
+            RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+            column_ptr = column_ptr->convert_to_full_column_if_const();
+            if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
+            }
+            if (column_ptr->is_exclusive()) {
+                mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
+            } else {
+                shared_columns[i] = std::move(column_ptr);
+            }
+        }
+
+        scoped_mutable_block.restore();
+        for (int i = 0; i < shared_columns.size(); ++i) {
+            if (shared_columns[i]) {
+                output_block->replace_by_position(i, std::move(shared_columns[i]));
+            }
+        }
     }
 
-    DCHECK_EQ(rows, input_block.rows());
-    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
-            output_block, *_output_row_descriptor);
-    auto& mutable_block = scoped_mutable_block.mutable_block();
-
-    auto& mutable_columns = mutable_block.mutable_columns();
-
-    DCHECK_EQ(mutable_columns.size(), _projections.size());
-
-    for (int i = 0; i < mutable_columns.size(); ++i) {
-        ColumnPtr column_ptr;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
-        column_ptr = column_ptr->convert_to_full_column_if_const();
-        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
-        }
-        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
-    }
-
-    scoped_mutable_block.restore();
-
-    // origin columns was moved into output_block, so we need to set origin_block to empty columns
-    auto empty_columns = origin_block->clone_empty_columns();
-    origin_block->set_columns(std::move(empty_columns));
+    origin_block->clear_column_data(
+            _local_state->_parent->row_descriptor().num_materialized_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
