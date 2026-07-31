@@ -111,9 +111,10 @@ public:
 
     /// Admit `task` into the memory-bounded FIFO without waiting for disk I/O. Because all tasks
     /// have one fixed cache-block buffer capacity, a full queue displaces exactly one oldest queued
-    /// task. Active tasks are never displaced. After a runtime limit decrease, new submissions are
-    /// rejected until pending bytes have drained to the new limit. This call can briefly wait for
-    /// the queue mutex and finalizes a displaced task before returning.
+    /// task. Active tasks are never displaced. After a runtime limit decrease, submissions continue
+    /// to replace the oldest queued task without increasing pending bytes, even while existing
+    /// pending bytes exceed the new limit. This call can briefly wait for the queue mutex and
+    /// finalizes a displaced task before returning.
     /// @return true if ownership was transferred to the queue; false when workers have not been
     /// started, during shutdown, on backpressure, or on queue rejection. A rejected task's
     /// finalization callback is not invoked.
@@ -270,9 +271,6 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_not_running_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_backpressure_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_enqueue_failure_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _reject_no_queued_victim_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _reject_above_current_limit_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _reject_task_too_large_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _buffer_alloc_fail_metric;
     std::shared_ptr<bvar::LatencyRecorder> _submit_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _buffer_alloc_latency_metric;
