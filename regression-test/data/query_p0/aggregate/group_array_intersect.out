@@ -2,6 +2,9 @@
 -- !outer_nullable_case_if --
 [2]	[2]
 
+-- !string_null_element_does_not_match_empty_string --
+[]
+
 -- !int_1 --
 [null]
 
