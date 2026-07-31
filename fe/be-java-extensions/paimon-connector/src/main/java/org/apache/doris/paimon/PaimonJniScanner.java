@@ -699,24 +699,22 @@ public class PaimonJniScanner extends JniScanner {
 
     static Table applyBackendManifestParallelism(
             Table table, String feParallelismCap, int localCapacity) {
-        int safeParallelism;
+        List<Integer> configuredValues = new ArrayList<>();
+        collectManifestParallelism(table, configuredValues);
+        int requestedBound = localCapacity;
         if (feParallelismCap != null) {
-            safeParallelism = parsePositiveManifestParallelism(feParallelismCap);
-            if (safeParallelism <= localCapacity) {
-                return table;
-            }
-            safeParallelism = localCapacity;
-        } else {
-            List<Integer> configuredValues = new ArrayList<>();
-            collectManifestParallelism(table, configuredValues);
-            if (configuredValues.isEmpty()
-                    || configuredValues.stream().noneMatch(value -> value > localCapacity)) {
-                return table;
-            }
-            safeParallelism = Math.min(
-                    configuredValues.stream().mapToInt(Integer::intValue).min().getAsInt(),
-                    localCapacity);
+            requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), localCapacity);
         }
+        final int safeBound = requestedBound;
+        // The FE cap is a requested bound, not proof that every serialized wrapper carries it;
+        // a later table rebuild can expose the original physical value to this BE.
+        if (configuredValues.isEmpty()
+                || configuredValues.stream().noneMatch(value -> value > safeBound)) {
+            return table;
+        }
+        int safeParallelism = Math.min(
+                configuredValues.stream().mapToInt(Integer::intValue).min().getAsInt(),
+                safeBound);
         Map<String, String> cap = Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeParallelism));
         // Preserve the FE-selected schema while lowering only the BE-local execution bound.
@@ -764,11 +762,27 @@ public class PaimonJniScanner extends JniScanner {
 
     private static void validateSerializedReaderOptions(Table table) {
         validateSerializedReadBatchSize(table.options().get(CoreOptions.READ_BATCH_SIZE.key()));
+        validateSerializedAsyncThreshold(table.options().get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
         if (table instanceof FallbackReadFileStoreTable) {
             validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());
+        }
+    }
+
+    private static void validateSerializedAsyncThreshold(String value) {
+        if (value == null) {
+            return;
+        }
+        Optional<Long> bytes = parseDataSizeBytes(value);
+        // A serialized table can come from an older FE, so enforce the reader-allocation contract
+        // again before an unsafe threshold reaches Paimon's asynchronous read path.
+        if (!bytes.isPresent() || bytes.get() < 1024L * 1024L
+                || bytes.get() > 1024L * 1024L * 1024L) {
+            throw new IllegalArgumentException("Paimon option '"
+                    + CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()
+                    + "' must be between 1 MB and 1 GB, but was " + value);
         }
     }
 

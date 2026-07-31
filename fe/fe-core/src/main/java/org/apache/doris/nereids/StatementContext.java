@@ -264,6 +264,7 @@ public class StatementContext implements Closeable {
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshotFences = Maps.newHashMap();
     private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> tableMetadataSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
@@ -951,8 +952,9 @@ public class StatementContext implements Closeable {
                 MvccTable mvccTable = (MvccTable) specificTable;
                 if (mvccTable.requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
                     MvccTableInfo latestKey = new MvccTableInfo(specificTable);
-                    MvccSnapshot latestFence = latestSnapshots.computeIfAbsent(latestKey,
-                            key -> mvccTable.loadSnapshot(Optional.empty(), Optional.empty()));
+                    MvccSnapshot latestFence = latestSnapshotFences.computeIfAbsent(latestKey,
+                            key -> latestSnapshots.containsKey(key)
+                                    ? latestSnapshots.get(key) : mvccTable.loadLatestSnapshotFence());
                     // Planning options still need separate projections, but their version selector
                     // must come from one statement fence rather than separate live latest reads.
                     snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams, Optional.of(latestFence));
@@ -973,7 +975,13 @@ public class StatementContext implements Closeable {
             // Keep latest metadata separate: a historical relation may temporarily become the
             // table-scoped snapshot, but it must not redefine what a later latest relation sees.
             snapshot = latestSnapshots.computeIfAbsent(mvccTableInfo,
-                    key -> ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+                    key -> latestSnapshotFences.containsKey(key)
+                            ? ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams,
+                                    Optional.of(latestSnapshotFences.get(key)))
+                            : ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+            // A full latest projection is also a valid version fence. Recording it makes
+            // plain-first and options-first aliases pin the same statement version.
+            latestSnapshotFences.putIfAbsent(mvccTableInfo, snapshot);
         }
         snapshots.put(mvccTableInfo, snapshot);
         tableMetadataSnapshots.putIfAbsent(new MvccTableInfo(specificTable), snapshot);

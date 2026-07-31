@@ -71,6 +71,44 @@ public final class PaimonLatestSnapshotProjectionLoader {
         }
     }
 
+    public PaimonSnapshotCacheValue loadFence(NameMapping nameMapping, Table paimonTable) {
+        try {
+            // A statement fence needs version/schema identity only; enumerating partitions here
+            // can fail before relation-level options have replaced an unsafe physical setting.
+            return new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, resolveLatestSnapshot(paimonTable));
+        } catch (Exception e) {
+            throw new CacheException("failed to load paimon snapshot fence %s.%s.%s: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
+                    e.getMessage());
+        }
+    }
+
+    public PaimonSnapshotCacheValue loadAtFence(
+            NameMapping nameMapping, Table paimonTable, PaimonSnapshot fence) {
+        try {
+            FileStoreTable latestSchemaTable = ((FileStoreTable) paimonTable).copyWithLatestSchema();
+            Table snapshotTable = latestSchemaTable;
+            if (fence.getSnapshotId() != PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+                // Pin data at the statement fence without replaying time travel, which would
+                // discard a schema-only ALTER that happened after the last data snapshot.
+                Map<String, String> projectionOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
+                        latestSchemaTable, PaimonScanParams.isolateSnapshotRead(fence.getSnapshotId()));
+                snapshotTable = latestSchemaTable.copyWithoutTimeTravel(projectionOptions);
+            }
+            List<Column> partitionColumns = schemaValueLoader.load(nameMapping, fence.getSchemaId())
+                    .getPartitionColumns();
+            PaimonPartitionInfo partitionInfo =
+                    partitionInfoLoader.load(nameMapping, snapshotTable, partitionColumns);
+            return new PaimonSnapshotCacheValue(partitionInfo,
+                    new PaimonSnapshot(fence.getSnapshotId(), fence.getSchemaId(), snapshotTable));
+        } catch (Exception e) {
+            throw new CacheException("failed to load paimon snapshot at fence %s.%s.%s: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
+                    e.getMessage());
+        }
+    }
+
     private PaimonSnapshot resolveLatestSnapshot(Table paimonTable) {
         FileStoreTable latestSchemaTable = ((FileStoreTable) paimonTable).copyWithLatestSchema();
         Table snapshotTable = latestSchemaTable;

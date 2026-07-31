@@ -102,6 +102,38 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testLatestFenceDoesNotLoadSchemaOrPartitions() {
+        PaimonPartitionInfoLoader partitionLoader = Mockito.mock(PaimonPartitionInfoLoader.class);
+        PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                partitionLoader,
+                (nameMapping, schemaId) -> {
+                    throw new AssertionError("a version-only fence must not load schema metadata");
+                });
+        NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable pinnedTable = Mockito.mock(FileStoreTable.class);
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(snapshot));
+        Mockito.when(snapshot.id()).thenReturn(12L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(pinnedTable);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(4L);
+
+        PaimonSnapshotCacheValue fence = loader.loadFence(nameMapping, baseTable);
+
+        Assert.assertEquals(12L, fence.getSnapshot().getSnapshotId());
+        Assert.assertEquals(4L, fence.getSnapshot().getSchemaId());
+        Assert.assertSame(PaimonPartitionInfo.EMPTY, fence.getPartitionInfo());
+        Mockito.verifyNoInteractions(partitionLoader);
+    }
+
+    @Test
     public void testTagProjectionKeepsOnlyRepinnedSnapshotSelector() throws Exception {
         Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new Path(temporaryFolder.newFolder("tag_projection").toURI()));

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -85,7 +86,7 @@ public class StatementContextMvccSnapshotTest {
         TableScanParams first = options("true");
         TableScanParams second = options("false");
         Mockito.when(table.requiresLatestSnapshotFence(Mockito.any(), Mockito.any())).thenReturn(true);
-        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(latestFence);
+        Mockito.when(table.loadLatestSnapshotFence()).thenReturn(latestFence);
         Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(first), Optional.of(latestFence)))
                 .thenReturn(firstProjection);
         Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(second), Optional.of(latestFence)))
@@ -100,17 +101,75 @@ public class StatementContextMvccSnapshotTest {
                 context.getSnapshot(table, Optional.empty(), Optional.of(first)).orElse(null));
         Assertions.assertSame(secondProjection,
                 context.getSnapshot(table, Optional.empty(), Optional.of(second)).orElse(null));
-        Mockito.verify(table, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+        Mockito.verify(table, Mockito.times(1)).loadLatestSnapshotFence();
+    }
+
+    @Test
+    public void planningOptionsDoNotMaterializeRawLatestProjectionForTheirFence() {
+        StatementContext context = new StatementContext(new ConnectContext(), null);
+        MvccSnapshot latestFence = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot projection = Mockito.mock(MvccSnapshot.class);
+        MvccTable table = Mockito.mock(MvccTable.class, invocation -> {
+            if ("loadLatestSnapshotFence".equals(invocation.getMethod().getName())) {
+                return latestFence;
+            }
+            return org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation);
+        });
+        DatabaseIf<TableIf> database = Mockito.mock(DatabaseIf.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        TableScanParams params = options("true");
+        Mockito.when(table.requiresLatestSnapshotFence(Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenThrow(
+                new AssertionError("a version fence must not materialize raw latest partitions"));
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(params), Optional.of(latestFence)))
+                .thenReturn(projection);
+
+        Assertions.assertDoesNotThrow(
+                () -> context.loadSnapshots(table, Optional.empty(), Optional.of(params)));
+        Assertions.assertSame(projection,
+                context.getSnapshot(table, Optional.empty(), Optional.of(params)).orElse(null));
+    }
+
+    @Test
+    public void injectedDefaultSnapshotBecomesTheOptionsFence() {
+        StatementContext context = new StatementContext(new ConnectContext(), null);
+        MvccTable table = mockTable();
+        MvccSnapshot injected = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot projection = Mockito.mock(MvccSnapshot.class);
+        TableScanParams params = options("true");
+        Mockito.when(table.requiresLatestSnapshotFence(Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(params), Optional.of(injected)))
+                .thenReturn(projection);
+
+        context.setSnapshot(new MvccTableInfo(table), injected);
+        context.loadSnapshots(table, Optional.empty(), Optional.of(params));
+
+        Assertions.assertSame(projection,
+                context.getSnapshot(table, Optional.empty(), Optional.of(params)).orElse(null));
+        Mockito.verify(table, Mockito.never()).loadLatestSnapshotFence();
     }
 
     @Test
     public void optionAndPlainAliasesAreOrderIndependent() {
         MvccTable table = mockTable();
+        MvccSnapshot lightweightFence = Mockito.mock(MvccSnapshot.class);
         MvccSnapshot plain = Mockito.mock(MvccSnapshot.class);
         MvccSnapshot option = Mockito.mock(MvccSnapshot.class);
         TableScanParams enabled = options("true");
+        Mockito.when(table.requiresLatestSnapshotFence(Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(table.loadLatestSnapshotFence()).thenReturn(lightweightFence);
         Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(plain);
-        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(enabled))).thenReturn(option);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty(), Optional.of(lightweightFence)))
+                .thenReturn(plain);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(enabled), Optional.of(lightweightFence)))
+                .thenReturn(option);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(enabled), Optional.of(plain)))
+                .thenReturn(option);
 
         for (boolean optionFirst : new boolean[] {true, false}) {
             StatementContext context = new StatementContext(new ConnectContext(), null);

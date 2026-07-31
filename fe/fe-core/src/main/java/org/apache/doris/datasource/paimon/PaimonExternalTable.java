@@ -371,6 +371,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
+    public MvccSnapshot loadLatestSnapshotFence() {
+        return new PaimonMvccSnapshot(PaimonUtils.loadLatestSnapshotFence(this));
+    }
+
+    @Override
     public boolean requiresLatestSnapshotFence(
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         return !tableSnapshot.isPresent()
@@ -384,6 +389,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams,
             Optional<MvccSnapshot> latestSnapshotFence) {
+        if (latestSnapshotFence.isPresent() && !tableSnapshot.isPresent() && !scanParams.isPresent()) {
+            PaimonSnapshot fence = ((PaimonMvccSnapshot) latestSnapshotFence.get())
+                    .getSnapshotCacheValue().getSnapshot();
+            return new PaimonMvccSnapshot(PaimonUtils.loadSnapshotAtFence(this, fence));
+        }
         if (!latestSnapshotFence.isPresent()
                 || !requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
             return loadSnapshot(tableSnapshot, scanParams);

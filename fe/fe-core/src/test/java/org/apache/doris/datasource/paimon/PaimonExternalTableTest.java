@@ -326,8 +326,7 @@ public class PaimonExternalTableTest {
         PaimonSnapshotCacheValue firstValue = Mockito.mock(PaimonSnapshotCacheValue.class);
         PaimonSnapshotCacheValue secondValue = Mockito.mock(PaimonSnapshotCacheValue.class);
         PaimonMvccSnapshot latestFence = new PaimonMvccSnapshot(firstValue);
-        Mockito.doReturn(latestFence).when(externalTable)
-                .loadSnapshot(Optional.empty(), Optional.empty());
+        Mockito.doReturn(latestFence).when(externalTable).loadLatestSnapshotFence();
         // OPTIONS projections now enter through the fenced overload; stub that boundary so this
         // descriptor test keeps exercising projection selection without opening a real catalog.
         Mockito.doReturn(new PaimonMvccSnapshot(firstValue)).when(externalTable)
