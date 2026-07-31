@@ -251,6 +251,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 routineLoadTaskInfo.getBeId(), errorMsg);
         routineLoadTaskInfo.setBeId(-1);
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+        boolean shouldAbortTxn = false;
 
         routineLoadJob.writeLock();
         try {
@@ -263,8 +264,22 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                     new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
                             "failed to submit task: " + errorMsg),
                     false);
+            shouldAbortTxn = routineLoadTaskInfo.getTxnId() != RoutineLoadTaskInfo.INIT_TXN_ID;
         } finally {
             routineLoadJob.writeUnlock();
+        }
+
+        // Aborting a transaction invokes the job callback, which acquires the job write lock.
+        // Keep this call outside the lock and make the transaction begun before submission terminal.
+        if (shouldAbortTxn) {
+            try {
+                Env.getCurrentGlobalTransactionMgr().abortTransaction(
+                        routineLoadJob.getDbId(), routineLoadTaskInfo.getTxnId(),
+                        "routine load task submission failed: " + errorMsg);
+            } catch (UserException e) {
+                LOG.warn("failed to abort transaction {} after routine load task submission failure",
+                        routineLoadTaskInfo.getTxnId(), e);
+            }
         }
     }
 
@@ -306,6 +321,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         boolean ok = false;
         BackendService.Client client = null;
         try {
+            if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.BEFORE_RPC.TOO_MANY_TASKS")) {
+                throw new LoadException("failed to submit task. error code: TOO_MANY_TASKS,"
+                        + " msg: debug point before RPC");
+            }
             client = ClientPool.backendPool.borrowObject(address);
             TStatus tStatus = client.submitRoutineLoadTask(Lists.newArrayList(tTask));
             ok = true;

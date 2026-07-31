@@ -116,7 +116,8 @@ public class TransactionState implements Writable {
         OFFSET_OUT_OF_RANGE,
         PAUSE,
         NO_PARTITIONS,
-        INVALID_JSON_PATH;
+        INVALID_JSON_PATH,
+        COMMIT_FAILED;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {

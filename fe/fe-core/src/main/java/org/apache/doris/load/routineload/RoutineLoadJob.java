@@ -1347,6 +1347,15 @@ public abstract class RoutineLoadJob
                                         new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR, msg),
                                         false /* not replay */);
                                 return;
+                            case COMMIT_FAILED:
+                                msg = "be " + taskBeId + " failed to commit task,"
+                                        + " task id: " + routineLoadTaskInfo.getId()
+                                        + " job id: " + routineLoadTaskInfo.getJobId()
+                                        + " with reason: " + txnStatusChangeReasonString;
+                                updateState(JobState.PAUSED,
+                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        false /* not replay */);
+                                return;
                             default:
                                 break;
                         }

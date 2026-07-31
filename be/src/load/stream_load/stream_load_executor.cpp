@@ -338,6 +338,9 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.failed", {
+        return Status::InternalError("debug point: StreamLoadExecutor.commit_txn.failed");
+    });
 
     DorisMetrics::instance()->stream_load_txn_commit_request_total->increment(1);
 

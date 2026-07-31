@@ -108,6 +108,37 @@ public class RoutineLoadJobTest {
     }
 
     @Test
+    public void testAfterAbortedReasonCommitFailed() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        RoutineLoadTaskInfo routineLoadTaskInfo = Mockito.mock(RoutineLoadTaskInfo.class);
+
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
+        routineLoadTaskInfoList.add(routineLoadTaskInfo);
+        long txnId = 1L;
+
+        Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
+        Mockito.when(routineLoadTaskInfo.getTxnId()).thenReturn(txnId);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            String txnStatusChangeReasonString = "COMMIT_FAILED: injected commit error";
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+            Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+            routineLoadJob.writeLock();
+            routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
+
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+            Assert.assertEquals(InternalErrorCode.TASKS_ABORT_ERR, routineLoadJob.getPauseReason().getCode());
+            Assert.assertTrue(routineLoadJob.getPauseReason().getMsg().contains(txnStatusChangeReasonString));
+        }
+    }
+
+    @Test
     public void testAfterAborted() throws UserException {
         TransactionState transactionState = Mockito.mock(TransactionState.class);
         KafkaTaskInfo routineLoadTaskInfo = Mockito.mock(KafkaTaskInfo.class);

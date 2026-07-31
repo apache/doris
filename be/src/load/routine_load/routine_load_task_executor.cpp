@@ -543,7 +543,13 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     // commit txn
     int64_t commit_and_publish_start_time = MonotonicNanos();
-    HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
+    Status commit_status = _exec_env->stream_load_executor()->commit_txn(ctx.get());
+    if (UNLIKELY(!commit_status.ok() && !commit_status.is<PUBLISH_TIMEOUT>())) {
+        commit_status.prepend("COMMIT_FAILED: ");
+        err_handler(ctx, commit_status, "commit failed");
+        cb(ctx);
+        return;
+    }
     g_routine_load_commit_and_publish_latency_ms
             << (MonotonicNanos() - commit_and_publish_start_time) / 1000000;
     // commit kafka offset
