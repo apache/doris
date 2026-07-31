@@ -741,9 +741,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // must not be re-evaluated later, or split planning would read a different version than
                 // the one whose schema was bound. Resolution runs against the LATEST table, because the
                 // options themselves are what selects the version.
+                boolean usesStatementFence = spec.getLatestSnapshotFence().isPresent()
+                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions());
                 Map<String, String> resolved;
-                if (spec.getLatestSnapshotFence().isPresent()
-                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions())) {
+                if (usesStatementFence) {
                     // Planning-only aliases own different table projections, not different
                     // versions. Reuse the statement fence even if latest advances between binds.
                     resolved = PaimonScanParams.pinOptionsToSnapshot(
@@ -767,11 +768,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                             .properties(PaimonScanParams.markAsOptions(resolved))
                             .build());
                 }
-                long pinnedId = spec.getLatestSnapshotFence().isPresent()
-                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions())
+                long pinnedId = usesStatementFence
                         ? spec.getLatestSnapshotFence().getAsLong()
                         : pinnedSnapshotId(table, resolved);
-                long schemaId = pinnedId < 0
+                // The statement fence pins data visibility, not schema time travel. Planning-only
+                // aliases must retain the latest-schema projection used by the plain relation.
+                long schemaId = usesStatementFence || pinnedId < 0
                         ? -1L
                         : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
                 // resolved is never empty for a startup selector; for a selector-free @options (e.g. only
@@ -935,14 +937,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 return paimonHandle.withScanOptions(snapshot.getProperties());
             }
         }
-        // Empty-properties latest-pin (beginQuerySnapshot) path. Empty-table / query-begin parity:
-        // beginQuerySnapshot pins INVALID_SNAPSHOT_ID (-1) for an empty table rather than
-        // Optional.empty(). A -1 (or a null snapshot) must NOT become scan.snapshot-id=-1, because
-        // Table.copy(scan.snapshot-id=-1) resolves to a non-existent snapshot in the paimon SDK
-        // (confusing "snapshot/file not found"). Legacy never copied an invalid id: its empty /
-        // query-begin path reads latest WITHOUT a copy. So return the handle UNCHANGED (read latest).
-        if (snapshot == null || snapshot.getSnapshotId() < 0) {
+        if (snapshot == null) {
             return paimonHandle;
+        }
+        if (snapshot.getSnapshotId() < 0) {
+            // Empty latest is still a statement-scoped state. Carry only Doris' internal marker;
+            // Paimon's scan.snapshot-id=-1 would address a non-existent snapshot file.
+            return paimonHandle.withScanOptions(
+                    PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
         }
         Map<String, String> scanOptions = Collections.singletonMap(
                 CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.getSnapshotId()));
@@ -1322,6 +1324,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * the partition columns and escapes path-special characters in the name via the Paimon SDK.
      */
     private List<ConnectorPartitionInfo> collectPartitions(PaimonTableHandle paimonHandle) {
+        if (PaimonScanParams.isPinnedEmptyScan(paimonHandle.getScanOptions())) {
+            // Do not reopen latest metadata after the statement fenced an empty table.
+            return Collections.emptyList();
+        }
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
         // Legacy never lists partitions for unpartitioned tables: PaimonPartitionInfoLoader.load
         // returns EMPTY when partitionColumns is empty, so guard before touching the seam.

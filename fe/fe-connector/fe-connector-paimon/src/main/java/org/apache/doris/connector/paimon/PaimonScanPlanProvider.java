@@ -209,6 +209,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String PROP_SERIALIZED_TABLE = "paimon.serialized_table";
     private static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
+    private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
 
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
@@ -601,10 +603,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // engine's table-level count pushdown rather than answer with the physical count.
             countPushdown = false;
         }
-        if (optionsPin && PaimonScanParams.isPinnedEmptyScan(pinnedOptions)) {
-            // The @options selector resolved to "no snapshot" at bind time. Re-deriving that here would
-            // reopen the race the resolution closed: a commit landing between bind and split planning
-            // would turn an empty relation into a non-empty one mid-statement.
+        if (PaimonScanParams.isPinnedEmptyScan(pinnedOptions)) {
+            // Every latest fence, including a plain relation, preserves an empty table as statement
+            // state so a commit between binding and split planning cannot appear mid-statement.
             return Collections.emptyList();
         }
         Table table = resolveScanTable(paimonHandle);
@@ -924,6 +925,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> backendOptions = new LinkedHashMap<>(getBackendPaimonOptions());
         backendManifestCap.ifPresent(cap -> backendOptions.put(
                 DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
+        if (paimonHandle.isSystemTable() && backendManifestCap.isPresent()) {
+            Table source = paimonHandle.getSystemTableSource();
+            if (source == null) {
+                source = paimonHandle.getSysBaseTable();
+            }
+            Table effectiveSource = source == null ? null
+                    : PaimonReaderOptions.runtimeSafeSystemSource(
+                            source, paimonHandle.getScanOptions());
+            if (effectiveSource instanceof FileStoreTable) {
+                // A system wrapper can hide its physical option map. Ship the exact catalog-less
+                // source so a smaller BE can cap it and rebuild without reopening catalog state.
+                backendOptions.put(DORIS_SERIALIZED_SYSTEM_SOURCE,
+                        encodeObjectToString(dropCatalogLoader((FileStoreTable) effectiveSource)));
+                backendOptions.put(DORIS_SYSTEM_TABLE_TYPE, paimonHandle.getSysTableName());
+            }
+        }
         if (!backendOptions.isEmpty()) {
             // Encode as JSON for transport
             StringBuilder sb = new StringBuilder("{");

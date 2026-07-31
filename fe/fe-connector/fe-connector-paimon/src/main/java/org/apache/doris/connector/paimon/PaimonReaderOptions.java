@@ -220,7 +220,10 @@ public final class PaimonReaderOptions {
             // Copying a system wrapper replays inherited time-travel options and can rewind a
             // schema-only ALTER; cap the source without time travel, then rebuild the same wrapper.
             FileStoreTable cappedSource = ((FileStoreTable) effectiveSource).copyWithoutTimeTravel(cap);
-            Table rebuilt = SystemTableLoader.load(systemTableType, cappedSource);
+            // Paimon dispatches fallback reads only when the fallback pair is the system wrapper's
+            // immediate child; a privilege decorator must not hide that pair during this rebuild.
+            FileStoreTable systemSource = PaimonTableDecorators.unwrapToFallbackOrBase(cappedSource);
+            Table rebuilt = SystemTableLoader.load(systemTableType, systemSource);
             if (rebuilt == null) {
                 throw new IllegalArgumentException("Unsupported Paimon system table '"
                         + systemTableType + "'");
@@ -231,9 +234,17 @@ public final class PaimonReaderOptions {
     }
 
     public static Table runtimeSafeSystemSource(Table sourceTable, Map<String, String> scanOptions) {
-        return PaimonScanParams.isOptionsPin(scanOptions)
-                ? PaimonScanParams.applyOptions(sourceTable, scanOptions)
-                : runtimeSafeTable(sourceTable);
+        if (PaimonScanParams.isOptionsPin(scanOptions)) {
+            return PaimonScanParams.applyOptions(sourceTable, scanOptions);
+        }
+        Table effectiveSource = sourceTable;
+        if (scanOptions != null && !scanOptions.isEmpty()) {
+            // Incremental ranges are relation state too; rebuilding a capped system wrapper from the
+            // undecorated source must not silently turn @incr back into a latest scan.
+            effectiveSource = sourceTable.copy(
+                    PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
+        }
+        return runtimeSafeTable(effectiveSource);
     }
 
     private static void collectManifestParallelism(Table table, List<Integer> configuredValues) {

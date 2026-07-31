@@ -777,6 +777,8 @@ public class PaimonConnectorMetadataMvccTest {
         // Relation projection identity still contains the planning option, while snapshot identity
         // is inherited from StatementContext instead of a second live latest lookup.
         Assertions.assertEquals(7L, snapshot.getSnapshotId());
+        Assertions.assertEquals(-1L, snapshot.getSchemaId(),
+                "planning-only options must keep latest-schema semantics at the statement fence");
         Assertions.assertEquals("7", snapshot.getProperties().get("scan.snapshot-id"));
         Assertions.assertEquals("1", snapshot.getProperties().get("scan.manifest.parallelism"));
     }
@@ -1023,7 +1025,7 @@ public class PaimonConnectorMetadataMvccTest {
     }
 
     @Test
-    public void applySnapshotWithInvalidSnapshotIdReturnsHandleUnchanged() {
+    public void applySnapshotWithInvalidSnapshotIdPinsAnEmptyStatementState() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         PaimonTableHandle handle = normalHandle(ops);
         // beginQuerySnapshot pins INVALID_SNAPSHOT_ID (-1) for an empty table (NOT Optional.empty),
@@ -1033,16 +1035,12 @@ public class PaimonConnectorMetadataMvccTest {
         PaimonTableHandle result = (PaimonTableHandle)
                 metadataWith(ops).applySnapshot(null, handle, snapshot);
 
-        // WHY: an empty-table pin (-1) must NOT become scan.snapshot-id=-1: Table.copy(-1) resolves to
-        // a non-existent snapshot in the paimon SDK (confusing "snapshot/file not found"). Legacy never
-        // copied an invalid id — its empty / query-begin path reads latest WITHOUT a copy. So a -1 pin
-        // must leave the handle UNCHANGED (no scan option -> reads latest).
-        // MUTATION: removing the -1 guard (pinning -1) -> getScanOptions() carries scan.snapshot-id=-1
-        // -> both assertions below go red.
-        Assertions.assertSame(handle, result,
-                "an INVALID_SNAPSHOT_ID (-1) pin must return the handle unchanged (read latest)");
-        Assertions.assertTrue(result.getScanOptions().isEmpty(),
-                "a -1 snapshot must NOT pin scan.snapshot-id (would hit a non-existent snapshot)");
+        // An empty latest is a real statement state. Keep it as Doris-internal scan metadata so a
+        // first commit between aliases cannot make only the later plain alias non-empty.
+        Assertions.assertNotSame(handle, result);
+        Assertions.assertTrue(PaimonScanParams.isPinnedEmptyScan(result.getScanOptions()));
+        Assertions.assertNull(result.getScanOptions().get(CoreOptions.SCAN_SNAPSHOT_ID.key()),
+                "the empty marker must not become Paimon's invalid scan.snapshot-id=-1");
     }
 
     @Test

@@ -31,6 +31,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Guards {@link PluginDrivenSysExternalTable#resolveScanPin}, the system table's own pin resolution.
@@ -111,6 +112,28 @@ public class PluginDrivenSysExternalTableScanPinTest {
         // dropping the memo) -> loadSnapshot runs twice -> red.
         Assertions.assertSame(first.get(), second.get(), "both consumers must see ONE resolution");
         Mockito.verify(source, Mockito.times(1)).loadSnapshot(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void statementScopedLoaderSeedsTheSystemTableMemo() {
+        PluginDrivenMvccExternalTable source = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        PluginDrivenSysExternalTable sysTable = sysTableOver(source);
+        TableScanParams sp = options("scan.mode", "latest");
+        MvccSnapshot statementPin = Mockito.mock(MvccSnapshot.class);
+        AtomicInteger statementLoads = new AtomicInteger();
+
+        Optional<MvccSnapshot> first = sysTable.resolveScanPin(
+                Optional.empty(), Optional.of(sp), () -> {
+                    statementLoads.incrementAndGet();
+                    return Optional.of(statementPin);
+                });
+        Optional<MvccSnapshot> second = sysTable.resolveScanPin(
+                Optional.empty(), Optional.of(options("scan.mode", "latest")));
+
+        Assertions.assertSame(statementPin, first.orElse(null));
+        Assertions.assertSame(statementPin, second.orElse(null));
+        Assertions.assertEquals(1, statementLoads.get());
+        Mockito.verify(source, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
     }
 
     @Test

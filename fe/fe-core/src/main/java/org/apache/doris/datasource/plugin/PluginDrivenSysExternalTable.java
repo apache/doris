@@ -232,6 +232,14 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
      */
     public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
+        return resolveScanPin(tableSnapshot, scanParams,
+                () -> Optional.of(((MvccTable) sourceTable).loadSnapshot(tableSnapshot, scanParams)));
+    }
+
+    /** Resolve through a caller-owned statement fence while preserving this relation's memo. */
+    public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Supplier<Optional<MvccSnapshot>> snapshotLoader) {
         if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
             return Optional.empty();
         }
@@ -242,7 +250,9 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
             if (!selectorSupported(scanParams)) {
                 return Optional.empty();
             }
-            return Optional.of(((MvccTable) sourceTable).loadSnapshot(tableSnapshot, scanParams));
+            // Binding and scanning must share the StatementContext fence; resolving a mutable latest
+            // selector directly here can make a system alias observe a later commit than a plain alias.
+            return snapshotLoader.get();
         });
     }
 

@@ -246,6 +246,40 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void runtimeCapKeepsFallbackImmediateUnderReadOptimizedWrapper(@TempDir Path warehouse)
+            throws Exception {
+        FileStoreTable[] branches = fallbackPairWithNewerGenerationOnDisk(warehouse, "fb_runtime_cap");
+        FileStoreTable pair = new FallbackReadFileStoreTable(branches[0], branches[1]);
+        FileStoreTable decorated = PrivilegedFileStoreTable.wrap(pair,
+                new AllGrantedPrivilegeChecker(), Identifier.create("db", "tbl"));
+        FileStoreTable configured = decorated.copyWithoutTimeTravel(Collections.singletonMap(
+                org.apache.paimon.CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+
+        Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
+                "ro", SystemTableLoader.load("ro", pair), configured, Collections.emptyMap());
+
+        Assertions.assertTrue(((ReadOptimizedTable) safe).newScan()
+                        instanceof FallbackReadFileStoreTable.FallbackReadScan,
+                "runtime rebuilding must keep the fallback pair as $ro's immediate child");
+    }
+
+    @Test
+    public void runtimeCapReappliesIncrementalRangeBeforeRebuildingSystemWrapper(
+            @TempDir Path warehouse) {
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        FileStoreTable dataTable = newTable(warehouse, catalogEnvironment(catalog), C1)
+                .copyWithoutTimeTravel(Collections.singletonMap(
+                        org.apache.paimon.CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        Map<String, String> incremental = Collections.singletonMap("incremental-between", "1,2");
+
+        Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
+                "ro", SystemTableLoader.load("ro", dataTable), dataTable, incremental);
+
+        Assertions.assertEquals("1,2", safe.options().get("incremental-between"),
+                "rebuilding a capped system table must retain the relation's incremental range");
+    }
+
+    @Test
     public void pinningASysHandleKeepsItsCapturedBase(@TempDir Path warehouse) {
         // applySnapshot rebuilds the handle through withScanOptions for every @options / @incr read.
         // Losing the captured base there would send the BE a catalog-ful wrapper for exactly the
