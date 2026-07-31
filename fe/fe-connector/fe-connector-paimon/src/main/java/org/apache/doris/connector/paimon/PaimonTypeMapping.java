@@ -97,6 +97,8 @@ public final class PaimonTypeMapping {
                 return toTimestampType(dataType);
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 return toTimestampTzType(dataType, options);
+            case VARIANT:
+                return ConnectorType.of("VARIANT");
             case ARRAY:
                 return toArrayType((ArrayType) dataType, options);
             case MAP:

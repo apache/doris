@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
 
@@ -43,6 +44,13 @@ class ConnectorColumnConverterTest {
         ConnectorType ct = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
         Type back = ConnectorColumnConverter.convertType(ct);
         Assertions.assertEquals(ScalarType.INT, back);
+    }
+
+    @Test
+    void connectorVariantUsesComputeV2() {
+        Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT"));
+
+        Assertions.assertSame(VariantType.COMPUTE_V2_INSTANCE, type);
     }
 
     @Test

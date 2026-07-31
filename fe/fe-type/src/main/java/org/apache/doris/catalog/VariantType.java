@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 
 public class VariantType extends ScalarType {
     private static final Logger LOG = LogManager.getLogger(VariantType.class);
+    public static final VariantType COMPUTE_V2_INSTANCE = new VariantType(true);
     @SerializedName(value = "fieldMap")
     private final HashMap<String, VariantField> fieldMap = Maps.newHashMap();
 
@@ -81,6 +82,11 @@ public class VariantType extends ScalarType {
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
         this.computeV2 = false;
+    }
+
+    private VariantType(boolean computeV2) {
+        this();
+        this.computeV2 = computeV2;
     }
 
     public VariantType(ArrayList<VariantField> fields) {

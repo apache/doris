@@ -27,6 +27,7 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
@@ -36,6 +37,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -90,6 +92,19 @@ public class PaimonColumnValueTest {
         Assert.assertEquals(10, values.get(0).getInt());
         Assert.assertEquals("x", values.get(1).getString());
         Assert.assertEquals(100L, values.get(2).getLong());
+    }
+
+    @Test
+    public void testGetVariantEncodedBytes() {
+        GenericVariant variant = GenericVariant.fromJson("{\"a\":[1,null]}");
+        PaimonColumnValue columnValue = new PaimonColumnValue(
+                GenericRow.of(variant), 0, ColumnType.parseType("v", "variant"), new VariantType(), "UTC");
+
+        Assert.assertArrayEquals(variant.metadata(), columnValue.getVariantMetadata());
+        Assert.assertArrayEquals(variant.value(), columnValue.getVariantValue());
+        Assert.assertEquals(
+                ColumnType.Type.VARIANT,
+                PaimonTypeUtils.fromPaimonType("v", new VariantType()).getType());
     }
 
     @Test

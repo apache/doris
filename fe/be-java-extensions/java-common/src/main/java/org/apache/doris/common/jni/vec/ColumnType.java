@@ -61,6 +61,7 @@ public class ColumnType {
         IPV6(16),
         STRING(-1),
         VARBINARY(-1),
+        VARIANT(-1),
         ARRAY(-1),
         MAP(-1),
         STRUCT(-1);
@@ -153,6 +154,10 @@ public class ColumnType {
 
     public boolean isVarbinaryType() {
         return type == Type.BINARY || type == Type.VARBINARY;
+    }
+
+    public boolean isVariantType() {
+        return type == Type.VARIANT;
     }
 
     public boolean isComplexType() {
@@ -248,6 +253,10 @@ public class ColumnType {
             case VARCHAR:
                 // [const | nullMap | offsets | data ]
                 return 4;
+            case VARIANT:
+                // [const | nullMap | metadata count | metadata offsets | metadata bytes
+                //        | metadata ids | value offsets | value bytes]
+                return 8;
             default:
                 // [const | nullMap | data]
                 return 3;
@@ -332,6 +341,9 @@ public class ColumnType {
                 break;
             case "varbinary":
                 type = Type.VARBINARY;
+                break;
+            case "variant":
+                type = Type.VARIANT;
                 break;
             default:
                 if (lowerCaseType.startsWith("timestamptz")) {

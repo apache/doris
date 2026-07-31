@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
 
@@ -317,6 +318,8 @@ public final class ConnectorColumnConverter {
                 return ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH);
             case "JSONB":
                 return ScalarType.createType("JSON");
+            case "VARIANT":
+                return VariantType.COMPUTE_V2_INSTANCE;
             case "UNSUPPORTED":
                 return Type.UNSUPPORTED;
             default:
