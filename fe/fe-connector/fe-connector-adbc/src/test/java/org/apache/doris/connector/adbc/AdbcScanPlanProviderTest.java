@@ -313,6 +313,23 @@ class AdbcScanPlanProviderTest {
     }
 
     @Test
+    void planningAnExplainAsksForNoPartitionsAndShowsTheStatement() {
+        // EXPLAIN reaches planScan too -- that is where its inputSplitNum comes from -- and asking the
+        // driver to partition IS executing the query on a Flight SQL source. An EXPLAIN that ran the
+        // query it was asked to describe would double the work with nothing on screen to show for it.
+        FakeClient client = FakeClient.partitioning("p0", "p1");
+        List<ConnectorScanRange> ranges = provider(
+                Map.of(AdbcConnectorProperties.URI, "grpc://remote:9090"), () -> client,
+                new AdbcPartitionedReadSupport()).planScan(null,
+                        ConnectorScanRequest.builder(T1, columns("a")).explainOnly(true).build());
+
+        Assertions.assertEquals(0, client.attempts, "EXPLAIN executed the query on the source");
+        // Still the statement a real scan would send, so what EXPLAIN shows is not fiction.
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals("SELECT \"a\" FROM \"main\".\"t1\"", querySqlOf(ranges.get(0)));
+    }
+
+    @Test
     void neverAsksForPartitionsWhileExplaining() {
         // Asking for partitions IS executing the query on a Flight SQL source, so an EXPLAIN that took
         // this path would run the very query the user asked only to have described. Partitioned read is

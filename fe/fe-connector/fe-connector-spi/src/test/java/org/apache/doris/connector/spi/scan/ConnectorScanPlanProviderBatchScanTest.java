@@ -99,6 +99,7 @@ public class ConnectorScanPlanProviderBatchScanTest {
                 .filter(Optional.of(filter))
                 .limit(7L)
                 .countPushdown(true)
+                .explainOnly(true)
                 .build();
 
         List<ConnectorScanRange> result = provider.planScanForPartitionBatch(null, request, batch);
@@ -111,6 +112,10 @@ public class ConnectorScanPlanProviderBatchScanTest {
         Assertions.assertSame(filter, forwarded.getFilter().orElse(null));
         Assertions.assertEquals(7L, forwarded.getLimit());
         Assertions.assertTrue(forwarded.isCountPushdown());
+        // Dropping this one would silently make a batched EXPLAIN plan the way a real scan does --
+        // which for a connector whose planning has a side effect on the source means EXPLAIN runs the
+        // query. Losing it is invisible in the plan output.
+        Assertions.assertTrue(forwarded.isExplainOnly());
     }
 
     @Test
@@ -125,6 +130,9 @@ public class ConnectorScanPlanProviderBatchScanTest {
         Assertions.assertEquals(-1L, request.getLimit());
         Assertions.assertTrue(request.getRequiredPartitions().isEmpty());
         Assertions.assertFalse(request.isCountPushdown());
+        // Default false = "this plan will be run": a connector that reads it takes its normal path
+        // unless the engine says otherwise.
+        Assertions.assertFalse(request.isExplainOnly());
         // null is accepted for the partition set and means the same as empty: scan everything.
         Assertions.assertTrue(ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
                 .requiredPartitions(null).build().getRequiredPartitions().isEmpty());

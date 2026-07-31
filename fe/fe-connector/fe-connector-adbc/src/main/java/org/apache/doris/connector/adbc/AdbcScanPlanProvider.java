@@ -84,7 +84,12 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                 request.getFilter(), request.getLimit());
         LOG.debug("ADBC scan of {}.{}: {}", handle.getDorisDbName(), handle.getRemoteTable(),
                 query.getSql());
-        if (AdbcConnectorProperties.partitionedReadEnabled(properties)
+        // EXPLAIN plans a scan for real, so this is reached while describing a query as well as while
+        // running one -- and asking the driver to partition a statement EXECUTES it on the source. An
+        // EXPLAIN must not do that, so it is shown the statement instead. The statement is what a
+        // partitioned scan splits, so what EXPLAIN shows still describes the real scan; only the range
+        // count differs, and a range count for a query that was never run means nothing anyway.
+        if (!request.isExplainOnly() && AdbcConnectorProperties.partitionedReadEnabled(properties)
                 && !partitionedRead.isKnownUnsupported()) {
             List<ConnectorScanRange> partitioned = planPartitions(query.getSql());
             if (partitioned != null) {
@@ -176,9 +181,10 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
      * {@link #planScan}. The two must agree or {@code EXPLAIN} describes a query that will not be run; a
      * test pins that they do.
      *
-     * <p><b>This path must never ask for partitions.</b> On a Flight SQL source that call executes the
-     * query, so an {@code EXPLAIN} would run the very query the user asked only to have described. A test
-     * pins it by planning with a client that refuses to be opened.
+     * <p><b>This path must never ask for partitions</b> -- and neither may {@link #planScan} when it is
+     * planning an {@code EXPLAIN}, which it also is. On a Flight SQL source that call executes the query,
+     * so either one would run the very query the user asked only to have described. Tests pin both by
+     * planning with a client that refuses to be opened.
      */
     @Override
     public Map<String, String> getScanNodeProperties(ConnectorSession session,
