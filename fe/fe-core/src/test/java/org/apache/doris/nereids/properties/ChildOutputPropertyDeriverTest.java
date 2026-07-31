@@ -790,6 +790,39 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
+    void testAggregateKeepsMappingLocalityWhenDistributionKeyIsHidden() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        Alias outputK2 = new Alias(k2, "output_k2");
+        Alias outputD1 = new Alias(d1, "output_d1");
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(outputK2, outputD1),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        PhysicalProperties output = deriveAggregateProperties(
+                aggregate, naturalHashWithMapping(k1, k2, d1));
+
+        Assertions.assertSame(DistributionSpecStorageAny.INSTANCE, output.getDistributionSpec());
+        Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent());
+        NaturalDistributionMappingSpec mappingSpec = output.getNaturalDistributionMappingSpec().get();
+        Assertions.assertEquals(
+                Integer.valueOf(1),
+                mappingSpec.getVisibleDistributionExprToIndex().get(outputK2.getExprId()));
+        Assertions.assertEquals(
+                ImmutableList.of(outputD1.getExprId()),
+                mappingSpec.getDistributionMappings().get(0).getDeterminantExprIds());
+        Assertions.assertTrue(output.satisfy(new PhysicalProperties(new DistributionSpecHash(
+                ImmutableList.of(outputD1.getExprId(), outputK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+    }
+
+    @Test
     void testAggregateDropsMappingsWithoutRequiredOutputs() {
         SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
         SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
@@ -861,12 +894,16 @@ class ChildOutputPropertyDeriverTest {
 
     private DistributionSpecHash deriveAggregateHash(
             PhysicalHashAggregate<GroupPlan> aggregate, DistributionSpecHash childHash) {
+        return (DistributionSpecHash) deriveAggregateProperties(aggregate, childHash).getDistributionSpec();
+    }
+
+    private PhysicalProperties deriveAggregateProperties(
+            PhysicalHashAggregate<GroupPlan> aggregate, DistributionSpecHash childHash) {
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(
                 ImmutableList.of(new PhysicalProperties(childHash)));
-        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
-        return (DistributionSpecHash) result.getDistributionSpec();
+        return deriver.getOutputProperties(null, groupExpression);
     }
 
     @Test

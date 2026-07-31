@@ -194,10 +194,10 @@ public class ChildrenPropertiesRegulatorTest {
     @Test
     public void testRejectColocateMappingRequestWhenFinalProofFails() {
         try (MockedStatic<JoinUtils> mockedJoinUtils = Mockito.mockStatic(JoinUtils.class)) {
-            mockedJoinUtils.when(() -> JoinUtils.couldColocateJoin(
+            mockedJoinUtils.when(() -> JoinUtils.couldColocateJoinByMapping(
                     Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(false);
             assertColocateMappingRequestRejected(Optional.of("mapping_1"), Optional.of("mapping_2"));
-            mockedJoinUtils.verify(() -> JoinUtils.couldColocateJoin(
+            mockedJoinUtils.verify(() -> JoinUtils.couldColocateJoinByMapping(
                     Mockito.any(), Mockito.any(), Mockito.anyList()));
         }
     }

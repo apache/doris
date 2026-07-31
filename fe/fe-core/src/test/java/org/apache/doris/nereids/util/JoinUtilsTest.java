@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.properties.DistributionMapping;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.NaturalDistributionMappingSpec;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -205,6 +207,20 @@ public class JoinUtilsTest {
                     left, right, ImmutableList.of(new EqualTo(leftD1, rightD1))));
             Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, ImmutableList.of(
                     new EqualTo(leftD1, rightD1), new EqualTo(leftD2, rightD2))));
+
+            NaturalDistributionMappingSpec leftWithHiddenK1 =
+                    NaturalDistributionMappingSpec.fromHashSpec(left).get().project(ImmutableMap.of(
+                            new ExprId(2), new ExprId(2),
+                            new ExprId(5), new ExprId(5))).get();
+            NaturalDistributionMappingSpec rightWithHiddenK1 =
+                    NaturalDistributionMappingSpec.fromHashSpec(right).get().project(ImmutableMap.of(
+                            new ExprId(4), new ExprId(4),
+                            new ExprId(6), new ExprId(6))).get();
+            Assertions.assertTrue(JoinUtils.couldColocateJoinByMapping(
+                    leftWithHiddenK1, rightWithHiddenK1, directAndMapping));
+            Assertions.assertFalse(JoinUtils.couldColocateJoinByMapping(
+                    leftWithHiddenK1, rightWithHiddenK1,
+                    ImmutableList.of(new EqualTo(leftD1, rightD1))));
         }
     }
 

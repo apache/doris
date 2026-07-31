@@ -373,17 +373,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return ImmutableList.of(originChildrenProperties);
         }
 
-        // shuffle
-        if (!(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
-            throw new RuntimeException("should not come here, two children of shuffle join should all be shuffle");
-        }
-
-        Plan leftChild = hashJoin.child(0);
-        Plan rightChild = hashJoin.child(1);
-
-        DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftDistributionSpec;
-        DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightDistributionSpec;
         DistributionSpec leftRequiredSpec = requiredProperties.get(0).getDistributionSpec();
         DistributionSpec rightRequiredSpec = requiredProperties.get(1).getDistributionSpec();
         boolean leftRequiresColocateMapping = leftRequiredSpec instanceof DistributionSpecHash
@@ -395,14 +384,32 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         Preconditions.checkState(leftRequiresColocateMapping == rightRequiresColocateMapping,
                 "colocate mapping join requires matching child properties");
         if (leftRequiresColocateMapping) {
-            if (!leftHashSpec.satisfy(leftRequiredSpec)
-                    || !rightHashSpec.satisfy(rightRequiredSpec)
-                    || !JoinUtils.couldColocateJoin(
-                            leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+            Optional<NaturalDistributionMappingSpec> leftMappingSpec =
+                    originChildrenProperties.get(0).getNaturalDistributionMappingSpec();
+            Optional<NaturalDistributionMappingSpec> rightMappingSpec =
+                    originChildrenProperties.get(1).getNaturalDistributionMappingSpec();
+            if (!originChildrenProperties.get(0).satisfy(requiredProperties.get(0))
+                    || !originChildrenProperties.get(1).satisfy(requiredProperties.get(1))
+                    || !leftMappingSpec.isPresent()
+                    || !rightMappingSpec.isPresent()
+                    || !JoinUtils.couldColocateJoinByMapping(
+                            leftMappingSpec.get(), rightMappingSpec.get(), hashJoin.getHashJoinConjuncts())) {
                 return ImmutableList.of();
             }
             return ImmutableList.of(originChildrenProperties);
         }
+
+        // shuffle
+        if (!(leftDistributionSpec instanceof DistributionSpecHash)
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
+            throw new RuntimeException("should not come here, two children of shuffle join should all be shuffle");
+        }
+
+        Plan leftChild = hashJoin.child(0);
+        Plan rightChild = hashJoin.child(1);
+
+        DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftDistributionSpec;
+        DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightDistributionSpec;
 
         Optional<PhysicalProperties> updatedForLeft = Optional.empty();
         Optional<PhysicalProperties> updatedForRight = Optional.empty();
