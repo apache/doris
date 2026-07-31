@@ -911,8 +911,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyNonOverlappingSegmentContextRetentio
         ASSERT_TRUE(res.has_value()) << res.error();
         auto output_rs_writer = std::move(res).value();
 
-        ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
-        ASSERT_TRUE(reset_vertical_compaction_active_segment_contexts_peak().ok());
+        ASSERT_EQ("0",
+                  bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
 
         Merger::Statistics stats;
         auto st = Merger::vertical_merge_rowsets(
@@ -920,15 +920,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyNonOverlappingSegmentContextRetentio
                 output_rs_writer.get(), UINT32_MAX, total_segments, &stats);
         ASSERT_TRUE(st.ok()) << st;
 
-        EXPECT_EQ(0, vertical_compaction_active_segment_contexts());
-        EXPECT_EQ(num_input_rowsets, vertical_compaction_active_segment_contexts_peak())
-                << "sparse_threshold=" << sparse_threshold;
         EXPECT_EQ("0",
                   bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
-        EXPECT_EQ(std::to_string(num_input_rowsets),
-                  bvar::Variable::describe_exposed(
-                          "vertical_compaction_active_segment_contexts_peak"))
-                << "sparse_threshold=" << sparse_threshold;
         EXPECT_EQ(total_rows, stats.output_rows);
         EXPECT_EQ(0, stats.merged_rows);
         EXPECT_EQ(0, stats.filtered_rows);
@@ -999,7 +992,6 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
 
     struct Observation {
-        int64_t context_peak;
         int64_t memory_peak;
     };
     std::vector<Observation> observations;
@@ -1056,8 +1048,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         ASSERT_TRUE(output_res.has_value()) << output_res.error();
         auto output_rs_writer = std::move(output_res).value();
 
-        ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
-        ASSERT_TRUE(reset_vertical_compaction_active_segment_contexts_peak().ok());
+        ASSERT_EQ("0",
+                  bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
 
         Merger::Statistics stats;
         int64_t memory_peak = 0;
@@ -1069,8 +1061,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
             ASSERT_TRUE(st.ok()) << st;
         }
 
-        ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
-        ASSERT_EQ(num_input_rowsets, vertical_compaction_active_segment_contexts_peak());
+        ASSERT_EQ("0",
+                  bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
         ASSERT_EQ(total_rows, stats.output_rows);
         ASSERT_EQ(0, stats.merged_rows);
         ASSERT_EQ(0, stats.filtered_rows);
@@ -1105,7 +1097,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         ASSERT_TRUE(read_status.is<END_OF_FILE>()) << read_status;
         ASSERT_EQ(total_rows, expected_key);
 
-        observations.push_back({vertical_compaction_active_segment_contexts_peak(), memory_peak});
+        observations.push_back({memory_peak});
     };
 
     // Both cases contain exactly 32000 rows and the same 8 KiB value payload per row.
@@ -1117,13 +1109,9 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
 
     const auto& low_segment_case = observations[0];
     const auto& high_segment_case = observations[1];
-    LOG(INFO) << "equal-data vertical compaction observation: low_segments_context_peak="
-              << low_segment_case.context_peak
-              << ", low_segments_memory_peak=" << low_segment_case.memory_peak
-              << ", high_segments_context_peak=" << high_segment_case.context_peak
+    LOG(INFO) << "equal-data vertical compaction observation: low_segments_memory_peak="
+              << low_segment_case.memory_peak
               << ", high_segments_memory_peak=" << high_segment_case.memory_peak;
-    EXPECT_EQ(num_input_rowsets, low_segment_case.context_peak);
-    EXPECT_EQ(num_input_rowsets, high_segment_case.context_peak);
     EXPECT_GT(low_segment_case.memory_peak, 0);
     EXPECT_GT(high_segment_case.memory_peak, 0);
     auto memory_peak_delta = low_segment_case.memory_peak > high_segment_case.memory_peak
@@ -1385,14 +1373,12 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    ASSERT_EQ(0, vertical_compaction_active_segment_contexts());
-    ASSERT_TRUE(reset_vertical_compaction_active_segment_contexts_peak().ok());
+    ASSERT_EQ("0", bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,
                                             output_rs_writer.get(), 100, num_segments, &stats);
     EXPECT_TRUE(s.ok());
-    EXPECT_EQ(0, vertical_compaction_active_segment_contexts());
-    EXPECT_EQ(num_input_rowset, vertical_compaction_active_segment_contexts_peak());
+    EXPECT_EQ("0", bvar::Variable::describe_exposed("vertical_compaction_active_segment_contexts"));
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
 

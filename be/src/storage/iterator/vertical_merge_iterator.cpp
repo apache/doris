@@ -22,7 +22,6 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <stdlib.h>
 
-#include <atomic>
 #include <cstddef>
 #include <ostream>
 
@@ -38,61 +37,16 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
-#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
 
 namespace {
 
-std::atomic<int64_t> g_vertical_compaction_active_segment_contexts {0};
-std::atomic<int64_t> g_vertical_compaction_active_segment_contexts_peak {0};
-
-bvar::PassiveStatus<int64_t> g_vertical_compaction_active_segment_contexts_bvar(
-        "vertical_compaction_active_segment_contexts",
-        [](void*) {
-            return g_vertical_compaction_active_segment_contexts.load(std::memory_order_relaxed);
-        },
-        nullptr);
-
-bvar::PassiveStatus<int64_t> g_vertical_compaction_active_segment_contexts_peak_bvar(
-        "vertical_compaction_active_segment_contexts_peak",
-        [](void*) {
-            return g_vertical_compaction_active_segment_contexts_peak.load(
-                    std::memory_order_relaxed);
-        },
-        nullptr);
-
-void update_vertical_compaction_active_segment_contexts_peak(int64_t current) {
-    int64_t peak =
-            g_vertical_compaction_active_segment_contexts_peak.load(std::memory_order_relaxed);
-    while (current > peak &&
-           !g_vertical_compaction_active_segment_contexts_peak.compare_exchange_weak(
-                   peak, current, std::memory_order_relaxed)) {
-    }
-}
+bvar::Adder<int64_t> g_vertical_compaction_active_segment_contexts(
+        "vertical_compaction_active_segment_contexts");
 
 } // namespace
-
-int64_t vertical_compaction_active_segment_contexts() {
-    return g_vertical_compaction_active_segment_contexts.load(std::memory_order_relaxed);
-}
-
-int64_t vertical_compaction_active_segment_contexts_peak() {
-    return g_vertical_compaction_active_segment_contexts_peak.load(std::memory_order_relaxed);
-}
-
-Status reset_vertical_compaction_active_segment_contexts_peak() {
-    int64_t current = vertical_compaction_active_segment_contexts();
-    if (current != 0) {
-        return Status::InternalError(
-                "cannot reset vertical compaction active segment context peak while {} contexts "
-                "are active",
-                current);
-    }
-    g_vertical_compaction_active_segment_contexts_peak.store(0, std::memory_order_relaxed);
-    return Status::OK();
-}
 
 // --------------  row source  ---------------//
 RowSource::RowSource(uint16_t source_num, bool agg_flag) {
@@ -354,10 +308,13 @@ void VerticalMergeIteratorContext::release_resources() {
 void VerticalMergeIteratorContext::_mark_active() {
     DCHECK(!_is_active_context_counted);
     _is_active_context_counted = true;
-    int64_t current =
-            g_vertical_compaction_active_segment_contexts.fetch_add(1, std::memory_order_relaxed) +
-            1;
-    update_vertical_compaction_active_segment_contexts_peak(current);
+    g_vertical_compaction_active_segment_contexts << 1;
+    if (_context_stats != nullptr) {
+        ++_context_stats->active_segment_contexts;
+        _context_stats->active_segment_contexts_peak =
+                std::max(_context_stats->active_segment_contexts_peak,
+                         _context_stats->active_segment_contexts);
+    }
 }
 
 void VerticalMergeIteratorContext::_mark_inactive() {
@@ -365,9 +322,11 @@ void VerticalMergeIteratorContext::_mark_inactive() {
         return;
     }
     _is_active_context_counted = false;
-    int64_t previous =
-            g_vertical_compaction_active_segment_contexts.fetch_sub(1, std::memory_order_relaxed);
-    DCHECK_GT(previous, 0);
+    g_vertical_compaction_active_segment_contexts << -1;
+    if (_context_stats != nullptr) {
+        DCHECK_GT(_context_stats->active_segment_contexts, 0);
+        --_context_stats->active_segment_contexts;
+    }
 }
 
 Status VerticalMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
@@ -466,8 +425,6 @@ Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts,
     if (LIKELY(_inited)) {
         return Status::OK();
     }
-    DBUG_EXECUTE_IF("VerticalMergeIteratorContext::init.reset_active_segment_contexts_peak",
-                    { RETURN_IF_ERROR(reset_vertical_compaction_active_segment_contexts_peak()); });
     _block_row_max = opts.block_row_max;
     _record_rowids = opts.record_rowids;
     RETURN_IF_ERROR(_load_next_block());
@@ -686,7 +643,7 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
         auto& iter = _origin_iters[seg_order];
         auto ctx = std::make_unique<VerticalMergeIteratorContext>(
                 std::move(iter), _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx,
-                opts.use_insert_order_when_same, _key_group_cluster_key_idxes);
+                _context_stats, opts.use_insert_order_when_same, _key_group_cluster_key_idxes);
         _ori_iter_ctx.push_back(std::move(ctx));
     }
     _origin_iters.clear();
@@ -752,9 +709,10 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                  cur_order++) {
                 auto& next_iter = _origin_iters[cur_order];
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
-                        new VerticalMergeIteratorContext(
-                                std::move(next_iter), _rowset_ids[cur_order], _ori_return_cols,
-                                cur_order, _seq_col_idx, _opts.use_insert_order_when_same));
+                        new VerticalMergeIteratorContext(std::move(next_iter),
+                                                         _rowset_ids[cur_order], _ori_return_cols,
+                                                         cur_order, _seq_col_idx, _context_stats,
+                                                         _opts.use_insert_order_when_same));
                 RETURN_IF_ERROR(next_ctx->init(_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
@@ -794,7 +752,7 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
     for (auto& iter : _origin_iters) {
         std::unique_ptr<VerticalMergeIteratorContext> ctx(new VerticalMergeIteratorContext(
                 std::move(iter), _rowset_ids[seg_order], _ori_return_cols, seg_order, _seq_col_idx,
-                opts.use_insert_order_when_same));
+                _context_stats, opts.use_insert_order_when_same));
         RETURN_IF_ERROR(ctx->init(opts, sample_info));
         if (!ctx->valid()) {
             ++seg_order;
@@ -1054,8 +1012,8 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts,
 
     RowsetId rs_id;
     for (auto& iter : _origin_iters) {
-        auto ctx = std::make_unique<VerticalMergeIteratorContext>(std::move(iter), rs_id,
-                                                                  _ori_return_cols, -1, -1);
+        auto ctx = std::make_unique<VerticalMergeIteratorContext>(
+                std::move(iter), rs_id, _ori_return_cols, -1, -1, _context_stats);
         _origin_iter_ctx.push_back(std::move(ctx));
     }
     _origin_iters.clear();
@@ -1070,26 +1028,28 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
         const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
         uint32_t seq_col_idx, RowSourcesBuffer* row_sources,
+        VerticalCompactionContextStats* context_stats,
         std::vector<uint32_t> key_group_cluster_key_idxes) {
     return std::make_shared<VerticalHeapMergeIterator>(
             std::move(inputs), iterator_init_flag, rowset_ids, ori_return_cols, keys_type,
-            seq_col_idx, row_sources, key_group_cluster_key_idxes);
+            seq_col_idx, row_sources, context_stats, key_group_cluster_key_idxes);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
         const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
-        uint32_t seq_col_idx, RowSourcesBuffer* row_sources) {
+        uint32_t seq_col_idx, RowSourcesBuffer* row_sources,
+        VerticalCompactionContextStats* context_stats) {
     return std::make_shared<VerticalFifoMergeIterator>(std::move(inputs), iterator_init_flag,
                                                        rowset_ids, ori_return_cols, keys_type,
-                                                       seq_col_idx, row_sources);
+                                                       seq_col_idx, row_sources, context_stats);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, size_t ori_return_cols,
-        RowSourcesBuffer* row_sources) {
+        RowSourcesBuffer* row_sources, VerticalCompactionContextStats* context_stats) {
     return std::make_shared<VerticalMaskMergeIterator>(std::move(inputs), ori_return_cols,
-                                                       row_sources);
+                                                       row_sources, context_stats);
 }
 
 } // namespace doris
