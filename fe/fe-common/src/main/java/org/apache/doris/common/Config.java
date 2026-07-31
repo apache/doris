@@ -3469,7 +3469,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Cloud table and partition version syncer interval. All frontends will perform the "
             + "checking.")
-    public static int cloud_version_syncer_interval_second = 20;
+    public static int cloud_version_syncer_interval_second = 60;
 
     @ConfField(mutable = true, description = "Whether to enable the function of syncing table and partition version "
             + "in cloud mode.")
@@ -3482,7 +3482,10 @@ public class Config extends ConfigBase {
     public static int cloud_sync_version_task_threads_num = 4;
 
     @ConfField(mutable = true, description = "Maximum table or partition batch size for get version tasks.")
-    public static int cloud_get_version_task_batch_size = 2000;
+    public static int cloud_get_version_task_batch_size = 200;
+
+    @ConfField(mutable = true, description = "Maximum retry times for cloud version syncer get version tasks.")
+    public static int cloud_version_syncer_get_version_retry_times = 3;
 
     @ConfField(mutable = true, description = "Whether to enable retry when a schema change job fails, default is true.")
     public static boolean enable_schema_change_retry = true;

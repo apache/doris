@@ -3738,6 +3738,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+        return getVisibleVersionFromMeta(dbIds, tableIds, Config.metaServiceRpcRetryTimes());
+    }
+
+    public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds, int maxAttempts) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3751,7 +3755,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 .build();
 
         try {
-            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request);
+            Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(request, maxAttempts);
             if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 throw new RpcException("get table visible version", "unexpected status " + resp.getStatus());
             }
