@@ -349,6 +349,12 @@ struct OlapReaderStatistics {
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_short_circuit_cond_filtered = 0;
     int64_t rows_expr_cond_filtered = 0;
+    int64_t late_runtime_filters_installed = 0;
+    int64_t late_runtime_filters_installed_after_lazy_init = 0;
+    // Rows removed by row-level late runtime filter expression evaluation.
+    int64_t rows_late_runtime_filter_row_filtered = 0;
+    // Rows incrementally pruned by Page ZoneMaps because of late runtime filters.
+    int64_t rows_late_runtime_filter_zonemap_filtered = 0;
     int64_t vec_cond_input_rows = 0;
     int64_t short_circuit_cond_input_rows = 0;
     int64_t expr_cond_input_rows = 0;

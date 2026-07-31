@@ -34,6 +34,7 @@
 #include "common/status.h" // Status
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/field.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -213,6 +214,26 @@ public:
     // Returns false for range (compaction) segments whose on-disk value is real.
     bool is_tso_placeholder_col(int cid, const Schema& schema,
                                 const StorageReadOptions& read_options) const;
+
+    // Return the logical value of a hidden column when it is constant for this read of the whole
+    // segment even though the segment stores only a placeholder. This applies only when
+    // read_options.version is a single version:
+    //   * VERSION_COL: version.second; the stored value is 0.
+    //   * COMMIT_TSO_COL: commit_tso.end_tso(), when it is assigned (!= -1); the stored value is 0.
+    //   * BINLOG_TSO_COL: commit_tso.end_tso(), or 0 when it is unassigned, for READER_BINLOG and
+    //     READER_BINLOG_COMPACTION only; the stored value is NULL.
+    //
+    // Expression ZoneMap pruning runs before row materialization applies these read-time values.
+    // A physical segment/page ZoneMap therefore describes the placeholder rather than the value
+    // seen by predicates; evaluating it may return kNoMatch and incorrectly discard valid rows.
+    // Segment-level pruning must use a synthetic [value, value] ZoneMap. Page-level pruning must
+    // skip the physical page ZoneMaps; row-level evaluation remains in SegmentIterator's pre-lazy
+    // common-expression path or Scanner's residual conjuncts.
+    //
+    // Return nullopt when no read-time substitution applies; the on-disk value and ZoneMaps are
+    // authoritative for that read.
+    std::optional<Field> get_read_time_constant_value(int cid, const Schema& schema,
+                                                      const StorageReadOptions& read_options) const;
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 

@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exprs/late_runtime_filter.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vexpr.h"
 #include "io/io_common.h"
@@ -134,6 +135,7 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
     VExprContextSPtrs common_expr_ctxs_push_down;
+    std::shared_ptr<const LateRuntimeFilterContainer> late_runtime_filter_container;
     const std::set<int32_t>* output_columns = nullptr;
     // Extra storage key columns that are included only to keep the scan schema
     // aligned with the storage key prefix. SegmentIterator can synthesize

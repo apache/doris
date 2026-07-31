@@ -76,8 +76,9 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     LockGuard lock(_conjuncts_lock);
     size_t conjuncts_before = _conjuncts.size();
-    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
-                                                                   arrived_rf_num, _conjuncts));
+    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(
+            state, _parent->row_descriptor(), arrived_rf_num, _conjuncts,
+            [this](const VExprSPtr& expr) { return _should_push_down_late_runtime_filter(expr); }));
     if (state->enable_adjust_conjunct_order_by_cost()) {
         std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
