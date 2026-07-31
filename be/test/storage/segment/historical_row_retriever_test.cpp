@@ -49,7 +49,7 @@ TEST(HistoricalRowRetrieverTest, ReviseOperatorWithOldDeleteSign) {
 
     PrimaryKeyModelRowRetriever retriever;
     ASSERT_TRUE(retriever._fill_old_delete_signs(old_value_block, read_index, 4).ok());
-    ASSERT_EQ((std::vector<signed char>{1, 0, 0, 1}), retriever._old_delete_signs);
+    ASSERT_EQ((std::vector<signed char> {1, 0, 0, 1}), retriever._old_delete_signs);
 
     retriever._operators = {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE,
                             ROW_BINLOG_DELETE};
