@@ -586,6 +586,53 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void resolveSystemScanTableAppliesRuntimeCapToReturnedWrapper() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        int acceptedButUnsafe = localCapacity + 1;
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(acceptedButUnsafe)));
+        FakePaimonTable cappedDataTable = new FakePaimonTable(
+                "data@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        cappedDataTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity)));
+        dataTable.copyResult = cappedDataTable;
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable relationSystemTable = new FakePaimonTable(
+                "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        relationSystemTable.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        FakePaimonTable cappedSystemTable = new FakePaimonTable(
+                "partitions@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        cappedSystemTable.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        systemTable.copyResult = relationSystemTable;
+        relationSystemTable.copyResult = cappedSystemTable;
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+        handle.setSystemTableSource(dataTable);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("read.batch-size", "4096")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        Table resolved = provider.resolveScanTable(optionsHandle);
+
+        // The system wrapper owns the hidden FileStoreTable used at planning time. Capping only a
+        // discarded validation copy would still let that wrapper resize Paimon's global executor.
+        Assertions.assertSame(cappedSystemTable, resolved);
+        Assertions.assertEquals(String.valueOf(localCapacity),
+                relationSystemTable.lastCopyOptions.get("scan.manifest.parallelism"));
+        Assertions.assertEquals(localCapacity,
+                provider.backendManifestParallelism(optionsHandle, resolved).getAsInt());
+    }
+
+    @Test
     public void resolveScanTableResetsStalePinForIncrementalRead(@TempDir Path warehouse) throws Exception {
         // A REAL paimon table (not FakePaimonTable, whose copy() is a no-op recorder that cannot
         // reproduce paimon's merge/remove/immutability) that PERSISTS a stale scan.snapshot-id/scan.mode

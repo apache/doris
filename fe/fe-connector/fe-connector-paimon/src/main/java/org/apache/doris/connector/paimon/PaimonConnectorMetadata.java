@@ -734,8 +734,16 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // must not be re-evaluated later, or split planning would read a different version than
                 // the one whose schema was bound. Resolution runs against the LATEST table, because the
                 // options themselves are what selects the version.
-                Map<String, String> resolved =
-                        PaimonScanParams.resolveOptions(table, spec.getOptions());
+                Map<String, String> resolved;
+                if (spec.getLatestSnapshotFence().isPresent()
+                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions())) {
+                    // Planning-only aliases own different table projections, not different
+                    // versions. Reuse the statement fence even if latest advances between binds.
+                    resolved = PaimonScanParams.pinOptionsToSnapshot(
+                            spec.getOptions(), spec.getLatestSnapshotFence().getAsLong());
+                } else {
+                    resolved = PaimonScanParams.resolveOptions(table, spec.getOptions());
+                }
                 String pinnedTag = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
                 if (pinnedTag != null) {
                     // A tag selector (scan.tag-name, or a tag-valued scan.version that resolveOptions
@@ -752,7 +760,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                             .properties(PaimonScanParams.markAsOptions(resolved))
                             .build());
                 }
-                long pinnedId = pinnedSnapshotId(table, resolved);
+                long pinnedId = spec.getLatestSnapshotFence().isPresent()
+                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions())
+                        ? spec.getLatestSnapshotFence().getAsLong()
+                        : pinnedSnapshotId(table, resolved);
                 long schemaId = pinnedId < 0
                         ? -1L
                         : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
@@ -1454,9 +1465,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long rowCount;
         try {
-            Table table = resolveTable(paimonHandle);
+            Table table = PaimonReaderOptions.runtimeSafeTable(resolveTable(paimonHandle));
+            table = runtimeSafeSystemTable(paimonHandle, table, Collections.emptyMap());
             PaimonReaderOptions.validateEffectiveTable(table);
-            validateHiddenSystemDataTable(paimonHandle, Collections.emptyMap());
             rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count for {}", paimonHandle, e);
@@ -1491,8 +1502,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                         ? PaimonScanParams.applyOptions(table, scanOptions)
                         : table.copy(scanOptions);
             }
+            table = PaimonReaderOptions.runtimeSafeTable(table);
+            table = runtimeSafeSystemTable(pinned, table, scanOptions);
             PaimonReaderOptions.validateEffectiveTable(table);
-            validateHiddenSystemDataTable(pinned, scanOptions);
             rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count at snapshot {} for {}",
@@ -1505,10 +1517,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         return Optional.empty();
     }
 
-    private void validateHiddenSystemDataTable(PaimonTableHandle handle, Map<String, String> scanOptions)
+    private Table runtimeSafeSystemTable(
+            PaimonTableHandle handle, Table systemTable, Map<String, String> scanOptions)
             throws Catalog.TableNotExistException {
         if (!handle.isSystemTable()) {
-            return;
+            return systemTable;
         }
         Table dataTable = handle.getSystemTableSource();
         if (dataTable == null) {
@@ -1518,11 +1531,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             dataTable = catalogOps.getTable(
                     Identifier.create(handle.getDatabaseName(), handle.getTableName()));
         }
-        if (PaimonScanParams.isOptionsPin(scanOptions)) {
-            PaimonScanParams.applyOptions(dataTable, scanOptions);
-        } else {
-            PaimonReaderOptions.validateEffectiveTable(dataTable);
-        }
+        return PaimonReaderOptions.runtimeSafeSystemTable(systemTable, dataTable, scanOptions);
     }
 
     /**

@@ -105,6 +105,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -206,6 +207,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // Connector-private scan node property key (the engine never reads it): carries the base64-serialized
     // paimon Table from getScanNodeProperties to populateScanLevelParams, which puts it on the thrift.
     private static final String PROP_SERIALIZED_TABLE = "paimon.serialized_table";
+    private static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
 
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
@@ -332,25 +335,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 finalTable = table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
             }
         }
-        finalTable = runtimeSafeTable(finalTable);
+        finalTable = PaimonReaderOptions.runtimeSafeTable(finalTable);
+        finalTable = runtimeSafeSystemTable(paimonHandle, finalTable, scanOptions);
         // This is the last common boundary before planning and serialization. Normalize and
         // validate only after relation > catalog > physical precedence is established.
         PaimonReaderOptions.validateEffectiveTable(finalTable);
-        validateHiddenSystemDataTable(paimonHandle, scanOptions);
         return finalTable;
     }
 
-    private Table runtimeSafeTable(Table table) {
-        Map<String, String> runtimeOptions = PaimonReaderOptions.runtimeSafeCopyOptions(
-                table, Collections.emptyMap());
-        // The cached catalog handle remains hardware-neutral; only the query-local planning copy
-        // receives a CPU-local cap before it can resize Paimon's JVM-wide manifest executor.
-        return runtimeOptions.isEmpty() ? table : table.copy(runtimeOptions);
-    }
-
-    private void validateHiddenSystemDataTable(PaimonTableHandle handle, Map<String, String> scanOptions) {
+    private Table runtimeSafeSystemTable(
+            PaimonTableHandle handle, Table systemTable, Map<String, String> scanOptions) {
         if (!handle.isSystemTable()) {
-            return;
+            return systemTable;
         }
         try {
             Table dataTable = handle.getSystemTableSource();
@@ -361,13 +357,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 dataTable = catalogOps.getTable(
                         Identifier.create(handle.getDatabaseName(), handle.getTableName()));
             }
-            if (PaimonScanParams.isOptionsPin(scanOptions)) {
-                // Read-only system wrappers plan manifests through their hidden data table, so the
-                // same relation copy must establish precedence on both visible and hidden handles.
-                PaimonScanParams.applyOptions(dataTable, scanOptions);
-            } else {
-                PaimonReaderOptions.validateEffectiveTable(dataTable);
-            }
+            return PaimonReaderOptions.runtimeSafeSystemTable(systemTable, dataTable, scanOptions);
         } catch (Catalog.TableNotExistException e) {
             throw new DorisConnectorException("Failed to validate Paimon system table source", e);
         }
@@ -911,8 +901,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Serialized table for BE's JNI reader, stripped of its catalog loader (see
         // tableForBackend) so the BE never has to deserialize the Hive metastore stack.
-        String serializedTable = encodeObjectToString(tableForBackend(paimonHandle, table));
+        Table backendTable = tableForBackend(paimonHandle, table);
+        String serializedTable = encodeObjectToString(backendTable);
         props.put(PROP_SERIALIZED_TABLE, serializedTable);
+        OptionalInt backendManifestCap = backendManifestParallelism(paimonHandle, table);
 
         // Serialized predicates for BE's JNI scanner. ALWAYS emit, even for the no-filter / empty-predicate
         // case: an empty list still serializes to a non-null base64 string, and PaimonJniScanner.getPredicates()
@@ -928,7 +920,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         props.put("paimon.predicate", encodeObjectToString(predicates));
 
         // Paimon JDBC metastore options for BE (if applicable)
-        Map<String, String> backendOptions = getBackendPaimonOptions();
+        Map<String, String> backendOptions = new LinkedHashMap<>(getBackendPaimonOptions());
+        backendManifestCap.ifPresent(cap -> backendOptions.put(
+                DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
         if (!backendOptions.isEmpty()) {
             // Encode as JSON for transport
             StringBuilder sb = new StringBuilder("{");
@@ -1003,6 +997,23 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    OptionalInt backendManifestParallelism(PaimonTableHandle handle, Table scanTable) {
+        Table planningTable = scanTable;
+        if (handle.isSystemTable()) {
+            Table source = handle.getSystemTableSource();
+            if (source == null) {
+                source = handle.getSysBaseTable();
+            }
+            if (source != null) {
+                // System wrappers hide their manifest planner, so send its FE-safe value out of
+                // band; a smaller BE can lower the same hidden planner after deserialization.
+                planningTable = PaimonReaderOptions.runtimeSafeSystemSource(
+                        source, handle.getScanOptions());
+            }
+        }
+        return PaimonReaderOptions.runtimeSafeManifestParallelism(planningTable);
     }
 
     /**

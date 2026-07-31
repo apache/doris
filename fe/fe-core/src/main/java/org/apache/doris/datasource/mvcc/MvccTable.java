@@ -34,4 +34,21 @@ public interface MvccTable extends TableIf {
      * @return MvccSnapshot
      */
     MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams);
+
+    /**
+     * Whether this relation projection needs the table's statement-scoped latest snapshot as its
+     * version fence. Implementations keep projection identity separate from version identity.
+     */
+    default boolean requiresLatestSnapshotFence(
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        return false;
+    }
+
+    /** Load a relation projection against an already materialized statement latest snapshot. */
+    default MvccSnapshot loadSnapshot(
+            Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Optional<MvccSnapshot> latestSnapshotFence) {
+        return loadSnapshot(tableSnapshot, scanParams);
+    }
 }

@@ -34,6 +34,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -180,6 +181,23 @@ public class PaimonReaderOptionsTest {
 
         Assertions.assertDoesNotThrow(() -> PaimonScanParams.applyOptions(
                 fallbackReadTable, ImmutableMap.of("scan.manifest.parallelism", "1")));
+    }
+
+    @Test
+    void testRuntimeSafeTableCapsHiddenFallbackPlanner() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        Assumptions.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
+        FileStoreTable fallback = newFileStoreTable("fallback",
+                ImmutableMap.of("scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
+
+        Table safe = PaimonReaderOptions.runtimeSafeTable(
+                new FallbackReadFileStoreTable(main, fallback));
+
+        Assertions.assertInstanceOf(FallbackReadFileStoreTable.class, safe);
+        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) safe;
+        Assertions.assertEquals(String.valueOf(localCapacity),
+                pair.fallback().options().get("scan.manifest.parallelism"));
     }
 
     @Test

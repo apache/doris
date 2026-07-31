@@ -34,6 +34,9 @@ import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -88,9 +91,50 @@ public class PaimonJniScannerTest {
             initTable.invoke(scanner);
             Assert.fail("an unvalidated old-FE batch size must not reach the Paimon reader");
         } catch (InvocationTargetException e) {
+            Assert.assertTrue(String.valueOf(e.getCause()),
+                    e.getCause() instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getCause().getMessage().contains(CoreOptions.READ_BATCH_SIZE.key()));
+        }
+    }
+
+    @Test
+    public void testOldFeSerializedFallbackZeroReadBatchIsRejected() throws Exception {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.READ_BATCH_SIZE.key(), "0"));
+        Map<String, String> params = createBaseParams();
+        params.put("serialized_table", Base64.getUrlEncoder().withoutPadding().encodeToString(
+                InstantiationUtil.serializeObject(new FallbackReadFileStoreTable(main, fallback))));
+        PaimonJniScanner scanner = new PaimonJniScanner(1024, params);
+        Method initTable = PaimonJniScanner.class.getDeclaredMethod("initTable");
+        initTable.setAccessible(true);
+
+        try {
+            initTable.invoke(scanner);
+            Assert.fail("a hidden old-FE batch size must not reach the fallback reader");
+        } catch (InvocationTargetException e) {
             Assert.assertTrue(e.getCause() instanceof IllegalArgumentException);
             Assert.assertTrue(e.getCause().getMessage().contains(CoreOptions.READ_BATCH_SIZE.key()));
         }
+    }
+
+    @Test
+    public void testBackendManifestCapReachesHiddenFallbackPlanner() {
+        FileStoreTable main = serializableFileStoreTable(Collections.emptyMap());
+        FileStoreTable fallback = serializableFileStoreTable(
+                Collections.singletonMap(CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "8"));
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                new FallbackReadFileStoreTable(main, fallback), "8", 4);
+
+        Assert.assertTrue(safe instanceof FallbackReadFileStoreTable);
+        Assert.assertEquals("4", ((FallbackReadFileStoreTable) safe).fallback()
+                .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
+        return (FileStoreTable) Proxy.newProxyInstance(FileStoreTable.class.getClassLoader(),
+                new Class[] {FileStoreTable.class}, new SerializableTableHandler(options));
     }
 
     @Test
@@ -450,6 +494,16 @@ public class PaimonJniScannerTest {
             }
             if ("rowType".equals(method.getName())) {
                 return new RowType(Collections.emptyList());
+            }
+            if ("schema".equals(method.getName())) {
+                return new TableSchema(0L, Collections.emptyList(), 0,
+                        Collections.emptyList(), Collections.emptyList(), options, "");
+            }
+            if (("copy".equals(method.getName()) || "copyWithoutTimeTravel".equals(method.getName()))
+                    && args != null && args.length == 1 && args[0] instanceof Map) {
+                Map<String, String> copied = new HashMap<>(options);
+                copied.putAll((Map<String, String>) args[0]);
+                return serializableFileStoreTable(copied);
             }
             if ("toString".equals(method.getName())) {
                 return "SerializablePaimonTable";

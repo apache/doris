@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorTableStatistics;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
@@ -131,6 +132,74 @@ public class PaimonConnectorMetadataStatisticsTest {
         Assertions.assertFalse(stats.isPresent());
         Assertions.assertFalse(ops.log.contains("rowCount"),
                 "unsafe manifest settings must fail before row-count planning starts");
+    }
+
+    @Test
+    public void acceptedManifestParallelismIsRuntimeCappedBeforeRowCountPlanning() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        table.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
+        FakePaimonTable runtimeTable = new FakePaimonTable(
+                "t1@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        runtimeTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity)));
+        table.copyResult = runtimeTable;
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        ops.rowCount = 9;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        Optional<ConnectorTableStatistics> stats = metadataWith(ops).getTableStatistics(null, handle);
+
+        // Catalog validation is hardware-neutral, but row-count planning executes locally and must
+        // observe the same CPU cap as scan planning before touching Paimon's global manifest pool.
+        Assertions.assertTrue(stats.isPresent());
+        Assertions.assertSame(runtimeTable, ops.lastRowCountTable);
+    }
+
+    @Test
+    public void snapshotStatisticsApplyRuntimeCapBeforeRowCountPlanning() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        table.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
+        FakePaimonTable pinnedTable = new FakePaimonTable(
+                "t1@snapshot", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        pinnedTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity + 1)));
+        FakePaimonTable runtimeTable = new FakePaimonTable(
+                "t1@snapshot-runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        runtimeTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity)));
+        table.copyResult = pinnedTable;
+        pinnedTable.copyResult = runtimeTable;
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        ops.rowCount = 11;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(7L)
+                .property("scan.snapshot-id", "7")
+                .build();
+
+        Optional<ConnectorTableStatistics> stats =
+                metadataWith(ops).getTableStatistics(null, handle, snapshot);
+
+        // Non-OPTIONS pins copy the snapshot selector first, so the runtime cap must run again on
+        // that resulting table rather than assuming relation option validation already handled it.
+        Assertions.assertTrue(stats.isPresent());
+        Assertions.assertSame(runtimeTable, ops.lastRowCountTable);
     }
 
     @Test

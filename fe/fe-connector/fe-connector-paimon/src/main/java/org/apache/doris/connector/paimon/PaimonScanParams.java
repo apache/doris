@@ -350,6 +350,13 @@ public final class PaimonScanParams {
         return resolved;
     }
 
+    public static Map<String, String> pinOptionsToSnapshot(
+            Map<String, String> options, long snapshotId) {
+        return snapshotId < 0
+                ? resolvedEmptyOptions(options)
+                : resolvedSnapshotOptions(options, String.valueOf(snapshotId));
+    }
+
     private static Map<String, String> resolvedTagOptions(Map<String, String> options, String tagName) {
         Map<String, String> resolved = new HashMap<>(options);
         INHERITED_READ_STATE_KEYS.forEach(resolved::remove);

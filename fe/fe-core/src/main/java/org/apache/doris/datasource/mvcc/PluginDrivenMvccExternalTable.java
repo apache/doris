@@ -347,6 +347,27 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        return loadSnapshotInternal(tableSnapshot, scanParams, Optional.empty());
+    }
+
+    @Override
+    public boolean requiresLatestSnapshotFence(
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        return !tableSnapshot.isPresent() && scanParams.isPresent() && scanParams.get().isOptions();
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot(
+            Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Optional<MvccSnapshot> latestSnapshotFence) {
+        return loadSnapshotInternal(tableSnapshot, scanParams, latestSnapshotFence);
+    }
+
+    private MvccSnapshot loadSnapshotInternal(
+            Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Optional<MvccSnapshot> latestSnapshotFence) {
         if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
             // B5a implicit query-begin (latest) pin.
             return materializeLatest();
@@ -355,7 +376,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (tableSnapshot.isPresent() && scanParams.isPresent()) {
             throw new RuntimeException("Can not specify scan params and table snapshot at same time.");
         }
-        ConnectorTimeTravelSpec spec = toTimeTravelSpec(tableSnapshot, scanParams);
+        ConnectorTimeTravelSpec spec = toTimeTravelSpec(tableSnapshot, scanParams, latestSnapshotFence);
 
         makeSureInitialized();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
@@ -424,7 +445,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * ({@link ConnectorTimeTravelSpec.Kind#VERSION_REF}) — fe-core does NOT pre-decide tag-vs-branch
      * (the connector owns that: iceberg accepts a branch or a tag, paimon resolves it as a tag).
      */
-    private ConnectorTimeTravelSpec toTimeTravelSpec(Optional<TableSnapshot> ts, Optional<TableScanParams> sp) {
+    private ConnectorTimeTravelSpec toTimeTravelSpec(
+            Optional<TableSnapshot> ts,
+            Optional<TableScanParams> sp,
+            Optional<MvccSnapshot> latestSnapshotFence) {
         if (ts.isPresent()) {
             TableSnapshot snap = ts.get();
             String value = snap.getValue();
@@ -450,6 +474,14 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             // @options carries the SOURCE's own scan-option vocabulary. fe-core hands the raw map over
             // untouched -- it does not know a single key -- and the connector validates and resolves it
             // into a pin, exactly like the @incr window params.
+            if (latestSnapshotFence.isPresent()) {
+                PluginDrivenMvccSnapshot fence =
+                        (PluginDrivenMvccSnapshot) latestSnapshotFence.get();
+                // Carry only the source-neutral snapshot id; the connector decides whether the
+                // option set selects latest or owns an explicit version selector.
+                return ConnectorTimeTravelSpec.options(
+                        params.getMapParams(), fence.getConnectorSnapshot().getSnapshotId());
+            }
             return ConnectorTimeTravelSpec.options(params.getMapParams());
         }
         throw new RuntimeException("unsupported scan params: " + params.getParamType());

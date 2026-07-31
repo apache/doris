@@ -280,6 +280,7 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
@@ -1048,8 +1049,22 @@ public class StatementContext implements Closeable {
             MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable,
                     versionKeyOf(tableSnapshot, scanParams));
             if (!snapshots.containsKey(mvccTableInfo)) {
-                snapshots.put(mvccTableInfo,
-                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+                MvccTable mvccTable = (MvccTable) specificTable;
+                MvccSnapshot snapshot;
+                if (mvccTable.requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+                    MvccTableInfo latestKey = new MvccTableInfo(specificTable);
+                    MvccSnapshot latestFence = latestSnapshots.computeIfAbsent(latestKey,
+                            key -> mvccTable.loadSnapshot(Optional.empty(), Optional.empty()));
+                    // Different planning projections remain separate, but their version selector
+                    // comes from one statement fence instead of repeated mutable latest reads.
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams, Optional.of(latestFence));
+                } else if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
+                    snapshot = latestSnapshots.computeIfAbsent(mvccTableInfo,
+                            key -> mvccTable.loadSnapshot(tableSnapshot, scanParams));
+                } else {
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams);
+                }
+                snapshots.put(mvccTableInfo, snapshot);
                 scanParams.flatMap(TableScanParams::getResolvedMapParams)
                         .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));
             } else if (scanParams.isPresent() && resolvedSnapshotScanParams.containsKey(mvccTableInfo)) {

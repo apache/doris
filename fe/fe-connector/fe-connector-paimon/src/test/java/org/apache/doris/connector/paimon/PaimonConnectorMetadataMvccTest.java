@@ -749,6 +749,26 @@ public class PaimonConnectorMetadataMvccTest {
     }
 
     @Test
+    public void planningOptionsReuseStatementLatestSnapshotFence() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = normalHandle(ops);
+        ops.latestSnapshotId = OptionalLong.of(12L);
+
+        ConnectorMvccSnapshot snapshot = metadataWith(ops).resolveTimeTravel(
+                null,
+                handle,
+                ConnectorTimeTravelSpec.options(
+                        Collections.singletonMap("scan.manifest.parallelism", "1"), 7L))
+                .orElseThrow(AssertionError::new);
+
+        // Relation projection identity still contains the planning option, while snapshot identity
+        // is inherited from StatementContext instead of a second live latest lookup.
+        Assertions.assertEquals(7L, snapshot.getSnapshotId());
+        Assertions.assertEquals("7", snapshot.getProperties().get("scan.snapshot-id"));
+        Assertions.assertEquals("1", snapshot.getProperties().get("scan.manifest.parallelism"));
+    }
+
+    @Test
     public void resolveIncrementalEndToEndAppliesIncrementalOptionsIntoHandle() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         PaimonTableHandle handle = normalHandle(ops);

@@ -23,6 +23,7 @@ import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
@@ -283,6 +284,12 @@ public interface PaimonCatalogOps {
         @Override
         public List<Partition> listPartitions(Identifier identifier, Table table)
                 throws Catalog.TableNotExistException {
+            if (catalog instanceof RESTCatalog) {
+                // REST owns partition visibility when its endpoint is implemented; the bridge
+                // retains this effective relation copy only for the endpoint's filesystem fallback.
+                return PaimonRestCatalogPartitions.listPartitions(
+                        (RESTCatalog) catalog, identifier, table);
+            }
             // The supplied handle already contains catalog and relation policy. Reloading by identifier
             // would discard those copies before manifest enumeration reaches the final scan guard.
             return CatalogUtils.listPartitionsFromFileSystem(table);
