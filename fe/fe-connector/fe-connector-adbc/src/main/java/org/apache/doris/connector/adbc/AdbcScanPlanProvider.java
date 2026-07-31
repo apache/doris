@@ -108,6 +108,10 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
      * hide a real failure behind a slower query -- and would run the statement remotely a second time.
      */
     private List<ConnectorScanRange> planPartitions(String sql) {
+        // Set by the NOT_IMPLEMENTED branch so the downgrade can be logged with what the driver
+        // actually said. Without it the log says only that SOMETHING answered NOT_IMPLEMENTED, and
+        // the layer that did -- driver, driver manager, or JNI bridge -- has to be found by hand.
+        AdbcException[] refusal = new AdbcException[1];
         List<PartitionDescriptor> descriptors = clientSupplier.get().withConnection(connection -> {
             try (AdbcStatement statement = connection.createStatement()) {
                 statement.setSqlQuery(sql);
@@ -118,6 +122,7 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                         throw AdbcClient.translate(e,
                                 "Failed to plan a partitioned ADBC scan of [" + sql + "]");
                     }
+                    refusal[0] = e;
                     return null;
                 }
             }
@@ -125,8 +130,9 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
         if (descriptors == null) {
             if (partitionedRead.markUnsupported()) {
                 LOG.info("The ADBC driver does not implement partitioned execution, so scans of this"
-                        + " catalog run as one range on one backend. Set '{}'='false' to stop asking.",
-                        AdbcConnectorProperties.ENABLE_PARTITIONED_READ);
+                        + " catalog run as one range on one backend. Set '{}'='false' to stop asking."
+                        + " The driver answered: {}", AdbcConnectorProperties.ENABLE_PARTITIONED_READ,
+                        refusal[0] == null ? "(no exception)" : refusal[0].toString());
             }
             return null;
         }
