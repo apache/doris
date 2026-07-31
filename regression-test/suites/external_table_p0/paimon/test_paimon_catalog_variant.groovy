@@ -63,7 +63,12 @@ suite("test_paimon_catalog_variant", "p0,external") {
         """
 
         order_qt_root_array """
-            select id, cast(payload as array<variant>)
+            select id,
+                   cast(payload[1] as int),
+                   cast(payload[2] as string),
+                   cast(payload[3] as boolean),
+                   cast(payload[4] as string),
+                   cast(payload[5]['k'] as string)
             from variant_smoke
             where id = 3
             order by id
