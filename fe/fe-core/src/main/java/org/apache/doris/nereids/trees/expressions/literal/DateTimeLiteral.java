@@ -103,6 +103,7 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
+    @Override
     public boolean isMidnight() {
         return hour == 0 && minute == 0 && second == 0 && microSecond == 0;
     }
@@ -317,6 +318,16 @@ public class DateTimeLiteral extends DateLiteral {
 
     public long timePartToMicroSecond() {
         return ((hour * 60L + minute) * 60L + second) * 1000L * 1000L + microSecond;
+    }
+
+    @Override
+    public long getTimePartInNanoseconds() {
+        return timePartToMicroSecond() * 1000L;
+    }
+
+    @Override
+    public long getFractionalSecondInNanoseconds() {
+        return microSecond * 1000L;
     }
 
     @Override

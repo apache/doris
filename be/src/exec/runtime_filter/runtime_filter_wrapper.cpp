@@ -298,6 +298,8 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
     }
     case TYPE_TIMESTAMPTZ:
         [[fallthrough]];
+    case TYPE_TIMESTAMP_NS:
+        [[fallthrough]];
     case TYPE_DATETIMEV2: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             auto date_v2_val = column.longval();
@@ -490,6 +492,8 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_TIMESTAMPTZ:
+        [[fallthrough]];
+    case TYPE_TIMESTAMP_NS:
         [[fallthrough]];
     case TYPE_DATETIMEV2: {
         int64_t min_val = minmax_filter.min_val().longval();

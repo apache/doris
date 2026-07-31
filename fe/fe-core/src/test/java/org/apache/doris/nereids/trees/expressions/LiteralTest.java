@@ -23,12 +23,15 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.proto.Types.PGenericType;
 import org.apache.doris.proto.Types.PGenericType.TypeId;
 import org.apache.doris.proto.Types.PValues;
@@ -55,6 +58,92 @@ class LiteralTest {
         Assertions.assertTrue(Literal.of(null) instanceof NullLiteral);
         Assertions.assertTrue(Literal.of(1) instanceof IntegerLiteral);
         Assertions.assertTrue(Literal.of(false) instanceof BooleanLiteral);
+    }
+
+    @Test
+    public void testGetResultExpressionTimeStampNs() {
+        assertTimeStampNsResult(Long.MIN_VALUE, "1677-09-21 00:12:43.145224192");
+        assertTimeStampNsResult(123456800L, "1970-01-01 00:00:00.123456800");
+        assertTimeStampNsResult(-10L, "1969-12-31 23:59:59.999999990");
+        assertTimeStampNsResult(-1L, "1969-12-31 23:59:59.999999999");
+        assertTimeStampNsResult(Long.MAX_VALUE, "2262-04-11 23:47:16.854775807");
+    }
+
+    @Test
+    public void testGetResultExpressionNullableTimeStampNs() {
+        PValues values = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.INT64).build())
+                .addInt64Value(-1L)
+                .addInt64Value(0L)
+                .setHasNull(true)
+                .addNullMap(false)
+                .addNullMap(true)
+                .build();
+
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(TimeStampNsType.INSTANCE, values);
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("1969-12-31 23:59:59.999999999", result.get(0).getStringValue());
+        Assertions.assertInstanceOf(NullLiteral.class, result.get(1));
+    }
+
+    @Test
+    public void testGetResultExpressionNestedTimeStampNs() {
+        TimeStampNsType nanoType = TimeStampNsType.INSTANCE;
+        PGenericType int64Type = PGenericType.newBuilder().setId(TypeId.INT64).build();
+        PValues nanoValues = PValues.newBuilder()
+                .setType(int64Type)
+                .addInt64Value(-1L)
+                .addInt64Value(123456789L)
+                .build();
+        PValues arrayValues = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.LIST).build())
+                .addChildElement(nanoValues)
+                .addChildOffset(2)
+                .build();
+
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(ArrayType.of(nanoType), arrayValues);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertTrue(result.get(0) instanceof ArrayLiteral);
+        List<Literal> items = ((ArrayLiteral) result.get(0)).getValue();
+        Assertions.assertEquals("1969-12-31 23:59:59.999999999",
+                ((TimeStampNsLiteral) items.get(0)).getStringValue());
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                ((TimeStampNsLiteral) items.get(1)).getStringValue());
+    }
+
+    @Test
+    public void testGetResultExpressionDateTimeV2AlongsideTimeStampNs() {
+        long packedDateTime = (2024L << 46) | (1L << 42) | (2L << 37)
+                | (3L << 32) | (4L << 26) | (5L << 20) | 123456L;
+        PValues values = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.UINT64).build())
+                .addUint64Value(packedDateTime)
+                .addUint64Value(0)
+                .setHasNull(true)
+                .build();
+
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(DateTimeV2Type.of(6), values);
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("2024-01-02 03:04:05.123456", result.get(0).getStringValue());
+        Assertions.assertInstanceOf(NullLiteral.class, result.get(1));
+    }
+
+    private void assertTimeStampNsResult(long epochNanos, String expected) {
+        PValues values = PValues.newBuilder()
+                .setType(PGenericType.newBuilder().setId(TypeId.INT64).build())
+                .addInt64Value(epochNanos)
+                .build();
+        List<Literal> result = org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE
+                .getResultExpression(TimeStampNsType.INSTANCE, values);
+
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class, result.get(0));
+        TimeStampNsLiteral literal = (TimeStampNsLiteral) result.get(0);
+        Assertions.assertSame(TimeStampNsType.INSTANCE, literal.getDataType());
+        Assertions.assertEquals(expected, literal.getStringValue());
     }
 
     @Test

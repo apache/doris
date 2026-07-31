@@ -134,6 +134,8 @@ public class FlightSqlSchemaHelper {
                 } else {
                     return new ArrowType.Timestamp(TimeUnit.SECOND, timeZone);
                 }
+            case TIMESTAMP_NS:
+                throw new IllegalArgumentException("TIMESTAMP_NS is not supported by Arrow Flight SQL");
             case TIMESTAMPTZ:
                 if (scale > 3) {
                     return new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC");

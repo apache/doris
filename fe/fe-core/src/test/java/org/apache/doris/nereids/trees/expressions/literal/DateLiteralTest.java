@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
@@ -59,11 +60,13 @@ class DateLiteralTest {
         s = DateLiteral.normalize("2021-5-01 0:0:0.001").get();
         Assertions.assertEquals("2021-05-01 00:00:00.001", s);
         s = DateLiteral.normalize("2021-5-01 0:0:0.12345678").get();
-        Assertions.assertEquals("2021-05-01 00:00:00.1234567", s);
+        Assertions.assertEquals("2021-05-01 00:00:00.12345678", s);
+        s = DateLiteral.normalize("2021-5-01 0:0:0.12345678951").get();
+        Assertions.assertEquals("2021-05-01 00:00:00.1234567895", s);
         s = DateLiteral.normalize("2021-5-1    Asia/Shanghai").get();
         Assertions.assertEquals("2021-05-01Asia/Shanghai", s);
         s = DateLiteral.normalize("2021-5-1 0:0:0.12345678   Asia/Shanghai").get();
-        Assertions.assertEquals("2021-05-01 00:00:00.1234567Asia/Shanghai", s);
+        Assertions.assertEquals("2021-05-01 00:00:00.12345678Asia/Shanghai", s);
     }
 
     @Test
@@ -222,6 +225,55 @@ class DateLiteralTest {
         new DateTimeV2Literal("2020.02.01 00.00.00.1");
         new DateTimeV2Literal("2020.02.01 00.00.00.000001");
         new DateTimeV2Literal("2020.02.01 00.00.00.0000001");
+    }
+
+    @Test
+    void testTimeStampNsseconds() {
+        Assertions.assertFalse(DateTimeLiteral.class.isAssignableFrom(TimeStampNsLiteral.class));
+        TimeStampNsLiteral nanoseconds =
+                new TimeStampNsLiteral("1970-01-01 00:00:00.123456789");
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, nanoseconds.getDataType());
+        Assertions.assertEquals(123456789, nanoseconds.getNanoSecond());
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                nanoseconds.getStringValue());
+        Assertions.assertEquals("1970-01-01 00:00:00.123456789",
+                nanoseconds.toLegacyLiteral().getStringValue());
+        Assertions.assertInstanceOf(org.apache.doris.analysis.TimeStampNsLiteral.class,
+                nanoseconds.toLegacyLiteral());
+
+        TimeStampNsLiteral rounded = new TimeStampNsLiteral("1970-01-01 00:00:00.12345675");
+        Assertions.assertEquals("1970-01-01 00:00:00.123456750",
+                rounded.getStringValue());
+
+        TimeStampNsLiteral scale7 = new TimeStampNsLiteral("1969-12-31 23:59:59.99999994");
+        Assertions.assertEquals("1969-12-31 23:59:59.999999940",
+                scale7.getStringValue());
+        TimeStampNsLiteral scale8 = new TimeStampNsLiteral("1969-12-31 23:59:59.999999995");
+        Assertions.assertEquals("1969-12-31 23:59:59.999999995",
+                scale8.getStringValue());
+        for (String value : new String[] {
+                "2024-02-29 12:34:56.1234567",
+                "2024-02-29 12:34:56.12345678",
+                "2024-02-29 12:34:56.123456789"}) {
+            DateTimeV2Type inferredType = DateTimeV2Type.forTypeFromString(value);
+            Assertions.assertEquals(DateTimeV2Type.MAX_SCALE, inferredType.getScale());
+            Assertions.assertFalse(inferredType.isTimeStampNsType());
+        }
+
+        Assertions.assertDoesNotThrow(() ->
+                new TimeStampNsLiteral("1677-09-21 00:12:43.145224192"));
+        Assertions.assertDoesNotThrow(() ->
+                new TimeStampNsLiteral("2262-04-11 23:47:16.854775807"));
+        Assertions.assertEquals(Long.MIN_VALUE,
+                new TimeStampNsLiteral("1677-09-21 00:12:43.145224192")
+                        .toLegacyLiteral().getRealValue());
+        Assertions.assertEquals(Long.MAX_VALUE,
+                new TimeStampNsLiteral("2262-04-11 23:47:16.854775807")
+                        .toLegacyLiteral().getRealValue());
+        Assertions.assertThrows(AnalysisException.class, () ->
+                new TimeStampNsLiteral("1677-09-21 00:12:43.145224191"));
+        Assertions.assertThrows(AnalysisException.class, () ->
+                new TimeStampNsLiteral("2262-04-11 23:47:16.854775808"));
     }
 
     @Test

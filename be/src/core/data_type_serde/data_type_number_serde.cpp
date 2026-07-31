@@ -737,6 +737,13 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
     return Status::OK();
 }
 
+template <>
+Status DataTypeNumberSerDe<TYPE_TIMESTAMP_NS>::write_column_to_arrow(
+        const IColumn& column, const NullMap* null_map, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    return Status::NotSupported("DataTypeNumberSerDe<TYPE_TIMESTAMP_NS>::write_column_to_arrow");
+}
+
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
@@ -1117,8 +1124,8 @@ template <PrimitiveType T>
 constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
            T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
-           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 ||
-           T == TYPE_IPV6 || T == TYPE_TIMEV2;
+           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMP_NS ||
+           T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 || T == TYPE_IPV6 || T == TYPE_TIMEV2;
 }
 
 template <PrimitiveType T>
@@ -1156,6 +1163,8 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
         return jsonb_writer_string(writer, CastToString::from_datev2(data));
     } else if constexpr (T == TYPE_DATETIMEV2) {
         return jsonb_writer_string(writer, CastToString::from_datetimev2(data, scale));
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        return jsonb_writer_string(writer, TimeStampNsValue(data).to_string());
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         return jsonb_writer_string(writer, CastToString::from_timestamptz(data, scale));
     } else if constexpr (T == TYPE_IPV4) {
@@ -1445,6 +1454,8 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         col.insert_value(binary_cast<Int64, VecDateTimeValue>(static_cast<Int64>(read_int())));
     } else if constexpr (T == TYPE_BIGINT) {
         col.insert_value(static_cast<int64_t>(read_int()));
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        col.insert_value(TimeStampNsValue(static_cast<int64_t>(read_int())));
     } else if constexpr (T == TYPE_LARGEINT) {
         col.insert_value(static_cast<__int128_t>(read_int()));
     } else if constexpr (T == TYPE_FLOAT) {
@@ -1489,7 +1500,7 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
         result.writeInt32(val);
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
-                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
+                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMP_NS || T == TYPE_TIMESTAMPTZ) {
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         if (options.enable_row_store_compact_jsonb) {
             result.writeInt(val);
@@ -1751,6 +1762,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
         col.insert_value(binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
                 unaligned_load<UInt64>(data)));
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        data += sizeof(uint8_t);
+        col.insert_value(TimeStampNsValue(unaligned_load<Int64>(data)));
+        data += sizeof(Int64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -1817,6 +1832,14 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         info.scale = static_cast<int>(scale);
         field = Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&v);
         data += sizeof(UInt64);
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        const uint8_t scale = *data;
+        data += sizeof(uint8_t);
+        info.precision = -1;
+        info.scale = static_cast<int>(scale);
+        field = Field::create_field<TYPE_TIMESTAMP_NS>(
+                TimeStampNsValue(unaligned_load<Int64>(data)));
+        data += sizeof(Int64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));
@@ -1835,6 +1858,9 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
         CastToString::push_datev2(value, bw);
     } else if constexpr (T == TYPE_DATETIMEV2) {
         CastToString::push_datetimev2(value, scale, bw);
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        const auto string_value = TimeStampNsValue(value).to_string();
+        bw.write(string_value.data(), string_value.size());
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         CastToString::push_timestamptz(value, scale, bw, options);
     } else if constexpr (T == TYPE_TIMEV2) {
@@ -1851,7 +1877,8 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T)) {
+    if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_timestamp_ns_type(T) ||
+                  is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
@@ -1878,7 +1905,8 @@ bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, Bu
                                                        int64_t row_idx,
                                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    if constexpr (is_date_type(T) || is_timestamptz_type(T) || is_time_type(T) || is_ip(T)) {
+    if constexpr (is_date_type(T) || is_timestamptz_type(T) || is_timestamp_ns_type(T) ||
+                  is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
@@ -1961,6 +1989,7 @@ template class DataTypeNumberSerDe<TYPE_DATE>;
 template class DataTypeNumberSerDe<TYPE_DATEV2>;
 template class DataTypeNumberSerDe<TYPE_DATETIME>;
 template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
+template class DataTypeNumberSerDe<TYPE_TIMESTAMP_NS>;
 template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
