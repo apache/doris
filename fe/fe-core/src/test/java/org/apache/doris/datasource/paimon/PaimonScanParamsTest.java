@@ -159,6 +159,15 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testPinOptionsValidatesBeforeClearingInheritedState() {
+        IllegalArgumentException unsupported = Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonScanParams.pinOptionsToSnapshot(
+                        ImmutableMap.of("scan.bounded.watermark", "1"), 10));
+        Assert.assertTrue(unsupported.getMessage().contains("scan.bounded.watermark"));
+    }
+
+    @Test
     public void testApplyPositionClearsInheritedStartupState() {
         Table table = Mockito.mock(Table.class);
         Table copied = Mockito.mock(Table.class);

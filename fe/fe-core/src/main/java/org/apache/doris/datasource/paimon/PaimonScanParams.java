@@ -312,6 +312,9 @@ public final class PaimonScanParams {
 
     public static Map<String, String> pinOptionsToSnapshot(
             Map<String, String> options, long snapshotId) {
+        // Statement-fence pinning removes inherited selectors, so validate the raw map first;
+        // otherwise an unsupported inherited key can disappear before the common validation path.
+        validateOptions(options);
         return snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID
                 ? resolvedEmptyOptions(options)
                 : resolvedSnapshotOptions(options, String.valueOf(snapshotId));
