@@ -234,6 +234,14 @@ class AdbcScanPlanProviderTest {
 
         Assertions.assertTrue(failure.getMessage().contains("SELECT \"a\""), failure.getMessage());
         Assertions.assertFalse(support.isKnownUnsupported());
+
+        // A source that rejects the statement is the first thing anyone pointing this connector at
+        // something other than Doris will hit, and the rejection arrives in the source's own words --
+        // usually a syntax error about a quote character. Nothing in that says Doris generated the SQL,
+        // let alone that which SQL it generates is a property the user can set. So the message has to.
+        Assertions.assertTrue(failure.getMessage().contains(AdbcConnectorProperties.SQL_DIALECT),
+                failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains(AnsiDialect.NAME), failure.getMessage());
     }
 
     @Test

@@ -149,8 +149,14 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                     return statement.executePartitioned().getPartitionDescriptors();
                 } catch (AdbcException e) {
                     if (e.getStatus() != AdbcStatusCode.NOT_IMPLEMENTED) {
+                        // Naming the dialect is the point of this message. The source answers in its own
+                        // words -- typically a syntax error about a quote character -- and nothing in that
+                        // hints that Doris wrote the statement, or that which SQL it writes is settable.
                         throw AdbcClient.translate(e,
-                                "Failed to plan a partitioned ADBC scan of [" + sql + "]");
+                                "Failed to plan a partitioned ADBC scan of [" + sql + "], generated in the '"
+                                        + dialectSelector.select(clientSupplier).name() + "' dialect (set '"
+                                        + AdbcConnectorProperties.SQL_DIALECT + "' on this catalog if the"
+                                        + " source expects different SQL)");
                     }
                     refusal[0] = e;
                     return null;
