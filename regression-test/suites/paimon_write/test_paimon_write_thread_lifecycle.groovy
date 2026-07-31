@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Http is a framework utility class, not an injected Suite DSL property.
+import org.apache.doris.regression.util.Http
+
 suite("test_paimon_write_thread_lifecycle", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
