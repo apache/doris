@@ -21,6 +21,8 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
+#include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_array.h"
 #include "exprs/function/cast/cast_to_jsonb.h"
@@ -28,6 +30,7 @@
 #include "exprs/function/cast/cast_to_struct.h"
 #include "exprs/function/cast/cast_to_variant.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -222,6 +225,7 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
 /// 'from_type' and 'to_type' are nested types in case of Nullable.
 /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
+// NOLINTNEXTLINE(readability-function-size)
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
                          const DataTypePtr& origin_to_type) {
     auto to_type = get_serialized_type(origin_to_type);
@@ -230,14 +234,47 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_identity_wrapper(from_type);
     }
 
+    const auto* from_variant_v1 =
+            dynamic_cast<const DataTypeVariant*>(remove_nullable(from_type).get());
+    const auto* to_variant_v1 =
+            dynamic_cast<const DataTypeVariant*>(remove_nullable(to_type).get());
+    const auto* from_variant_v2 =
+            dynamic_cast<const DataTypeVariantV2*>(remove_nullable(from_type).get());
+    const auto* to_variant_v2 =
+            dynamic_cast<const DataTypeVariantV2*>(remove_nullable(to_type).get());
+    if ((from_variant_v1 != nullptr && to_variant_v2 != nullptr) ||
+        (from_variant_v2 != nullptr && to_variant_v1 != nullptr)) {
+        return CastWrapper::create_unsupport_wrapper(
+                "Cast between legacy Variant and compute-only Variant V2 is not supported");
+    }
+
     // variant needs to be judged first
     if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        return create_cast_to_variant_wrapper(from_type,
-                                              static_cast<const DataTypeVariant&>(*to_type));
+        if (to_variant_v2 != nullptr) {
+            return create_cast_to_variant_v2_wrapper(from_type);
+        }
+        DORIS_CHECK(to_variant_v1 != nullptr);
+        return create_cast_to_variant_wrapper(from_type, *to_variant_v1);
     }
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        return create_cast_from_variant_wrapper(static_cast<const DataTypeVariant&>(*from_type),
-                                                to_type);
+        if (from_variant_v2 != nullptr) {
+            auto wrapper = create_cast_from_variant_v2_wrapper(to_type);
+            return [wrapper = std::move(wrapper)](
+                           FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                           uint32_t result, size_t rows, const NullMap::value_type* null_map) {
+                RETURN_IF_ERROR(wrapper(context, block, arguments, result, rows, null_map));
+                auto& result_column = block.get_by_position(result).column;
+                if (null_map == nullptr) {
+                    const auto* nullable = check_and_get_column<ColumnNullable>(*result_column);
+                    if (nullable != nullptr && !nullable->has_null()) {
+                        result_column = nullable->get_nested_column_ptr();
+                    }
+                }
+                return Status::OK();
+            };
+        }
+        DORIS_CHECK(from_variant_v1 != nullptr);
+        return create_cast_from_variant_wrapper(*from_variant_v1, to_type);
     }
 
     if (from_type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {

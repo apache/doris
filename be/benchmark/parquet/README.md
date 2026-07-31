@@ -39,18 +39,40 @@ be/output/lib/benchmark_test \
 
 ## SIMD kernel cases
 
-`ParquetKernel` isolates the five SIMD-sensitive stages from reader setup and virtual consumer
+`ParquetKernel` isolates six decode and selection stages from reader setup and virtual consumer
 overhead: byte-stream-split transpose, delta prefix sum, numeric dictionary gather, nullable
-expansion, and raw predicate evaluation. It covers the applicable 4-byte and 8-byte integer and
-floating-point physical types, raw-predicate selectivities from 0% through 100%, and nullable
-rates from 0% through 90% with clustered and alternating placement. Dictionary gather uses 32-,
-4,096-, and 262,144-entry working sets to separate cache-resident and cache-miss-dominated
-behavior.
+expansion, raw predicate evaluation, and repeated-level sparse selection. It covers the applicable
+4-byte and 8-byte integer and floating-point physical types, raw-predicate selectivities from 0%
+through 100%, and nullable rates from 0% through 90% with clustered and alternating placement.
+Nested selection covers 1%, 10%, and 50% surviving parent rows with both placement patterns.
+Each nested-selection scenario registers both `impl_legacy` and `impl_fused`; both paths use the
+same source levels and are checked against an independent oracle before timing.
+Dictionary gather uses 32-, 4,096-, and 262,144-entry working sets to separate cache-resident and
+cache-miss-dominated behavior.
 
 ```shell
 be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetKernel/(dictionary_gather|nullable_expand)/' \
   --benchmark_min_time=0.1s
+```
+
+For a reproducible nested-selection comparison, build once and run the two implementations from
+that same binary in ABBA order. Pin every command to the same otherwise-idle CPU:
+
+```shell
+taskset -c 8 be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetKernel/nested_selection/.*/impl_legacy$' \
+  --benchmark_min_time=1s --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true \
+  --benchmark_out=nested-legacy-a1.json --benchmark_out_format=json
+
+taskset -c 8 be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetKernel/nested_selection/.*/impl_fused$' \
+  --benchmark_min_time=1s --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true \
+  --benchmark_out=nested-fused-b1.json --benchmark_out_format=json
+
+# Repeat fused as B2, then legacy as A2, changing only --benchmark_out.
 ```
 
 ## Local reader cases

@@ -28,7 +28,6 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
-import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -58,7 +57,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.MysqlDb;
-import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.OlapTableFactory;
@@ -1209,6 +1207,26 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     /**
+     * The internal catalog creates olap tables. It still recognizes the three engine names it used to serve
+     * itself — {@code odbc} / {@code mysql} / {@code broker} — purely to keep answering with the retirement
+     * message that tells the user where those table types went; every other name is somebody else's.
+     */
+    @Override
+    public void validateCreateTableEngine(String engineName) throws AnalysisException {
+        if (CreateTableInfo.ENGINE_OLAP.equals(engineName)) {
+            return;
+        }
+        if (CreateTableInfo.ENGINE_ODBC.equals(engineName)
+                || CreateTableInfo.ENGINE_MYSQL.equals(engineName)
+                || CreateTableInfo.ENGINE_BROKER.equals(engineName)) {
+            throw new AnalysisException("odbc, mysql and broker table is no longer supported."
+                    + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
+                    + " For broker table, use table valued function instead.");
+        }
+        throw new AnalysisException(CatalogIf.engineMismatchError(engineName, getName()));
+    }
+
+    /**
      * Following is the step to create an olap table:
      * 1. create columns
      * 2. create partition info
@@ -1265,37 +1283,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
 
-        if (engineName.equals("olap")) {
-            return createOlapTable(db, createTableInfo);
-        }
-        if (engineName.equals("odbc")) {
-            throw new DdlException(
-                    "ODBC table is no longer supported. Please use JDBC Catalog instead.");
-        }
-        if (engineName.equals("mysql")) {
-            return createMysqlTable(db, createTableInfo);
-        }
-        if (engineName.equals("broker")) {
-            return createBrokerTable(db, createTableInfo);
-        }
-        if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-            throw new UserException(
-                    "Cannot create Elasticsearch table in internal catalog. Please use ES Catalog instead.");
-        }
-        if (engineName.equalsIgnoreCase("hive")) {
-            // should use hive catalog to create external hive table
-            throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
-        }
-        if (engineName.equalsIgnoreCase("jdbc")) {
-            throw new DdlException(
-                    "JDBC table is no longer supported. Please use JDBC Catalog instead.");
-
-        } else {
+        // Only olap can reach here: validateCreateTableEngine already rejected every other name during
+        // analysis, including the retired odbc/mysql/broker and the external engines a user aimed at the wrong
+        // catalog. The check stays as a guard against a caller that skips analysis.
+        if (!CreateTableInfo.ENGINE_OLAP.equals(engineName)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
-
-        Preconditions.checkState(false);
-        return false;
+        return createOlapTable(db, createTableInfo);
     }
 
     public void replayCreateTable(String dbName, long dbId, Table table) throws MetaNotFoundException {
@@ -3313,28 +3307,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         return tableHasExist;
     }
 
-    private boolean createMysqlTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
-        String tableName = createTableInfo.getTableName();
-        List<Column> columns = createTableInfo.getColumns();
-        long tableId = Env.getCurrentEnv().getNextId();
-        MysqlTable mysqlTable = new MysqlTable(tableId, tableName, columns, createTableInfo.getProperties());
-        mysqlTable.setComment(createTableInfo.getComment());
-        Pair<Boolean, Boolean> result = db.createTableWithLock(mysqlTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-    }
-
-    private boolean createBrokerTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
-        String tableName = createTableInfo.getTableName();
-
-        List<Column> columns = createTableInfo.getColumns();
-
-        long tableId = Env.getCurrentEnv().getNextId();
-        BrokerTable brokerTable = new BrokerTable(tableId, tableName, columns, createTableInfo.getProperties());
-        brokerTable.setComment(createTableInfo.getComment());
-        brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
-        Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-    }
 
     private boolean checkCreateTableResult(String tableName, long tableId, Pair<Boolean, Boolean> result)
                 throws DdlException {

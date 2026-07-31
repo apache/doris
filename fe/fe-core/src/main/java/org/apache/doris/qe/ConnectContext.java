@@ -283,11 +283,12 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
-    // internal flag to expose Iceberg rowid metadata during analysis/planning.
-    // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
-    // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
-    // when the source table is also an Iceberg table.
-    private long icebergRowIdTargetTableId = -1;
+    // Internal flag to expose a connector's synthetic write column (the hidden row-identity column a
+    // row-level DML write needs) for a SINGLE target table during analysis/planning. When set to a valid
+    // table ID (>= 0), only that table's getFullSchema() injects its synthetic write column (today the
+    // only consumer is iceberg's __DORIS_ICEBERG_ROWID_COL__). Scoping it to one table prevents ambiguity
+    // in MERGE INTO when the source table is also a write-capable table of the same format.
+    private long syntheticWriteColTargetTableId = -1;
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
@@ -1157,24 +1158,24 @@ public class ConnectContext {
         this.statementContext = statementContext;
     }
 
-    /** Backward-compatible: returns true if any Iceberg table is targeted for row_id injection. */
-    public boolean needIcebergRowId() {
-        return icebergRowIdTargetTableId >= 0;
+    /** Returns true if any table is targeted for synthetic write-column injection. */
+    public boolean needsSyntheticWriteCol() {
+        return syntheticWriteColTargetTableId >= 0;
     }
 
-    /** Check if a specific table should include the hidden row_id column. */
-    public boolean needIcebergRowIdForTable(long tableId) {
-        return icebergRowIdTargetTableId >= 0 && icebergRowIdTargetTableId == tableId;
+    /** Check if a specific table should inject its hidden synthetic write column. */
+    public boolean needsSyntheticWriteColForTable(long tableId) {
+        return syntheticWriteColTargetTableId >= 0 && syntheticWriteColTargetTableId == tableId;
     }
 
-    /** Set the target table ID for row_id injection. Use -1 to clear. */
-    public void setIcebergRowIdTargetTableId(long tableId) {
-        this.icebergRowIdTargetTableId = tableId;
+    /** Set the target table ID for synthetic write-column injection. Use -1 to clear. */
+    public void setSyntheticWriteColTargetTableId(long tableId) {
+        this.syntheticWriteColTargetTableId = tableId;
     }
 
-    /** Get the previously saved target table ID (for save/restore pattern). */
-    public long getIcebergRowIdTargetTableId() {
-        return icebergRowIdTargetTableId;
+    /** Get the previously saved target table ID (for the save/restore pattern). */
+    public long getSyntheticWriteColTargetTableId() {
+        return syntheticWriteColTargetTableId;
     }
 
 

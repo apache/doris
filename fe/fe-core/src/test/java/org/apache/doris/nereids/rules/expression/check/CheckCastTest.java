@@ -46,14 +46,35 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 
 public class CheckCastTest {
+    @Test
+    public void testCastBetweenVariantTypes() {
+        VariantType v1Source = new VariantType(100);
+        VariantType v1SameProperties = new VariantType(100);
+        VariantType v1DifferentProperties = new VariantType(200);
+
+        Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
+        Assertions.assertFalse(CheckCast.check(v1Source, v1DifferentProperties, true));
+
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableVariantV2 = true;
+        connectContext.setThreadLocalInfo();
+        try {
+            Assertions.assertTrue(CheckCast.check(v1Source, v1DifferentProperties, true));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     public void testCastFromBoolean() {
         // Strict mode
@@ -1777,6 +1798,14 @@ public class CheckCastTest {
         StructType structType4 = new StructType(fields4);
         Assertions.assertTrue(CheckCast.check(structType1, structType4, true));
 
+        StructType requiredString = new StructType(Collections.singletonList(
+                new StructField("metric", StringType.INSTANCE, false, "")));
+        StructType requiredInt = new StructType(Collections.singletonList(
+                new StructField("metric", IntegerType.INSTANCE, false, "")));
+        StructType requiredBigInt = new StructType(Collections.singletonList(
+                new StructField("metric", BigIntType.INSTANCE, false, "")));
+        Assertions.assertTrue(CheckCast.check(requiredString, requiredInt, true));
+
         // Un-strict mode
         Assertions.assertFalse(CheckCast.check(StructType.SYSTEM_DEFAULT, BooleanType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(StructType.SYSTEM_DEFAULT, TinyIntType.INSTANCE, false));
@@ -1809,6 +1838,8 @@ public class CheckCastTest {
         Assertions.assertFalse(CheckCast.check(structType1, structType2, false));
         Assertions.assertFalse(CheckCast.check(structType1, structType3, false));
         Assertions.assertTrue(CheckCast.check(structType1, structType4, false));
+        Assertions.assertFalse(CheckCast.check(requiredString, requiredInt, false));
+        Assertions.assertTrue(CheckCast.check(requiredInt, requiredBigInt, false));
     }
 
     @Test

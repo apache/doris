@@ -18,6 +18,7 @@
 package org.apache.doris.dictionary;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
@@ -27,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.dictionary.Dictionary.DictionaryStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
@@ -267,6 +269,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             // Log the drop operation
             if (dbDictIds != null) {
                 for (Map.Entry<String, Long> entry : dbDictIds.entrySet()) {
+                    idToDictionary.remove(entry.getValue());
                     Env.getCurrentEnv().getEditLog().logDropDictionary(dbName, entry.getKey());
                 }
                 // also drop all name mapping records.
@@ -280,6 +283,37 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     private boolean hasDictionaryWithoutLock(String dbName, String dictName) {
         Map<String, Long> dbDictIds = dictionaryIds.get(dbName);
         return dbDictIds != null && dbDictIds.containsKey(dictName);
+    }
+
+    public boolean isCurrentDictionary(Database database, Dictionary dictionary) {
+        lockRead();
+        try {
+            return isCurrentDictionaryWithoutLock(database, dictionary);
+        } finally {
+            unlockRead();
+        }
+    }
+
+    private boolean isCurrentDictionaryWithoutLock(Database database, Dictionary dictionary) {
+        Map<String, Long> dbDictIds = dictionaryIds.get(dictionary.getDbName());
+        Long dictionaryId = dbDictIds == null ? null : dbDictIds.get(dictionary.getName());
+        return Env.getCurrentInternalCatalog().getDbNullable(database.getId()) == database
+                && dictionaryId != null
+                && dictionaryId == dictionary.getId()
+                && idToDictionary.get(dictionary.getId()) == dictionary;
+    }
+
+    private Database getCurrentDatabase(Dictionary dictionary) throws AnalysisException {
+        lockRead();
+        try {
+            Database database = Env.getCurrentInternalCatalog().getDbNullable(dictionary.getDbName());
+            if (database == null || !isCurrentDictionaryWithoutLock(database, dictionary)) {
+                throw new AnalysisException("Dictionary " + dictionary.getName() + " has been dropped");
+            }
+            return database;
+        } finally {
+            unlockRead();
+        }
     }
 
     public Map<String, Dictionary> getDictionaries(String dbName) {
@@ -406,10 +440,17 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             LOG.info("skip adaptive dataLoad of dictionary " + dictionary.getName() + ". maybe last load finished.");
             return;
         }
+        // Resolve first so every LOADING refresh carries one exact owner generation.
+        Database database = getCurrentDatabase(dictionary);
+
         // use atomic status as a lock.
         if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
                     + dictionary.getStatus().name());
+        }
+
+        while (DebugPointUtil.isEnable("DictionaryManager.dataLoad.blockBeforePlan")) {
+            Thread.sleep(10);
         }
 
         if (ctx == null) { // for run with scheduler, not by command.
@@ -433,7 +474,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             baseCommand.setJobId(DICTIONARY_JOB_ID);
         }
 
-        InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(baseCommand, dictionary, adaptiveLoad);
+        InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
+                baseCommand, database, dictionary, adaptiveLoad);
 
         // run with sync by status.
         try {
@@ -464,8 +506,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockRead();
         boolean unlocked = false;
         try {
-            if (!dictionaryIds.containsKey(dictionary.getDbName())
-                    || !dictionaryIds.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
+            if (!isCurrentDictionaryWithoutLock(database, dictionary)) {
                 unlockRead();
                 unlocked = true;
 

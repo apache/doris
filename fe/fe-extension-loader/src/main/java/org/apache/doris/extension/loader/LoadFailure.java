@@ -31,6 +31,8 @@ public final class LoadFailure {
     public static final String STAGE_DISCOVER = "discover";
     public static final String STAGE_INSTANTIATE = "instantiate";
     public static final String STAGE_CONFLICT = "conflict";
+    /** The plugin jar declares a plugin API version this FE cannot serve, or declares none. */
+    public static final String STAGE_API_VERSION = "apiVersion";
 
     private final Path pluginDir;
     private final String stage;

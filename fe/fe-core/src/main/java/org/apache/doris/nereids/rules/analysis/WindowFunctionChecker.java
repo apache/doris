@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -66,6 +67,7 @@ import java.util.stream.Collectors;
  *  window frame (RANGE between UNBOUNDED PRECEDING and CURRENT ROW)
  */
 public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, Void> {
+    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
 
     private WindowExpression windowExpression;
 
@@ -183,14 +185,14 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         // case 5
         // check correctness of left boundary and right boundary
         if (left.hasOffset() && right.hasOffset()) {
-            double leftOffsetValue = ((Literal) left.getBoundOffset().get()).getDouble();
-            double rightOffsetValue = ((Literal) right.getBoundOffset().get()).getDouble();
+            BigDecimal leftOffsetValue = getBoundOffsetValue(left);
+            BigDecimal rightOffsetValue = getBoundOffsetValue(right);
             if (left.asPreceding() && right.asPreceding()) {
-                Preconditions.checkArgument(leftOffsetValue >= rightOffsetValue, "WindowFrame with "
+                Preconditions.checkArgument(leftOffsetValue.compareTo(rightOffsetValue) >= 0, "WindowFrame with "
                         + "PRECEDING boundary requires that leftBoundOffset >= rightBoundOffset");
             } else if (left.asFollowing() && right.asFollowing()) {
-                Preconditions.checkArgument(leftOffsetValue <= rightOffsetValue, "WindowFrame with "
-                        + "FOLLOWING boundary requires that leftBoundOffset >= rightBoundOffset");
+                Preconditions.checkArgument(leftOffsetValue.compareTo(rightOffsetValue) <= 0, "WindowFrame with "
+                        + "FOLLOWING boundary requires that leftBoundOffset <= rightBoundOffset");
             }
         }
 
@@ -200,9 +202,9 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     /**
      * check boundOffset of FrameBoundary if it exists:
      * 1 boundOffset should be Literal, but this restriction can be removed after completing FoldConstant
-     * 2 boundOffset should be positive
-     * 2 boundOffset should be a positive INTEGER if FrameUnitsType == ROWS
-     * 3 boundOffset should be a positive INTEGER or DECIMAL if FrameUnitsType == RANGE
+     * 2 boundOffset should be an INTEGER if FrameUnitsType == ROWS
+     * 3 boundOffset should be an INTEGER or DECIMAL if FrameUnitsType == RANGE
+     * 4 boundOffset should be positive
      */
     private void checkFrameBoundOffset(FrameBoundary frameBoundary) {
         Expression offset = frameBoundary.getBoundOffset().get();
@@ -211,21 +213,31 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         Preconditions.checkArgument(offset.isLiteral(), "BoundOffset of WindowFrame must be Literal");
 
         // case 2
-        boolean isPositive = ((Literal) offset).getDouble() > 0;
-        Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
-
-        // case 3
         FrameUnitsType frameUnits = windowExpression.getWindowFrame().get().getFrameUnits();
         if (frameUnits == FrameUnitsType.ROWS) {
             Preconditions.checkArgument(offset.getDataType().isIntegralType(),
                     "BoundOffset of ROWS WindowFrame must be an Integer");
         }
 
-        // case 4
+        // case 3
         if (frameUnits == FrameUnitsType.RANGE) {
             Preconditions.checkArgument(offset.getDataType().isNumericType(),
                     "BoundOffset of RANGE WindowFrame must be an Integer or Decimal");
         }
+
+        // case 4
+        BigDecimal offsetValue = getBoundOffsetValue(frameBoundary);
+        boolean isPositive = offsetValue.compareTo(BigDecimal.ZERO) > 0;
+        Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
+
+        if (frameUnits == FrameUnitsType.ROWS) {
+            Preconditions.checkArgument(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
+                    "BoundOffset of ROWS WindowFrame must not exceed " + Long.MAX_VALUE);
+        }
+    }
+
+    private BigDecimal getBoundOffsetValue(FrameBoundary frameBoundary) {
+        return new BigDecimal(((Literal) frameBoundary.getBoundOffset().get()).getStringValue());
     }
 
     /* ********************************************************************************************
