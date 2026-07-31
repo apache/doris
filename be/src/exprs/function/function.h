@@ -680,5 +680,8 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t input_rows_count);
+ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
+                           const NullableColumnInfos& nullable_column_infos,
+                           size_t input_rows_count);
 
 } // namespace doris
