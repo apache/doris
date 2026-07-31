@@ -500,6 +500,32 @@ TEST(AdbcReaderTest, RejectsIncompleteAdbcParams) {
     EXPECT_FALSE(reader->init(&state).ok());
 }
 
+// A range says either "run this statement" or "read this partition of a statement already run".
+// Accepting one that says both would let this reader execute a query the source has already
+// executed, depending only on which branch the code happened to take first.
+TEST(AdbcReaderTest, RejectsARangeThatSaysBothOrNeitherKindOfWork) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = string_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_exclusive_work_test");
+
+    auto both = fake_adbc_range();
+    both.table_format_params.adbc_params["partition_descriptor"] = "Zm9vYmFy";
+    auto both_reader = create_reader(&profile, both, slots, {});
+    const auto both_status = both_reader->init(&state);
+    ASSERT_FALSE(both_status.ok());
+    EXPECT_NE(both_status.to_string().find("both"), std::string::npos) << both_status.to_string();
+
+    auto neither = fake_adbc_range();
+    neither.table_format_params.adbc_params.erase("query_sql");
+    auto neither_reader = create_reader(&profile, neither, slots, {});
+    const auto neither_status = neither_reader->init(&state);
+    ASSERT_FALSE(neither_status.ok());
+    EXPECT_NE(neither_status.to_string().find("neither"), std::string::npos)
+            << neither_status.to_string();
+}
+
 // Group B: the real ADBC C API call sequence, against the SQLite driver thirdparty builds.
 
 class AdbcSqliteReaderTest : public ::testing::Test {
@@ -637,6 +663,64 @@ TEST_F(AdbcSqliteReaderTest, InvalidQuerySurfacesTheDriverMessage) {
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("no_such_table"), std::string::npos)
             << "driver message was lost: " << status.to_string();
+}
+
+// A partition descriptor is FE's base64 of driver-private bytes. Garbage there has to be named as
+// such: handed to the driver undecoded it would come back as an opaque parse failure from inside a
+// protobuf, with nothing pointing at the parameter that was wrong.
+TEST_F(AdbcSqliteReaderTest, RejectsAPartitionDescriptorThatIsNotBase64) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = sqlite_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_bad_partition_test");
+
+    auto range = adbc_range({
+            {"driver_path", adbc_sqlite_driver_path()},
+            {"uri", uri()},
+            {"partition_descriptor", "not base64 at all!!"},
+    });
+    auto reader = create_reader(&profile, range, slots, {});
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    const auto status = reader->open(request);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("partition_descriptor"), std::string::npos)
+            << status.to_string();
+}
+
+// The reader must actually take the partition branch, not fall through to running a statement it
+// was not given. SQLite has no partitioned execution, so the proof that the call was made is the
+// driver's own refusal of it -- naming ConnectionReadPartition, the entry point only this branch
+// reaches. Reading a partition successfully needs a source that produces one, which is the Flight
+// SQL regression suite, not a unit test.
+TEST_F(AdbcSqliteReaderTest, ReadsAPartitionThroughTheDriverInsteadOfRunningAStatement) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = sqlite_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_partition_branch_test");
+
+    auto range = adbc_range({
+            {"driver_path", adbc_sqlite_driver_path()},
+            {"uri", uri()},
+            // Valid base64; the bytes are meaningless to the driver, which never gets to look at
+            // them because it has no partition support at all.
+            {"partition_descriptor", "Zm9vYmFy"},
+    });
+    auto reader = create_reader(&profile, range, slots, {});
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    const auto status = reader->open(request);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("ConnectionReadPartition"), std::string::npos)
+            << "the partition branch was not taken: " << status.to_string();
 }
 
 // ---- the release contract Arrow aborts the process over ----

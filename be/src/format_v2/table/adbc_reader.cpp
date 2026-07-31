@@ -48,6 +48,7 @@
 #include "runtime/runtime_state.h"
 #include "util/adbc_driver_registry.h"
 #include "util/timezone_utils.h"
+#include "util/url_coding.h"
 
 namespace doris::format::adbc {
 namespace {
@@ -60,6 +61,10 @@ constexpr const char* kParamUri = "uri";
 constexpr const char* kParamUsername = "username";
 constexpr const char* kParamPassword = "password";
 constexpr const char* kParamQuerySql = "query_sql";
+// Base64 of one opaque partition descriptor the driver produced on FE. Mutually exclusive with
+// kParamQuerySql: a range either runs a statement here or reads one partition of a statement the
+// source has already run.
+constexpr const char* kParamPartitionDescriptor = "partition_descriptor";
 // Anything under this prefix is an ADBC option name in full (the prefix is part of the option name,
 // e.g. "adbc.connection.autocommit") and is handed to the driver untouched.
 constexpr std::string_view kAdbcOptionPrefix = "adbc.";
@@ -79,11 +84,23 @@ Status validate_adbc_range(const TFileRangeDesc& range) {
         return Status::InvalidArgument("ADBC reader requires adbc_params");
     }
     const auto& params = range.table_format_params.adbc_params;
-    for (const auto* key : {kParamDriverPath, kParamUri, kParamQuerySql}) {
+    for (const auto* key : {kParamDriverPath, kParamUri}) {
         const auto* value = find_param(params, key);
         if (value == nullptr || value->empty()) {
             return Status::InvalidArgument("ADBC reader requires a non-empty '{}' parameter", key);
         }
+    }
+    const auto* query_sql = find_param(params, kParamQuerySql);
+    const auto* partition = find_param(params, kParamPartitionDescriptor);
+    const bool has_query = query_sql != nullptr && !query_sql->empty();
+    const bool has_partition = partition != nullptr && !partition->empty();
+    // Not a defensive nicety: reading a partition means the source has ALREADY run the statement, so
+    // a range carrying both would let this reader run it a second time depending on which branch it
+    // happened to take. FE refuses to build such a range; this refuses to act on one.
+    if (has_query == has_partition) {
+        return Status::InvalidArgument(
+                "ADBC reader requires exactly one of '{}' and '{}', but the range carries {}",
+                kParamQuerySql, kParamPartitionDescriptor, has_query ? "both" : "neither");
     }
     return Status::OK();
 }
@@ -147,8 +164,9 @@ public:
         const auto& params = _range.table_format_params.adbc_params;
         const std::string& driver_path = *find_param(params, kParamDriverPath);
         const std::string& uri = *find_param(params, kParamUri);
-        const std::string& query_sql = *find_param(params, kParamQuerySql);
         const auto* entrypoint = find_param(params, kParamDriverEntrypoint);
+        // validate_adbc_range has established that exactly one of these is present.
+        const auto* partition = find_param(params, kParamPartitionDescriptor);
 
         RETURN_IF_ERROR(AdbcDriverRegistry::instance().get_or_load(
                 driver_path, entrypoint != nullptr ? *entrypoint : std::string(), &_driver));
@@ -166,20 +184,15 @@ public:
         RETURN_IF_ADBC_ERROR(_driver->ConnectionInit(&_connection, &_database, error.get()),
                              "ConnectionInit", error);
 
-        RETURN_IF_ADBC_ERROR(_driver->StatementNew(&_connection, &_statement, error.get()),
-                             "StatementNew", error);
-        _statement_created = true;
-        RETURN_IF_ADBC_ERROR(
-                _driver->StatementSetSqlQuery(&_statement, query_sql.c_str(), error.get()),
-                "StatementSetSqlQuery", error);
-
-        int64_t rows_affected = -1;
-        RETURN_IF_ADBC_ERROR(_driver->StatementExecuteQuery(&_statement, &_c_stream, &rows_affected,
-                                                            error.get()),
-                             "StatementExecuteQuery", error);
+        if (partition != nullptr && !partition->empty()) {
+            RETURN_IF_ERROR(_read_partition(*partition, error));
+        } else {
+            RETURN_IF_ERROR(_execute_query(*find_param(params, kParamQuerySql), error));
+        }
 
         // Before Arrow ever sees it: the driver's stream may not clear its release callback, and
-        // Arrow aborts the process when that happens.
+        // Arrow aborts the process when that happens. Both branches need it -- the Flight SQL
+        // driver's ReadPartition stream breaks the contract exactly like its ExecuteQuery one.
         enforce_stream_release_contract(&_c_stream);
 
         auto reader = arrow::ImportRecordBatchReader(&_c_stream);
@@ -247,6 +260,38 @@ public:
     }
 
 private:
+    // Runs the statement FE generated. One statement per range, so this range is the whole query.
+    Status _execute_query(const std::string& query_sql, AdbcErrorGuard& error) {
+        RETURN_IF_ADBC_ERROR(_driver->StatementNew(&_connection, &_statement, error.get()),
+                             "StatementNew", error);
+        _statement_created = true;
+        RETURN_IF_ADBC_ERROR(
+                _driver->StatementSetSqlQuery(&_statement, query_sql.c_str(), error.get()),
+                "StatementSetSqlQuery", error);
+        int64_t rows_affected = -1;
+        RETURN_IF_ADBC_ERROR(_driver->StatementExecuteQuery(&_statement, &_c_stream, &rows_affected,
+                                                            error.get()),
+                             "StatementExecuteQuery", error);
+        return Status::OK();
+    }
+
+    // Reads one partition of a query FE already had the source execute. No statement is created:
+    // ADBC reads a partition off a connection, and the whole point is that this can happen on a
+    // different machine from the one that planned it.
+    Status _read_partition(const std::string& base64_descriptor, AdbcErrorGuard& error) {
+        std::string descriptor;
+        if (!base64_decode(base64_descriptor, &descriptor)) {
+            return Status::InvalidArgument(
+                    "ADBC: the '{}' parameter is not valid base64", kParamPartitionDescriptor);
+        }
+        RETURN_IF_ADBC_ERROR(
+                _driver->ConnectionReadPartition(
+                        &_connection, reinterpret_cast<const uint8_t*>(descriptor.data()),
+                        descriptor.size(), &_c_stream, error.get()),
+                "ConnectionReadPartition", error);
+        return Status::OK();
+    }
+
     Status _set_database_options(const std::map<std::string, std::string>& params,
                                  const std::string& uri, AdbcErrorGuard& error) {
         RETURN_IF_ADBC_ERROR(
