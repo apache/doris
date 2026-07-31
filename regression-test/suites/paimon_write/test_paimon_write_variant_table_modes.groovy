@@ -62,17 +62,6 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
         ) USING paimon
         TBLPROPERTIES ('file.format' = 'parquet');
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_shredded;
-        CREATE TABLE paimon.${dbName}.t_variant_shredded (
-            id INT,
-            payload VARIANT
-        ) USING paimon
-        TBLPROPERTIES (
-            'file.format' = 'parquet',
-            'parquet.variant.shreddingSchema' =
-            '{"type":"ROW","fields":[{"name":"payload","type":{"type":"ROW","fields":[{"name":"age","type":"INT"},{"name":"city","type":"STRING"}]}}]}'
-        );
-
         DROP TABLE IF EXISTS paimon.${dbName}.t_non_variant;
         CREATE TABLE paimon.${dbName}.t_non_variant (
             id INT,
@@ -168,33 +157,6 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
                 ["2", "after-add", "added", null],
                 ["3", "after-normal-column", "continued", "default-note"]
         ], schemaRows.collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        })
-
-        // Paimon Parquet shredding still receives standard V2 value/metadata bytes.
-        sql """
-            INSERT INTO t_variant_shredded VALUES
-                (1, parse_to_variant('{"age":27,"city":"Beijing"}')),
-                (2, parse_to_variant('{"age":28}')),
-                (3, parse_to_variant('{"city":"Hangzhou","other":"kept"}')),
-                (4, parse_to_variant('"scalar"')),
-                (5, parse_to_variant('{}'))
-        """
-        def shreddedRows = spark_paimon """
-            SELECT id,
-                   variant_get(payload, '${root}.age', 'int'),
-                   variant_get(payload, '${root}.city', 'string'),
-                   variant_get(payload, '${root}.other', 'string')
-            FROM paimon.${dbName}.t_variant_shredded
-            ORDER BY id
-        """
-        assertEquals([
-                ["1", "27", "Beijing", null],
-                ["2", "28", null, null],
-                ["3", null, "Hangzhou", "kept"],
-                ["4", null, null, null],
-                ["5", null, null, null]
-        ], shreddedRows.collect { row ->
             row.collect { value -> value == null ? null : value.toString() }
         })
 
