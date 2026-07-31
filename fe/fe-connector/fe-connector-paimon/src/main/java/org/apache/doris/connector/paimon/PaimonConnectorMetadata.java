@@ -47,6 +47,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
@@ -457,25 +458,55 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // (identical equals/hashCode/toString and the same sys Identifier). The support check above
         // stays case-insensitive; only the canonical stored name is lowercased.
         String sys = sysName.toLowerCase(java.util.Locale.ROOT);
-        Identifier sysId = new Identifier(
-                base.getDatabaseName(), base.getTableName(), "main", sys);
-        // M-11: wrap the remote getTable in executeAuthenticated (D-052). TableNotExistException is
-        // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise) and signalled out as a
-        // null Table so this method can still short-circuit to Optional.empty().
-        Table sysTable;
-        try {
-            sysTable = context.executeAuthenticated(() -> {
-                try {
-                    return catalogOps.getTable(sysId);
-                } catch (Catalog.TableNotExistException e) {
-                    return null;
-                }
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load Paimon system table: " + sysId, e);
-        }
+        // Build the wrapper over the base Table this handle ALREADY carries, exactly the way the
+        // Paimon catalog builds it ({@code CatalogUtils#createSystemTable}), and keep that base on
+        // the sys handle. Loading the wrapper from the catalog instead would give it its own schema
+        // generation, independent of any base a consumer resolves later: the FE would then plan on
+        // one generation while PaimonScanPlanProvider serializes to the BE a system table rebuilt
+        // over the other one, and a system table whose row type follows the base schema
+        // ($audit_log, $binlog, $ro) could reach the BE without the columns the FE asked for.
+        //
+        // Strictly the ALREADY-RESOLVED reference, never a reload: getTableHandle stashes it one
+        // call earlier (PluginDrivenSysExternalTable#resolveConnectorTableHandle resolves the base
+        // handle immediately before this), so the normal path needs no round-trip. Resolving it
+        // here instead would enter the authenticator a second time and would turn a missing base
+        // table into a thrown RuntimeException rather than this method's Optional.empty() contract.
+        //
+        // "Exactly the way the catalog builds it" includes building it over the UNDECORATED base:
+        // CatalogUtils#loadTable hands createSystemTable the raw FileStoreTableFactory#create
+        // result, and the decorator a catalog may add afterwards never reaches a system table,
+        // because it only wraps a FileStoreTable and no system table is one. That matters for $ro:
+        // ReadOptimizedTable#newScan builds its two-branch FallbackReadScan only when its immediate
+        // wrapped object is a FallbackReadFileStoreTable, so with a PrivilegedFileStoreTable in
+        // between it would plan the main branch alone through the pair's inherited
+        // newSnapshotReader() and silently drop every fallback-only partition.
+        Table baseTable = base.getPaimonTable();
+        FileStoreTable sysBase = baseTable instanceof FileStoreTable
+                ? PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) baseTable)
+                : null;
+        Table sysTable = sysBase == null ? null : SystemTableLoader.load(sys, sysBase);
         if (sysTable == null) {
-            return Optional.empty();
+            // Not a file store table (format / object table): let the catalog decide.
+            // M-11: wrap the remote getTable in executeAuthenticated (D-052). TableNotExistException is
+            // caught INSIDE the lambda (Kerberos UGI.doAs would wrap it otherwise) and signalled out as a
+            // null Table so this method can still short-circuit to Optional.empty().
+            Identifier sysId = new Identifier(
+                    base.getDatabaseName(), base.getTableName(), "main", sys);
+            try {
+                sysTable = context.executeAuthenticated(() -> {
+                    try {
+                        return catalogOps.getTable(sysId);
+                    } catch (Catalog.TableNotExistException e) {
+                        return null;
+                    }
+                });
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to load Paimon system table: " + sysId, e);
+            }
+            if (sysTable == null) {
+                return Optional.empty();
+            }
+            sysBase = null;
         }
         // #65984 widened the name-forced set to include row_tracking: like binlog/audit_log its rows
         // are materialized by the paimon reader itself, so the native reader would return wrong rows.
@@ -484,6 +515,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
                 base.getDatabaseName(), base.getTableName(), sys, forceJni);
         handle.setPaimonTable(sysTable);
+        handle.setSysBaseTable(sysBase);
         return Optional.of(handle);
     }
 

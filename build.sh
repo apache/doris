@@ -1260,6 +1260,37 @@ EOF
         fi
     done        
 
+    # Guard the Paimon FileIO SPI classloader boundary on the built artifacts. The FileIOLoader
+    # interface (paimon-common) and every provider implementing it must sit in the same jar:
+    # JniScannerClassLoader delegates parent-first, so a provider left on the shared
+    # preload-extensions (JVM app) classpath cannot resolve the child-only interface and
+    # ServiceLoader discovery aborts at runtime with "NoClassDefFoundError: FileIOLoader". Unit
+    # tests all run in one classloader and cannot reproduce that, so assert it on the packages.
+    PAIMON_SCANNER_JAR="${BE_JAVA_EXTENSIONS_DIR}/paimon-scanner/paimon-scanner-jar-with-dependencies.jar"
+    PRELOAD_JAR="${BE_JAVA_EXTENSIONS_DIR}/preload-extensions/preload-extensions-jar-with-dependencies.jar"
+    if [[ -f "${PAIMON_SCANNER_JAR}" ]]; then
+        # Tolerate a missing entry (unzip exits 11) so the message below is what the build prints.
+        FILE_IO_SERVICES="$(unzip -p "${PAIMON_SCANNER_JAR}" \
+            META-INF/services/org.apache.paimon.fs.FileIOLoader 2>/dev/null || true)"
+        for loader in org.apache.paimon.s3.S3Loader org.apache.paimon.jindo.JindoLoader; do
+            if ! echo "${FILE_IO_SERVICES}" | grep -q -x "${loader}"; then
+                echo "ERROR: ${loader} is missing from META-INF/services/org.apache.paimon.fs.FileIOLoader"
+                echo "       in ${PAIMON_SCANNER_JAR}. Paimon object-store reads on BE would fail;"
+                echo "       keep the FileIO plugins bundled in paimon-scanner."
+                exit 1
+            fi
+        done
+    fi
+    # No "grep -q" here: it exits on the first match and SIGPIPEs unzip halfway through this jar's
+    # 120k-entry listing, which under "set -o pipefail" makes the pipeline 141 and silently skips
+    # the error below - exactly when a provider did leak in. Let grep consume the whole listing.
+    if [[ -f "${PRELOAD_JAR}" ]] &&
+        unzip -l "${PRELOAD_JAR}" | grep -E 'org/apache/paimon/(s3|jindo)/' >/dev/null; then
+        echo "ERROR: ${PRELOAD_JAR} bundles a Paimon FileIOLoader provider. It would be defined by"
+        echo "       the JVM app classloader, which carries no FileIOLoader interface."
+        exit 1
+    fi
+
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
