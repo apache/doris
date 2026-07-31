@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -181,8 +183,13 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                 && ((Cast) left).getDataType().equals(right.getDataType())) {
             Cast cast = (Cast) left;
             if (cast.child().getDataType() instanceof DateTimeType
-                    || cast.child().getDataType() instanceof DateTimeV2Type) {
+                    || cast.child().getDataType() instanceof DateTimeV2Type
+                    || cast.child().getDataType() instanceof TimeStampNsType) {
                 // right is datetime
+                if (right instanceof TimeStampNsLiteral) {
+                    return processDateTimeLikeComparisonPredicateTimeStampNsLiteral(
+                            cp, cast.child(), (TimeStampNsLiteral) right);
+                }
                 if (right instanceof DateTimeV2Literal) {
                     return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
                             cp, cast.child(), (DateTimeV2Literal) right);
@@ -203,6 +210,40 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         return cp;
     }
 
+    private static Expression processDateTimeLikeComparisonPredicateTimeStampNsLiteral(
+            ComparisonPredicate comparisonPredicate, Expression left, TimeStampNsLiteral right) {
+        DataType leftType = left.getDataType();
+        if (leftType instanceof TimeStampNsType) {
+            return comparisonPredicate;
+        }
+        if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)) {
+            return comparisonPredicate;
+        }
+        int toScale = leftType instanceof DateTimeV2Type ? ((DateTimeV2Type) leftType).getScale() : 0;
+        if (toScale >= TimeStampNsType.SCALE) {
+            return comparisonPredicate;
+        }
+
+        DateTimeV2Literal rounded;
+        if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
+            rounded = right.roundFloorToDateTimeV2(toScale);
+            if (rounded.getNanoSecond() != right.getNanoSecond()) {
+                return comparisonPredicate instanceof NullSafeEqual
+                        ? BooleanLiteral.FALSE : ExpressionUtils.falseOrNull(left);
+            }
+        } else if (comparisonPredicate instanceof GreaterThan
+                || comparisonPredicate instanceof LessThanEqual) {
+            rounded = right.roundFloorToDateTimeV2(toScale);
+        } else if (comparisonPredicate instanceof LessThan
+                || comparisonPredicate instanceof GreaterThanEqual) {
+            rounded = right.roundCeilingToDateTimeV2(toScale);
+        } else {
+            return comparisonPredicate;
+        }
+        Expression newRight = leftType instanceof DateTimeType ? migrateToDateTime(rounded) : rounded;
+        return comparisonPredicate.withChildren(left, newRight);
+    }
+
     // process cast(datetime as datetime) cmp datetime
     private static Expression processDateTimeLikeComparisonPredicateDateTimeV2Literal(
             ComparisonPredicate comparisonPredicate, Expression left, DateTimeV2Literal right) {
@@ -214,9 +255,9 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         DateTimeV2Type rightType = right.getDataType();
         if (toScale < rightType.getScale()) {
             if (comparisonPredicate instanceof EqualTo) {
-                long originValue = right.getMicroSecond();
+                long originValue = right.getNanoSecond();
                 right = right.roundFloor(toScale);
-                if (right.getMicroSecond() != originValue) {
+                if (right.getNanoSecond() != originValue) {
                     // TODO: the ideal way is to return an If expr like:
                     // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
                     // BooleanLiteral.of(false));
@@ -226,9 +267,9 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     return ExpressionUtils.falseOrNull(left);
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
-                long originValue = right.getMicroSecond();
+                long originValue = right.getNanoSecond();
                 right = right.roundFloor(toScale);
-                if (right.getMicroSecond() != originValue) {
+                if (right.getNanoSecond() != originValue) {
                     return BooleanLiteral.of(false);
                 }
             } else if (comparisonPredicate instanceof GreaterThan
@@ -277,28 +318,51 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
     private static Expression processDateTimeLikeComparisonPredicateDateLiteral(
             ComparisonPredicate comparisonPredicate, Expression left, DateLiteral right) {
         DataType leftType = left.getDataType();
-        if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)) {
+        if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)
+                && !(leftType instanceof TimeStampNsType)) {
             return comparisonPredicate;
         }
         if (right instanceof DateTimeLiteral) {
             return comparisonPredicate;
         }
 
-        DateTimeLiteral lowBound = null;
-        DateTimeLiteral upBound = null;
+        DateLiteral lowBound;
+        DateLiteral upBound;
         if (leftType instanceof DateTimeType) {
             lowBound = new DateTimeLiteral(right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0);
             upBound = new DateTimeLiteral(right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59);
-        } else {
-            long upMicroSecond = 0;
-            for (int i = 0; i < ((DateTimeV2Type) leftType).getScale(); i++) {
-                upMicroSecond = 10 * upMicroSecond + 9;
+        } else if (leftType instanceof TimeStampNsType) {
+            // TIMESTAMP_NS has fixed scale 9 and an Int64 epoch-nanosecond range. Its boundary
+            // dates are only partially representable, so a whole-day rewrite must use the exact
+            // type bounds instead of constructing an invalid midnight or end-of-day literal.
+            TimeStampNsLiteral minValue = TimeStampNsLiteral.getMinValue();
+            TimeStampNsLiteral maxValue = TimeStampNsLiteral.getMaxValue();
+            DateV2Literal minDate = new DateV2Literal(
+                    minValue.getYear(), minValue.getMonth(), minValue.getDay());
+            DateV2Literal maxDate = new DateV2Literal(
+                    maxValue.getYear(), maxValue.getMonth(), maxValue.getDay());
+            int compareToMin = right.compareTo(minDate);
+            int compareToMax = right.compareTo(maxDate);
+            if (compareToMin < 0 || compareToMax > 0) {
+                return simplifyDateComparisonOutsideRange(
+                        comparisonPredicate, left, compareToMin < 0);
             }
-            upMicroSecond *= (int) Math.pow(10, 6 - ((DateTimeV2Type) leftType).getScale());
-            lowBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
+            lowBound = compareToMin == 0 ? minValue : new TimeStampNsLiteral(
                     right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0, 0);
-            upBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
-                    right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59, upMicroSecond);
+            upBound = compareToMax == 0 ? maxValue : TimeStampNsLiteral.createEndOfDay(
+                    right.getYear(), right.getMonth(), right.getDay());
+        } else {
+            DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) leftType;
+            long upperFraction = 0;
+            for (int i = 0; i < dateTimeV2Type.getScale(); i++) {
+                upperFraction = 10 * upperFraction + 9;
+            }
+            int scale = dateTimeV2Type.getScale();
+            upperFraction *= (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - scale);
+            lowBound = new DateTimeV2Literal(dateTimeV2Type,
+                    right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0, 0);
+            upBound = new DateTimeV2Literal(dateTimeV2Type,
+                    right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59, upperFraction);
         }
 
         if (comparisonPredicate instanceof GreaterThanEqual || comparisonPredicate instanceof LessThan) {
@@ -321,17 +385,43 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         return comparisonPredicate;
     }
 
+    /**
+     * Simplify a date/datetime comparison whose right literal is outside the range representable by
+     * the left expression. For every non-null left value, the result is constant and depends only on
+     * the comparison direction and whether the literal is below the minimum or above the maximum.
+     * Null-safe equality is always false; other predicates return true-or-null or false-or-null to
+     * preserve SQL three-valued logic when the left expression is nullable.
+     *
+     * @param comparisonPredicate comparison to simplify
+     * @param left left expression whose type defines the representable range
+     * @param rightBeforeMin true if the right literal is below that range; false if it is above
+     * @return the constant-equivalent expression with the original NULL semantics
+     */
+    private static Expression simplifyDateComparisonOutsideRange(
+            ComparisonPredicate comparisonPredicate, Expression left, boolean rightBeforeMin) {
+        if (comparisonPredicate instanceof NullSafeEqual) {
+            return BooleanLiteral.FALSE;
+        }
+        if (comparisonPredicate instanceof EqualTo) {
+            return ExpressionUtils.falseOrNull(left);
+        }
+        boolean alwaysTrue = rightBeforeMin
+                ? comparisonPredicate instanceof GreaterThan || comparisonPredicate instanceof GreaterThanEqual
+                : comparisonPredicate instanceof LessThan || comparisonPredicate instanceof LessThanEqual;
+        return alwaysTrue ? ExpressionUtils.trueOrNull(left) : ExpressionUtils.falseOrNull(left);
+    }
+
     // process cast(date as datetime/date) cmp datetime/date
     private static Expression processDateLikeComparisonPredicateDateLiteral(
             ComparisonPredicate comparisonPredicate, Expression left, DateLiteral right) {
         if (!(left.getDataType() instanceof DateType) && !(left.getDataType() instanceof DateV2Type)) {
             return comparisonPredicate;
         }
-        if (right instanceof DateTimeLiteral) {
-            DateTimeLiteral dateTimeLiteral = (DateTimeLiteral) right;
-            right = migrateToDateV2(dateTimeLiteral);
-            if (dateTimeLiteral.getHour() != 0 || dateTimeLiteral.getMinute() != 0
-                    || dateTimeLiteral.getSecond() != 0 || dateTimeLiteral.getMicroSecond() != 0) {
+        if (right.getDataType().isDateTimeType() || right.getDataType().isDateTimeV2Type()
+                || right.getDataType().isTimeStampNsType() || right.getDataType().isTimeStampTzType()) {
+            boolean isMidnight = right.isMidnight();
+            right = new DateV2Literal(right.getYear(), right.getMonth(), right.getDay());
+            if (!isMidnight) {
                 if (comparisonPredicate instanceof EqualTo) {
                     return ExpressionUtils.falseOrNull(left);
                 } else if (comparisonPredicate instanceof NullSafeEqual) {

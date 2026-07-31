@@ -154,7 +154,8 @@ public class JsonStreamResponse extends StreamResponseInf {
             for (int i = 1; i <= colNum; ++i) {
                 String type = rs.getMetaData().getColumnTypeName(i);
                 if ("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)
-                        || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type)) {
+                        || "DATEV2".equalsIgnoreCase(type) || "DATETIMEV2".equalsIgnoreCase(type)
+                        || "TIMESTAMP_NS".equalsIgnoreCase(type)) {
                     row.add(rs.getString(i));
                 } else {
                     row.add(rs.getObject(i));

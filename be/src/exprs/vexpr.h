@@ -616,6 +616,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        const auto* origin_value = reinterpret_cast<const TimeStampNsValue*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMESTAMP_NS));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         const auto* origin_value = reinterpret_cast<const TimestampTzValue*>(data);
         TDateLiteral date_literal;

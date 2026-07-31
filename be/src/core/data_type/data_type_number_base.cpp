@@ -63,7 +63,7 @@ std::string DataTypeNumberBase<T>::to_string(
         return std::to_string(value);
     } else if constexpr (T == TYPE_DATETIME || T == TYPE_DATE) {
         return std::to_string(binary_cast<doris::VecDateTimeValue, Int64>(value));
-    } else if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ) {
+    } else if constexpr (is_date_type(T) || T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T)) {
         return std::to_string(value.to_date_int_val());
     } else if constexpr (std::numeric_limits<typename PrimitiveTypeTraits<T>::CppType>::is_iec559) {
         return CastToString::from_number(value);
@@ -204,6 +204,7 @@ template class DataTypeNumberBase<TYPE_DATE>;
 template class DataTypeNumberBase<TYPE_DATEV2>;
 template class DataTypeNumberBase<TYPE_DATETIME>;
 template class DataTypeNumberBase<TYPE_DATETIMEV2>;
+template class DataTypeNumberBase<TYPE_TIMESTAMP_NS>;
 template class DataTypeNumberBase<TYPE_IPV4>;
 template class DataTypeNumberBase<TYPE_IPV6>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;

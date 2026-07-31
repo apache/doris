@@ -31,6 +31,7 @@
 #include "core/string_view.h"
 #include "core/types.h"
 #include "core/uint24.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/template_helpers.hpp"
@@ -74,6 +75,7 @@ class DataTypeTimeV2;
 class DataTypeDateTime;
 class DataTypeDate;
 class DataTypeDateTimeV2;
+class DataTypeTimeStampNs;
 class DataTypeDateV2;
 class DataTypeTimeStampTz;
 template <PrimitiveType T>
@@ -111,6 +113,7 @@ using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
 using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
+using ColumnTimeStampNs = ColumnVector<TYPE_TIMESTAMP_NS>;
 using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
@@ -139,6 +142,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
     case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
@@ -175,6 +179,10 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
 constexpr bool is_date_type(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
            type == TYPE_DATEV2;
+}
+
+constexpr bool is_timestamp_ns_type(PrimitiveType type) {
+    return type == TYPE_TIMESTAMP_NS;
 }
 
 constexpr bool is_time_type(PrimitiveType type) {
@@ -363,6 +371,13 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using StorageFieldType = uint64_t;
     using DataType = DataTypeDateTimeV2;
     using ColumnType = ColumnDateTimeV2;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_TIMESTAMP_NS> {
+    using CppType = TimeStampNsValue;
+    using StorageFieldType = int64_t;
+    using DataType = DataTypeTimeStampNs;
+    using ColumnType = ColumnTimeStampNs;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {

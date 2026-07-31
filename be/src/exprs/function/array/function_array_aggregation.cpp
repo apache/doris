@@ -261,8 +261,8 @@ struct ArrayAggregateImpl {
             if constexpr ((operation == AggregateOperation::SUM ||
                            operation == AggregateOperation::PRODUCT ||
                            operation == AggregateOperation::AVERAGE) &&
-                          (is_date_type(Element) || is_timestamptz_type(Element) ||
-                           is_decimalv3(Element))) {
+                          (is_date_type(Element) || is_timestamp_ns_type(Element) ||
+                           is_timestamptz_type(Element) || is_decimalv3(Element))) {
                 return false;
             } else {
                 using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
