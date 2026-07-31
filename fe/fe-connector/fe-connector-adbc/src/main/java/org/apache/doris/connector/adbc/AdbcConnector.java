@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -71,6 +72,16 @@ public class AdbcConnector implements Connector {
             LOG.warn("ADBC connection test failed", e);
             return ConnectorTestResult.failure("ADBC connection failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Scan planning, built per call because it holds no state -- the two things worth keeping across
+     * queries (the driver's dialect, the connection) live on the connector.
+     */
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider() {
+        return new AdbcScanPlanProvider(properties, resolveDriverPath(), dialectSelector,
+                this::getOrCreateClient);
     }
 
     /**
