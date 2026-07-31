@@ -185,6 +185,15 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testPinOptionsValidatesBeforeClearingInheritedState() {
+        DorisConnectorException unsupported = Assertions.assertThrows(
+                DorisConnectorException.class,
+                () -> PaimonScanParams.pinOptionsToSnapshot(
+                        ImmutableMap.of("scan.bounded.watermark", "1"), 10));
+        Assertions.assertTrue(unsupported.getMessage().contains("scan.bounded.watermark"));
+    }
+
+    @Test
     public void testApplyPositionClearsInheritedStartupState() {
         FakePaimonTable table = fakeTable();
         Table copied = fakeTable();
