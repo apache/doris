@@ -22,6 +22,12 @@
 // source cannot parse at all, and a driver stream whose release callback left
 // Arrow C++ to abort the whole BE.
 //
+// This driver supports partitioned execution, so the queries below take the
+// partitioned path by default: the query runs on the source at planning time
+// and each result partition is read back as its own scan range. A single-
+// backend source reports one partition, so what is proven here is that the
+// partition path returns the right rows -- NOT that it parallelizes.
+//
 // To run it you need, in this order:
 //   1. BE built with arrow-adbc (cd thirdparty && ./build-thirdparty.sh arrow_adbc),
 //      which also installs the prebuilt libadbc_driver_flightsql.so into
@@ -127,11 +133,65 @@ suite("test_adbc_catalog_scan", "p0,external") {
 
     // The statement sent to the source, which must be the one planScan would build. A pushed
     // predicate appears in it; the LIKE above must not.
+    //
+    // EXPLAIN plans the scan for real -- that is where inputSplitNum comes from -- so this also
+    // covers the rule that describing a query must not partition it: asking this source for
+    // partitions executes the query, and an EXPLAIN that did so would run the very query it was
+    // asked only to describe. Nothing here can see that from the outside, so the guarantee lives in
+    // AdbcScanPlanProviderTest; what this proves is that EXPLAIN still works and still shows the
+    // statement.
     explain {
         sql("SELECT id FROM ${catalogName}.${dbName}.t1 WHERE id > 1")
         contains "QUERY: "
     }
 
+    // ---- the two planning paths must agree ----
+    //
+    // Everything above ran through the partitioned path: this driver splits a query into the
+    // source's own result partitions and Doris reads each one on its own backend. A second catalog
+    // with that turned off reads the same tables by sending the statement to one backend, the way
+    // the JDBC connector always has. The rows must be identical -- that, not the range count, is
+    // what a user notices if the partition path drops or duplicates anything.
+    //
+    // LIMITED BY THIS SETUP: the source is a single-backend cluster, so it reports ONE partition per
+    // query and the partitioned path here is exercised at N=1. Reading N partitions across N
+    // backends needs a multi-backend source, and nothing below proves it works.
+    String singleRangeCatalog = "test_adbc_catalog_scan_single_range"
+    sql """DROP CATALOG IF EXISTS ${singleRangeCatalog}"""
+    sql """
+        CREATE CATALOG ${singleRangeCatalog} PROPERTIES (
+            "type" = "adbc",
+            "driver_url" = "${driverPath}",
+            "uri" = "grpc://127.0.0.1:${arrowPort}",
+            "user" = "root",
+            "password" = "",
+            "enable_partitioned_read" = "false"
+        )
+    """
+
+    // Compared as values rather than against a baseline: a baseline would pass if BOTH paths broke
+    // the same way, and the point here is that the two agree.
+    def sameOnBothPaths = { String query ->
+        def partitioned = sql(query.replace('@CATALOG@', catalogName))
+        def singleRange = sql(query.replace('@CATALOG@', singleRangeCatalog))
+        assertEquals(singleRange.toString(), partitioned.toString(),
+                "partitioned and single-range planning disagreed on: ${query}")
+        return partitioned
+    }
+
+    def allRows = sameOnBothPaths(
+            "SELECT id, name, score FROM @CATALOG@.${dbName}.t1 ORDER BY id")
+    assertEquals(3, allRows.size())
+
+    sameOnBothPaths("SELECT id FROM @CATALOG@.${dbName}.t1 ORDER BY id")
+    sameOnBothPaths("SELECT id, name FROM @CATALOG@.${dbName}.t1 WHERE id > 1 ORDER BY id")
+    sameOnBothPaths("SELECT id FROM @CATALOG@.${dbName}.t1 WHERE name IS NULL")
+    sameOnBothPaths("SELECT id FROM @CATALOG@.${dbName}.t1 WHERE name LIKE 'a%'")
+    sameOnBothPaths("SELECT id FROM @CATALOG@.${dbName}.t1 ORDER BY id LIMIT 2")
+    // Projects no columns at all, so BE counts rows without materializing any -- on both paths.
+    sameOnBothPaths("SELECT count(*) FROM @CATALOG@.${dbName}.t1")
+
+    sql """DROP CATALOG ${singleRangeCatalog}"""
     sql """DROP CATALOG ${catalogName}"""
     sql """DROP DATABASE ${dbName} FORCE"""
 }
