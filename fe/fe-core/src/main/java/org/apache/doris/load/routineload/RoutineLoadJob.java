@@ -1353,6 +1353,16 @@ public abstract class RoutineLoadJob
                     }
                     // TODO(ml): use previous be id depend on change reason
                 }
+                if (txnStatusChangeReason != TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
+                    String msg = "be " + taskBeId + " abort task,"
+                            + " task id: " + routineLoadTaskInfo.getId()
+                            + " job id: " + routineLoadTaskInfo.getJobId()
+                            + " with reason: " + txnStatusChangeReasonString;
+                    updateState(JobState.PAUSED,
+                            new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                            false /* not replay */);
+                    return;
+                }
                 // step2: commit task , update progress, maybe create a new task
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState,
                         TransactionStatus.ABORTED, txnStatusChangeReason);

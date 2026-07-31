@@ -108,7 +108,9 @@ public class RoutineLoadJobTest {
     }
 
     @Test
-    public void testAfterAborted() throws UserException {
+    public void testAfterAbortedTaskFailurePausesJob() throws UserException {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
         TransactionState transactionState = Mockito.mock(TransactionState.class);
         KafkaTaskInfo routineLoadTaskInfo = Mockito.mock(KafkaTaskInfo.class);
 
@@ -116,34 +118,26 @@ public class RoutineLoadJobTest {
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
 
-        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
-        TKafkaRLTaskProgress tKafkaRLTaskProgress = new TKafkaRLTaskProgress();
-        tKafkaRLTaskProgress.partitionCmtOffset = Maps.newHashMap();
-        KafkaProgress kafkaProgress = new KafkaProgress(tKafkaRLTaskProgress);
-        Deencapsulation.setField(attachment, "progress", kafkaProgress);
-        Deencapsulation.setField(attachment, "errorLogUrl", "http://127.0.0.1/error_log");
-        Deencapsulation.setField(attachment, "firstErrorMsg", "invalid source row");
-
-        KafkaProgress currentProgress = new KafkaProgress(tKafkaRLTaskProgress);
-
         Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
         Mockito.when(routineLoadTaskInfo.getTxnId()).thenReturn(txnId);
-        Mockito.doReturn(attachment).when(transactionState).getTxnCommitAttachment();
-        Mockito.when(routineLoadTaskInfo.getPartitions()).thenReturn(Lists.newArrayList());
 
-        String txnStatusChangeReasonString = "no data";
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
-        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
-        Deencapsulation.setField(routineLoadJob, "progress", currentProgress);
-        routineLoadJob.writeLock();
-        routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
-        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
-        Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
-        Assert.assertEquals("http://127.0.0.1/error_log", routineLoadJob.getErrorLogUrls().peek());
-        Assert.assertEquals("invalid source row", routineLoadJob.getFirstErrorMsg());
+            String txnStatusChangeReasonString = "failed to commit transaction";
+            RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
+            Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+            routineLoadJob.writeLock();
+            routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
+            RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
+
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+            Assert.assertEquals(InternalErrorCode.TASKS_ABORT_ERR, routineLoadJob.getPauseReason().getCode());
+            Assert.assertTrue(routineLoadJob.getPauseReason().getMsg().contains(txnStatusChangeReasonString));
+            Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
+        }
     }
 
     @Test

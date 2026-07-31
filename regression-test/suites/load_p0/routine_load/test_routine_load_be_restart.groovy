@@ -73,18 +73,19 @@ suite("test_routine_load_be_restart","nonConcurrent") {
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTopics)
                 GetDebugPoint().enableDebugPointForAllFEs(injection_abort_txn)
                 RoutineLoadTestUtils.waitForTaskAbort(runSql, job, 60)
+                def pausedJob = sql "show routine load for ${job}"
+                assertEquals("PAUSED", pausedJob[0][8].toString())
+                assertTrue(pausedJob[0][17].toString().contains("TASKS_ABORT_ERR"))
             } finally {
                 GetDebugPoint().disableDebugPointForAllFEs(injection_abort_txn)
                 GetDebugPoint().disableDebugPointForAllFEs(injection_load_hang)
             }
 
-            // After the simulated BE restart, the routine load must recover: new tasks are
-            // scheduled (afterAborted callback ran without exception) and data is loaded.
-            // If handleAfterAbort threw IllegalMonitorStateException the job would be stuck.
+            // After the simulated BE restart, auto resume must reschedule the paused job and load data.
             def count = RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 0)
             logger.info("rows loaded after be-restart abort, wait iterations: " + count)
 
-            // Verify job is still RUNNING (not PAUSED due to an exception in afterAborted).
+            // Verify the job recovered without a manual resume.
             def res = sql "show routine load for ${job}"
             assertEquals("RUNNING", res[0][8].toString())
 
