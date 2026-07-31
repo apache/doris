@@ -159,8 +159,8 @@ TEST_F(TDigestTest, MoreThan2BValues) {
         const auto count = 1L << 28;
         digest.add(next, count);
     }
-    EXPECT_EQ(static_cast<long>(1000 + float(10L * (1 << 28))), digest.totalWeight());
-    EXPECT_GT(digest.totalWeight(), std::numeric_limits<int32_t>::max());
+    EXPECT_EQ(static_cast<long>(1000 + float(10L * (1 << 28))), digest.total_weight());
+    EXPECT_GT(digest.total_weight(), std::numeric_limits<int32_t>::max());
     std::vector<double> quantiles {0, 0.1, 0.5, 0.9, 1, reals(gen)};
     std::sort(quantiles.begin(), quantiles.end());
     auto prev = std::numeric_limits<double>::min();
@@ -248,7 +248,7 @@ TEST_F(TDigestTest, BatchQuantilesMatchSingleQuantileInLeftTail) {
     ASSERT_EQ(digest.processed().size(), 2);
     ASSERT_FLOAT_EQ(digest.processed()[0].mean(), 1.0F);
     ASSERT_FLOAT_EQ(digest.processed()[0].weight(), 3.0F);
-    ASSERT_EQ(digest.totalWeight(), 6);
+    ASSERT_EQ(digest.total_weight(), 6);
 
     std::vector<double> levels {0.1};
     std::vector<size_t> permutation {0};
