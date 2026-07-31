@@ -552,8 +552,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties(false);
-        String computeGroupName = Config.isCloudMode() ? getCloudCluster() : null;
+        String computeGroupName = getComputeGroupName();
         return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties, computeGroupName);
+    }
+
+    private String getComputeGroupName() {
+        return Config.isCloudMode() ? getCloudCluster() : null;
     }
 
     public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
@@ -653,7 +657,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         for (Integer kafkaPartition : newPartitions) {
             partitionOffsets.add(Pair.of(kafkaPartition, beginOffset));
         }
-        String computeGroupName = Config.isCloudMode() ? getCloudCluster() : null;
+        String computeGroupName = getComputeGroupName();
         try {
             if (isOffsetForTimes()) {
                 partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList,
@@ -692,7 +696,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         List<Pair<Integer, Long>> kafkaPartitionOffsets = kafkaDataSourceProperties.getKafkaPartitionOffsets();
         boolean isForTimes = kafkaDataSourceProperties.isOffsetsForTimes();
-        String computeGroupName = Config.isCloudMode() ? getCloudCluster() : null;
+        String computeGroupName = getComputeGroupName();
         if (isForTimes) {
             // the offset is set by date time, we need to get the real offset by time
             kafkaPartitionOffsets = KafkaUtil.getOffsetsForTimes(kafkaDataSourceProperties.getBrokerList(),
@@ -801,7 +805,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (partitionOffsets.isEmpty()) {
             return;
         }
-        String computeGroupName = Config.isCloudMode() ? getCloudCluster() : null;
+        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> newOffsets;
         if (dataSourceProperties.isOffsetsForTimes()) {
             newOffsets = KafkaUtil.getOffsetsForTimes(
@@ -964,7 +968,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             } finally {
                 writeUnlock();
             }
-            String computeGroupName = Config.isCloudMode() ? getCloudCluster() : null;
+            String computeGroupName = getComputeGroupName();
             List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
                     topicSnapshot, customPropertiesSnapshot, Lists.newArrayList(partitionIdToOffset.keySet()),
                     computeGroupName);
@@ -1030,7 +1034,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             writeUnlock();
         }
         UUID taskId = UUID.randomUUID();
-        String computeGroupName = Config.isCloudMode() ? getCloudCluster() : null;
+        String computeGroupName = getComputeGroupName();
         List<Pair<Integer, Long>> latestOffsets = KafkaUtil.getLatestOffsets(id, taskId, brokerListSnapshot,
                 topicSnapshot, customPropertiesSnapshot, partitionIds, computeGroupName);
         updateLatestOffsetsCache(latestOffsets, taskId);
