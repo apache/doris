@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -59,6 +60,13 @@ class IvmLinearDeltaHandler {
             return Optional.empty();
         }
         return buildDeltaScanResult(scan, deltaScan.get(), state);
+    }
+
+    /**
+     * One-row relations are static inputs of an incremental plan, so they do not produce a delta.
+     */
+    Optional<IvmDeltaRewriteResult> rewriteOneRowRelation(LogicalOneRowRelation oneRowRelation) {
+        return Optional.empty();
     }
 
     private Optional<IvmDeltaRewriteResult> buildDeltaScanResult(LogicalOlapScan originalScan,
