@@ -131,13 +131,50 @@ jobs:
           # prebuilt predates the selected Arrow version/component closure.
           # The artifact check also covers scheduled and later BE-only builds,
           # where Paths Filter is skipped or reports no Arrow/Paimon changes.
-          arrow_major="$(
-            awk '$1 == "#define" && $2 == "ARROW_VERSION_MAJOR" { print $3; exit }' \
-              installed/include/arrow/util/config.h
-          )"
+          # shellcheck source=thirdparty/arrow-paimon-vars.sh
+          . ./arrow-paimon-vars.sh
+          arrow_paimon_prebuilt_valid=true
+          if [[ -f installed/include/arrow/util/config.h ]]; then
+            installed_arrow_version="$(
+              awk '$1 == "#define" && $2 == "ARROW_VERSION_STRING" {
+                     gsub(/"/, "", $3); print $3; exit
+                   }' installed/include/arrow/util/config.h
+            )"
+            if [[ "${installed_arrow_version}" != "${ARROW_VERSION}" ]]; then
+              arrow_paimon_prebuilt_valid=false
+            fi
+          else
+            arrow_paimon_prebuilt_valid=false
+          fi
+          required_arrow_paimon_libraries=(
+            libarrow.a
+            libarrow_compute.a
+            libarrow_flight.a
+            libarrow_flight_sql.a
+            libarrow_dataset.a
+            libarrow_acero.a
+            libarrow_bundled_dependencies.a
+            libparquet.a
+            libpaimon.a
+            libpaimon_parquet_file_format.a
+            libpaimon_orc_file_format.a
+            libpaimon_blob_file_format.a
+            libpaimon_local_file_system.a
+            libpaimon_file_index.a
+            libpaimon_global_index.a
+            libroaring_bitmap_paimon.a
+            libxxhash_paimon.a
+            libfmt_paimon.a
+            libtbb_paimon.a
+          )
+          for library in "${required_arrow_paimon_libraries[@]}"; do
+            if [[ ! -f "installed/lib64/${library}" ]]; then
+              arrow_paimon_prebuilt_valid=false
+              break
+            fi
+          done
           if [[ "${{ steps.filter.outputs.arrow_paimon_changes }}" == "true" ||
-                "${arrow_major}" != "24" ||
-                ! -f installed/lib64/libarrow_compute.a ]]; then
+                "${arrow_paimon_prebuilt_valid}" != "true" ]]; then
             curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
               -o doris-thirdparty-source.tgz
             tar -zxvf doris-thirdparty-source.tgz

@@ -22,9 +22,10 @@
 # distinguish this stack from unrelated thirdparty changes.
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-24.0.0.tar.gz"
-ARROW_NAME="apache-arrow-24.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-24.0.0"
+ARROW_VERSION="24.0.0"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-${ARROW_VERSION}.tar.gz"
+ARROW_NAME="apache-arrow-${ARROW_VERSION}.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-${ARROW_VERSION}"
 ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 
 # Arrow bundled dependencies
