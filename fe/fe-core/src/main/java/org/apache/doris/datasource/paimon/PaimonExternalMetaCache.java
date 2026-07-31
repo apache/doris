@@ -102,8 +102,13 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     public PaimonSnapshotCacheValue loadSnapshotAtFence(
             ExternalTable dorisTable, PaimonSnapshot fence) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        Table table = tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getPaimonTable();
-        return latestSnapshotProjectionLoader.loadAtFence(nameMapping, table, fence);
+        return latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence);
+    }
+
+    public PaimonSnapshotCacheValue loadSnapshotAtFence(
+            ExternalTable dorisTable, Table effectiveTable, PaimonSnapshot fence) {
+        return latestSnapshotProjectionLoader.loadEffectiveAtFence(
+                dorisTable.getOrBuildNameMapping(), effectiveTable, fence);
     }
 
     public PaimonSchemaCacheValue getPaimonSchemaCacheValue(NameMapping nameMapping, long schemaId) {

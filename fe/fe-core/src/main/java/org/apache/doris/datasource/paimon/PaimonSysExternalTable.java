@@ -43,6 +43,7 @@ import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -178,13 +179,24 @@ public class PaimonSysExternalTable extends ExternalTable {
     }
 
     public OptionalInt runtimeSafeManifestParallelism(TableScanParams scanParams) {
-        Table dataTable = getRawSysPaimonDataTable();
-        Table effectiveDataTable = scanParams != null && scanParams.isOptions()
-                ? PaimonScanParams.applyOptions(dataTable, resolvedOptions(scanParams))
-                : PaimonReaderOptions.runtimeSafeTable(dataTable);
+        Table effectiveDataTable = runtimeSafeDataTable(scanParams, Collections.emptyMap());
         // The serialized system wrapper does not expose this hidden value, so transport the
         // FE-safe bound separately for a smaller BE to lower after deserialization.
         return PaimonReaderOptions.runtimeSafeManifestParallelism(effectiveDataTable);
+    }
+
+    public FileStoreTable runtimeSafeDataTable(
+            TableScanParams scanParams, Map<String, String> incrementalOptions) {
+        FileStoreTable dataTable = getRawSysPaimonDataTable();
+        if (scanParams != null && scanParams.isOptions()) {
+            return (FileStoreTable) PaimonScanParams.applyOptions(
+                    dataTable, resolvedOptions(scanParams));
+        }
+        if (incrementalOptions != null && !incrementalOptions.isEmpty()) {
+            return (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
+                    dataTable.copy(incrementalOptions));
+        }
+        return (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(dataTable);
     }
 
     private Map<String, String> resolvedOptions(TableScanParams scanParams) {

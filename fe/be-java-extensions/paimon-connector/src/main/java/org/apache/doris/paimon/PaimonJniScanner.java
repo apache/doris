@@ -28,6 +28,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -37,6 +38,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
@@ -59,7 +61,6 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
@@ -77,6 +78,8 @@ public class PaimonJniScanner extends JniScanner {
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
     static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
+    static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
     static final String ENABLE_JNI_IO_MANAGER = "paimon.jni.enable_jni_io_manager";
     static final String JNI_IO_MANAGER_TMP_DIR = "paimon.jni.io_manager.tmp_dir";
     static final String JNI_IO_MANAGER_IMPL_CLASS = "paimon.jni.io_manager.impl_class";
@@ -618,51 +621,11 @@ public class PaimonJniScanner extends JniScanner {
         if (value == null || value.trim().isEmpty()) {
             return Optional.empty();
         }
-        String normalized = value.trim().toLowerCase(Locale.ROOT).replace("_", "").replace(" ", "");
-        int unitStart = 0;
-        while (unitStart < normalized.length()
-                && (Character.isDigit(normalized.charAt(unitStart)) || normalized.charAt(unitStart) == '.')) {
-            unitStart++;
-        }
-        if (unitStart == 0) {
-            return Optional.empty();
-        }
         try {
-            double number = Double.parseDouble(normalized.substring(0, unitStart));
-            String unit = normalized.substring(unitStart);
-            long multiplier;
-            switch (unit) {
-                case "":
-                case "b":
-                case "byte":
-                case "bytes":
-                    multiplier = 1L;
-                    break;
-                case "k":
-                case "kb":
-                case "kib":
-                    multiplier = 1024L;
-                    break;
-                case "m":
-                case "mb":
-                case "mib":
-                    multiplier = 1024L * 1024L;
-                    break;
-                case "g":
-                case "gb":
-                case "gib":
-                    multiplier = 1024L * 1024L * 1024L;
-                    break;
-                case "t":
-                case "tb":
-                case "tib":
-                    multiplier = 1024L * 1024L * 1024L * 1024L;
-                    break;
-                default:
-                    return Optional.empty();
-            }
-            return Optional.of((long) (number * multiplier));
-        } catch (NumberFormatException e) {
+            // Keep the BE guard's accepted grammar identical to the Paimon option parser that will
+            // consume this value; accepting a superset lets invalid serialized options reach scans.
+            return Optional.of(MemorySize.parse(value).getBytes());
+        } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
     }
@@ -670,9 +633,13 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
+        String encodedSystemSource = params.get(PAIMON_OPTION_PREFIX + DORIS_SERIALIZED_SYSTEM_SOURCE);
+        FileStoreTable systemSource = encodedSystemSource == null
+                ? null : PaimonUtils.deserialize(encodedSystemSource);
         table = applyBackendManifestParallelism(table,
                 params.get(PAIMON_OPTION_PREFIX + DORIS_MANIFEST_PARALLELISM_CAP),
-                Runtime.getRuntime().availableProcessors());
+                Runtime.getRuntime().availableProcessors(), systemSource,
+                params.get(PAIMON_OPTION_PREFIX + DORIS_SYSTEM_TABLE_TYPE));
         table = applyDefaultReadBatchSize(table, batchSize);
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
@@ -699,8 +666,16 @@ public class PaimonJniScanner extends JniScanner {
 
     static Table applyBackendManifestParallelism(
             Table table, String feParallelismCap, int localCapacity) {
+        return applyBackendManifestParallelism(
+                table, feParallelismCap, localCapacity, null, null);
+    }
+
+    static Table applyBackendManifestParallelism(
+            Table table, String feParallelismCap, int localCapacity,
+            FileStoreTable systemSource, String systemTableType) {
+        Table planningTable = systemSource == null ? table : systemSource;
         List<Integer> configuredValues = new ArrayList<>();
-        collectManifestParallelism(table, configuredValues);
+        collectManifestParallelism(planningTable, configuredValues);
         int requestedBound = localCapacity;
         if (feParallelismCap != null) {
             requestedBound = Math.min(parsePositiveManifestParallelism(feParallelismCap), localCapacity);
@@ -718,9 +693,19 @@ public class PaimonJniScanner extends JniScanner {
         Map<String, String> cap = Collections.singletonMap(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(safeParallelism));
         // Preserve the FE-selected schema while lowering only the BE-local execution bound.
+        if (systemSource != null && systemTableType != null) {
+            FileStoreTable cappedSource = systemSource.copyWithoutTimeTravel(cap);
+            // Read-only wrappers hide the data table's option map. Rebuild from the transported
+            // exact source so a smaller BE can lower that hidden planner without rewinding schema.
+            Table rebuilt = SystemTableLoader.load(systemTableType, cappedSource);
+            if (rebuilt == null) {
+                throw new IllegalArgumentException(
+                        "Unsupported Paimon system table '" + systemTableType + "'");
+            }
+            return rebuilt;
+        }
         return table instanceof FileStoreTable
-                ? ((FileStoreTable) table).copyWithoutTimeTravel(cap)
-                : table.copy(cap);
+                ? ((FileStoreTable) table).copyWithoutTimeTravel(cap) : table.copy(cap);
     }
 
     private static int parsePositiveManifestParallelism(String value) {

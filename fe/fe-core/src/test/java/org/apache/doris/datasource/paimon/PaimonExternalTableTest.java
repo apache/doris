@@ -211,6 +211,37 @@ public class PaimonExternalTableTest {
     }
 
     @Test
+    public void testFencedReaderOnlyOptionsReuseFenceProjection() {
+        PaimonExternalTable externalTable = Mockito.mock(
+                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doNothing().when(externalTable).makeSureInitialized();
+        FileStoreTable capturedTable = newPartitionedFileStoreTable("fenced_reader_only_projection");
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("read.batch-size", "4096"),
+                Collections.emptyList());
+        PaimonSnapshotCacheValue fenceValue = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(7L, 3L, capturedTable));
+        PaimonMvccSnapshot fence = new PaimonMvccSnapshot(fenceValue);
+
+        try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
+            paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(capturedTable);
+            paimonUtils.when(() -> PaimonUtils.loadSnapshotProjection(
+                    Mockito.eq(externalTable), Mockito.any(Table.class)))
+                    .thenThrow(new AssertionError(
+                            "reader-only tuning must not enumerate a new partition projection"));
+            paimonUtils.when(() -> PaimonUtils.getLatestSnapshotCacheValue(externalTable))
+                    .thenThrow(new AssertionError(
+                            "a fenced relation must not reopen the live latest projection"));
+
+            PaimonMvccSnapshot snapshot = (PaimonMvccSnapshot) externalTable.loadSnapshot(
+                    Optional.empty(), Optional.of(scanParams), Optional.of(fence));
+
+            Assert.assertSame(fenceValue, snapshot.getSnapshotCacheValue());
+        }
+    }
+
+    @Test
     public void testSystemTableIsBuiltFromTheValidatedSourceHandle() {
         FileStoreTable safeSource = newFileStoreTable(
                 "safe_cached_source", ImmutableMap.of("scan.manifest.parallelism", "1"), null);

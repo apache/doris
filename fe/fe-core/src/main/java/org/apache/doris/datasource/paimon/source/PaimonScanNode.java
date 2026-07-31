@@ -113,6 +113,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "jni.io_manager.impl_class";
     private static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
+    private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
@@ -228,6 +230,19 @@ public class PaimonScanNode extends FileQueryScanNode {
         // The hidden planner's option is not visible on a serialized system wrapper.
         manifestCap.ifPresent(cap -> backendPaimonOptions.put(
                 DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
+        if (source.getExternalTable() instanceof PaimonSysExternalTable && manifestCap.isPresent()) {
+            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            TableScanParams scanParams = getScanParams();
+            Map<String, String> incrementalOptions = scanParams != null && scanParams.incrementalRead()
+                    ? getIncrReadParams() : Collections.emptyMap();
+            FileStoreTable effectiveSource = systemTable.runtimeSafeDataTable(
+                    scanParams, incrementalOptions);
+            // A system wrapper can hide its physical option map. Ship the exact source so a smaller
+            // BE can cap it and rebuild without guessing through the wrapper.
+            backendPaimonOptions.put(DORIS_SERIALIZED_SYSTEM_SOURCE,
+                    PaimonUtil.encodeObjectToString(effectiveSource));
+            backendPaimonOptions.put(DORIS_SYSTEM_TABLE_TYPE, systemTable.getSysTableType());
+        }
         if (getSummaryProfile() != null) {
             getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
         }

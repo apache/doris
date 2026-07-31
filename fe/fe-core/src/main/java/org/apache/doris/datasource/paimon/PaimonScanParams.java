@@ -151,6 +151,24 @@ public final class PaimonScanParams {
         return effectiveTable;
     }
 
+    public static FileStoreTable applyOptionsWithoutTimeTravel(
+            FileStoreTable table, Map<String, String> options) {
+        Map<String, String> tableOptions = userOptions(options);
+        validateOptions(tableOptions);
+        Map<String, String> isolatedOptions = new HashMap<>(tableOptions);
+        if (hasStartupOptions(tableOptions)) {
+            INHERITED_READ_STATE_KEYS.stream()
+                    .filter(key -> !tableOptions.containsKey(key))
+                    .forEach(key -> isolatedOptions.put(key, null));
+        }
+        // The captured fence already selected the schema generation; only carry the resolved reader
+        // selector and runtime limits without asking Paimon to rewind that schema again.
+        FileStoreTable effectiveTable = table.copyWithoutTimeTravel(
+                PaimonReaderOptions.runtimeSafeCopyOptions(table, isolatedOptions));
+        PaimonReaderOptions.validateEffectiveTable(effectiveTable);
+        return effectiveTable;
+    }
+
     private static Set<String> inheritedReadStateKeys() {
         ImmutableSet.Builder<String> keys = ImmutableSet.builder();
         for (ConfigOption<?> option : Arrays.asList(

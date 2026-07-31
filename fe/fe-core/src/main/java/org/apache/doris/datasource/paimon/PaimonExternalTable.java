@@ -399,16 +399,27 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return loadSnapshot(tableSnapshot, scanParams);
         }
         PaimonMvccSnapshot fence = (PaimonMvccSnapshot) latestSnapshotFence.get();
-        long snapshotId = fence.getSnapshotCacheValue().getSnapshot().getSnapshotId();
+        PaimonSnapshotCacheValue fenceValue = fence.getSnapshotCacheValue();
+        PaimonSnapshot fenceSnapshot = fenceValue.getSnapshot();
+        long snapshotId = fenceSnapshot.getSnapshotId();
         TableScanParams params = scanParams.get();
+        Map<String, String> rawOptions = params.getMapParams();
         params.reuseResolvedMapParams(PaimonScanParams.pinOptionsToSnapshot(
-                params.getMapParams(), snapshotId));
+                rawOptions, snapshotId));
+        if (PaimonScanParams.hasOnlyReaderOptions(rawOptions)) {
+            // Reader tuning cannot change the fenced schema or partition projection. Reusing the
+            // exact value also avoids a live latest lookup caused by the normal OPTIONS path.
+            return new PaimonMvccSnapshot(fenceValue);
+        }
         if (snapshotId == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
             // An empty table is a real statement state; reopening a projection after a concurrent
             // first commit would otherwise turn only the later alias non-empty.
-            return new PaimonMvccSnapshot(fence.getSnapshotCacheValue());
+            return new PaimonMvccSnapshot(fenceValue);
         }
-        return loadSnapshot(tableSnapshot, scanParams);
+        FileStoreTable effectiveTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                (FileStoreTable) fenceSnapshot.getTable(), params.getResolvedMapParams().get());
+        return new PaimonMvccSnapshot(
+                PaimonUtils.loadSnapshotAtFence(this, effectiveTable, fenceSnapshot));
     }
 
     @Override

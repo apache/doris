@@ -427,9 +427,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 validatePaimonSystemTableScanParams(
                         (PaimonSysExternalTable) sysExternalTable, unboundRelation.getScanParams());
             }
-            TableIf snapshotTable = sysExternalTable instanceof IcebergSysExternalTable
-                    ? ((IcebergSysExternalTable) sysExternalTable).getSourceTable()
-                    : sysExternalTable;
+            TableIf snapshotTable;
+            if (sysExternalTable instanceof IcebergSysExternalTable) {
+                snapshotTable = ((IcebergSysExternalTable) sysExternalTable).getSourceTable();
+            } else if (sysExternalTable instanceof PaimonSysExternalTable) {
+                // Paimon system OPTIONS resolve against the data table too; using the synthetic
+                // wrapper here bypasses the statement's common latest fence and reopens live latest.
+                snapshotTable = ((PaimonSysExternalTable) sysExternalTable).getSourceTable();
+            } else {
+                snapshotTable = sysExternalTable;
+            }
             // A metadata-table scan reads base-table snapshots, so bind its fence from the base
             // relation even though the synthetic system-table wrapper is not itself MVCC-aware.
             Optional<MvccSnapshot> relationSnapshot = cascadesContext.getStatementContext().loadSnapshots(

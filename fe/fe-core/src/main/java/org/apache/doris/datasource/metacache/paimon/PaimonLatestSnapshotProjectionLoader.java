@@ -84,10 +84,16 @@ public final class PaimonLatestSnapshotProjectionLoader {
         }
     }
 
-    public PaimonSnapshotCacheValue loadAtFence(
-            NameMapping nameMapping, Table paimonTable, PaimonSnapshot fence) {
+    public PaimonSnapshotCacheValue loadAtFence(NameMapping nameMapping, PaimonSnapshot fence) {
+        return loadEffectiveAtFence(nameMapping, fence.getTable(), fence);
+    }
+
+    public PaimonSnapshotCacheValue loadEffectiveAtFence(
+            NameMapping nameMapping, Table effectiveTable, PaimonSnapshot fence) {
         try {
-            FileStoreTable latestSchemaTable = ((FileStoreTable) paimonTable).copyWithLatestSchema();
+            // The fence owns both version and table generation. Reopening the catalog here can pair
+            // the old snapshot id with a newer schema or branch after invalidation.
+            FileStoreTable latestSchemaTable = (FileStoreTable) effectiveTable;
             Table snapshotTable = latestSchemaTable;
             if (fence.getSnapshotId() != PaimonSnapshot.INVALID_SNAPSHOT_ID) {
                 // Pin data at the statement fence without replaying time travel, which would

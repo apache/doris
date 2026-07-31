@@ -38,6 +38,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.Assert;
@@ -162,6 +163,22 @@ public class PaimonJniScannerTest {
 
         Assert.assertEquals("32", ((FallbackReadFileStoreTable) safe).fallback()
                 .options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
+    public void testBackendCapRebuildsWrapperFromTransportedSystemSource() throws Exception {
+        FileStoreTable source = serializableFileStoreTable(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "32"));
+        Table hiddenWrapper = SystemTableLoader.load("partitions", source);
+
+        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
+                hiddenWrapper, "16", 4, source, "partitions");
+
+        Field storeTable = safe.getClass().getDeclaredField("storeTable");
+        storeTable.setAccessible(true);
+        Assert.assertEquals(SystemTableLoader.load("partitions", source).getClass(), safe.getClass());
+        Assert.assertEquals("4", ((FileStoreTable) storeTable.get(safe)).options()
+                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
     }
 
     private static FileStoreTable serializableFileStoreTable(Map<String, String> options) {
@@ -345,7 +362,8 @@ public class PaimonJniScannerTest {
         params.put("paimon_split", "encoded-split");
         params.put("paimon_predicate", "encoded-predicate");
         PaimonJniScanner scanner = new PaimonJniScanner(128, params);
-        setTableOptions(scanner, Collections.singletonMap("file-reader-async-threshold", "10 MiB"));
+        setTableOptions(scanner, Collections.singletonMap(
+                "file-reader-async-threshold", "10 mebibytes"));
 
         Map<String, String> statistics = scanner.getStatistics();
 
@@ -392,11 +410,13 @@ public class PaimonJniScannerTest {
 
     @Test
     public void testParseDataSizeBytes() {
-        Assert.assertEquals(Long.valueOf(1024L), PaimonJniScanner.parseDataSizeBytes("1 KiB").get());
+        Assert.assertEquals(Long.valueOf(1024L),
+                PaimonJniScanner.parseDataSizeBytes("1 kibibytes").get());
         Assert.assertEquals(Long.valueOf(10L * 1024L * 1024L),
-                PaimonJniScanner.parseDataSizeBytes("10 MiB").get());
+                PaimonJniScanner.parseDataSizeBytes("10 mebibytes").get());
         Assert.assertEquals(Long.valueOf(2L * 1024L * 1024L * 1024L),
                 PaimonJniScanner.parseDataSizeBytes("2GB").get());
+        Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("1 gib").isPresent());
         Assert.assertFalse(PaimonJniScanner.parseDataSizeBytes("unknown").isPresent());
     }
 

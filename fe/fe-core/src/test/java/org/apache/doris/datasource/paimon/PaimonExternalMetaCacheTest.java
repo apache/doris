@@ -134,6 +134,30 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testFenceHydrationKeepsCapturedTableGeneration() throws Exception {
+        PaimonPartitionInfoLoader partitionLoader = Mockito.mock(PaimonPartitionInfoLoader.class);
+        Mockito.when(partitionLoader.load(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(PaimonPartitionInfo.EMPTY);
+        PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
+                partitionLoader,
+                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), null));
+        NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
+        FileStoreTable captured = Mockito.mock(FileStoreTable.class);
+        FileStoreTable capturedPinned = Mockito.mock(FileStoreTable.class);
+        Mockito.when(captured.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(captured.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(capturedPinned);
+        PaimonSnapshot fence = new PaimonSnapshot(12L, 4L, captured);
+
+        PaimonSnapshotCacheValue hydrated = loader.loadAtFence(nameMapping, fence);
+
+        Assert.assertSame(
+                "hydration must derive from the fence's captured table, not a reloaded generation",
+                capturedPinned, hydrated.getSnapshot().getTable());
+        Mockito.verify(captured, Mockito.never()).copyWithLatestSchema();
+    }
+
+    @Test
     public void testTagProjectionKeepsOnlyRepinnedSnapshotSelector() throws Exception {
         Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new Path(temporaryFolder.newFolder("tag_projection").toURI()));
