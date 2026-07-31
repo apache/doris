@@ -1213,8 +1213,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
         //format an ipv6 address
         std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
-                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
-                                                                                          "http");
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(
+                        brpc_url, "http", "", "", _node_info.host);
         if (_brpc_http_stub == nullptr) {
             cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
                                brpc_url));

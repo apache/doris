@@ -58,9 +58,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 return;
             }
             connection.setOption(Options.KEEP_ALIVE, true);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Connection established. remote={}", connection.getPeerAddress());
-            }
+            LOG.info("MySQL connection established. remote={}", connection.getPeerAddress());
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             ConnectContext context = new ConnectContext(connection);

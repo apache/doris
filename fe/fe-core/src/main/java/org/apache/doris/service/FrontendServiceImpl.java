@@ -402,6 +402,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return new TNetworkAddress(masterHost, masterRpcPort);
     }
 
+    // Same as getMasterAddress, but returns null when the master is unknown
+    // (host empty or rpc port 0). Used by NOT_MASTER early-return paths so that
+    // BE can distinguish "FE knows the new master" vs "no master yet".
+    private static TNetworkAddress getMasterAddressOrNull() {
+        Env env = Env.getCurrentEnv();
+        String masterHost = env.getMasterHost();
+        int masterRpcPort = env.getMasterRpcPort();
+        if (masterHost == null || masterHost.isEmpty() || masterRpcPort == 0) {
+            return null;
+        }
+        return new TNetworkAddress(masterHost, masterRpcPort);
+    }
+
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
         this.exeEnv = exeEnv;
@@ -1413,6 +1426,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         if (status.getStatusCode() != TStatusCode.OK) {
+            TNetworkAddress masterAddr = getMasterAddressOrNull();
+            if (masterAddr != null) {
+                result.setMasterAddress(masterAddr);
+            }
             return result;
         }
 
@@ -1635,6 +1652,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        if (status.getStatusCode() != TStatusCode.OK) {
+            TNetworkAddress masterAddr = getMasterAddressOrNull();
+            if (masterAddr != null) {
+                result.setMasterAddress(masterAddr);
+            }
+            return result;
+        }
+
         try {
             loadTxnPreCommitImpl(request);
         } catch (UserException e) {
@@ -1776,6 +1801,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         if (status.getStatusCode() != TStatusCode.OK) {
+            TNetworkAddress masterAddr = getMasterAddressOrNull();
+            if (masterAddr != null) {
+                result.setMasterAddress(masterAddr);
+            }
             return result;
         }
 
@@ -1868,6 +1897,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         if (status.getStatusCode() != TStatusCode.OK) {
+            TNetworkAddress masterAddr = getMasterAddressOrNull();
+            if (masterAddr != null) {
+                result.setMasterAddress(masterAddr);
+            }
             return result;
         }
 
@@ -2108,6 +2141,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = checkMaster();
         result.setStatus(status);
         if (status.getStatusCode() != TStatusCode.OK) {
+            TNetworkAddress masterAddr = getMasterAddressOrNull();
+            if (masterAddr != null) {
+                result.setMasterAddress(masterAddr);
+            }
             return result;
         }
         try {

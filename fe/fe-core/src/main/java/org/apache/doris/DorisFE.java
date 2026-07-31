@@ -98,6 +98,10 @@ public class DorisFE {
     // set to true when all servers are ready.
     private static final AtomicBoolean serverReady = new AtomicBoolean(false);
 
+    // set to true once graceful shutdown enters phase B; new data-plane
+    // queries should then be silently rejected.
+    private static final AtomicBoolean rejectNewQueries = new AtomicBoolean(false);
+
     // HTTP server instance, used for graceful shutdown
     private static HttpServer httpServer;
     private static ServerStarter thriftServerStarter;
@@ -176,6 +180,9 @@ public class DorisFE {
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
+                // === A0: immediately mark not-ready so /api/health returns 503.
+                // K8s readinessProbe will fail and the pod will be removed from the
+                // EndpointSlice. Listeners stay open; new queries are still served.
                 serverReady.set(false);
                 gracefulShutdown();
 
@@ -191,9 +198,15 @@ public class DorisFE {
                     }
                 }
 
-                // Shutdown HTTP server after main process graceful shutdown is complete
+                // Shutdown HTTP server at the very end (after phase C). HTTP server is
+                // kept alive throughout drain so that K8s readiness probe can keep
+                // observing 503 until endpoint removal completes.
                 if (httpServer != null) {
-                    httpServer.shutdown();
+                    try {
+                        httpServer.shutdown();
+                    } catch (Throwable t) {
+                        LOG.warn("failed to shutdown http server", t);
+                    }
                 }
 
                 LogManager.shutdown();
@@ -722,20 +735,95 @@ public class DorisFE {
         return serverReady.get();
     }
 
+    /**
+     * Returns true once graceful shutdown has entered phase B. New data-plane
+     * MySQL commands (COM_QUERY / COM_STMT_EXECUTE / ...) should be silently
+     * dropped so JDBC drivers fail over to another FE.
+     */
+    public static boolean shouldRejectNewQueries() {
+        return rejectNewQueries.get();
+    }
+
+    /**
+     * Graceful shutdown driven by SIGTERM (typically from K8s). Implements the
+     * A0 → A → B → C → D state machine described in the operator design doc.
+     *
+     * <pre>
+     *   A0  serverReady=false → /api/health returns 503  (already done by caller)
+     *   A   "drain": sleep graceful_shutdown_drain_seconds while still serving
+     *       new queries, to let K8s LB/DNS converge.
+     *   B   atomic flip: rejectNewQueries=true, then close MySQL/ArrowFlight
+     *       listeners, then close idle MySQL connections (FIN to client).
+     *   C   wait for in-flight Coordinators to finish (≤ grace_shutdown_wait_seconds),
+     *       re-running closeIdleMysqlConnections() once per second.
+     *   D   return; JVM exits after shutdown hook completes.
+     * </pre>
+     */
     private static void gracefulShutdown() {
-        // wait for all queries to finish
         try {
-            long now = System.currentTimeMillis();
-            List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
+            // === Phase A: drain — absorb K8s LB/DNS convergence gap ===
+            int drainSeconds = Math.max(0, Config.graceful_shutdown_drain_seconds);
+            LOG.info("graceful shutdown phase A: drain for {}s (health=503 but still serving)", drainSeconds);
+            for (int i = 0; i < drainSeconds; i++) {
                 Thread.sleep(1000);
-                allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-                LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
             }
+
+            // === Phase B: atomic flip + close listeners + close idle MySQL connections ===
+            // Step 1: flip the reject flag FIRST so any thread that wins the listener
+            // accept race still gets rejected at the dispatch layer.
+            rejectNewQueries.set(true);
+            LOG.info("graceful shutdown phase B step1: rejectNewQueries=true");
+
+            // Step 2: close MySQL / Arrow-Flight listeners. HTTP listener stays open
+            // until after phase C so /api/health remains reachable for the probe.
+            if (qeService != null) {
+                LOG.info("graceful shutdown phase B step2: close MySQL / ArrowFlight listeners");
+                qeService.stopAcceptNewConnections();
+            }
+
+            // Step 3: send FIN to currently-idle (COM_SLEEP) MySQL connections so
+            // pooled JDBC clients notice and reconnect to another FE.
+            LOG.info("graceful shutdown phase B step3: close idle mysql connections");
+            closeIdleMysqlConnections();
+
+            // === Phase C: wait for in-flight Coordinators to drain ===
+            long deadline = System.currentTimeMillis() + Math.max(0, Config.grace_shutdown_wait_seconds) * 1000L;
+            LOG.info("graceful shutdown phase C: wait up to {}s for in-flight queries to finish",
+                    Config.grace_shutdown_wait_seconds);
+            while (System.currentTimeMillis() < deadline) {
+                List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+                if (allCoordinators.isEmpty()) {
+                    LOG.info("all in-flight coordinators finished, exit phase C early");
+                    break;
+                }
+                LOG.info("phase C: waiting {} queries to finish before shutdown", allCoordinators.size());
+                Thread.sleep(1000);
+                // Re-scan for newly-idle connections produced by completed queries.
+                closeIdleMysqlConnections();
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            LOG.warn("graceful shutdown interrupted", ie);
         } catch (Throwable t) {
-            LOG.error("", t);
+            LOG.error("graceful shutdown encountered an error", t);
         }
 
+        // === Phase D: return, JVM exits after the shutdown hook completes. ===
         LOG.info("graceful shutdown finished");
+    }
+
+    private static void closeIdleMysqlConnections() {
+        try {
+            ExecuteEnv env = ExecuteEnv.getInstance();
+            if (env == null) {
+                return;
+            }
+            org.apache.doris.qe.ConnectScheduler scheduler = env.getScheduler();
+            if (scheduler != null) {
+                scheduler.closeIdleMysqlConnections();
+            }
+        } catch (Throwable t) {
+            LOG.warn("failed to close idle mysql connections", t);
+        }
     }
 }

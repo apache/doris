@@ -322,7 +322,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            _failed(ins->id, err);
+            _failed(ins->id, Status::RpcError(err));
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
@@ -345,8 +345,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(ins);
             } else if (!s.ok()) {
-                _failed(ins.id,
-                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+                _failed(ins.id, Status::Cancelled("exchange req success but status isn't ok: {}",
+                                                  s.to_string()));
                 return;
             } else if (eos) {
                 _ended(ins);
@@ -356,8 +356,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
-                _failed(ins.id,
-                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+                _failed(ins.id, Status::Cancelled("exchange req success but status isn't ok: {}",
+                                                  s.to_string()));
             }
         });
         {
@@ -457,7 +457,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            _failed(ins->id, err);
+            _failed(ins->id, Status::RpcError(err));
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
@@ -479,8 +479,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(ins);
             } else if (!s.ok()) {
-                _failed(ins.id,
-                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+                _failed(ins.id, Status::Cancelled("exchange req success but status isn't ok: {}",
+                                                  s.to_string()));
                 return;
             } else if (eos) {
                 _ended(ins);
@@ -490,8 +490,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             // `_send_rpc` must be the LAST operation in this function, because it may reuse the callback!
             s = _send_rpc(ins);
             if (!s) {
-                _failed(ins.id,
-                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+                _failed(ins.id, Status::Cancelled("exchange req success but status isn't ok: {}",
+                                                  s.to_string()));
             }
         });
         {
@@ -522,11 +522,11 @@ void ExchangeSinkBuffer::_ended(RpcInstance& ins) {
     }
 }
 
-void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
+void ExchangeSinkBuffer::_failed(InstanceLoId id, Status err) {
     _is_failed = true;
     LOG(INFO) << "send rpc failed, instance id: " << id << ", _dest_node_id: " << _dest_node_id
               << ", node id: " << _node_id << ", err: " << err;
-    _context->cancel(Status::Cancelled(err));
+    _context->cancel(std::move(err));
 }
 
 void ExchangeSinkBuffer::_set_receiver_eof(RpcInstance& ins) {

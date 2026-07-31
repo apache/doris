@@ -66,7 +66,11 @@ public class QeService {
         LOG.info("QE service start.");
     }
 
-    public void stop() {
+    /**
+     * Stop accepting new MySQL and Arrow Flight SQL connections while leaving
+     * existing connections to be drained by the graceful shutdown flow.
+     */
+    public void stopAcceptNewConnections() {
         try {
             if (flightStarter != null) {
                 flightStarter.stop();
@@ -81,5 +85,9 @@ public class QeService {
         } catch (Exception e) {
             LOG.warn("stop mysql server failed", e);
         }
+    }
+
+    public void stop() {
+        stopAcceptNewConnections();
     }
 }

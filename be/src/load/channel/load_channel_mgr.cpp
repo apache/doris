@@ -286,4 +286,9 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 
     return Status::OK();
 }
+
+size_t LoadChannelMgr::get_active_load_channel_num() {
+    std::lock_guard<std::mutex> l(_lock);
+    return _load_channels.size();
+}
 } // namespace doris

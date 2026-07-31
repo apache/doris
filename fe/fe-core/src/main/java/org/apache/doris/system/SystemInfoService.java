@@ -859,6 +859,15 @@ public class SystemInfoService {
         // backend may already be dropped. this may happen when
         // drop and modify operations do not guarantee the order.
         if (memoryBe != null) {
+            // Snapshot pre-update values to detect a BE restart across this state change.
+            // This editlog path (OP_BACKEND_STATE_CHANGE) bypasses Backend.handleHbResponse()
+            // on follower FEs, so without this check follower FEs would never invalidate
+            // their stale gRPC channels / Thrift sockets when a BE restart is broadcast via
+            // state-change instead of heartbeat.
+            final long preStartTime = memoryBe.getLastStartTime();
+            final boolean preAlive = memoryBe.isAlive();
+            final String preHost = memoryBe.getHost();
+
             memoryBe.setHost(be.getHost());
             memoryBe.setBePort(be.getBePort());
             memoryBe.setAlive(be.isAlive());
@@ -872,6 +881,19 @@ public class SystemInfoService {
             memoryBe.setDisks(be.getDisks());
             memoryBe.setCpuCores(be.getCputCores());
             memoryBe.setPipelineExecutorSize(be.getPipelineExecutorSize());
+
+            boolean restartDetected =
+                    (be.getLastStartTime() > 0 && be.getLastStartTime() != preStartTime)
+                            || (be.isAlive() && !preAlive);
+            if (restartDetected) {
+                try {
+                    memoryBe.invalidateLocalConnections(preHost, "OP_BACKEND_STATE_CHANGE replay");
+                } catch (Throwable t) {
+                    LOG.warn("invalidateLocalConnections failed in updateBackendState, "
+                                    + "backendId={}, host={}, err={}",
+                            id, memoryBe.getHost(), t.getMessage(), t);
+                }
+            }
         }
     }
 

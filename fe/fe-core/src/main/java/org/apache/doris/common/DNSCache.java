@@ -61,6 +61,27 @@ public class DNSCache {
     }
 
     /**
+     * Remove the cached entry for a hostname so the next get() will trigger a fresh DNS resolution.
+     * Used to proactively invalidate stale entries when a backend is known to have restarted.
+     *
+     * @param hostname The hostname whose cached entry should be evicted.
+     * @return The previously cached IP (may be null if not cached).
+     */
+    public String remove(String hostname) {
+        String old = cache.remove(hostname);
+        LOG.info("DNSCache remove entry, hostname={}, previousCachedIp={}, remainingSize={}",
+                hostname, old, cache.size());
+        return old;
+    }
+
+    /**
+     * Returns a snapshot of current cache state. For diagnostic logging only.
+     */
+    public String describeState() {
+        return "DNSCache{size=" + cache.size() + ", entries=" + cache + "}";
+    }
+
+    /**
      * The resolveHostname method resolves a hostname to an IP address.
      * If the hostname cannot be resolved, it returns an empty string.
      *
@@ -80,6 +101,7 @@ public class DNSCache {
                     return "";
                 }
             }
+            LOG.info("DNSCache resolved hostname={}, ip={}", hostname, ip);
             return ip;
         } catch (UnknownHostException e) {
             if (cachedIp != null && !cachedIp.isEmpty()) {

@@ -302,6 +302,16 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
                 copiedMasterInfo.setAuthToken(Env.getCurrentEnv().getTokenManager().acquireToken());
+                // Propagate cluster-level "graceful shutdown" flag (SessionVariable set GLOBAL)
+                // to BE so that BE cancel_worker knows to skip coord-restart cancellation.
+                try {
+                    copiedMasterInfo.setInGracefulShutdown(
+                            org.apache.doris.qe.VariableMgr.getDefaultSessionVariable()
+                                    .enableGracefulShutdown);
+                } catch (Throwable t) {
+                    // Defensive: VariableMgr might not be initialized in unit tests.
+                    copiedMasterInfo.setInGracefulShutdown(false);
+                }
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);

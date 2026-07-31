@@ -170,20 +170,53 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     return res;
 }
 
+void ExecEnv::wait_for_all_fe_known() {
+    // Phase A of graceful shutdown:
+    // Heartbeat callback (HeartbeatServer::heartbeat) sets
+    // k_shutdown_fe_known=true the next time Master pulls a heartbeat
+    // (which carries is_shutdown=true). Block here up to 30s for that to
+    // happen, then sleep an extra 10s so the resulting OP_HEARTBEAT EditLog
+    // can be replicated by BDBJE to all FE Followers before we start
+    // tearing down running tasks. The 30s deadline is a safety net for the
+    // case where Master is itself in drain / election and heartbeats are
+    // delayed.
+    constexpr int32_t kWaitLimitSeconds = 30;
+    constexpr int32_t kBufferSeconds = 10;
+    int32_t passed = 0;
+    while (!k_shutdown_fe_known && passed < kWaitLimitSeconds) {
+        sleep(1);
+        ++passed;
+    }
+    if (k_shutdown_fe_known) {
+        LOG(INFO) << "FE Master has acknowledged shutdown after " << passed
+                  << "s, sleeping additional " << kBufferSeconds
+                  << "s to let OP_HEARTBEAT EditLog replicate to all Followers.";
+    } else {
+        LOG(WARNING) << "FE Master did not acknowledge shutdown within " << kWaitLimitSeconds
+                     << "s, proceeding anyway.";
+    }
+    sleep(kBufferSeconds);
+}
+
 void ExecEnv::wait_for_all_tasks_done() {
-    // For graceful shutdown, need to wait for all running queries to stop
+    LOG(INFO) << "begin to wait for all tasks done before shutdown. k_shutdown_fe_known: "
+              << k_shutdown_fe_known << " k_in_graceful_shutdown: " << k_in_graceful_shutdown;
+    // For graceful shutdown, need to wait for all running queries and load channels to stop
     int32_t wait_seconds_passed = 0;
     while (true) {
         int num_queries = _fragment_mgr->running_query_num();
-        if (num_queries < 1) {
+        size_t num_load_channels = _load_channel_mgr->get_active_load_channel_num();
+        if (num_queries < 1 && num_load_channels < 1) {
             break;
         }
         if (wait_seconds_passed > doris::config::grace_shutdown_wait_seconds) {
-            LOG(INFO) << "There are still " << num_queries << " queries running, but "
-                      << wait_seconds_passed << " seconds passed, has to exist now";
+            LOG(INFO) << "There are still " << num_queries << " queries running and "
+                      << num_load_channels << " load channels active, but " << wait_seconds_passed
+                      << " seconds passed, has to exit now";
             break;
         }
-        LOG(INFO) << "There are still " << num_queries << " queries running, waiting...";
+        LOG(INFO) << "There are still " << num_queries << " queries running, " << num_load_channels
+                  << " load channels active, waiting...";
         sleep(1);
         ++wait_seconds_passed;
     }
@@ -193,6 +226,8 @@ void ExecEnv::wait_for_all_tasks_done() {
     // If the current BE is shut down at this point,
     // the FE will detect the downtime of a related BE and cancel the entire query,
     // defeating the purpose of a graceful stop.
+    LOG(INFO) << "after wait all tasks done and sleep. k_shutdown_fe_known: " << k_shutdown_fe_known
+              << " k_in_graceful_shutdown: " << k_in_graceful_shutdown;
     sleep(config::grace_shutdown_post_delay_seconds);
 }
 

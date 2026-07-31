@@ -48,6 +48,8 @@ class TTransport;
 
 namespace doris {
 
+using namespace std::chrono_literals;
+
 using apache::thrift::protocol::TProtocol;
 using apache::thrift::protocol::TBinaryProtocol;
 using apache::thrift::transport::TSocket;
@@ -127,6 +129,79 @@ Status ThriftRpcHelper::rpc(std::function<TNetworkAddress()> address_provider,
     return Status::OK();
 }
 
+template <typename T>
+Status ThriftRpcHelper::rpc(std::function<TNetworkAddress()> address_provider,
+                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
+    TNetworkAddress address = address_provider();
+    if (address.hostname.empty() || address.port == 0) {
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("FE address is not available");
+    }
+    Status status;
+    ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
+    if (!status.ok()) {
+#ifndef ADDRESS_SANITIZER
+        LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
+#endif
+        return status;
+    }
+    try {
+        try {
+            callback(client);
+        } catch (apache::thrift::transport::TTransportException& e) {
+            std::cerr << "thrift error, reason=" << e.what();
+#ifndef ADDRESS_SANITIZER
+            LOG(WARNING) << "retrying call frontend service after "
+                         << config::thrift_client_retry_interval_ms << " ms, address=" << address
+                         << ", reason=" << e.what();
+#endif
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
+            TNetworkAddress retry_address = address_provider();
+            if (retry_address.hostname.empty() || retry_address.port == 0) {
+                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("FE address is not available");
+            }
+            if (retry_address.hostname != address.hostname || retry_address.port != address.port) {
+#ifndef ADDRESS_SANITIZER
+                LOG(INFO) << "retrying call frontend service with new address=" << retry_address;
+#endif
+                Status retry_status;
+                ClientConnection<T> retry_client(_s_exec_env->get_client_cache<T>(), retry_address,
+                                                 timeout_ms, &retry_status);
+                if (!retry_status.ok()) {
+#ifndef ADDRESS_SANITIZER
+                    LOG(WARNING) << "Connect frontend failed, address=" << retry_address
+                                 << ", status=" << retry_status;
+#endif
+                    return retry_status;
+                }
+                callback(retry_client);
+            } else {
+                status = client.reopen(timeout_ms);
+                if (!status.ok()) {
+#ifndef ADDRESS_SANITIZER
+                    LOG(WARNING) << "client reopen failed. address=" << address
+                                 << ", status=" << status;
+#endif
+                    return status;
+                }
+                callback(client);
+            }
+        }
+    } catch (apache::thrift::TException& e) {
+#ifndef ADDRESS_SANITIZER
+        LOG(WARNING) << "call frontend service failed, address=" << address
+                     << ", reason=" << e.what();
+#endif
+        std::this_thread::sleep_for(
+                std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
+        // just reopen to disable this connection
+        static_cast<void>(client.reopen(timeout_ms));
+        return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}",
+                                address.hostname, address.port, e.what());
+    }
+    return Status::OK();
+}
+
 template Status ThriftRpcHelper::rpc<FrontendServiceClient>(
         const std::string& ip, const int32_t port,
         std::function<void(ClientConnection<FrontendServiceClient>&)> callback, int timeout_ms);
@@ -142,5 +217,111 @@ template Status ThriftRpcHelper::rpc<BackendServiceClient>(
 template Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
         const std::string& ip, const int32_t port,
         std::function<void(ClientConnection<TPaloBrokerServiceClient>&)> callback, int timeout_ms);
+
+Status ThriftRpcHelper::rpc_fe_with_master_refresh(
+        std::function<TNetworkAddress()> address_provider,
+        std::function<void(ClientConnection<FrontendServiceClient>&)> callback,
+        std::function<TStatus()> status_extractor,
+        std::function<const TNetworkAddress*()> master_addr_extractor, int timeout_ms) {
+    // First attempt: drives the existing one-shot transport-level retry inside
+    // rpc<FrontendServiceClient>.
+    Status st = rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
+
+    // Outside of a graceful rolling restart (operator-controlled
+    // `SET GLOBAL enable_graceful_shutdown=true`), keep strictly one-shot
+    // behavior: return the first-attempt result as-is, without probing
+    // followers or refreshing the cached master. The caller will see the
+    // raw TStatus (including NOT_MASTER) and decide what to do. This is
+    // equivalent to the legacy behavior before rpc_fe_with_master_refresh
+    // was introduced.
+    if (!doris::k_in_graceful_shutdown) {
+        return st;
+    }
+
+    bool transport_failed = !st.ok();
+    bool not_master = false;
+    TNetworkAddress new_master;
+    bool have_new_master = false;
+
+    if (st.ok()) {
+        TStatus resp_status = status_extractor();
+        if (resp_status.status_code == TStatusCode::NOT_MASTER) {
+            not_master = true;
+            const TNetworkAddress* addr = master_addr_extractor();
+            if (addr != nullptr && !addr->hostname.empty() && addr->port != 0) {
+                new_master = *addr;
+                have_new_master = true;
+            }
+        }
+    }
+
+    if (!transport_failed && !not_master) {
+        return st;
+    }
+
+    TNetworkAddress old_master = address_provider();
+    if (have_new_master) {
+        // Refresh cached master immediately from the response. No extra RPC.
+        // Note: unprotected write, same pattern as HeartbeatServer; the field
+        // is also written by heartbeat thread with epoch checks, which will
+        // self-correct any stale value we might race-write.
+        _s_exec_env->cluster_info()->master_fe_addr = new_master;
+        LOG(INFO) << "fe RPC got NOT_MASTER from " << old_master << ", refreshed master_fe_addr to "
+                  << new_master;
+    } else {
+        // Transport failure or NOT_MASTER without master_address hint.
+        // During graceful shutdown, the heartbeat interval is reduced to ~3s,
+        // so BE will quickly pick up the new master FE address. Retry with
+        // increasing backoff, relying on heartbeat to update master_fe_addr
+        // which is read fresh by address_provider on each attempt.
+        constexpr int kMaxRetries = 5;
+        for (int i = 0; i < kMaxRetries; i++) {
+            int backoff_ms = 1000 * (2 * i + 1); // 1s, 3s, 5s, 7s, 9s
+            std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+
+            Status retry_st = rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
+            if (retry_st.ok()) {
+                TStatus retry_resp = status_extractor();
+                if (retry_resp.status_code == TStatusCode::NOT_MASTER) {
+                    const TNetworkAddress* hinted = master_addr_extractor();
+                    if (hinted != nullptr && !hinted->hostname.empty() && hinted->port != 0) {
+                        _s_exec_env->cluster_info()->master_fe_addr = *hinted;
+                        new_master = *hinted;
+                        have_new_master = true;
+                        LOG(INFO) << "fe RPC retry " << (i + 1) << "/" << kMaxRetries
+                                  << " returned NOT_MASTER, refreshed master_fe_addr to "
+                                  << *hinted;
+                        break; // fall through to the single retry below
+                    }
+                    LOG(INFO) << "fe RPC retry " << (i + 1) << "/" << kMaxRetries
+                              << " returned NOT_MASTER without master_address";
+                    continue;
+                }
+                // RPC succeeded: address_provider already yielded the correct master.
+                LOG(INFO) << "fe RPC succeeded on retry " << (i + 1) << "/" << kMaxRetries;
+                return Status::OK();
+            }
+            LOG(INFO) << "fe RPC retry " << (i + 1) << "/" << kMaxRetries
+                      << " transport-failed: " << retry_st;
+        }
+
+        if (!have_new_master) {
+            LOG(WARNING) << "fe RPC failed against " << old_master << " after " << kMaxRetries
+                         << " backoff retries, returning original error.";
+            return st.ok() ? Status::Error<ErrorCode::NOT_MASTER>(
+                                     "FE returned NOT_MASTER but no new master address available")
+                           : st;
+        }
+        LOG(INFO) << "fe RPC failed against " << old_master
+                  << ", master refreshed via backoff retry, retrying original request.";
+    }
+
+    // Second (and only) attempt against the new master address.
+    Status retry_st = rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
+    if (!retry_st.ok()) {
+        LOG(WARNING) << "fe RPC retry after master refresh still failed: " << retry_st;
+    }
+    return retry_st;
+}
 
 } // namespace doris

@@ -911,12 +911,27 @@ void FragmentMgr::_collect_invalid_queries(
                         itr->second.info.process_uuid == 0) {
                         continue;
                     } else {
+                        if (doris::k_in_graceful_shutdown) {
+                            LOG_EVERY_N(INFO, 50)
+                                    << "Skip cancel coord-restarted query "
+                                    << print_id(q_ctx->query_id())
+                                    << " because cluster is in graceful shutdown. coord="
+                                    << q_ctx->coord_addr.hostname << ":" << q_ctx->coord_addr.port;
+                            continue;
+                        }
                         LOG_WARNING(
                                 "Coordinator of query {} restarted, going to cancel "
                                 "it.",
                                 print_id(q_ctx->query_id()));
                     }
                 } else {
+                    if (doris::k_in_graceful_shutdown) {
+                        LOG_EVERY_N(INFO, 50)
+                                << "Skip cancel coord-missing query " << print_id(q_ctx->query_id())
+                                << " because cluster is in graceful shutdown. coord="
+                                << q_ctx->coord_addr.hostname << ":" << q_ctx->coord_addr.port;
+                        continue;
+                    }
                     // In some rear cases, the rpc port of follower is not updated in time,
                     // then the port of this follower will be zero, but acutally it is still running,
                     // and be has already received the query from follower.

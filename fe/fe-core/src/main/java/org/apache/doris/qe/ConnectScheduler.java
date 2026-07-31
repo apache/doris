@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectPoolMgr;
 
@@ -168,5 +169,35 @@ public class ConnectScheduler {
                 LOG.warn("failed to check connection timeout", t);
             }
         }
+    }
+
+    /**
+     * Close MySQL connections that are currently idle (command == COM_SLEEP).
+     * Used during graceful shutdown phase B / C so that clients receive a FIN
+     * on idle sockets and can fail over to another FE.
+     *
+     * @return number of connections closed in this invocation
+     */
+    public int closeIdleMysqlConnections() {
+        int closed = 0;
+        for (ConnectContext ctx : connectPoolMgr.getConnectionMap().values()) {
+            if (ctx == null) {
+                continue;
+            }
+            if (ctx.getCommand() == MysqlCommand.COM_SLEEP && !ctx.isKilled()) {
+                try {
+                    // kill the connection (sends FIN to client) but do not cancel
+                    // any running query (there is none in COM_SLEEP state).
+                    ctx.kill(true);
+                    closed++;
+                } catch (Throwable t) {
+                    LOG.warn("failed to close idle mysql connection id={}", ctx.getConnectionId(), t);
+                }
+            }
+        }
+        if (closed > 0) {
+            LOG.info("closed {} idle mysql connections during graceful shutdown", closed);
+        }
+        return closed;
     }
 }

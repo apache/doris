@@ -37,7 +37,8 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
-        if (it != cache.end()) {
+        // dirty hostnames must NOT take the fast path: force re-resolve below.
+        if (it != cache.end() && dirty.find(hostname) == dirty.end()) {
             *ip = it->second;
             return Status::OK();
         }
@@ -84,6 +85,16 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
     return resolved_ip;
 }
 
+void DNSCache::invalidate(const std::string& hostname) {
+    if (hostname.empty()) {
+        return;
+    }
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    if (dirty.insert(hostname).second) {
+        LOG(INFO) << "DNSCache: mark hostname dirty, will re-resolve on next get: " << hostname;
+    }
+}
+
 Status DNSCache::_update(const std::string& hostname) {
     std::string real_ip = _resolve_hostname(hostname);
     if (real_ip.empty()) {
@@ -97,6 +108,7 @@ Status DNSCache::_update(const std::string& hostname) {
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
     }
+    dirty.erase(hostname); // here myabe need lock all update function.
     return Status::OK();
 }
 

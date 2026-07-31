@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -37,6 +38,14 @@ public:
 
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
+
+    // Synchronously mark `hostname` as dirty so that the next get() is
+    // guaranteed to re-resolve via _update() instead of returning the cached
+    // (potentially stale) IP. Idempotent under failure storms: multiple
+    // invalidate() calls for the same hostname are O(1) and harmless.
+    // Never blocks on getaddrinfo(); the actual re-resolution happens lazily
+    // inside the next get() (which is the cache-miss path anyway).
+    void invalidate(const std::string& hostname);
 
 private:
     // Resolve hostname to IP address.
@@ -54,6 +63,8 @@ private:
 private:
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
+    // hostnames marked dirty by invalidate(); next get() must re-resolve.
+    std::unordered_set<std::string> dirty;
     mutable std::shared_mutex mutex;
     std::thread refresh_thread;
     bool stop_refresh = false;

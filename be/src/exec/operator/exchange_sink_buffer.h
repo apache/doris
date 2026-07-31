@@ -310,13 +310,13 @@ private:
 
 #ifndef BE_TEST
     inline void _ended(RpcInstance& ins);
-    inline void _failed(InstanceLoId id, const std::string& err);
+    inline void _failed(InstanceLoId id, Status err);
     inline void _set_receiver_eof(RpcInstance& ins);
     inline void _turn_off_channel(RpcInstance& ins, std::unique_lock<std::mutex>& with_lock);
 
 #else
     virtual void _ended(RpcInstance& ins);
-    virtual void _failed(InstanceLoId id, const std::string& err);
+    virtual void _failed(InstanceLoId id, Status err);
     virtual void _set_receiver_eof(RpcInstance& ins);
     virtual void _turn_off_channel(RpcInstance& ins, std::unique_lock<std::mutex>& with_lock);
 #endif
