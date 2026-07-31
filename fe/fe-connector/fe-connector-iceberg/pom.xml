@@ -41,6 +41,23 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Carries the DORIS-PATCH copy of org.apache.hadoop.fs.FileSystem (credential-aware
+             doris.fs.cache.key). This plugin bundles its own hadoop-common and is loaded
+             child-first for org.apache.hadoop.*, so the patched class only wins inside the plugin
+             classloader if this jar is on the plugin classpath ahead of hadoop-common;
+             DirectoryPluginRuntimeManager promotes it there by file-name prefix. All transitives
+             are excluded, since the plugin manages its own hadoop deps. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>hadoop-deps</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>

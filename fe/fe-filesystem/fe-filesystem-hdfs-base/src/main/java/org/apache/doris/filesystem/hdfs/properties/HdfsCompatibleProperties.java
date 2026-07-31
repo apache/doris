@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.hdfs.SimpleHadoopAuthenticator;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
@@ -39,6 +40,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Shared base for HDFS-compatible storage property models in fe-filesystem.
@@ -177,12 +179,45 @@ public abstract class HdfsCompatibleProperties
 
     @Override
     public Map<String, String> toMap() {
-        return getBackendConfigProperties();
+        return withFsCacheKey(getBackendConfigProperties());
     }
 
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
-        return getBackendConfigProperties();
+        return withFsCacheKey(getBackendConfigProperties());
+    }
+
+    /**
+     * Adds the fully derived backend map to the identity. The HDFS families resolve two inputs
+     * into it that {@link FsCacheKeys#identityProperties} cannot see from the raw properties: the
+     * contents of the XML files named by {@code hadoop.config.resources} (only the file <em>path</em>
+     * is a bound alias, so editing a file would otherwise keep the old fingerprint), and the auth
+     * keys {@code applyAuthBackendConfig} derives. Everything here already went through the raw
+     * overlay, so two definitions reaching the same nameservice through different namenode
+     * addresses no longer collide.
+     *
+     * <p>Reads the untagged backend map, never {@code toHadoopConfigurationMap()}: the latter calls
+     * back into this fingerprint.
+     */
+    @Override
+    public String fsCacheFingerprint() {
+        Map<String, String> identity = new TreeMap<>(FsCacheKeys.identityProperties(this));
+        Map<String, String> derived = getBackendConfigProperties();
+        if (derived != null) {
+            derived.forEach((key, value) -> identity.put(FsCacheKeys.derivedIdentityKey(key), value));
+        }
+        return FsCacheKeys.fingerprintOf(getClass().getName(), identity);
+    }
+
+    /**
+     * Tags a derived property map with this binding's per-scheme credential fingerprint so the
+     * Doris-patched {@code org.apache.hadoop.fs.FileSystem} keys its cache by it instead of
+     * colliding on {@code (scheme, authority, UGI)}; see {@link FsCacheKeys}.
+     */
+    private Map<String, String> withFsCacheKey(Map<String, String> base) {
+        Map<String, String> tagged = new HashMap<>(base);
+        FsCacheKeys.putFsCacheKeys(tagged, this);
+        return tagged;
     }
 
     @Override

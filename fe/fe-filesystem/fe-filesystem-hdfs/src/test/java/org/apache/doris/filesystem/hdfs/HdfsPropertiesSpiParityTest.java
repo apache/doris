@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 
 import org.junit.jupiter.api.Assertions;
@@ -74,10 +75,14 @@ class HdfsPropertiesSpiParityTest {
         golden.put("hdfs.security.authentication", "simple");
         golden.put("hadoop.username", "hadoop");
         assertExactMap(golden, p.getBackendConfigProperties());
-        assertExactMap(golden, p.toBackendProperties().orElseThrow().toMap());
+        // The derived (consumable) maps additionally carry the per-scheme credential fingerprint keying
+        // the Doris-patched FileSystem cache; the raw backend map above stays the fe-core golden.
+        Map<String, String> goldenWithCacheKey = new HashMap<>(golden);
+        FsCacheKeys.putFsCacheKeys(goldenWithCacheKey, p);
+        assertExactMap(goldenWithCacheKey, p.toBackendProperties().orElseThrow().toMap());
         // HDFS family: hadoop configuration map == backend map (generic fs.* passthrough
         // and disable-cache orchestration are the facade's job).
-        assertExactMap(golden, p.toHadoopProperties().orElseThrow().toHadoopConfigurationMap());
+        assertExactMap(goldenWithCacheKey, p.toHadoopProperties().orElseThrow().toHadoopConfigurationMap());
         Assertions.assertFalse(p.isKerberos());
         Assertions.assertTrue(p.getExecutionAuthenticator() instanceof SimpleHadoopAuthenticator);
     }
