@@ -46,6 +46,17 @@ public class AdbcConnectorProvider implements ConnectorProvider {
         return "adbc";
     }
 
+    /**
+     * Cheap presence checks only. Resolving {@code driver_url} to a path needs {@code adbc_drivers_dir} and
+     * {@code adbc_driver_secure_path}, which arrive through the connector context rather than the property
+     * map, so that half runs in {@code AdbcConnector#preCreateValidation}.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        AdbcConnectorProperties.require(properties, AdbcConnectorProperties.DRIVER_URL);
+        AdbcConnectorProperties.require(properties, AdbcConnectorProperties.URI);
+    }
+
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new AdbcConnector(properties, context);
