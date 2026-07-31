@@ -294,7 +294,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             addRequestForShuffleJoin(hashJoin);
-            if (context.getSessionVariable().isEnableColocateMappingConstraint()) {
+            if (connectContext != null
+                    && connectContext.getSessionVariable().isEnableColocateMappingConstraint()) {
                 addShuffleJoinRequestProperty(hashJoin, ShuffleType.COLOCATE_MAPPING_REQUIRE);
             }
         }
