@@ -30,4 +30,8 @@ inline MetaServiceCode get_response_code(const MetaServiceResponseStatus& status
     return status.code();
 }
 
+inline void normalize_response_status(MetaServiceResponseStatus* status) {
+    status->set_code(get_response_code(*status));
+}
+
 } // namespace doris::cloud

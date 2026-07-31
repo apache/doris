@@ -55,6 +55,8 @@ TEST(MetaServiceHelperTest, ResponseStatusUsesExactAndLegacyCodes) {
     EXPECT_EQ(status.code(), MetaServiceCode::KV_TXN_CONFLICT);
     EXPECT_EQ(status.aux_code(), MetaServiceCode::MS_TOO_BUSY);
     EXPECT_EQ(get_response_code(status), MetaServiceCode::MS_TOO_BUSY);
+    normalize_response_status(&status);
+    EXPECT_EQ(status.code(), MetaServiceCode::MS_TOO_BUSY);
 
     set_response_status(&status, MetaServiceCode::KV_TXN_CONFLICT, "conflict");
     EXPECT_EQ(status.code(), MetaServiceCode::KV_TXN_CONFLICT);
