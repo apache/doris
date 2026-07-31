@@ -44,10 +44,7 @@ static_assert(std::is_nothrow_move_assignable_v<AsyncCacheWriteTask>);
 
 enum class SubmitResult : uint8_t {
     ACCEPTED,
-    REPLACED_OLDEST,
-    REJECT_NO_QUEUED_VICTIM,
-    REJECT_ABOVE_CURRENT_LIMIT,
-    REJECT_TASK_TOO_LARGE,
+    REJECT_BACKPRESSURE,
     REJECT_ENQUEUE_FAILURE,
 };
 
@@ -238,12 +235,6 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
             prefix, "async_cache_write_reject_backpressure_total");
     _reject_enqueue_failure_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "async_cache_write_reject_enqueue_failure_total");
-    _reject_no_queued_victim_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_reject_no_queued_victim_total");
-    _reject_above_current_limit_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_reject_above_current_limit_total");
-    _reject_task_too_large_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_reject_task_too_large_total");
     _buffer_alloc_fail_metric = std::make_shared<bvar::Adder<uint64_t>>(
             prefix, "async_cache_write_buffer_alloc_fail_total");
     _submit_latency_metric =
@@ -354,11 +345,11 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
     bool inject_enqueue_failure = false;
     TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::try_submit:inject_enqueue_failure",
                              &inject_enqueue_failure);
-    SubmitResult result = SubmitResult::REJECT_ENQUEUE_FAILURE;
     std::optional<AsyncCacheWriteTask> victim;
-    {
+    const SubmitResult result = [&]() {
         TimedQueueLock lock(_queue_mutex, _queue_lock_wait_latency_metric.get(),
                             _queue_lock_hold_latency_metric.get());
+        Defer check_queue_invariants {[&]() { _check_queue_invariants_locked(); }};
         const auto options = _options.load(std::memory_order_acquire);
         const size_t max_pending_bytes = options->max_pending_bytes;
         const size_t pending_bytes = _pending_bytes.load(std::memory_order_relaxed);
@@ -380,59 +371,54 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
         };
 
         if (task_buffer_bytes > max_pending_bytes) {
-            result = SubmitResult::REJECT_TASK_TOO_LARGE;
-        } else if (pending_bytes > max_pending_bytes) {
-            result = SubmitResult::REJECT_ABOVE_CURRENT_LIMIT;
-        } else if (pending_bytes <= max_pending_bytes - task_buffer_bytes) {
-            if (push_task()) {
-                _queued_count.fetch_add(1, std::memory_order_relaxed);
-                _queued_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
-                _pending_count.fetch_add(1, std::memory_order_relaxed);
-                _pending_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
-                result = SubmitResult::ACCEPTED;
-            } else {
-                result = SubmitResult::REJECT_ENQUEUE_FAILURE;
-            }
-        } else if (_queue.empty()) {
-            result = SubmitResult::REJECT_NO_QUEUED_VICTIM;
-        } else {
+            return SubmitResult::REJECT_BACKPRESSURE;
+        }
+
+        const bool has_capacity = pending_bytes <= max_pending_bytes - task_buffer_bytes;
+        if (!has_capacity && _queue.empty()) {
+            return SubmitResult::REJECT_BACKPRESSURE;
+        }
+        if (!has_capacity) {
             DORIS_CHECK(_queue.front().buffer != nullptr);
             DORIS_CHECK(_queue.front().buffer->size() == task_buffer_bytes);
-            if (push_task()) {
-                victim.emplace(std::move(_queue.front()));
-                _queue.pop_front();
-                result = SubmitResult::REPLACED_OLDEST;
-            } else {
-                result = SubmitResult::REJECT_ENQUEUE_FAILURE;
-            }
         }
-        _check_queue_invariants_locked();
-    }
 
-    if (result == SubmitResult::ACCEPTED || result == SubmitResult::REPLACED_OLDEST) {
-        *_submitted_metric << 1;
-        *_submitted_bytes_metric << task_buffer_bytes;
-        _queue_cv.notify_one();
-        if (victim) {
-            _finalize_task(std::move(*victim), TaskFinalizationReason::EVICTED_OLDEST);
+        if (!push_task()) {
+            return SubmitResult::REJECT_ENQUEUE_FAILURE;
         }
-        return true;
-    }
 
-    *_rejected_metric << 1;
-    if (result == SubmitResult::REJECT_ENQUEUE_FAILURE) {
+        if (has_capacity) {
+            _queued_count.fetch_add(1, std::memory_order_relaxed);
+            _queued_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
+            _pending_count.fetch_add(1, std::memory_order_relaxed);
+            _pending_bytes.fetch_add(task_buffer_bytes, std::memory_order_relaxed);
+        } else {
+            victim.emplace(std::move(_queue.front()));
+            _queue.pop_front();
+        }
+        return SubmitResult::ACCEPTED;
+    }();
+
+    switch (result) {
+    case SubmitResult::ACCEPTED:
+        break;
+    case SubmitResult::REJECT_BACKPRESSURE:
+        *_rejected_metric << 1;
+        *_reject_backpressure_metric << 1;
+        return false;
+    case SubmitResult::REJECT_ENQUEUE_FAILURE:
+        *_rejected_metric << 1;
         *_reject_enqueue_failure_metric << 1;
         return false;
     }
-    *_reject_backpressure_metric << 1;
-    if (result == SubmitResult::REJECT_NO_QUEUED_VICTIM) {
-        *_reject_no_queued_victim_metric << 1;
-    } else if (result == SubmitResult::REJECT_ABOVE_CURRENT_LIMIT) {
-        *_reject_above_current_limit_metric << 1;
-    } else if (result == SubmitResult::REJECT_TASK_TOO_LARGE) {
-        *_reject_task_too_large_metric << 1;
+
+    *_submitted_metric << 1;
+    *_submitted_bytes_metric << task_buffer_bytes;
+    _queue_cv.notify_one();
+    if (victim) {
+        _finalize_task(std::move(*victim), TaskFinalizationReason::EVICTED_OLDEST);
     }
-    return false;
+    return true;
 }
 
 Status AsyncCacheWriteService::allocate_tracked_buffer(size_t size,
