@@ -802,7 +802,6 @@ alterTableClause
         (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?                              #modifyDistributionClause
     | MODIFY COMMENT comment=STRING_LITERAL                                         #modifyTableCommentClause
     | MODIFY COLUMN name=qualifiedName COMMENT comment=STRING_LITERAL               #modifyColumnCommentClause
-    | MODIFY ENGINE TO name=identifier properties=propertyClause?                   #modifyEngineClause
     | ADD TEMPORARY? PARTITIONS
         FROM from=partitionValueList TO to=partitionValueList
         INTERVAL INTEGER_VALUE unit=identifier? properties=propertyClause?          #alterMultiPartitionClause

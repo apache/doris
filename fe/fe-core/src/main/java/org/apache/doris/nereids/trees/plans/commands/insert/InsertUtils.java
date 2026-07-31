@@ -29,23 +29,16 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -59,7 +52,6 @@ import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -67,7 +59,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
-import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -96,7 +87,6 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -116,33 +106,6 @@ import java.util.stream.Collectors;
  * The helper class for insert operation.
  */
 public class InsertUtils {
-
-    /** Pin or reuse the one Iceberg write schema context owned by this statement. */
-    public static LogicalPlan pinIcebergWriteSchema(LogicalPlan plan, TableIf targetTable,
-            Optional<String> targetBranch, StatementContext statementContext) {
-        statementContext.setIcebergWriteSchemaContext(Optional.empty());
-        if (!(plan instanceof UnboundIcebergTableSink)
-                || ((UnboundIcebergTableSink<?>) plan).isRewrite()) {
-            return plan;
-        }
-        Preconditions.checkState(targetTable instanceof IcebergExternalTable,
-                "Iceberg sink target %s is not an Iceberg external table", targetTable.getName());
-        UnboundIcebergTableSink<?> icebergSink = (UnboundIcebergTableSink<?>) plan;
-        IcebergWriteSchemaContext writeSchemaContext;
-        if (icebergSink.getWriteSchemaContext().isPresent()) {
-            writeSchemaContext = icebergSink.getWriteSchemaContext().get();
-            Preconditions.checkState(writeSchemaContext.isTargetTable(targetTable.getId()),
-                    "Pinned Iceberg write schema belongs to a different target table");
-            Preconditions.checkState(writeSchemaContext.getBranchName().equals(targetBranch),
-                    "Pinned Iceberg write schema belongs to a different target branch");
-        } else {
-            writeSchemaContext = IcebergWriteSchemaContext.create(
-                    (IcebergExternalTable) targetTable, targetBranch);
-            plan = icebergSink.withWriteSchemaContext(writeSchemaContext);
-        }
-        statementContext.setIcebergWriteSchemaContext(Optional.of(writeSchemaContext));
-        return plan;
-    }
 
     /**
      * execute insert values in transaction.
@@ -321,42 +284,11 @@ public class InsertUtils {
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
-        Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext = Optional.empty();
-        if (unboundLogicalSink instanceof UnboundIcebergTableSink
-                && !((UnboundIcebergTableSink<?>) unboundLogicalSink).isRewrite()) {
-            UnboundIcebergTableSink<?> icebergSink = (UnboundIcebergTableSink<?>) unboundLogicalSink;
-            Optional<String> branchName = insertCtx
-                    .filter(IcebergInsertCommandContext.class::isInstance)
-                    .map(IcebergInsertCommandContext.class::cast)
-                    .flatMap(IcebergInsertCommandContext::getBranchName);
-            icebergWriteSchemaContext = icebergSink.getWriteSchemaContext();
-            if (!icebergWriteSchemaContext.isPresent()) {
-                icebergWriteSchemaContext = Optional.of(IcebergWriteSchemaContext.create(
-                        (IcebergExternalTable) table, branchName));
-                unboundLogicalSink = icebergSink.withWriteSchemaContext(icebergWriteSchemaContext.get());
-                plan = (LogicalPlan) unboundLogicalSink;
-            } else {
-                Preconditions.checkState(icebergWriteSchemaContext.get().isTargetTable(table.getId()),
-                        "Pinned Iceberg write schema belongs to a different target table");
-                if (branchName.isPresent()) {
-                    Preconditions.checkState(icebergWriteSchemaContext.get().getBranchName().equals(branchName),
-                            "Pinned Iceberg write schema belongs to a different target branch");
-                }
-            }
-            ConnectContext connectContext = ConnectContext.get();
-            if (connectContext != null && connectContext.getStatementContext() != null) {
-                connectContext.getStatementContext().setIcebergWriteSchemaContext(icebergWriteSchemaContext);
-            }
-            Optional<IcebergWriteSchemaContext> pinnedWriteSchemaContext = icebergWriteSchemaContext;
-            insertCtx.filter(IcebergInsertCommandContext.class::isInstance)
-                    .map(IcebergInsertCommandContext.class::cast)
-                    .ifPresent(context -> context.setWriteSchemaContext(pinnedWriteSchemaContext));
-        }
-        if (table instanceof HMSExternalTable) {
-            HMSExternalTable hiveTable = (HMSExternalTable) table;
-            if (hiveTable.isView()) {
-                throw new AnalysisException("View is not support in hive external table.");
-            }
+        // Plugin-driven (flipped) external views: the legacy engine sinks rejected writes to a view (e.g.
+        // IcebergTableSink threw on isView()); on the neutral write path that guard must live here, since a
+        // flipped catalog reaches a connector sink, not the engine-specific sink.
+        if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
+            throw new AnalysisException("Write data to view is not supported");
         }
         // Re-read partial update settings from session variable to handle multi-statement
         // batches where SET and INSERT are parsed together before execution.
@@ -439,16 +371,10 @@ public class InsertUtils {
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
-        List<Column> columns = icebergWriteSchemaContext
-                .map(IcebergWriteSchemaContext::getColumns)
-                .orElseGet(() -> table.getBaseSchema(false));
+        List<Column> columns = connectorWriteSchema(table, false);
         Map<String, Expression> staticPartitions = null;
-        if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
-            staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
-        } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
-            staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
-        } else if (unboundLogicalSink instanceof UnboundHiveTableSink) {
-            staticPartitions = ((UnboundHiveTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        if (unboundLogicalSink instanceof UnboundConnectorTableSink) {
+            staticPartitions = ((UnboundConnectorTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
         if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
@@ -478,9 +404,8 @@ public class InsertUtils {
             );
         }
 
-        LogicalPlan normalizedPlan = plan;
         Optional<ExpressionAnalyzer> analyzer = analyzeContext.map(
-                cascadesContext -> buildExprAnalyzer(normalizedPlan, cascadesContext)
+                cascadesContext -> buildExprAnalyzer(plan, cascadesContext)
         );
         boolean strictCast = SessionVariable.enableStrictCast();
         for (List<NamedExpression> values : unboundInlineTable.getConstantExprsList()) {
@@ -491,8 +416,7 @@ public class InsertUtils {
                 }
                 for (int i = 0; i < columns.size(); i++) {
                     Column column = columns.get(i);
-                    NamedExpression defaultExpression = generateDefaultExpression(
-                            column, icebergWriteSchemaContext);
+                    NamedExpression defaultExpression = generateDefaultExpression(column);
                     addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                             null, rewriteContext, strictCast);
                 }
@@ -502,27 +426,16 @@ public class InsertUtils {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < values.size(); i++) {
-                        String targetColumnName = unboundLogicalSink.getColNames().get(i);
-                        if (icebergWriteSchemaContext.isPresent()
-                                && icebergWriteSchemaContext.get().getFormatVersion()
-                                        >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
-                                && IcebergUtils.isIcebergRowLineageColumn(targetColumnName)) {
-                            throw new AnalysisException("Cannot specify row lineage column '"
-                                    + targetColumnName + "' in INSERT statement");
-                        }
                         Column sameNameColumn = null;
-                        List<Column> targetColumns = icebergWriteSchemaContext
-                                .map(IcebergWriteSchemaContext::getColumns)
-                                .orElseGet(() -> table.getBaseSchema(true));
-                        for (Column column : targetColumns) {
-                            if (targetColumnName.equalsIgnoreCase(column.getName())) {
+                        for (Column column : connectorWriteSchema(table, true)) {
+                            if (unboundLogicalSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
                                 sameNameColumn = column;
                                 break;
                             }
                         }
                         if (sameNameColumn == null) {
                             throw new AnalysisException("Unknown column '"
-                                    + targetColumnName + "' in target table.");
+                                    + unboundLogicalSink.getColNames().get(i) + "' in target table.");
                         }
                         if (sameNameColumn.getGeneratedColumnInfo() != null
                                 && !(values.get(i) instanceof DefaultValueSlot)) {
@@ -531,16 +444,12 @@ public class InsertUtils {
                                     + "' in table '" + table.getName() + "' is not allowed.");
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
-                            NamedExpression defaultExpression = generateDefaultExpression(
-                                    sameNameColumn, icebergWriteSchemaContext);
+                            NamedExpression defaultExpression = generateDefaultExpression(sameNameColumn);
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            NamedExpression value = resolveInlineIcebergDefaultReferences(
-                                    values.get(i), icebergWriteSchemaContext,
-                                    unboundLogicalSink.getNameParts());
-                            addColumnValue(analyzer, optimizedRowConstructor, value,
+                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
                     }
@@ -556,16 +465,12 @@ public class InsertUtils {
                                     + "' in table '" + table.getName() + "' is not allowed.");
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
-                            NamedExpression defaultExpression = generateDefaultExpression(
-                                    columns.get(i), icebergWriteSchemaContext);
+                            NamedExpression defaultExpression = generateDefaultExpression(columns.get(i));
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            NamedExpression value = resolveInlineIcebergDefaultReferences(
-                                    values.get(i), icebergWriteSchemaContext,
-                                    unboundLogicalSink.getNameParts());
-                            addColumnValue(analyzer, optimizedRowConstructor, value, targetType,
+                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
                     }
@@ -576,35 +481,16 @@ public class InsertUtils {
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
     }
 
-    private static NamedExpression resolveInlineIcebergDefaultReferences(
-            NamedExpression value,
-            Optional<IcebergWriteSchemaContext> writeSchemaContext,
-            List<String> targetNameParts) {
-        if (!writeSchemaContext.isPresent()) {
-            return value;
+    private static List<Column> connectorWriteSchema(TableIf table, boolean full) {
+        ConnectContext context = ConnectContext.get();
+        if (context != null && context.getStatementContext() != null) {
+            Optional<List<Column>> pinned =
+                    context.getStatementContext().getConnectorWriteSchema(table.getId());
+            if (pinned.isPresent()) {
+                return pinned.get();
+            }
         }
-        Expression resolved = value.rewriteDownShortCircuit(candidate -> {
-            if (!(candidate instanceof Default)) {
-                return candidate;
-            }
-            Expression reference = candidate.child(0);
-            if (!(reference instanceof UnboundSlot)) {
-                throw new AnalysisException("DEFAULT requires a column reference");
-            }
-            List<String> nameParts = ((UnboundSlot) reference).getNameParts();
-            if (nameParts.size() > 1) {
-                ConnectContext context = Preconditions.checkNotNull(
-                        ConnectContext.get(),
-                        "Qualified DEFAULT requires a ConnectContext");
-                UpdateCommand.checkAssignmentColumn(
-                        context, nameParts, targetNameParts, null);
-            }
-            return writeSchemaContext.get().resolveWriteDefault(
-                    nameParts.get(nameParts.size() - 1));
-        });
-        Preconditions.checkState(resolved instanceof NamedExpression,
-                "Inline table value must remain a named expression after DEFAULT resolution");
-        return (NamedExpression) resolved;
+        return table.getBaseSchema(full);
     }
 
     /** buildAnalyzer */
@@ -728,16 +614,10 @@ public class InsertUtils {
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundHiveTableSink) {
-            unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundIcebergTableSink) {
-            unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundMaxComputeTableSink) {
-            unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundConnectorTableSink) {
             unboundTableSink = (UnboundConnectorTableSink<? extends Plan>) plan;
         } else {
@@ -749,17 +629,13 @@ public class InsertUtils {
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }
 
-    private static NamedExpression generateDefaultExpression(Column column,
-            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext) {
+    private static NamedExpression generateDefaultExpression(Column column) {
         GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
         // Using NullLiteral as a placeholder.
         // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
         // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
         if (generatedColumnInfo != null) {
             return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
-        }
-        if (icebergWriteSchemaContext.isPresent()) {
-            return new Alias(icebergWriteSchemaContext.get().resolveWriteDefault(column), column.getName());
         }
         if (column.getDefaultValue() == null) {
             if (!column.isAllowNull() && !column.isAutoInc()) {

@@ -17,11 +17,16 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.connector.api.ConnectorDelegatedCredential;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorStatementScope;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Immutable implementation of {@link ConnectorSession}.
@@ -38,10 +43,32 @@ public class ConnectorSessionImpl implements ConnectorSession {
     private final String catalogName;
     private final Map<String, String> catalogProperties;
     private final Map<String, String> sessionProperties;
+    // Per-connection session id (preserved across FE observer->master forwarding) and the user's delegated
+    // credential, populated by ConnectorSessionBuilder ONLY for a SUPPORTS_USER_SESSION connector (both null
+    // otherwise). The credential is connection-scoped, in-memory only, and never persisted (see
+    // ConnectorDelegatedCredential); getSessionId() falls back to the queryId when no session id was captured.
+    private final String sessionId;
+    private final ConnectorDelegatedCredential delegatedCredential;
+    // The per-statement scope, captured at construction (the request thread, where the statement context is
+    // reachable) so off-thread scan pumps that reuse this one session still reach it. NONE when there is no
+    // live statement context (offline planning, tests) -- then getStatementScope() memoizes nothing.
+    private final ConnectorStatementScope statementScope;
+    // Otherwise-immutable session; this is bound once by the insert executor at write time
+    // for connectors using the SPI transaction model (e.g. maxcompute), and read back by the
+    // connector's planWrite via getCurrentTransaction(). volatile for cross-thread visibility.
+    private volatile ConnectorTransaction currentTransaction;
 
     ConnectorSessionImpl(String queryId, String user, String timeZone, String locale,
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties) {
+        this(queryId, user, timeZone, locale, catalogId, catalogName, catalogProperties, sessionProperties,
+                null, null, ConnectorStatementScope.NONE);
+    }
+
+    ConnectorSessionImpl(String queryId, String user, String timeZone, String locale,
+            long catalogId, String catalogName, Map<String, String> catalogProperties,
+            Map<String, String> sessionProperties, String sessionId,
+            ConnectorDelegatedCredential delegatedCredential, ConnectorStatementScope statementScope) {
         this.queryId = queryId != null ? queryId : "";
         this.user = user != null ? user : "";
         this.timeZone = timeZone != null ? timeZone : "UTC";
@@ -52,11 +79,26 @@ public class ConnectorSessionImpl implements ConnectorSession {
                 ? Collections.unmodifiableMap(catalogProperties) : Collections.emptyMap();
         this.sessionProperties = sessionProperties != null
                 ? Collections.unmodifiableMap(sessionProperties) : Collections.emptyMap();
+        this.sessionId = sessionId;
+        this.delegatedCredential = delegatedCredential;
+        this.statementScope = statementScope != null ? statementScope : ConnectorStatementScope.NONE;
     }
 
     @Override
     public String getQueryId() {
         return queryId;
+    }
+
+    @Override
+    public String getSessionId() {
+        // Fall back to the queryId (the SPI default) when no per-connection session id was captured, so a
+        // non-user-session catalog still returns a non-null id.
+        return sessionId != null ? sessionId : queryId;
+    }
+
+    @Override
+    public Optional<ConnectorDelegatedCredential> getDelegatedCredential() {
+        return Optional.ofNullable(delegatedCredential);
     }
 
     @Override
@@ -121,6 +163,26 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public Map<String, String> getSessionProperties() {
         return sessionProperties;
+    }
+
+    @Override
+    public long allocateTransactionId() {
+        return Env.getCurrentEnv().getNextId();
+    }
+
+    @Override
+    public void setCurrentTransaction(ConnectorTransaction txn) {
+        this.currentTransaction = txn;
+    }
+
+    @Override
+    public Optional<ConnectorTransaction> getCurrentTransaction() {
+        return Optional.ofNullable(currentTransaction);
+    }
+
+    @Override
+    public ConnectorStatementScope getStatementScope() {
+        return statementScope;
     }
 
     @Override

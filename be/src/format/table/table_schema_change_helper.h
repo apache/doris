@@ -76,6 +76,16 @@ public:
             return nullptr;
         }
 
+        // Presence-only check (does NOT DCHECK). Distinct from children_column_exists, which asserts
+        // the key exists and then reports the file-side exists flag. Callers use this to reject a
+        // projected column that is absent from the table-side schema tree (an FE/BE schema-contract
+        // mismatch) BEFORE calling children_column_exists, turning a would-be process abort into a
+        // graceful per-query error.
+        virtual bool has_children_column(std::string table_column_name) const {
+            throw std::logic_error(
+                    "has_children_column should not be called on base TableInfoNode");
+        }
+
         virtual std::shared_ptr<Node> get_element_node() const {
             throw std::logic_error("get_element_node should not be called on base TableInfoNode");
         }
@@ -118,6 +128,8 @@ public:
         }
 
         bool children_column_exists(std::string table_column_name) const override { return true; }
+
+        bool has_children_column(std::string table_column_name) const override { return true; }
 
         std::shared_ptr<Node> get_element_node() const override { return get_instance(); }
 
@@ -184,6 +196,10 @@ public:
             DCHECK(children.contains(table_column_name));
             DCHECK(!children.at(table_column_name).exists);
             return children.at(table_column_name).table_field.get();
+        }
+
+        bool has_children_column(std::string table_column_name) const override {
+            return children.contains(table_column_name);
         }
 
         void add_not_exist_children(

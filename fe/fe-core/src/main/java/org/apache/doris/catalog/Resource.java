@@ -191,8 +191,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                 resource = new HdfsResource(name);
                 break;
             case HMS:
-                resource = new HMSResource(name);
-                break;
+                throw new DdlException("HMS resource is no longer supported. Please use Hive Catalog instead.");
             case ES:
                 throw new DdlException("ES resource is no longer supported. Please use ES Catalog instead.");
             case AI:
