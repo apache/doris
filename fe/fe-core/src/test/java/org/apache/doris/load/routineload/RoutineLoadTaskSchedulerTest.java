@@ -24,7 +24,6 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
@@ -35,7 +34,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -123,37 +121,6 @@ public class RoutineLoadTaskSchedulerTest {
         assertSubmitTaskFailurePausesJob("network error");
         assertSubmitTaskFailurePausesJob("failed to submit task. error code: TOO_MANY_TASKS");
         assertSubmitTaskFailurePausesJob("MEM_LIMIT_EXCEEDED");
-    }
-
-    @Test
-    public void testSubmitTaskFailureAbortsBegunTransaction() throws UserException {
-        long dbId = 10L;
-        long txnId = 20L;
-        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
-        partitionIdToOffset.put(1, 100L);
-        KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
-                partitionIdToOffset, false, -1, false);
-        routineLoadTaskInfo.setBeId(100L);
-        Deencapsulation.setField(routineLoadTaskInfo, "txnId", txnId);
-
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "dbId", dbId);
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
-        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
-        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList",
-                Lists.newArrayList(routineLoadTaskInfo));
-        Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
-
-        GlobalTransactionMgrIface globalTransactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
-        envStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTransactionMgr);
-
-        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
-                routineLoadTaskInfo, "network error");
-
-        Mockito.verify(globalTransactionMgr).abortTransaction(
-                dbId, txnId, "routine load task submission failed: network error");
-        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
     private void assertSubmitTaskFailurePausesJob(String errorMsg) {

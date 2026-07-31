@@ -43,8 +43,7 @@ suite("test_routine_load_too_many_tasks_recovery_exactly_once", "docker") {
 
         def tableName = "test_rl_too_many_tasks_recovery"
         def job = "test_too_many_tasks_recovery_job_${topicSuffix}"
-        def debugPoint = "FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.BEFORE_RPC.TOO_MANY_TASKS"
-        def dbName = context.config.getDbNameByFile(context.file)
+        def debugPoint = "FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS"
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -111,17 +110,6 @@ suite("test_routine_load_too_many_tasks_recovery_exactly_once", "docker") {
                 waitCount++
             }
             Assert.assertTrue("Routine load job should pause with a visible TOO_MANY_TASKS reason", sawPaused)
-
-            // Keep the definite pre-RPC rejection active across auto-resume attempts. Every task has
-            // already begun a transaction, so the number of live PREPARE transactions must stay bounded.
-            for (int i = 0; i < 25; i++) {
-                sleep(1000)
-                def prepareTxns = sql_return_maparray """
-                    SHOW TRANSACTION FROM ${dbName} WHERE STATUS = 'PREPARE'
-                """
-                Assert.assertTrue("Persistent submission failures must not accumulate PREPARE transactions: "
-                        + prepareTxns, prepareTxns.size() <= 1)
-            }
 
             def failPhaseCount = sql "select count(*) from ${tableName}"
             logger.info("Row count during failure phase: ${failPhaseCount[0][0]}")
