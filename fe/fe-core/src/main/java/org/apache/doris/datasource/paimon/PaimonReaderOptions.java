@@ -26,8 +26,10 @@ import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.Table;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -152,19 +154,61 @@ public final class PaimonReaderOptions {
     public static Map<String, String> runtimeSafeCopyOptions(Table table, Map<String, String> copyOptions) {
         Map<String, String> safeOptions = new LinkedHashMap<>(copyOptions);
         String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();
-        String configured = safeOptions.containsKey(key) ? safeOptions.get(key) : table.options().get(key);
-        if (configured == null) {
+        if (safeOptions.containsKey(key)) {
+            String configured = safeOptions.get(key);
+            if (configured == null) {
+                return safeOptions;
+            }
+            validateManifestParallelism(configured);
+            int requested = Integer.parseInt(configured);
+            int localCapacity = Runtime.getRuntime().availableProcessors();
+            if (requested > localCapacity) {
+                safeOptions.put(key, String.valueOf(localCapacity));
+            }
             return safeOptions;
         }
-        validateManifestParallelism(configured);
-        int requested = Integer.parseInt(configured);
+
+        List<Integer> configuredValues = new ArrayList<>();
+        collectManifestParallelism(table, configuredValues);
+        if (configuredValues.isEmpty()) {
+            return safeOptions;
+        }
         int localCapacity = Runtime.getRuntime().availableProcessors();
-        if (requested > localCapacity) {
+        if (configuredValues.stream().anyMatch(value -> value > localCapacity)) {
             // Keep persisted semantics stable across heterogeneous FEs, but cap the execution copy
-            // so Paimon cannot replace its JVM-static manifest pool with a larger query-local value.
-            safeOptions.put(key, String.valueOf(localCapacity));
+            // conservatively across every nested planner hidden by a wrapper.
+            int safeParallelism = configuredValues.stream()
+                    .mapToInt(Integer::intValue)
+                    .min()
+                    .orElse(localCapacity);
+            safeOptions.put(key, String.valueOf(Math.min(safeParallelism, localCapacity)));
         }
         return safeOptions;
+    }
+
+    public static Table runtimeSafeTable(Table table) {
+        Map<String, String> safeOptions = runtimeSafeCopyOptions(table, Collections.emptyMap());
+        return safeOptions.isEmpty() ? table : table.copy(safeOptions);
+    }
+
+    public static Table runtimeSafeTable(Table table, Map<String, String> copyOptions) {
+        return table.copy(runtimeSafeCopyOptions(table, copyOptions));
+    }
+
+    private static void collectManifestParallelism(Table table, List<Integer> configuredValues) {
+        Map<String, String> options = table.options();
+        String key = CoreOptions.SCAN_MANIFEST_PARALLELISM.key();
+        if (options != null && options.containsKey(key) && options.get(key) != null) {
+            String configured = options.get(key);
+            validateManifestParallelism(configured);
+            configuredValues.add(Integer.parseInt(configured));
+        }
+        if (table instanceof FallbackReadFileStoreTable) {
+            collectManifestParallelism(((FallbackReadFileStoreTable) table).fallback(), configuredValues);
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            collectManifestParallelism(((DelegatedFileStoreTable) table).wrapped(), configuredValues);
+        }
     }
 
     public static void validateEffectiveTable(Table table) {

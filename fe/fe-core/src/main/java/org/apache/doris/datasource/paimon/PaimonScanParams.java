@@ -144,7 +144,7 @@ public final class PaimonScanParams {
                     .filter(key -> !tableOptions.containsKey(key))
                     .forEach(key -> isolatedOptions.put(key, null));
         }
-        Table effectiveTable = table.copy(PaimonReaderOptions.runtimeSafeCopyOptions(table, isolatedOptions));
+        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(table, isolatedOptions);
         // Validate after every copy so relation options participate in the documented
         // relation > catalog > physical precedence before the effective value is judged.
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);

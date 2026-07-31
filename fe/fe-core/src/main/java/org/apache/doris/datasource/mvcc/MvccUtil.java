@@ -36,6 +36,15 @@ public class MvccUtil {
         return getSnapshotFromContext(tableIf, null, null);
     }
 
+    /** Return a validated statement snapshot for metadata paths without relation identity. */
+    public static Optional<MvccSnapshot> getSnapshotForTableMetadataFromContext(TableIf tableIf) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || connectContext.getStatementContext() == null) {
+            return Optional.empty();
+        }
+        return connectContext.getStatementContext().getSnapshotForTableMetadata(tableIf);
+    }
+
     public static Optional<MvccSnapshot> getSnapshotFromContext(TableIf tableIf,
             TableSnapshot tableSnapshot, TableScanParams scanParams) {
         ConnectContext connectContext = ConnectContext.get();

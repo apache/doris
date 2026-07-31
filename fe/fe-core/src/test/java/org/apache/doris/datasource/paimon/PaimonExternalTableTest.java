@@ -17,16 +17,23 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalRowCountCache;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TDescriptorTable;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.schema.TableSchema;
@@ -77,7 +84,8 @@ public class PaimonExternalTableTest {
 
         try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
                 MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
-            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(externalTable)).thenReturn(statementSnapshot);
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(externalTable, null, scanParams))
+                    .thenReturn(statementSnapshot);
             paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(baseTable);
 
             Assert.assertSame(statementCopy, externalTable.getPaimonTable(scanParams));
@@ -105,7 +113,8 @@ public class PaimonExternalTableTest {
 
         try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
                 MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
-            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(externalTable)).thenReturn(statementSnapshot);
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(externalTable, null, scanParams))
+                    .thenReturn(statementSnapshot);
             paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(baseTable);
 
             Assert.assertSame(pinnedCopy, externalTable.getPaimonTable(scanParams));
@@ -232,6 +241,26 @@ public class PaimonExternalTableTest {
     }
 
     @Test
+    public void testSystemTableCapsAcceptedHiddenManifestParallelism() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.Assume.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        FileStoreTable dataTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable safeDataTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(dataTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
+        Mockito.when(safeDataTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
+        Mockito.when(dataTable.copy(ArgumentMatchers.anyMap())).thenReturn(safeDataTable);
+
+        Table systemTable = newSystemTable(dataTable).getSysPaimonTable();
+
+        Assert.assertTrue(systemTable instanceof PartitionsTable);
+        Mockito.verify(dataTable).copy(ArgumentMatchers.argThat((Map<String, String> options) ->
+                String.valueOf(localCapacity)
+                        .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
+    }
+
+    @Test
     public void testPartitionsTableValidatesHiddenDataTableWithOverridePrecedence() throws Exception {
         FileStoreTable unsafeDataTable = newFileStoreTable(
                 "partitions", ImmutableMap.of("scan.manifest.parallelism", "0"), null);
@@ -274,6 +303,88 @@ public class PaimonExternalTableTest {
             }
         }
         Assert.assertFalse(planningStarted.get());
+    }
+
+    @Test
+    public void testDescriptorUsesPinnedProjectionWhenOptionsAliasesDiffer() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("ctl");
+        Mockito.when(catalog.getCatalogType()).thenReturn(PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getRemoteName()).thenReturn("db");
+        PaimonExternalTable externalTable = Mockito.spy(
+                new PaimonExternalTable(10L, "table", "table", catalog, database));
+        TableScanParams firstParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.manifest.parallelism", "1"), Collections.emptyList());
+        TableScanParams secondParams = new TableScanParams(
+                TableScanParams.OPTIONS,
+                ImmutableMap.of("scan.manifest.parallelism", "2"), Collections.emptyList());
+        PaimonSnapshotCacheValue firstValue = Mockito.mock(PaimonSnapshotCacheValue.class);
+        PaimonSnapshotCacheValue secondValue = Mockito.mock(PaimonSnapshotCacheValue.class);
+        Mockito.doReturn(new PaimonMvccSnapshot(firstValue)).when(externalTable)
+                .loadSnapshot(Optional.empty(), Optional.of(firstParams));
+        Mockito.doReturn(new PaimonMvccSnapshot(secondValue)).when(externalTable)
+                .loadSnapshot(Optional.empty(), Optional.of(secondParams));
+        PaimonSchemaCacheValue schema = new PaimonSchemaCacheValue(
+                Collections.singletonList(new Column("id", Type.INT)), Collections.emptyList(), null);
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(
+                PaimonUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            statementContext.loadSnapshots(externalTable, Optional.empty(), Optional.of(firstParams));
+            statementContext.loadSnapshots(externalTable, Optional.empty(), Optional.of(secondParams));
+            paimonUtils.when(() -> PaimonUtils.getSchemaCacheValue(externalTable, firstValue)).thenReturn(schema);
+            paimonUtils.when(() -> PaimonUtils.getLatestSnapshotCacheValue(externalTable))
+                    .thenThrow(new IllegalArgumentException("unsafe neutral projection"));
+            DescriptorTable descriptors = new DescriptorTable();
+            TupleDescriptor firstTuple = descriptors.createTupleDescriptor("first");
+            firstTuple.setTable(externalTable);
+            TupleDescriptor secondTuple = descriptors.createTupleDescriptor("second");
+            secondTuple.setTable(externalTable);
+
+            TDescriptorTable thrift = descriptors.toThrift();
+
+            Assert.assertEquals(1, thrift.getTableDescriptorsSize());
+            Assert.assertEquals(1, thrift.getTableDescriptors().get(0).getNumCols());
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testFetchRowCountCapsAcceptedManifestParallelismBeforePlanning() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.Assume.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        Table rawTable = Mockito.mock(Table.class);
+        Table cappedTable = Mockito.mock(Table.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(rawTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
+        Mockito.when(rawTable.copy(ArgumentMatchers.argThat(options -> String.valueOf(localCapacity)
+                .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))))).thenReturn(cappedTable);
+        Mockito.when(cappedTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
+        Mockito.when(cappedTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan().plan().splits()).thenReturn(Collections.emptyList());
+        PaimonExternalTable externalTable = Mockito.mock(
+                PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doNothing().when(externalTable).makeSureInitialized();
+        try (MockedStatic<PaimonUtils> paimonUtils = Mockito.mockStatic(PaimonUtils.class)) {
+            paimonUtils.when(() -> PaimonUtils.getPaimonTable(externalTable)).thenReturn(rawTable);
+
+            Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT, externalTable.fetchRowCount());
+        }
+        Mockito.verify(rawTable).copy(ArgumentMatchers.anyMap());
     }
 
     @Test

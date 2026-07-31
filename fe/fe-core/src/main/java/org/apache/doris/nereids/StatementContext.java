@@ -265,6 +265,7 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
     private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> tableMetadataSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
@@ -965,6 +966,7 @@ public class StatementContext implements Closeable {
                     key -> ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
         }
         snapshots.put(mvccTableInfo, snapshot);
+        tableMetadataSnapshots.putIfAbsent(new MvccTableInfo(specificTable), snapshot);
         return Optional.of(snapshot);
     }
 
@@ -1002,6 +1004,19 @@ public class StatementContext implements Closeable {
         }
         return Optional.ofNullable(snapshots.get(
                 new MvccTableInfo(tableIf, versionKeyOf(tableSnapshot, scanParams))));
+    }
+
+    /**
+     * Return a validated statement projection for metadata consumers without relation identity.
+     */
+    public Optional<MvccSnapshot> getSnapshotForTableMetadata(TableIf tableIf) {
+        Optional<MvccSnapshot> unambiguous = getSnapshot(tableIf);
+        if (unambiguous.isPresent() || !(tableIf instanceof MvccTable)) {
+            return unambiguous;
+        }
+        // Descriptor serialization has no relation key. Reuse a validated statement projection
+        // instead of reopening a neutral handle after multiple OPTIONS aliases were bound.
+        return Optional.ofNullable(tableMetadataSnapshots.get(new MvccTableInfo(tableIf)));
     }
 
     private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,

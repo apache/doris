@@ -101,6 +101,23 @@ public class StatementContextMvccSnapshotTest {
     }
 
     @Test
+    public void tableMetadataRetainsPinnedProjectionWhenOptionsDiffer() {
+        StatementContext context = new StatementContext(new ConnectContext(), null);
+        MvccTable table = mockTable();
+        MvccSnapshot first = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot second = Mockito.mock(MvccSnapshot.class);
+        TableScanParams enabled = options("true");
+        TableScanParams disabled = options("false");
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(enabled))).thenReturn(first);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.of(disabled))).thenReturn(second);
+
+        context.loadSnapshots(table, Optional.empty(), Optional.of(enabled));
+        context.loadSnapshots(table, Optional.empty(), Optional.of(disabled));
+
+        Assertions.assertSame(first, context.getSnapshotForTableMetadata(table).orElse(null));
+    }
+
+    @Test
     public void identicalAliasesReuseResolvedStartupOptions() {
         StatementContext context = new StatementContext(new ConnectContext(), null);
         MvccTable table = mockTable();

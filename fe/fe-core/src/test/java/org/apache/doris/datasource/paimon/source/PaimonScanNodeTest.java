@@ -33,6 +33,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonPartitionInfo;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.paimon.PaimonScanParams;
 import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSnapshotCacheValue;
@@ -619,6 +620,7 @@ public class PaimonScanNodeTest {
         Table copiedTable = Mockito.mock(Table.class);
         Mockito.when(source.getExternalTable()).thenReturn(systemTable);
         Mockito.when(source.getPaimonTable()).thenReturn(baseTable);
+        Mockito.when(systemTable.getSysPaimonTable()).thenReturn(baseTable);
         node.setSource(source);
 
         Map<String, String> params = new HashMap<>();
@@ -837,6 +839,29 @@ public class PaimonScanNodeTest {
         } catch (java.lang.reflect.InvocationTargetException e) {
             Assert.assertTrue(e.getTargetException().getMessage().contains("read.batch-size"));
         }
+    }
+
+    @Test
+    public void testFinalPlanningBoundaryCapsAcceptedManifestParallelism() throws Exception {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.Assume.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Table rawTable = Mockito.mock(Table.class);
+        Table safeTable = Mockito.mock(Table.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getPaimonTable()).thenReturn(rawTable);
+        Mockito.when(rawTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
+        Mockito.when(rawTable.copy(ArgumentMatchers.anyMap())).thenReturn(safeTable);
+        Mockito.when(safeTable.options()).thenReturn(ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
+        node.setSource(source);
+
+        Assert.assertSame(safeTable, invokePrivateMethod(node, "getProcessedTable"));
+        Mockito.verify(rawTable).copy(ArgumentMatchers.argThat(options -> String.valueOf(localCapacity)
+                .equals(options.get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()))));
     }
 
     @Test

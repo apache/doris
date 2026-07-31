@@ -187,6 +187,24 @@ public class PaimonReaderOptionsTest {
     }
 
     @Test
+    void testRuntimeCopyCapsManifestParallelismHiddenByFallbackTable() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
+        FileStoreTable fallback = newFileStoreTable("fallback", ImmutableMap.of(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
+        Table fallbackReadTable = new FallbackReadFileStoreTable(main, fallback);
+
+        Table safeTable = PaimonReaderOptions.runtimeSafeTable(fallbackReadTable);
+
+        Assertions.assertDoesNotThrow(() -> PaimonReaderOptions.validateEffectiveTable(safeTable));
+        Assertions.assertEquals(String.valueOf(localCapacity),
+                ((FallbackReadFileStoreTable) safeTable).fallback().options()
+                        .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
+    }
+
+    @Test
     void testRejectUnsafeFallbackHiddenByPrivilegeDelegate() {
         FileStoreTable main = newFileStoreTable("privileged_main", Collections.emptyMap());
         FileStoreTable fallback = newFileStoreTable(

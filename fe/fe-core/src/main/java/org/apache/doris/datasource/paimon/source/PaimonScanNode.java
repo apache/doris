@@ -1024,10 +1024,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (processedTable != null) {
             return processedTable;
         }
-        Table baseTable = source.getPaimonTable();
         TableScanParams theScanParams = getScanParams();
+        Table baseTable = source.getPaimonTable();
+        PaimonSysExternalTable systemTable = null;
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
-            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            systemTable = (PaimonSysExternalTable) source.getExternalTable();
             try {
                 PaimonScanParams.validateSystemTable(systemTable.getSysTableType(), theScanParams);
             } catch (IllegalArgumentException e) {
@@ -1043,6 +1044,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         Table finalTable;
         if (theScanParams != null && theScanParams.incrementalRead()) {
+            if (systemTable != null) {
+                // System wrappers hide the manifest-planning data table. Start paths that copy the
+                // wrapper directly from a disposable CPU-capped handle.
+                baseTable = systemTable.getSysPaimonTable();
+            }
             // System table handles are cached, so preserve query isolation by applying dynamic
             // options to a copied Paimon table instead of changing the shared handle.
             finalTable = baseTable.copy(getIncrReadParams());
@@ -1053,11 +1059,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                 throw new UserException(e.getMessage(), e);
             }
         } else {
-            finalTable = baseTable;
+            finalTable = systemTable == null ? baseTable : systemTable.getSysPaimonTable();
         }
         try {
             // This is the last common boundary before planning and serialization, including scans
             // with no relation copy and incremental/system-table paths that bypass applyOptions.
+            finalTable = PaimonReaderOptions.runtimeSafeTable(finalTable);
             PaimonReaderOptions.validateEffectiveTable(finalTable);
             if (source.getExternalTable() instanceof PaimonSysExternalTable) {
                 // Read-only system wrappers hide the data table that performs manifest planning.

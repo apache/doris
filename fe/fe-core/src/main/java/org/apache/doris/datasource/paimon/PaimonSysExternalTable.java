@@ -120,8 +120,12 @@ public class PaimonSysExternalTable extends ExternalTable {
      * Note: system tables currently ignore snapshot semantics.
      */
     public Table getSysPaimonTable() {
-        validateEffectiveDataTable(null);
-        return getRawSysPaimonTable();
+        getRawSysPaimonTable();
+        FileStoreTable safeDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(paimonSysDataTable);
+        PaimonReaderOptions.validateEffectiveTable(safeDataTable);
+        // The cached wrapper must remain catalog-neutral; rebuild only when this FE needs a capped
+        // data handle so the hidden manifest planner sees the normalized value.
+        return safeDataTable == paimonSysDataTable ? paimonSysTable : createSystemTable(safeDataTable);
     }
 
     /** Returns the cached wrapper without validating its hidden data table. */
@@ -168,7 +172,7 @@ public class PaimonSysExternalTable extends ExternalTable {
             // Apply the same relation copy to the data table hidden by ReadonlyTable wrappers.
             PaimonScanParams.applyOptions(dataTable, resolvedOptions(scanParams));
         } else {
-            PaimonReaderOptions.validateEffectiveTable(dataTable);
+            PaimonReaderOptions.validateEffectiveTable(PaimonReaderOptions.runtimeSafeTable(dataTable));
         }
     }
 

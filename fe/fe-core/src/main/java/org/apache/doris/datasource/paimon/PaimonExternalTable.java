@@ -265,7 +265,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public long fetchRowCount() {
         makeSureInitialized();
         long rowCount = 0;
-        Table effectiveTable = getBasePaimonTable();
+        // Row-count planning bypasses ScanNode, so build the same CPU-capped disposable handle
+        // here instead of validating the hardware-neutral catalog copy directly.
+        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(getBasePaimonTable());
         // Statistics and row-count cache planning run before ScanNode and must not reach an
         // unsafe manifest executor, even when the foreground relation later supplies an override.
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
@@ -390,7 +392,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getFullSchema() {
-        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+        // Descriptor serialization is table-only and may follow multiple OPTIONS aliases. Keep it
+        // on a validated statement projection rather than falling back to the neutral cache.
+        return getPaimonSchemaCacheValue(
+                MvccUtil.getSnapshotForTableMetadataFromContext(this)).getSchema();
     }
 
     @Override
@@ -414,7 +419,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)));
+        return Optional.of(getPaimonSchemaCacheValue(
+                MvccUtil.getSnapshotForTableMetadataFromContext(this)));
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
