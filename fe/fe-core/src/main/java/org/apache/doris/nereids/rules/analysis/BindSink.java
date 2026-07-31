@@ -358,6 +358,26 @@ public class BindSink implements AnalysisRuleFactory {
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, Maps.newHashMap());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> coercionSchema) {
+        Map<String, DataType> coercionTypes = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : coercionSchema) {
+            coercionTypes.put(column.getName(), DataType.fromCatalogType(column.getType()));
+        }
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, coercionTypes);
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, Map<String, DataType> coercionTypes) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -384,12 +404,14 @@ public class BindSink implements AnalysisRuleFactory {
                 shadowColumns.add(column);
                 continue;
             }
+            DataType coercionType = coercionTypes.getOrDefault(
+                    column.getName(), DataType.fromCatalogType(column.getType()));
             if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                        columnToChildOutput.get(column), coercionType),
                         column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -433,7 +455,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 boundSink, ctx.cascadesContext, unboundFunctionDefaultValue
                         );
                         Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                                defualtValueExpression, DataType.fromCatalogType(column.getType())),
+                                defualtValueExpression, coercionType),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());
@@ -450,7 +472,7 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     // Otherwise, the unmentioned columns should be filled with default values
                     // or null values
-                    Alias output = new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())),
+                    Alias output = new Alias(new NullLiteral(coercionType),
                             column.getName());
                     columnToOutput.put(column.getName(), output);
                     columnToReplaced.put(column.getName(), output.toSlot());
@@ -465,7 +487,7 @@ public class BindSink implements AnalysisRuleFactory {
                             defualtValueExpression = ((Alias) defualtValueExpression).child();
                         }
                         Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                defualtValueExpression, coercionType)),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());
@@ -480,13 +502,15 @@ public class BindSink implements AnalysisRuleFactory {
         // if processed in upper for loop, will lead to not found slot error
         // It's the same reason for moving the processing of materialized columns down.
         for (Column column : generatedColumns) {
+            DataType coercionType = coercionTypes.getOrDefault(
+                    column.getName(), DataType.fromCatalogType(column.getType()));
             if (isDeletePartialUpdate) {
                 NamedExpression childOutput = columnToChildOutput.get(column);
                 if (childOutput == null) {
                     continue;
                 }
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        childOutput, DataType.fromCatalogType(column.getType())), column.getName());
+                        childOutput, coercionType), column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());
@@ -518,6 +542,8 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         for (Column column : materializedViewColumn) {
+            DataType coercionType = coercionTypes.getOrDefault(
+                    column.getName(), DataType.fromCatalogType(column.getType()));
             List<SlotRef> refs = column.getRefColumns();
             // now we have to replace the column to slots.
             Preconditions.checkArgument(refs != null,
@@ -543,7 +569,7 @@ public class BindSink implements AnalysisRuleFactory {
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
                 boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
-                        DataType.fromCatalogType(column.getType()));
+                        coercionType);
                 Alias output = new Alias(boundExpression, column.getDefineExpr().accept(
                         ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 columnToOutput.put(column.getName(), output);
@@ -552,11 +578,13 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         for (Column column : shadowColumns) {
+            DataType coercionType = coercionTypes.getOrDefault(
+                    column.getName(), DataType.fromCatalogType(column.getType()));
             NamedExpression expression = columnToOutput.get(column.getNonShadowName());
             if (expression != null) {
                 Alias alias = (Alias) expression;
                 Expression newExpr = TypeCoercionUtils.castIfNotSameType(alias.child(),
-                        DataType.fromCatalogType(column.getType()));
+                        coercionType);
                 columnToOutput.put(column.getName(), new Alias(newExpr, column.getName()));
             }
         }
@@ -814,6 +842,13 @@ public class BindSink implements AnalysisRuleFactory {
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
         if (table.requiresFullSchemaWriteOrder()) {
+            List<Column> exposedWriteSchema = sink.isRewrite()
+                    ? table.getFullSchema()
+                    : table.getFullSchema().stream()
+                            .filter(Column::isVisible)
+                            .collect(ImmutableList.toImmutableList());
+            List<Column> writeSchema = table.getConnectorWriteSchema(sink.isRewrite())
+                    .orElse(exposedWriteSchema);
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any
             // unmentioned / static-partition columns filled in (NULL literals), exactly like legacy
@@ -823,7 +858,8 @@ public class BindSink implements AnalysisRuleFactory {
             // trailing partition columns by position, so they must sit at their full-schema (tail)
             // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
             // partition columns by their full-schema position, so the child must be in full-schema order.
-            Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false, boundSink, child);
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(
+                    ctx, table, false, false, boundSink, child, writeSchema);
             if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
                 // Connectors that consume the partition value FROM THE ROW must write the static partition value
                 // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
@@ -836,11 +872,9 @@ public class BindSink implements AnalysisRuleFactory {
                 for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                     Column column = table.getColumn(entry.getKey());
                     if (column != null) {
-                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(
-                                entry.getValue(), DataType.fromCatalogType(column.getType()));
                         // Key and alias use the canonical schema name, so they line up with
                         // getOutputProjectByCoercion, which looks columnToOutput up by getFullSchema() names.
-                        columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                        columnToOutput.put(column.getName(), new Alias(entry.getValue(), column.getName()));
                     }
                 }
             }
@@ -852,11 +886,6 @@ public class BindSink implements AnalysisRuleFactory {
             // columns M"), so drop them unless this is a rewrite — mirroring the retired legacy iceberg
             // bind's insertSchema visible filter. Connectors with no invisible columns (e.g. MaxCompute) are
             // unaffected: the filter is a no-op there.
-            List<Column> writeSchema = sink.isRewrite()
-                    ? table.getFullSchema()
-                    : table.getFullSchema().stream()
-                            .filter(Column::isVisible)
-                            .collect(ImmutableList.toImmutableList());
             LogicalProject<?> fullOutputProject =
                     getOutputProjectByCoercion(writeSchema, child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);

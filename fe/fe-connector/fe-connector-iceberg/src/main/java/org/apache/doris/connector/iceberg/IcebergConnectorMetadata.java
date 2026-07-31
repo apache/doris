@@ -2182,15 +2182,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * Convert an Iceberg Schema to a list of ConnectorColumn.
      */
     private List<ConnectorColumn> parseSchema(Schema schema) {
-        List<Types.NestedField> fields = schema.columns();
-        List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         boolean enableVarbinary = Boolean.parseBoolean(
                 properties.getOrDefault(
                         IcebergConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
         boolean enableTimestampTz = Boolean.parseBoolean(
                 properties.getOrDefault(
                         IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        return parseSchema(schema, enableVarbinary, enableTimestampTz);
+    }
 
+    static List<ConnectorColumn> parseSchema(Schema schema,
+            boolean enableVarbinary, boolean enableTimestampTz) {
+        List<Types.NestedField> fields = schema.columns();
+        List<ConnectorColumn> columns = new ArrayList<>(fields.size());
         for (Types.NestedField field : fields) {
             // Legacy IcebergUtils.parseSchema parity (mirrors PaimonConnectorMetadata): the column name is
             // case-preserved (#65094 read-path alignment; top-level slot names keep their remote case),
