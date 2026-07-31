@@ -10,13 +10,10 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalProject
---------------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
+--------------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
+----------------------PhysicalProject
+------------------------filter(( not (o_comment like '%special%requests%')))
+--------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer]
-----------------------hashAgg[GLOBAL]
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------hashAgg[LOCAL]
-----------------------------PhysicalProject
-------------------------------filter(( not (o_comment like '%special%requests%')))
---------------------------------PhysicalOlapScan[orders]
 
