@@ -656,6 +656,48 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testUnrelatedSameStripeInvalidationKeepsDatabaseIdNavigation() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+            catalog.setInitializedForTest(true);
+            ExternalDatabase<? extends ExternalTable> db = catalog.getDbNullable("db_by_id");
+            Assertions.assertNotNull(db);
+
+            MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objectEntry = new MetaCacheEntry<>(
+                    "database_unrelated_invalidation_race",
+                    ignored -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return db;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false,
+                    MetaCacheEntry.singleKeyStripeCount());
+            catalog.setDatabasesEntryForTest(objectEntry);
+            catalog.clearDatabaseIdNamesForTest();
+
+            Future<ExternalDatabase<? extends ExternalTable>> lookup =
+                    queryExecutor.submit(() -> catalog.getDbNullable(db.getFullName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            objectEntry.invalidateKey("unrelated_database");
+            releaseLoader.countDown();
+
+            Assertions.assertSame(db, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(objectEntry.getIfPresent(db.getFullName()));
+            Assertions.assertEquals(db.getFullName(), catalog.getCachedDatabaseNameByIdForTest(db.getId()));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testGetDbNullableByIdLoadsColdObjectEntry() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);

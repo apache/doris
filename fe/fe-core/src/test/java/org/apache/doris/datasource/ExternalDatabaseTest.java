@@ -296,6 +296,48 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testUnrelatedSameStripeInvalidationKeepsTableIdNavigation() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch loaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoader = new CountDownLatch(1);
+        try {
+            InspectableCatalog catalog = new InspectableCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 243L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable table = db.getTableNullable("tbl_base");
+            Assertions.assertNotNull(table);
+
+            MetaCacheEntry<String, TestExternalTable> objectEntry = new MetaCacheEntry<>(
+                    "table_unrelated_invalidation_race",
+                    ignored -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return table;
+                    },
+                    CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                    refreshExecutor,
+                    false,
+                    MetaCacheEntry.singleKeyStripeCount());
+            setTablesEntryForTest(db, objectEntry);
+            extractTableIdToName(db).clear();
+
+            Future<TestExternalTable> lookup = queryExecutor.submit(() -> db.getTableNullable(table.getName()));
+            Assertions.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            objectEntry.invalidateKey("unrelated_table");
+            releaseLoader.countDown();
+
+            Assertions.assertSame(table, lookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertNull(objectEntry.getIfPresent(table.getName()));
+            Assertions.assertEquals(table.getName(), db.getCachedTableNameByIdForTest(table.getId()));
+        } finally {
+            releaseLoader.countDown();
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testGetTableNullableUpdatesIdMapWithActualTableId() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 300L, "db1", "db1");
