@@ -301,6 +301,100 @@ TEST(AdbcReaderTest, NormalizesLargeStringBeforeMaterializing) {
     EXPECT_EQ(*close_count, 1);
 }
 
+// An all-null int64 array standing in for a TEXT column, which is what a source that infers Arrow
+// types from the values it returns sends when a filter leaves only nulls.
+std::shared_ptr<arrow::RecordBatch> make_all_null_int64_batch(const std::string& column_name) {
+    arrow::Int64Builder b;
+    EXPECT_TRUE(b.AppendNull().ok());
+    EXPECT_TRUE(b.AppendNull().ok());
+    std::shared_ptr<arrow::Array> arr;
+    EXPECT_TRUE(b.Finish(&arr).ok());
+    auto schema = arrow::schema({arrow::field(column_name, arrow::int64())});
+    return arrow::RecordBatch::Make(schema, 2, {arr});
+}
+
+// A column whose values are ALL null arrives with a type that says nothing about the column: a
+// source inferring Arrow types from values has nothing to infer from. Measured on the SQLite driver,
+// the same TEXT column is utf8 for `SELECT id, name FROM t1` and int64 for the same query plus
+// `WHERE name IS NULL`. Without the all-null branch this reaches the string serde and fails with
+// "Unsupported arrow type for string column: 9", and FE cannot prevent it -- it cannot know which
+// rows a filter will leave.
+TEST(AdbcReaderTest, MaterializesAnAllNullColumnWhateverTypeTheSourceClaims) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = string_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_all_null_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader =
+            create_reader(&profile, fake_adbc_range(), slots,
+                          [close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                              *out = std::make_unique<BatchAdbcStream>(
+                                      std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                              make_all_null_int64_batch("c_str")},
+                                      close_count);
+                              return Status::OK();
+                          });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(rows, 2);
+    EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 0));
+    EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 1));
+}
+
+// The other side of that branch: a column carrying real values keeps its real type, so a genuine
+// FE/source schema disagreement still fails rather than being papered over as nulls.
+TEST(AdbcReaderTest, StillRejectsATypeMismatchOnAColumnThatHasValues) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = string_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_type_mismatch_test");
+    auto close_count = std::make_shared<int>(0);
+
+    arrow::Int64Builder values;
+    EXPECT_TRUE(values.Append(7).ok());
+    EXPECT_TRUE(values.AppendNull().ok());
+    std::shared_ptr<arrow::Array> arr;
+    EXPECT_TRUE(values.Finish(&arr).ok());
+    auto batch = arrow::RecordBatch::Make(
+            arrow::schema({arrow::field("c_str", arrow::int64())}), 2, {arr});
+
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), slots,
+            [close_count, batch](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {batch}, close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    EXPECT_FALSE(reader->get_block(&block, &rows, &eof).ok());
+}
+
 // A pushed-down COUNT(*) projects nothing, so every column the source returns is unrequested by
 // definition. Without the empty-projection branch the unknown-column check below rejects the first
 // one and a query asking for nothing but a number fails.

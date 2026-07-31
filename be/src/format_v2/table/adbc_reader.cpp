@@ -548,11 +548,33 @@ Status AdbcFileReader::_materialize_arrow_column(const std::string& column_name,
     }
     auto columns_guard = file_block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
+    const auto& target_type = columns_guard.get_datatype_by_position(block_position.value());
+
+    // An all-null column arrives with a type that says nothing about the column.
+    //
+    // A source that infers Arrow types from the VALUES it returns -- rather than from the declared
+    // column type -- has nothing to infer from when every value in the result is null, and picks
+    // whatever its default is. Measured against the SQLite driver: the same TEXT column comes back
+    // as utf8 for `SELECT id, name FROM t1` and as int64 for
+    // `SELECT id, name FROM t1 WHERE name IS NULL`, purely because the filter left only nulls.
+    // Handing that to the serde fails with "Unsupported arrow type for string column: 9", and no
+    // amount of care on the FE side avoids it: FE cannot know in advance which rows will survive.
+    //
+    // N nulls are what this array means whatever type it claims, so materialize them directly. The
+    // check is narrow on purpose -- a column with even one non-null value keeps its real type and
+    // still fails loudly on a genuine mismatch, which is the signal that FE and the source disagree
+    // about the schema rather than about one result set.
+    //
+    // Only for a nullable target: substituting defaults into a NOT NULL column would turn a source
+    // that wrongly sent nulls into silently wrong data, so that keeps failing in the serde.
+    if (array->null_count() == array->length() && target_type->is_nullable()) {
+        columns[block_position.value()]->insert_many_defaults(cast_set<size_t>(num_rows));
+        return Status::OK();
+    }
+
     try {
-        RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_position.value())
-                                ->get_serde()
-                                ->read_column_from_arrow(*columns[block_position.value()],
-                                                         array.get(), 0, num_rows, _ctz));
+        RETURN_IF_ERROR(target_type->get_serde()->read_column_from_arrow(
+                *columns[block_position.value()], array.get(), 0, num_rows, _ctz));
     } catch (const Exception& e) {
         return Status::InternalError(
                 "Failed to convert ADBC Arrow column '{}' (file_column_id={}, arrow type={}) to "

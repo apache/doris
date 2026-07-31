@@ -168,6 +168,14 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         // The answer must be the same whether or not they were pushed, since BE re-applies them.
 
         assertEquals(3, sql("""SELECT id FROM ${catalogName}.${dbName}.t1 WHERE id > 1""").size())
+
+        // Load-bearing beyond the row count, and the query that found a real defect on the first
+        // run. The projection is id, but BE re-evaluates the predicate, so name is a query slot too
+        // and FE selects it -- and the one surviving row has name NULL, so the source returns a
+        // column with no non-null value in it. A source that infers Arrow types from values then
+        // reports it as int64 rather than as text (measured: the SQLite driver does exactly this),
+        // and BE used to fail with "Unsupported arrow type for string column: 9". FE cannot avoid
+        // it: it cannot know which rows a filter will leave.
         assertEquals(1, sql("""SELECT id FROM ${catalogName}.${dbName}.t1 WHERE name IS NULL""").size())
         assertEquals(3, sql("""SELECT id FROM ${catalogName}.${dbName}.t1 WHERE name IS NOT NULL""").size())
         assertEquals(2, sql("""SELECT id FROM ${catalogName}.${dbName}.t1 WHERE id IN (1, 3)""").size())
