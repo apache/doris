@@ -81,11 +81,15 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testDetachAdaptProjectChainOnlyDetachesCommonHiddenPlaceholder() {
+    void testDetachAdaptProjectChainOnlyDetachesSequencePlaceholder() {
         LogicalEmptyRelation child = new LogicalEmptyRelation(new RelationId(101), ImmutableList.of());
         LogicalProject<?> commonHiddenProject = new LogicalProject<>(
                 ImmutableList.of(new Alias(new BigIntLiteral(0L), Column.SEQUENCE_COL)), child);
         Assertions.assertEquals(1, helper.detachAdaptProjectChain(commonHiddenProject).second.size());
+
+        LogicalProject<?> deleteSignProject = new LogicalProject<>(
+                ImmutableList.of(new Alias(new BigIntLiteral(0L), Column.DELETE_SIGN)), child);
+        Assertions.assertTrue(helper.detachAdaptProjectChain(deleteSignProject).second.isEmpty());
 
         LogicalProject<?> ivmHiddenProject = new LogicalProject<>(
                 ImmutableList.of(new Alias(new BigIntLiteral(0L), Column.IVM_ROW_ID_COL)), child);

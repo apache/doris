@@ -75,7 +75,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<Optional<IvmDeltaRewriteResult>
     @Override
     public Optional<IvmDeltaRewriteResult> visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation,
             IvmIncrRefreshContext ctx) {
-        return Optional.empty();
+        return linearHandler.rewriteOneRowRelation(oneRowRelation);
     }
 
     @Override
