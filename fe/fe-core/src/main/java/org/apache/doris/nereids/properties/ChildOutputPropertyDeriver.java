@@ -28,7 +28,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -186,6 +188,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        DistributionSpec childDistributionSpec = childOutputProperty.getDistributionSpec();
+        if (childDistributionSpec instanceof DistributionSpecHash
+                && !((DistributionSpecHash) childDistributionSpec).getDistributionMappings().isEmpty()) {
+            return computeAggregateOutputProperties(agg, childOutputProperty);
+        }
         switch (agg.getAggPhase()) {
             case LOCAL:
             case GLOBAL:
@@ -195,6 +202,33 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    private PhysicalProperties computeAggregateOutputProperties(
+            PhysicalHashAggregate<? extends Plan> agg, PhysicalProperties childOutputProperty) {
+        DistributionSpecHash childHash = (DistributionSpecHash) childOutputProperty.getDistributionSpec();
+        if (childHash.getShuffleType() != ShuffleType.NATURAL
+                || (agg.getAggPhase() != AggPhase.LOCAL && agg.getAggPhase() != AggPhase.GLOBAL)
+                || agg.hasSourceRepeat()
+                || agg.getAggregateFunctions().stream()
+                        .anyMatch(function -> function.isDistinct() || function instanceof MultiDistinction)) {
+            return new PhysicalProperties(childHash.withoutDistributionMappings());
+        }
+
+        Set<ExprId> groupByExprIds = Sets.newHashSet();
+        for (Expression groupBy : agg.getGroupByExpressions()) {
+            if (!(groupBy instanceof SlotReference)) {
+                return new PhysicalProperties(childHash.withoutDistributionMappings());
+            }
+            groupByExprIds.add(((SlotReference) groupBy).getExprId());
+        }
+        if (!groupByExprIds.containsAll(childHash.getOrderedShuffledColumns())) {
+            return new PhysicalProperties(childHash.withoutDistributionMappings());
+        }
+
+        PhysicalProperties projected = computeProjectOutputProperties(
+                agg.getOutputExpressions(), childOutputProperty);
+        return new PhysicalProperties(projected.getDistributionSpec());
     }
 
     @Override

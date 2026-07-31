@@ -197,6 +197,14 @@ public class DistributionSpecHash extends DistributionSpec {
         return distributionMappings;
     }
 
+    public DistributionSpecHash withoutDistributionMappings() {
+        if (distributionMappings.isEmpty()) {
+            return this;
+        }
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet, ImmutableList.of());
+    }
+
     public Set<ExprId> getEquivalenceExprIdsOf(ExprId exprId) {
         if (exprIdToEquivalenceSet.containsKey(exprId)) {
             return equivalenceExprIds.get(exprIdToEquivalenceSet.get(exprId));

@@ -89,6 +89,20 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k1 AS aggregate_k1,
+                           k2 AS aggregate_k2,
+                           d1 AS aggregate_d1,
+                           SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.aggregate_d1 = r.d1 AND l.aggregate_k2 = r.k2 """
+        notContains "COLOCATE"
+    }
 
     sql """ SET enable_colocate_mapping_constraint = true """
     explain {
@@ -126,6 +140,44 @@ suite("test_colocate_mapping_constraint") {
                   ON l.d1 = r.d1 AND l.k2 = r.k2 """
         notContains "COLOCATE"
     }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k1 AS aggregate_k1,
+                           k2 AS aggregate_k2,
+                           d1 AS aggregate_d1,
+                           SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.aggregate_d1 = r.d1 AND l.aggregate_k2 = r.k2 """
+        contains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k2 AS aggregate_k2,
+                           d1 AS aggregate_d1,
+                           SUM(extra_col) AS sum_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.aggregate_d1 = r.d1 AND l.aggregate_k2 = r.k2 """
+        notContains "COLOCATE"
+    }
+    explain {
+        sql """ SELECT *
+                FROM (
+                    SELECT k1, k2, d1, COUNT(DISTINCT extra_col) AS distinct_extra
+                    FROM test_colocate_mapping_constraint_left
+                    GROUP BY k1, k2, d1
+                ) l
+                JOIN test_colocate_mapping_constraint_right r
+                  ON l.d1 = r.d1 AND l.k2 = r.k2 """
+        notContains "COLOCATE"
+    }
 
     order_qt_colocate_mapping_result """
         SELECT l.k1, l.k2, l.d1, l.d2, l.extra_col,
@@ -134,5 +186,21 @@ suite("test_colocate_mapping_constraint") {
         JOIN test_colocate_mapping_constraint_right r
           ON l.d1 = r.d1 AND l.k2 = r.k2
         ORDER BY l.k1, l.k2
+    """
+
+    order_qt_aggregate_colocate_mapping_result """
+        SELECT l.aggregate_k1, l.aggregate_k2, l.aggregate_d1, l.sum_extra,
+               r.k1, r.k2, r.d1
+        FROM (
+            SELECT k1 AS aggregate_k1,
+                   k2 AS aggregate_k2,
+                   d1 AS aggregate_d1,
+                   SUM(extra_col) AS sum_extra
+            FROM test_colocate_mapping_constraint_left
+            GROUP BY k1, k2, d1
+        ) l
+        JOIN test_colocate_mapping_constraint_right r
+          ON l.aggregate_d1 = r.d1 AND l.aggregate_k2 = r.k2
+        ORDER BY l.aggregate_k1, l.aggregate_k2
     """
 }
