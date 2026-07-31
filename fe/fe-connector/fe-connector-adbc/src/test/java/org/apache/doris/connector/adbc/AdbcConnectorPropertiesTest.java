@@ -57,24 +57,29 @@ class AdbcConnectorPropertiesTest {
     }
 
     @Test
-    void partitionedReadIsOnUnlessTheCatalogSaysOtherwise() {
-        Assertions.assertTrue(AdbcConnectorProperties.partitionedReadEnabled(minimalProperties()));
+    void partitionedReadIsAutomaticUnlessTheCatalogSaysOtherwise() {
+        Assertions.assertEquals(AdbcConnectorProperties.PartitionedReadMode.AUTO,
+                AdbcConnectorProperties.partitionedReadMode(minimalProperties()));
 
-        Map<String, String> off = minimalProperties();
-        off.put(AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "FALSE");
-        Assertions.assertFalse(AdbcConnectorProperties.partitionedReadEnabled(off));
+        for (AdbcConnectorProperties.PartitionedReadMode mode
+                : AdbcConnectorProperties.PartitionedReadMode.values()) {
+            Map<String, String> props = minimalProperties();
+            // Spelled the way a user writes it, and case-insensitively.
+            props.put(AdbcConnectorProperties.PARTITIONED_READ, mode.name().toLowerCase());
+            Assertions.assertEquals(mode, AdbcConnectorProperties.partitionedReadMode(props));
+        }
     }
 
     @Test
-    void anUnreadableSwitchValueFailsInsteadOfMeaningFalse() {
-        // Boolean.parseBoolean answers false to everything that is not "true", so a typo would silently
-        // turn partitioned reads off and show up only as queries getting slower.
+    void anUnreadableModeFailsInsteadOfMeaningTheDefault() {
+        // Falling back to AUTO on a typo would be the worst answer for the one mode that exists to stop
+        // a silent downgrade: 'requred' would quietly permit exactly what 'required' forbids.
         Map<String, String> props = minimalProperties();
-        props.put(AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "ture");
+        props.put(AdbcConnectorProperties.PARTITIONED_READ, "requred");
 
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> AdbcConnectorProperties.partitionedReadEnabled(props));
-        Assertions.assertTrue(e.getMessage().contains(AdbcConnectorProperties.ENABLE_PARTITIONED_READ),
+                () -> AdbcConnectorProperties.partitionedReadMode(props));
+        Assertions.assertTrue(e.getMessage().contains(AdbcConnectorProperties.PARTITIONED_READ),
                 e.getMessage());
     }
 
@@ -102,7 +107,7 @@ class AdbcConnectorPropertiesTest {
         // changing the plan shape silently from the first query onwards.
         AdbcConnectorProvider provider = new AdbcConnectorProvider();
         for (String[] bad : new String[][] {
-                {AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "yes"},
+                {AdbcConnectorProperties.PARTITIONED_READ, "yes"},
                 {AdbcConnectorProperties.MAX_PARTITIONS, "0"}}) {
             Map<String, String> props = minimalProperties();
             props.put(bad[0], bad[1]);

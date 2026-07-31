@@ -70,16 +70,42 @@ public final class AdbcConnectorProperties {
     // -- partitioned read --
 
     /**
-     * Whether a scan may be split into the driver's own partitions and spread over several backends.
+     * How a scan may be split into the driver's own partitions and spread over several backends: one of
+     * {@link PartitionedReadMode}, spelled as its lowercase name.
      *
-     * <p>On by default, because the parallelism is the point of reading through ADBC rather than one
-     * connection. It is switchable because asking for the partitions is not free: for a Flight SQL source
-     * the call that returns them <b>is</b> the query's execution, so planning gains a remote round trip and
-     * the source starts working before Doris has committed to running the plan. A user whose source pays
-     * badly for that -- or whose driver reports partitions Doris then fails to read -- turns it off and gets
-     * the single-range path back.
+     * <p>Three states rather than a switch, because "use partitions when you can" and "use partitions or
+     * fail" are different requirements and encoding them as two booleans admits a combination that
+     * contradicts itself.
      */
-    public static final String ENABLE_PARTITIONED_READ = "enable_partitioned_read";
+    public static final String PARTITIONED_READ = "partitioned_read";
+
+    /** What a catalog asks of partitioned execution. */
+    public enum PartitionedReadMode {
+        /**
+         * Split the scan when the driver can, read it as one statement when it cannot. The default,
+         * because parallelism is the point of reading through ADBC rather than one connection, and a
+         * driver without partitions must still be usable.
+         */
+        AUTO,
+        /**
+         * Never ask for partitions. Asking is not free: on a Flight SQL source the call that returns them
+         * <b>is</b> the query's execution, so planning gains a remote round trip and the source starts
+         * working before Doris has committed to running the plan. This is the way back to the
+         * single-statement path for a source that pays badly for that, or whose partitions Doris then
+         * fails to read.
+         */
+        DISABLED,
+        /**
+         * Split the scan, or fail the query saying why.
+         *
+         * <p><b>For anything that must not silently lose its parallelism.</b> A test is the clearest
+         * case: under {@link #AUTO} a driver that stops partitioning turns the test green while quietly
+         * exercising the fallback instead of the path under test -- the failure looks exactly like a pass.
+         * A deployment sized for N backends has the same problem in slower motion, which is why this is a
+         * supported mode and not a test-only flag.
+         */
+        REQUIRED
+    }
 
     /**
      * The most partitions one scan may plan. A guard rail against a pathological source, not a tuning knob:
@@ -119,26 +145,25 @@ public final class AdbcConnectorProperties {
     }
 
     /**
-     * Reads {@link #ENABLE_PARTITIONED_READ}, defaulting to on.
+     * Reads {@link #PARTITIONED_READ}, defaulting to {@link PartitionedReadMode#AUTO}.
      *
-     * <p>Parsed strictly rather than with {@code Boolean.parseBoolean}, which answers false to everything
-     * that is not "true": a user who writes {@code "ture"} would silently lose partitioned reads and see
-     * only that queries got slower.
+     * <p>An unrecognized value fails rather than falling back to the default: a typo that silently meant
+     * AUTO would show up only as lost parallelism, or -- worse, for a catalog that asked for REQUIRED --
+     * as the silent downgrade that mode exists to forbid.
      */
-    public static boolean partitionedReadEnabled(Map<String, String> properties) {
-        String value = properties.get(ENABLE_PARTITIONED_READ);
+    public static PartitionedReadMode partitionedReadMode(Map<String, String> properties) {
+        String value = properties.get(PARTITIONED_READ);
         if (value == null || value.trim().isEmpty()) {
-            return true;
+            return PartitionedReadMode.AUTO;
         }
         String normalized = value.trim();
-        if ("true".equalsIgnoreCase(normalized)) {
-            return true;
+        for (PartitionedReadMode mode : PartitionedReadMode.values()) {
+            if (mode.name().equalsIgnoreCase(normalized)) {
+                return mode;
+            }
         }
-        if ("false".equalsIgnoreCase(normalized)) {
-            return false;
-        }
-        throw new IllegalArgumentException("Property '" + ENABLE_PARTITIONED_READ
-                + "' must be 'true' or 'false', but is '" + value + "'");
+        throw new IllegalArgumentException("Property '" + PARTITIONED_READ + "' must be one of 'auto',"
+                + " 'disabled' or 'required', but is '" + value + "'");
     }
 
     /** Reads {@link #MAX_PARTITIONS}, defaulting to {@value #DEFAULT_MAX_PARTITIONS}. */

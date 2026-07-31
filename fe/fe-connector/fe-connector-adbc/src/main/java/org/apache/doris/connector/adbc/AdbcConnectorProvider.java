@@ -58,7 +58,7 @@ public class AdbcConnectorProvider implements ConnectorProvider {
         // Parsed for its exceptions: an unreadable value has to fail here, at CREATE CATALOG, and not on
         // the first query -- these two decide how a scan is planned, and a typo in either would otherwise
         // change that silently.
-        AdbcConnectorProperties.partitionedReadEnabled(properties);
+        AdbcConnectorProperties.partitionedReadMode(properties);
         AdbcConnectorProperties.maxPartitions(properties);
     }
 

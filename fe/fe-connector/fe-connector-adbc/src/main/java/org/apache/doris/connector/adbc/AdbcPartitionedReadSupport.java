@@ -35,19 +35,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class AdbcPartitionedReadSupport {
 
     private final AtomicBoolean unsupported = new AtomicBoolean(false);
+    /**
+     * What the driver said when it refused. Kept because a later scan under {@code REQUIRED} has to fail
+     * with the reason, and by then nobody is calling the driver again to ask.
+     */
+    private volatile String refusal = "";
 
     /** True once the driver has answered {@code NOT_IMPLEMENTED}; scans then plan a single range. */
     public boolean isKnownUnsupported() {
         return unsupported.get();
     }
 
+    /** The driver's own answer, for a message. Empty until {@link #markUnsupported} has run. */
+    public String getRefusal() {
+        return refusal;
+    }
+
     /**
-     * Records that the driver has no partitioned execution.
+     * Records that the driver has no partitioned execution, and what it said.
      *
      * @return true if this call is the one that recorded it, so the caller logs the downgrade once per
      *         catalog rather than once per query
      */
-    public boolean markUnsupported() {
+    public boolean markUnsupported(String driverAnswer) {
+        // Written before the flag, so any thread that sees the flag also sees the reason.
+        refusal = driverAnswer == null ? "" : driverAnswer;
         return unsupported.compareAndSet(false, true);
     }
 }

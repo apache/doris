@@ -23,10 +23,17 @@
 // Arrow C++ to abort the whole BE.
 //
 // This driver supports partitioned execution, so the queries below take the
-// partitioned path by default: the query runs on the source at planning time
-// and each result partition is read back as its own scan range. A single-
-// backend source reports one partition, so what is proven here is that the
-// partition path returns the right rows -- NOT that it parallelizes.
+// partitioned path: the query runs on the source at planning time and each
+// result partition is read back as its own scan range. A single-backend source
+// reports one partition, so what is proven here is that the partition path
+// returns the right rows -- NOT that it parallelizes.
+//
+// The catalog sets partitioned_read=required ON PURPOSE. Under the default
+// 'auto' a driver that stopped partitioning would be silently downgraded to the
+// single-statement path, every assertion below would still pass, and the run
+// would look exactly like a successful test of the partitioned path. 'required'
+// turns that into a failure, which is the only way these assertions can mean
+// what they say.
 //
 // To run it you need, in this order:
 //   1. BE built with arrow-adbc (cd thirdparty && ./build-thirdparty.sh arrow_adbc),
@@ -94,7 +101,8 @@ suite("test_adbc_catalog_scan", "p0,external") {
             "driver_url" = "${driverPath}",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
-            "password" = ""
+            "password" = "",
+            "partitioned_read" = "required"
         )
     """
 
@@ -165,12 +173,13 @@ suite("test_adbc_catalog_scan", "p0,external") {
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
-            "enable_partitioned_read" = "false"
+            "partitioned_read" = "disabled"
         )
     """
 
     // Compared as values rather than against a baseline: a baseline would pass if BOTH paths broke
-    // the same way, and the point here is that the two agree.
+    // the same way, and the point here is that the two agree. The partitioned side is pinned to
+    // 'required', so "they agree" cannot be satisfied by both sides quietly being the same path.
     def sameOnBothPaths = { String query ->
         def partitioned = sql(query.replace('@CATALOG@', catalogName))
         def singleRange = sql(query.replace('@CATALOG@', singleRangeCatalog))

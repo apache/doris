@@ -264,6 +264,32 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         // and a "LIMIT is present" one could never hold. The limit rule that matters (a limit is
         // pushed only when every predicate was, or the source truncates before Doris filters) is
         // covered above by the row count of the LIKE-plus-LIMIT query.
+        // ---- partitioned_read=required must fail on a driver that has no partitions ----
+        //
+        // SQLite genuinely answers NOT_IMPLEMENTED to executePartitioned, which makes it the only
+        // driver here that can prove the mode does what it says. The sibling Flight SQL suite pins
+        // the other half: it sets 'required' on a driver that DOES partition and expects success, so
+        // a downgrade there fails the run instead of quietly testing the fallback.
+        String strictCatalog = "${catalogName}_strict"
+        sql """DROP CATALOG IF EXISTS ${strictCatalog}"""
+        sql """
+            CREATE CATALOG ${strictCatalog} PROPERTIES (
+                "type" = "adbc",
+                "driver_url" = "${driverPath}",
+                "uri" = "file:${dbFile.absolutePath}",
+                "partitioned_read" = "required"
+            )
+        """
+        try {
+            test {
+                sql "SELECT id FROM ${strictCatalog}.${dbName}.t1"
+                // The message has to name the property and carry the driver's own answer, or a user
+                // cannot tell a driver that lacks the feature from one that failed for another reason.
+                exception "partitioned_read"
+            }
+        } finally {
+            sql """DROP CATALOG IF EXISTS ${strictCatalog}"""
+        }
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }

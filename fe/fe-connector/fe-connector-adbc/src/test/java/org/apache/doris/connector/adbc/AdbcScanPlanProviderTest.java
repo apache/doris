@@ -82,7 +82,7 @@ class AdbcScanPlanProviderTest {
 
     private static AdbcScanPlanProvider statementProvider(Map<String, String> properties) {
         Map<String, String> withoutPartitions = new LinkedHashMap<>(properties);
-        withoutPartitions.put(AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "false");
+        withoutPartitions.put(AdbcConnectorProperties.PARTITIONED_READ, "disabled");
         return provider(withoutPartitions, () -> {
             throw new AssertionError("planning a statement must not open a connection");
         }, new AdbcPartitionedReadSupport());
@@ -267,7 +267,7 @@ class AdbcScanPlanProviderTest {
     void skipsThePartitionRoundTripWhenTheCatalogTurnedItOff() {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
-        properties.put(AdbcConnectorProperties.ENABLE_PARTITIONED_READ, "false");
+        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "disabled");
         FakeClient client = FakeClient.partitioning("p0", "p1");
 
         List<ConnectorScanRange> ranges = planAll(
@@ -310,6 +310,70 @@ class AdbcScanPlanProviderTest {
                 .getScanNodeProperties(null, T1, columns("a"), Optional.empty())
                 .get(ScanNodePropertyKeys.REMOTE_QUERY);
         Assertions.assertFalse(explained.contains("LIMIT"), explained);
+    }
+
+    @Test
+    void requiredModeFailsRatherThanDowngradingWhenTheDriverCannotPartition() {
+        // The whole point of the mode: a downgrade is invisible in the result -- the same rows arrive,
+        // from one backend instead of many -- so a test written for the partitioned path would pass while
+        // exercising the fallback, and the pass would be indistinguishable from the real thing.
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+        FakeClient client = FakeClient.notImplemented();
+        AdbcPartitionedReadSupport support = new AdbcPartitionedReadSupport();
+        AdbcScanPlanProvider planner = provider(properties, () -> client, support);
+
+        DorisConnectorException failure =
+                Assertions.assertThrows(DorisConnectorException.class, () -> planAll(planner));
+        Assertions.assertTrue(failure.getMessage().contains("required"), failure.getMessage());
+
+        // And it keeps failing without asking the driver again -- the answer is a property of the driver,
+        // so a second scan must neither pay for the round trip nor quietly succeed.
+        Assertions.assertThrows(DorisConnectorException.class, () -> planAll(planner));
+        Assertions.assertEquals(1, client.attempts);
+    }
+
+    @Test
+    void requiredModeCarriesTheDriversOwnAnswerIntoTheFailure() {
+        // Without it the message says only that partitioning is unavailable, and which layer refused --
+        // driver, driver manager, or the JNI bridge -- has to be found by hand.
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planAll(provider(properties, FakeClient::notImplemented,
+                        new AdbcPartitionedReadSupport())));
+
+        Assertions.assertTrue(failure.getMessage().contains("scripted failure"), failure.getMessage());
+    }
+
+    @Test
+    void requiredModePlansPartitionsWhenTheDriverHasThem() {
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+
+        Assertions.assertEquals(2, planAll(provider(properties,
+                () -> FakeClient.partitioning("p0", "p1"), new AdbcPartitionedReadSupport())).size());
+    }
+
+    @Test
+    void explainStillWorksUnderRequiredBecauseItNeverPartitions() {
+        // EXPLAIN deliberately does not ask for partitions, so it must not be failed for not having any:
+        // refusing to describe a query would help nobody, and describing it costs the source nothing.
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(AdbcConnectorProperties.URI, "grpc://remote:9090");
+        properties.put(AdbcConnectorProperties.PARTITIONED_READ, "required");
+        AdbcScanPlanProvider planner = provider(properties, () -> {
+            throw new AssertionError("EXPLAIN must not reach the ADBC driver");
+        }, new AdbcPartitionedReadSupport());
+
+        List<ConnectorScanRange> ranges = planner.planScan(null,
+                ConnectorScanRequest.builder(T1, columns("a")).explainOnly(true).build());
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals("SELECT \"a\" FROM \"main\".\"t1\"", querySqlOf(ranges.get(0)));
     }
 
     @Test

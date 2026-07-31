@@ -86,17 +86,46 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                 query.getSql());
         // EXPLAIN plans a scan for real, so this is reached while describing a query as well as while
         // running one -- and asking the driver to partition a statement EXECUTES it on the source. An
-        // EXPLAIN must not do that, so it is shown the statement instead. The statement is what a
+        // EXPLAIN must not do that, so it is shown the statement instead, whatever the mode: refusing to
+        // describe a query because the driver cannot partition would help nobody. The statement is what a
         // partitioned scan splits, so what EXPLAIN shows still describes the real scan; only the range
         // count differs, and a range count for a query that was never run means nothing anyway.
-        if (!request.isExplainOnly() && AdbcConnectorProperties.partitionedReadEnabled(properties)
-                && !partitionedRead.isKnownUnsupported()) {
-            List<ConnectorScanRange> partitioned = planPartitions(query.getSql());
-            if (partitioned != null) {
-                return partitioned;
+        AdbcConnectorProperties.PartitionedReadMode mode =
+                AdbcConnectorProperties.partitionedReadMode(properties);
+        if (!request.isExplainOnly() && mode != AdbcConnectorProperties.PartitionedReadMode.DISABLED) {
+            if (partitionedRead.isKnownUnsupported()) {
+                // Already asked once, on this catalog, and the driver said no.
+                refuseIfRequired(mode, partitionedRead.getRefusal());
+            } else {
+                List<ConnectorScanRange> partitioned = planPartitions(query.getSql(), mode);
+                if (partitioned != null) {
+                    return partitioned;
+                }
             }
         }
         return Collections.singletonList(rangeBuilder().querySql(query.getSql()).build());
+    }
+
+    /**
+     * Fails when the catalog asked for partitioned execution and cannot have it.
+     *
+     * <p>Without this the loss is invisible: the scan still returns the right rows, just from one backend
+     * instead of many. A test written to exercise the partitioned path would go green while exercising the
+     * fallback -- the failure and the pass look identical -- and a deployment sized for the parallelism
+     * would simply be slow.
+     */
+    private static void refuseIfRequired(AdbcConnectorProperties.PartitionedReadMode mode,
+            String driverAnswer) {
+        if (mode != AdbcConnectorProperties.PartitionedReadMode.REQUIRED) {
+            return;
+        }
+        throw new DorisConnectorException("This catalog sets '"
+                + AdbcConnectorProperties.PARTITIONED_READ + "'='required', but its ADBC driver does not"
+                + " implement partitioned execution, so the scan cannot be split across backends."
+                + " The driver answered: " + (driverAnswer == null || driverAnswer.isEmpty()
+                        ? "(no message)" : driverAnswer)
+                + ". Use a driver that partitions, or set the property to 'auto' to allow reading through"
+                + " a single statement instead.");
     }
 
     /**
@@ -107,7 +136,8 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
      * tried and the query or the source is at fault, and swallowing that into a single-range plan would
      * hide a real failure behind a slower query -- and would run the statement remotely a second time.
      */
-    private List<ConnectorScanRange> planPartitions(String sql) {
+    private List<ConnectorScanRange> planPartitions(String sql,
+            AdbcConnectorProperties.PartitionedReadMode mode) {
         // Set by the NOT_IMPLEMENTED branch so the downgrade can be logged with what the driver
         // actually said. Without it the log says only that SOMETHING answered NOT_IMPLEMENTED, and
         // the layer that did -- driver, driver manager, or JNI bridge -- has to be found by hand.
@@ -128,12 +158,15 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
             }
         });
         if (descriptors == null) {
-            if (partitionedRead.markUnsupported()) {
+            String answer = refusal[0] == null ? "" : refusal[0].toString();
+            if (partitionedRead.markUnsupported(answer)) {
                 LOG.info("The ADBC driver does not implement partitioned execution, so scans of this"
-                        + " catalog run as one range on one backend. Set '{}'='false' to stop asking."
-                        + " The driver answered: {}", AdbcConnectorProperties.ENABLE_PARTITIONED_READ,
-                        refusal[0] == null ? "(no exception)" : refusal[0].toString());
+                        + " catalog run as one range on one backend. Set '{}'='disabled' to stop asking,"
+                        + " or 'required' to fail instead. The driver answered: {}",
+                        AdbcConnectorProperties.PARTITIONED_READ,
+                        answer.isEmpty() ? "(no exception)" : answer);
             }
+            refuseIfRequired(mode, answer);
             return null;
         }
         if (descriptors.isEmpty()) {
@@ -144,8 +177,8 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
             throw new DorisConnectorException("The ADBC driver reported no partitions for ["
                     + sql + "]. Doris cannot tell that apart from a lost result set, so the query fails"
                     + " rather than returning no rows. Set '"
-                    + AdbcConnectorProperties.ENABLE_PARTITIONED_READ
-                    + "'='false' on this catalog to read it through a single statement instead.");
+                    + AdbcConnectorProperties.PARTITIONED_READ
+                    + "'='disabled' on this catalog to read it through a single statement instead.");
         }
         int limit = AdbcConnectorProperties.maxPartitions(properties);
         if (descriptors.size() > limit) {
@@ -156,7 +189,7 @@ public class AdbcScanPlanProvider implements ConnectorScanPlanProvider {
                     + descriptors.size() + " partitions, over the '"
                     + AdbcConnectorProperties.MAX_PARTITIONS + "' limit of " + limit
                     + ". Raise that property, narrow the query, or set '"
-                    + AdbcConnectorProperties.ENABLE_PARTITIONED_READ + "'='false' on this catalog.");
+                    + AdbcConnectorProperties.PARTITIONED_READ + "'='disabled' on this catalog.");
         }
         List<ConnectorScanRange> ranges = new ArrayList<>(descriptors.size());
         for (PartitionDescriptor descriptor : descriptors) {
