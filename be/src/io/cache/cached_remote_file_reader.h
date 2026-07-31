@@ -168,10 +168,11 @@ private:
                                   SourceReadBreakdown& source_read_breakdown,
                                   const IOContext* io_ctx);
 
-    /// Build block-aligned source coverage for the unread suffix. It first performs one inflight
-    /// batch lookup; a fully covered request returns without taking the BlockFileCache lock, while
-    /// incomplete coverage triggers one read-only whole-range probe with one result per aligned
-    /// block.
+    /// Build ordered, gap-free cache-block coverage for the unread suffix. Block offsets are
+    /// cache-block aligned; only the physical EOF block may be short. Vector indexes remain
+    /// identical across inflight lookup, cache probe, materialization, remote slicing, and task
+    /// submission. A fully inflight-covered request skips BlockFileCache::probe; otherwise one
+    /// whole-range probe returns exactly one entry per logical block.
     /// @param[in] remaining_offset First user byte not filled by the direct-cache path.
     /// @param[in] remaining_size Number of unread user bytes.
     /// @param[in] write_epoch Epoch captured before any lookup or remote IO.
@@ -235,8 +236,9 @@ private:
                                     size_t* indirect_read_bytes,
                                     std::unique_ptr<char[]>* remote_buffer);
 
-    /// Copy each real cache-miss block from the remote span into tracked memory and enqueue a
-    /// per-block write task. A final insert-if-absent prevents duplicate ownership after IO.
+    /// Copy each real cache-miss block from the remote span into one fixed cache-block-sized
+    /// tracked buffer and enqueue a per-block write task. `write_size` records the valid prefix for
+    /// a short physical EOF block. A final insert-if-absent prevents duplicate ownership after IO.
     /// @param[in] plan Classified blocks, remote boundaries, and the epoch captured before IO.
     /// @param[in] remote_buffer Full payload for the plan's first-to-last remote span.
     /// @param[in] io_ctx Context converted to the worker's admission context.

@@ -186,6 +186,8 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     const auto& preallocated_tail = holder.file_blocks.front();
     ASSERT_EQ(preallocated_tail->range().left, file_tail_offset);
     ASSERT_EQ(preallocated_tail->range().right, file_tail_offset + 1_mb - 1);
+    const uint64_t baseline_submitted_payload_bytes =
+            cache()->async_write_service()->_submitted_bytes_metric->get_value();
 
     std::string result(1, '\0');
     FileCacheStatistics stats;
@@ -201,7 +203,12 @@ TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_s
     EXPECT_EQ(counting_reader->last_offset(), 9_mb);
     EXPECT_EQ(counting_reader->last_size(), 1_mb + 1);
     EXPECT_EQ(stats.probe_miss, 2);
+    EXPECT_EQ(stats.async_cache_write_submitted, 2);
     wait_for_async_writes();
+    EXPECT_EQ(cache()->async_write_service()->_task_buffer_size, 1_mb);
+    EXPECT_EQ(cache()->async_write_service()->_submitted_bytes_metric->get_value() -
+                      baseline_submitted_payload_bytes,
+              2_mb);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,
@@ -666,7 +673,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     ASSERT_NE(index, nullptr);
     auto options = service->options();
     options.worker_count = 1;
-    options.max_pending_tasks = 3;
+    options.max_pending_bytes = 3_mb;
     options.batch_size = 1;
     ASSERT_TRUE(service->update_options(options).ok());
 
@@ -708,7 +715,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
         return AsyncCacheWriteTask {
                 .cache_hash = hash,
                 .file_offset = offset,
-                .file_size = buffer->size(),
+                .write_size = buffer->size(),
                 .buffer = std::move(buffer),
                 .admission_ctx = {},
                 .submit_ts_us = MonotonicMicros(),
@@ -735,7 +742,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     AsyncCacheWriteTask victim_task {
             .cache_hash = reader->_cache_hash,
             .file_offset = 0,
-            .file_size = victim_buffer->size(),
+            .write_size = victim_buffer->size(),
             .buffer = victim_buffer,
             .admission_ctx = {},
             .submit_ts_us = victim_submit_ts_us,
@@ -1390,7 +1397,7 @@ TEST_F(BlockFileCacheTest, async_write_backpressure_rolls_back_inflight_entry) {
     ASSERT_NE(cache, nullptr);
     wait_until_cache_ready(*cache);
     auto async_write_options = cache->async_write_service()->options();
-    async_write_options.max_pending_tasks = 1;
+    async_write_options.max_pending_bytes = 1_mb;
     ASSERT_TRUE(cache->async_write_service()->update_options(async_write_options).ok());
 
     std::mutex mutex;

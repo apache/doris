@@ -76,8 +76,16 @@ bvar::LatencyRecorder g_cached_remote_reader_async_write_submission_latency(
 
 } // namespace
 
-// One aligned cache block in the simplified read plan. REMOTE blocks delimit the single remote
-// range; submit_write distinguishes real cache misses from blocks already being downloaded.
+// One logical cache-block slot in the read plan.
+//
+// Contract after plan construction:
+// - `range.left` is cache-block aligned and ranges are ordered, gap-free, and non-overlapping.
+// - `range.size()` is one cache block except for the physical EOF slot, which may be shorter.
+// - `source` identifies how this slot can be materialized before the remote read. REMOTE means the
+//   probe found a real miss; CACHE and DOWNLOADING retain the corresponding probe result by index.
+// - `submit_write` is true exactly for REMOTE misses. A CACHE hit lying between the first and last
+//   miss is reread by the single remote operation, but is deliberately not submitted for writing.
+// - `inflight_entry` is non-null exactly when `source` is INFLIGHT and covers the whole slot.
 struct CachedRemoteFileReader::AsyncReadBlock {
     enum class Source {
         INFLIGHT,
@@ -94,9 +102,15 @@ struct CachedRemoteFileReader::AsyncReadBlock {
     std::shared_ptr<InflightWriteBufferEntry> inflight_entry;
 };
 
-// A read first checks inflight buffers and owns a cache probe result only when that lookup leaves
-// uncovered blocks. first_remote_block and remote_block_count identify the inclusive first-to-last
-// uncovered span, including any cache hits between those boundaries.
+// Immutable logical partition plus the source classification used by one async read.
+//
+// `blocks` is an index-stable partition of the aligned read interval: the same index is used for
+// inflight lookup, BlockFileCache::probe(), side materialization, remote-buffer slicing, and async
+// task creation. The user interval [user_left, user_right] is fully contained by that partition.
+//
+// `first_remote_block` and `remote_block_count` describe the minimal first-miss-to-last-miss span.
+// It may contain CACHE/INFLIGHT hits between misses so the read path issues at most one remote IO.
+// `probe_result` is absent only when inflight buffers covered every block and probe was skipped.
 struct CachedRemoteFileReader::AsyncReadPlan {
     AsyncReadPlan(uint64_t write_epoch_, size_t user_left_, size_t user_right_)
             : write_epoch(write_epoch_), user_left(user_left_), user_right(user_right_) {}
@@ -108,6 +122,63 @@ struct CachedRemoteFileReader::AsyncReadPlan {
     std::vector<AsyncReadBlock> blocks;
     size_t first_remote_block {0};
     size_t remote_block_count {0};
+
+    void check_layout(size_t file_size, size_t cache_block_size) const {
+        DORIS_CHECK(file_size > 0);
+        DORIS_CHECK(cache_block_size > 0);
+        DORIS_CHECK(user_left <= user_right);
+        DORIS_CHECK(user_right < file_size);
+        DORIS_CHECK(!blocks.empty());
+        DORIS_CHECK(blocks.front().range.left <= user_left);
+        DORIS_CHECK(blocks.back().range.right >= user_right);
+
+        for (size_t index = 0; index < blocks.size(); ++index) {
+            const auto& range = blocks[index].range;
+            DORIS_CHECK(range.left <= range.right);
+            DORIS_CHECK(range.left % cache_block_size == 0);
+            DORIS_CHECK(range.right < file_size);
+            if (index > 0) {
+                DORIS_CHECK(blocks[index - 1].range.right + 1 == range.left);
+            }
+            if (range.right + 1 < file_size) {
+                DORIS_CHECK(range.size() == cache_block_size);
+            } else {
+                DORIS_CHECK(range.size() <= cache_block_size);
+            }
+        }
+    }
+
+    void check_built_sources() const {
+        size_t first_miss = blocks.size();
+        size_t last_miss = 0;
+        for (size_t index = 0; index < blocks.size(); ++index) {
+            const auto& block = blocks[index];
+            const bool is_inflight = block.source == AsyncReadBlock::Source::INFLIGHT;
+            const bool is_remote = block.source == AsyncReadBlock::Source::REMOTE;
+            DORIS_CHECK((block.inflight_entry != nullptr) == is_inflight);
+            DORIS_CHECK(block.submit_write == is_remote);
+            if (block.submit_write) {
+                if (first_miss == blocks.size()) {
+                    first_miss = index;
+                }
+                last_miss = index;
+            }
+        }
+
+        if (first_miss == blocks.size()) {
+            DORIS_CHECK(remote_block_count == 0);
+        } else {
+            DORIS_CHECK(first_remote_block == first_miss);
+            DORIS_CHECK(remote_block_count == last_miss - first_miss + 1);
+        }
+        if (probe_result.has_value()) {
+            DORIS_CHECK(probe_result->file_blocks.size() == blocks.size());
+        } else {
+            DORIS_CHECK(std::all_of(blocks.begin(), blocks.end(), [](const auto& block) {
+                return block.source == AsyncReadBlock::Source::INFLIGHT;
+            }));
+        }
+    }
 };
 
 // Resolve mode on every read so online configuration changes affect existing readers.
@@ -135,24 +206,34 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
     Defer record_plan_latency {[&]() {
         g_cached_remote_reader_async_read_plan_latency << (MonotonicMicros() - plan_start_us);
     }};
+    DORIS_CHECK(io_ctx != nullptr);
+    DORIS_CHECK(remaining_offset < size());
     DORIS_CHECK(remaining_size > 0);
+    DORIS_CHECK(remaining_size <= size() - remaining_offset);
     const auto [align_left, align_size] = s_align_size(remaining_offset, remaining_size, size());
     const size_t cache_block_size = static_cast<size_t>(config::file_cache_each_block_size);
     DORIS_CHECK(cache_block_size > 0);
+    DORIS_CHECK(align_left % cache_block_size == 0);
+    DORIS_CHECK(align_left <= remaining_offset);
+    DORIS_CHECK(align_size > 0);
+    DORIS_CHECK(align_size <= size() - align_left);
 
     AsyncReadPlan plan(write_epoch, remaining_offset, remaining_offset + remaining_size - 1);
 
     std::vector<size_t> block_offsets;
     const size_t align_end = align_left + align_size;
-    for (size_t block_offset = align_left; block_offset < align_end;
-         block_offset += cache_block_size) {
-        const size_t block_size = std::min(cache_block_size, size() - block_offset);
+    for (size_t block_offset = align_left; block_offset < align_end;) {
+        const size_t block_size = std::min(cache_block_size, align_end - block_offset);
         DORIS_CHECK(block_size > 0);
         const FileBlock::Range block_range(block_offset, block_offset + block_size - 1);
         plan.blocks.emplace_back(block_range);
         block_offsets.emplace_back(block_offset);
+        block_offset += block_size;
     }
     DORIS_CHECK(!plan.blocks.empty());
+    DORIS_CHECK(plan.blocks.front().range.left == align_left);
+    DORIS_CHECK(plan.blocks.back().range.right == align_end - 1);
+    plan.check_layout(size(), cache_block_size);
 
     const bool inflight_index_enabled =
             config::enable_async_file_cache_write_inflight_write_buffer_index;
@@ -181,6 +262,7 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
         }
     }
     if (all_blocks_inflight) {
+        plan.check_built_sources();
         return plan;
     }
 
@@ -243,6 +325,7 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
         }
         plan.remote_block_count = index - plan.first_remote_block + 1;
     }
+    plan.check_built_sources();
     return plan;
 }
 
@@ -258,6 +341,8 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
     DORIS_CHECK(block_index < plan.blocks.size());
     const auto& read_block = plan.blocks[block_index];
     DORIS_CHECK(read_block.source != AsyncReadBlock::Source::REMOTE);
+    DORIS_CHECK(user_offset <= plan.user_left);
+    DORIS_CHECK(plan.user_right - user_offset < result.size);
     DORIS_CHECK(materialized_bytes != nullptr);
     DORIS_CHECK(need_self_heal != nullptr);
 
@@ -267,14 +352,15 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
         return true;
     }
     const size_t copy_size = copy_right - copy_left + 1;
+    const size_t result_offset = copy_left - user_offset;
+    DORIS_CHECK(copy_size <= result.size - result_offset);
 
     if (read_block.source == AsyncReadBlock::Source::INFLIGHT) {
         const auto& entry = read_block.inflight_entry;
         DORIS_CHECK(entry != nullptr);
         const size_t entry_offset = copy_left - entry->buffer_offset;
         DORIS_CHECK(entry_offset + copy_size <= entry->buffer_size);
-        memcpy(result.data + (copy_left - user_offset), entry->buffer->data() + entry_offset,
-               copy_size);
+        memcpy(result.data + result_offset, entry->buffer->data() + entry_offset, copy_size);
         *materialized_bytes += copy_size;
         return true;
     }
@@ -310,7 +396,7 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
     Status status;
     {
         SCOPED_RAW_TIMER(&stats.local_read_timer);
-        status = file_block->read(Slice(result.data + (copy_left - user_offset), copy_size),
+        status = file_block->read(Slice(result.data + result_offset, copy_size),
                                   copy_left - read_block.range.left);
     }
     if (!status.ok()) {
@@ -339,6 +425,8 @@ bool CachedRemoteFileReader::_materialize_async_cached_sides(
         bool* need_self_heal) {
     DORIS_CHECK(indirect_read_bytes != nullptr);
     DORIS_CHECK(need_self_heal != nullptr);
+    DORIS_CHECK(plan.first_remote_block <= plan.blocks.size());
+    DORIS_CHECK(plan.remote_block_count <= plan.blocks.size() - plan.first_remote_block);
 
     size_t materialized_bytes = 0;
     const auto materialize_range = [&](size_t begin, size_t end) {
@@ -378,11 +466,15 @@ Status CachedRemoteFileReader::_read_async_remote_range(
     DORIS_CHECK(indirect_read_bytes != nullptr);
     DORIS_CHECK(remote_buffer != nullptr);
     DORIS_CHECK(plan.remote_block_count > 0);
+    DORIS_CHECK(plan.first_remote_block < plan.blocks.size());
     const size_t remote_end = plan.first_remote_block + plan.remote_block_count;
     DORIS_CHECK(remote_end <= plan.blocks.size());
     const size_t remote_left = plan.blocks[plan.first_remote_block].range.left;
     const size_t remote_right = plan.blocks[remote_end - 1].range.right;
+    DORIS_CHECK(remote_left <= remote_right);
     const size_t remote_size = remote_right - remote_left + 1;
+    DORIS_CHECK(user_offset <= plan.user_left);
+    DORIS_CHECK(plan.user_right - user_offset < result.size);
 
     stats.hit_cache = false;
     stats.from_peer_cache = false;
@@ -399,8 +491,11 @@ Status CachedRemoteFileReader::_read_async_remote_range(
     const size_t copy_right = std::min(remote_right, plan.user_right);
     if (copy_left <= copy_right) {
         const size_t copy_size = copy_right - copy_left + 1;
-        memcpy(result.data + (copy_left - user_offset),
-               remote_buffer->get() + (copy_left - remote_left), copy_size);
+        const size_t result_offset = copy_left - user_offset;
+        const size_t remote_buffer_offset = copy_left - remote_left;
+        DORIS_CHECK(copy_size <= result.size - result_offset);
+        DORIS_CHECK(copy_size <= remote_size - remote_buffer_offset);
+        memcpy(result.data + result_offset, remote_buffer->get() + remote_buffer_offset, copy_size);
         *indirect_read_bytes += copy_size;
         source_read_breakdown.remote_bytes += copy_size;
     }
@@ -445,33 +540,47 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
             .is_warmup = cache_context.is_warmup,
     };
     DORIS_CHECK(plan.remote_block_count > 0);
+    DORIS_CHECK(plan.first_remote_block < plan.blocks.size());
     const size_t remote_end = plan.first_remote_block + plan.remote_block_count;
     DORIS_CHECK(remote_end <= plan.blocks.size());
     const size_t remote_left = plan.blocks[plan.first_remote_block].range.left;
+    const size_t remote_right = plan.blocks[remote_end - 1].range.right;
+    const size_t remote_size = remote_right - remote_left + 1;
+    const size_t cache_block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    DORIS_CHECK(cache_block_size > 0);
     for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
         const auto& read_block = plan.blocks[index];
         if (!read_block.submit_write) {
             continue;
         }
         DORIS_CHECK(read_block.source == AsyncReadBlock::Source::REMOTE);
+        DORIS_CHECK(read_block.range.left % cache_block_size == 0);
+        DORIS_CHECK(read_block.range.size() <= cache_block_size);
+        DORIS_CHECK(read_block.range.left >= remote_left);
+        DORIS_CHECK(read_block.range.right <= remote_right);
         if (!service->is_current_write_epoch(plan.write_epoch)) {
             ++stats.async_cache_write_drop_stale_epoch;
             continue;
         }
 
         AsyncCacheWriteBufferPtr tracked_buffer;
-        Status status = service->allocate_tracked_buffer(read_block.range.size(), &tracked_buffer);
+        Status status = service->allocate_tracked_buffer(cache_block_size, &tracked_buffer);
         if (!status.ok()) {
             ++stats.async_cache_write_buffer_alloc_fail;
             continue;
         }
-        memcpy(tracked_buffer->data(), remote_buffer.get() + (read_block.range.left - remote_left),
+        DORIS_CHECK(tracked_buffer->size() == cache_block_size);
+        DORIS_CHECK(read_block.range.size() <= tracked_buffer->size());
+        const size_t remote_buffer_offset = read_block.range.left - remote_left;
+        DORIS_CHECK(remote_buffer_offset <= remote_size);
+        DORIS_CHECK(read_block.range.size() <= remote_size - remote_buffer_offset);
+        memcpy(tracked_buffer->data(), remote_buffer.get() + remote_buffer_offset,
                read_block.range.size());
 
         AsyncCacheWriteTask task {
                 .cache_hash = _cache_hash,
                 .file_offset = read_block.range.left,
-                .file_size = read_block.range.size(),
+                .write_size = read_block.range.size(),
                 .buffer = tracked_buffer,
                 .admission_ctx = admission_context,
                 .submit_ts_us = MonotonicMicros(),
@@ -518,8 +627,14 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
                                                       SourceReadBreakdown& source_read_breakdown,
                                                       const IOContext* io_ctx) {
     DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
+    DORIS_CHECK(io_ctx != nullptr);
     DORIS_CHECK(!io_ctx->is_dryrun);
     DORIS_CHECK(result.data != nullptr);
+    DORIS_CHECK(bytes_read != nullptr);
+    DORIS_CHECK(already_read <= bytes_req);
+    DORIS_CHECK(bytes_req <= result.size);
+    DORIS_CHECK(offset <= size());
+    DORIS_CHECK(bytes_req <= size() - offset);
     g_read_cache_indirect_num << 1;
     if (already_read == bytes_req) {
         *bytes_read = bytes_req;
@@ -539,6 +654,9 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
     if (!_materialize_async_cached_sides(plan, offset, result, cache_context, stats,
                                          source_read_breakdown, &indirect_read_bytes,
                                          &need_self_heal)) {
+        // A side race invalidates incremental materialization. Reread the whole aligned partition
+        // remotely, but retain the original `submit_write` bits so only original probe misses are
+        // published as async writes.
         plan.first_remote_block = 0;
         plan.remote_block_count = plan.blocks.size();
     }
@@ -550,6 +668,7 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
         _submit_async_write_tasks(plan, remote_buffer, io_ctx, stats);
     }
 
+    DORIS_CHECK(indirect_read_bytes == bytes_req - already_read);
     *bytes_read = bytes_req;
     g_read_cache_indirect_bytes << indirect_read_bytes;
     g_read_cache_indirect_total_bytes << bytes_req;

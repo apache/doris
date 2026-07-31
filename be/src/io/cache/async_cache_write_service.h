@@ -70,12 +70,14 @@ private:
 
 using AsyncCacheWriteBufferPtr = std::shared_ptr<AsyncCacheWriteBuffer>;
 
-/// One block-aligned cache write. `buffer` contains exactly `file_size` bytes starting at
-/// `file_offset`; `write_epoch` prevents a worker from resurrecting data after cache invalidation.
+/// One cache-block write. The sole production submitter allocates every `buffer` with exactly
+/// `file_cache_each_block_size` bytes. `write_size` is the valid prefix starting at `file_offset`;
+/// only the physical EOF block may use less than the full buffer. `write_epoch` prevents a worker
+/// from resurrecting data after cache invalidation.
 struct AsyncCacheWriteTask {
     UInt128Wrapper cache_hash;
     size_t file_offset {0};
-    size_t file_size {0};
+    size_t write_size {0};
     AsyncCacheWriteBufferPtr buffer;
     CacheAdmissionContext admission_ctx;
     int64_t submit_ts_us {0};
@@ -83,14 +85,14 @@ struct AsyncCacheWriteTask {
     std::function<void(const AsyncCacheWriteTask&)> on_finalized;
 };
 
-/// Complete per-cache-disk worker, queue, batch, and watchdog settings. The service receives this
-/// value explicitly at construction and through update_options(); it never reads global config.
+/// Complete per-cache-disk worker, memory, and batch settings. The service receives this value
+/// explicitly at construction and through update_options(); it never reads global config.
 struct AsyncCacheWriteServiceOptions {
     size_t worker_count {1};
-    size_t max_pending_tasks {1};
+    // Accepted queued+active buffer capacity. With fixed block-size buffers, any remainder smaller
+    // than one block is intentionally unusable.
+    size_t max_pending_bytes {1};
     size_t batch_size {1};
-    int64_t watchdog_warn_secs {30};
-    int64_t watchdog_drop_secs {120};
 };
 
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
@@ -100,16 +102,18 @@ struct AsyncCacheWriteServiceOptions {
 class AsyncCacheWriteService {
 public:
     /// @param cache Non-owning target cache; it must outlive this service.
-    /// @param options Initial worker, queue, batch, and watchdog limits.
+    /// @param options Initial worker, pending-memory, and batch limits.
     AsyncCacheWriteService(BlockFileCache* cache, AsyncCacheWriteServiceOptions options);
     ~AsyncCacheWriteService();
 
     /// Create the worker pool and schedule the configured long-running workers. Idempotent.
     Status start();
 
-    /// Admit `task` into the bounded FIFO without waiting for a queue slot or disk I/O. At the
-    /// pending limit, the oldest queued task is displaced when one is available. This call can
-    /// briefly wait for the queue mutex and finalizes a displaced task before returning.
+    /// Admit `task` into the memory-bounded FIFO without waiting for disk I/O. Because all tasks
+    /// have one fixed cache-block buffer capacity, a full queue displaces exactly one oldest queued
+    /// task. Active tasks are never displaced. After a runtime limit decrease, new submissions are
+    /// rejected until pending bytes have drained to the new limit. This call can briefly wait for
+    /// the queue mutex and finalizes a displaced task before returning.
     /// @return true if ownership was transferred to the queue; false when workers have not been
     /// started, during shutdown, on backpressure, or on queue rejection. A rejected task's
     /// finalization callback is not invoked.
@@ -150,11 +154,20 @@ public:
     /// Return accepted tasks that have not yet completed finalization.
     size_t pending_count() const { return _pending_count.load(std::memory_order_relaxed); }
 
+    /// Return buffer-capacity bytes owned by queued and active tasks.
+    size_t pending_bytes() const { return _pending_bytes.load(std::memory_order_relaxed); }
+
     /// Return accepted tasks still waiting in the FIFO queue, excluding active workers.
     size_t queued_count() const { return _queued_count.load(std::memory_order_relaxed); }
 
-    /// Return tasks currently owned by workers, including watchdog and write processing.
+    /// Return buffer-capacity bytes still waiting in the FIFO queue.
+    size_t queued_bytes() const { return _queued_bytes.load(std::memory_order_relaxed); }
+
+    /// Return tasks currently owned by workers.
     size_t active_task_count() const { return _active_task_count.load(std::memory_order_relaxed); }
+
+    /// Return buffer-capacity bytes currently owned by workers.
+    size_t active_bytes() const { return _active_bytes.load(std::memory_order_relaxed); }
 
     /// Return worker loops that are currently alive.
     size_t running_worker_count() const {
@@ -197,7 +210,7 @@ private:
     /// Record the terminal reason and invoke the task cleanup callback without the queue lock.
     void _finalize_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
 
-    /// Assert the queue/count conservation laws while `_queue_mutex` is held.
+    /// Assert the queue count/byte conservation laws while `_queue_mutex` is held.
     void _check_queue_invariants_locked() const;
 
     BlockFileCache* _cache;
@@ -205,9 +218,14 @@ private:
     std::deque<AsyncCacheWriteTask> _queue;
     std::mutex _queue_mutex;
     std::condition_variable _queue_cv;
+    // Learned from the first submission and protected by `_queue_mutex`.
+    size_t _task_buffer_size {0};
     std::atomic<size_t> _pending_count {0};
+    std::atomic<size_t> _pending_bytes {0};
     std::atomic<size_t> _queued_count {0};
+    std::atomic<size_t> _queued_bytes {0};
     std::atomic<size_t> _active_task_count {0};
+    std::atomic<size_t> _active_bytes {0};
     std::atomic<size_t> _running_worker_count {0};
     std::atomic<size_t> _active_get_or_set_count {0};
     std::atomic<size_t> _active_append_count {0};
@@ -227,11 +245,14 @@ private:
     std::vector<bool> _worker_scheduled;
 
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_task_count_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _running_worker_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _configured_worker_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _max_pending_tasks_metric;
+    std::shared_ptr<bvar::PassiveStatus<size_t>> _max_pending_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_get_or_set_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_append_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_finalize_count_metric;
@@ -239,7 +260,9 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_bytes_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _finished_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _finished_bytes_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _worker_finished_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _worker_finished_bytes_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _evicted_oldest_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _evicted_oldest_bytes_metric;
     std::shared_ptr<bvar::LatencyRecorder> _evicted_oldest_age_metric;
@@ -249,6 +272,7 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_enqueue_failure_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_no_queued_victim_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _reject_above_current_limit_metric;
+    std::shared_ptr<bvar::Adder<uint64_t>> _reject_task_too_large_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _buffer_alloc_fail_metric;
     std::shared_ptr<bvar::LatencyRecorder> _submit_latency_metric;
     std::shared_ptr<bvar::LatencyRecorder> _buffer_alloc_latency_metric;
@@ -268,8 +292,6 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _finalize_fail_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _persisted_blocks_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _persisted_bytes_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _watchdog_warn_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _watchdog_drop_metric;
 };
 
 } // namespace doris::io

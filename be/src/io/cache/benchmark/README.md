@@ -64,7 +64,7 @@ group intentionally measures only lookup contention so it does not duplicate tho
 
 ## Disk baseline
 
-Run the installed wrapper instead of invoking the binary directly when comparing machines. With
+Run the source-tree wrapper instead of invoking the binary directly when comparing machines. With
 the default `RUN_FIO=auto`, the wrapper checks whether `fio` is installed and, if available, runs
 these baselines on the same filesystem before starting the cache benchmark:
 
@@ -101,7 +101,7 @@ The defaults represent small reads that cause full 1 MiB cache-block writes:
 | `producer_threads` | 16 | Concurrent readers or submitters |
 | `reader_workers` | 16 | Workers in the asynchronous reader comparison |
 | `worker_counts` | 1, 4, 16 | Worker scaling points in the service group |
-| `backpressure_pending_tasks` | 64 | Pending-task limit in the saturated service case |
+| `backpressure_pending_bytes` | 67108864 | Pending-buffer byte limit in the saturated service case |
 | `index_operations_per_thread` | 100,000 | Lookups performed by each index producer |
 | `index_key_count` | 4,096 | Keys in each sharded index case |
 | `repetitions` | 5 | Repeated executions of every selected case |
@@ -118,17 +118,17 @@ machine state. Five repetitions are the default for a quick comparison; increase
 
 ## Build and run
 
-Performance numbers should come from a Release build. Build the standalone benchmark and its
-wrapper with:
+Performance numbers should come from a Release build. Build the standalone benchmark with:
 
 ```bash
 ./build.sh --be --file-cache-microbench -j100
 ```
 
+The wrapper remains in the benchmark source directory and is not installed into the Doris output.
 Run all groups, the fio baseline, and five repetitions with:
 
 ```bash
-./output/be/bin/run-async-file-cache-write-microbench.sh \
+./be/src/io/cache/benchmark/run-async-file-cache-write-microbench.sh \
     --benchmark_mode=all \
     --cache_path=./output/async_file_cache_write_microbench \
     --producer_threads=16 \
@@ -141,7 +141,7 @@ Run all groups, the fio baseline, and five repetitions with:
 > exit unless `--keep_cache` is set. Always use a dedicated path under `output/`; never point it at
 > an existing cache or data directory.
 
-Invoke `output/be/lib/async_file_cache_write_microbench` directly only when the fio baseline is not
+Invoke `be/output/lib/async_file_cache_write_microbench` directly only when the fio baseline is not
 wanted. Use `--help` to adjust operation counts, request and task sizes, queue limit, worker counts,
 repetitions, and cache retention.
 
@@ -159,7 +159,7 @@ Each measured case emits one machine-readable `RESULT` line:
 - Rates: `foreground_ops_per_sec` measures caller or submitter completion.
 - Queue contention: `queue_lock_wait_p99_us` and `queue_lock_hold_p99_us` expose the service's
   rolling P99 FIFO mutex acquisition and critical-section time.
-- Memory: `peak_buffer_bytes` samples tracked async-write payload memory alongside peak pending,
+- Memory: `peak_buffer_bytes` samples tracked async-write buffer capacity alongside peak pending,
   queued, and inflight counts.
   `persisted_mib_per_sec` divides verified bytes by total time and does not claim durable-media
   completion.
