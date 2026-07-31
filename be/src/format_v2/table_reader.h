@@ -83,8 +83,8 @@ struct TableFilter {
     VExprContextSPtr conjunct;
     std::vector<GlobalIndex> global_indices;
     size_t source_conjunct_index = 0;
-    // False after the first unsafe source conjunct so file-local execution cannot reorder a later
-    // predicate ahead of stateful or error-preserving table semantics.
+    // Only safe and deterministic predicates may move below table-schema materialization.
+    // Unsafe, non-deterministic, or unlocalizable predicates remain exact TableReader residuals.
     bool can_localize = true;
 };
 
@@ -262,8 +262,8 @@ public:
     Status append_conjuncts_with_ownership(const VExprContextSPtrs& conjuncts,
                                            size_t table_reader_owned_conjunct_count);
 
-    // Shared safety classification for deciding which ordered conjunct prefix may execute below
-    // Scanner without changing stateful or error-preserving semantics.
+    // Shared safety classification for deciding whether one predicate may execute before
+    // table-schema materialization without changing stateful or error-preserving semantics.
     static bool is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
 
     virtual const MaterializedBlockStats& last_materialized_block_stats() const {
@@ -596,14 +596,9 @@ protected:
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
-        DORIS_CHECK_LE(_constant_pruning_safe_filter_count, _table_filters.size());
         *can_filter_all = false;
-        // The bound comes from the original conjunct order, including slotless expressions that
-        // are absent from _table_filters but still form execution-order barriers.
-        for (size_t filter_index = 0; filter_index < _constant_pruning_safe_filter_count;
-             ++filter_index) {
-            const auto& table_filter = _table_filters[filter_index];
-            if (table_filter.conjunct == nullptr) {
+        for (const auto& table_filter : _table_filters) {
+            if (table_filter.conjunct == nullptr || !table_filter.can_localize) {
                 continue;
             }
             DORIS_CHECK(is_safe_to_pre_execute(table_filter.conjunct));
@@ -822,7 +817,6 @@ protected:
             _data_reader.column_mapper.reset();
         }
         _table_filters.clear();
-        _constant_pruning_safe_filter_count = 0;
         _remaining_conjuncts.clear();
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
@@ -1952,9 +1946,6 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
-    // Number of filters before the first unsafe original conjunct. Slotless conjuncts are omitted
-    // from _table_filters but still stop this safe prefix.
-    size_t _constant_pruning_safe_filter_count = 0;
     VExprContextSPtrs _conjuncts;
     size_t _table_reader_owned_conjunct_count = 0;
     std::optional<size_t> _appended_table_reader_owned_conjunct_count;
