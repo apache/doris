@@ -290,6 +290,78 @@ suite("test_adbc_sqlite_catalog_scan", "p0,external") {
         } finally {
             sql """DROP CATALOG IF EXISTS ${strictCatalog}"""
         }
+
+        // ---- what the catalog remembers, and what forgets it ----
+        //
+        // A table created behind Doris's back has to be reachable without a REFRESH: the engine
+        // decides a name does not exist by re-listing through the connector, and a listing served
+        // from the connector's cache would turn that last check into a formality. This is the
+        // end-to-end half of that rule; which layer holds which listing is covered by the unit tests.
+        def sqliteExec = { String statements ->
+            File script = new File("${workDir}/test_adbc_sqlite_refresh.sql")
+            script.text = statements
+            def run = new ProcessBuilder("/bin/bash", "-c",
+                    "sqlite3 '${dbFile.absolutePath}' < '${script.absolutePath}'")
+                    .redirectErrorStream(true).start()
+            String out = run.inputStream.text
+            assertEquals(0, run.waitFor(), "sqlite3 failed: ${out}")
+        }
+
+        sql """SHOW TABLES FROM ${catalogName}.${dbName}"""
+        sqliteExec("CREATE TABLE t_created_later (id INTEGER); INSERT INTO t_created_later VALUES (7);")
+
+        // Queried, not listed. SHOW TABLES is served from the engine's own name cache and is expected
+        // to lag; resolving the name is what must not, and it is the engine's re-list -- through the
+        // connector, which therefore may not answer it from memory -- that makes this pass.
+        assertEquals("[[7]]",
+                sql("""SELECT id FROM ${catalogName}.${dbName}.t_created_later""").toString(),
+                "a table created after the catalog was first listed could not be queried")
+
+        // REFRESH CATALOG is the only thing that drops what the connector remembers -- it does NOT
+        // rebuild the connector -- so without the hook it reaches nothing and a schema read once
+        // stays read forever. Asserted through a schema change, because that is what the engine
+        // cannot re-derive on its own: it caches the schema too, and clears its copy either way.
+        sqliteExec("ALTER TABLE t_created_later ADD COLUMN extra TEXT;"
+                + " UPDATE t_created_later SET extra = 'x';")
+        sql """REFRESH CATALOG ${catalogName}"""
+        def refreshedColumns = sql("""DESC ${catalogName}.${dbName}.t_created_later""")
+                .collect { it[0] } as Set
+        assertTrue(refreshedColumns.contains("extra"),
+                "REFRESH CATALOG did not reach the connector's schema cache: ${refreshedColumns}")
+
+        // The escape hatch has to actually be spelled that way, and an unreadable value has to fail
+        // where the operator can still see it -- the cache framework otherwise answers a typo with
+        // its own default and says nothing. A plugin that predates these properties ignores both,
+        // which fails the second half here rather than passing quietly.
+        String noCacheCatalog = "${catalogName}_nocache"
+        sql """DROP CATALOG IF EXISTS ${noCacheCatalog}"""
+        sql """
+            CREATE CATALOG ${noCacheCatalog} PROPERTIES (
+                "type" = "adbc",
+                "driver_url" = "${driverPath}",
+                "uri" = "file:${dbFile.absolutePath}",
+                "meta.cache.adbc.metadata.enable" = "false"
+            )
+        """
+        try {
+            assertEquals("[[4]]",
+                    sql("""SELECT count(*) FROM ${noCacheCatalog}.${dbName}.t1""").toString(),
+                    "a catalog with the metadata cache turned off must still work")
+        } finally {
+            sql """DROP CATALOG IF EXISTS ${noCacheCatalog}"""
+        }
+
+        test {
+            sql """
+                CREATE CATALOG ${noCacheCatalog} PROPERTIES (
+                    "type" = "adbc",
+                    "driver_url" = "${driverPath}",
+                    "uri" = "file:${dbFile.absolutePath}",
+                    "meta.cache.adbc.metadata.ttl-second" = "6O0"
+                )
+            """
+            exception "meta.cache.adbc.metadata.ttl-second"
+        }
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
     }
