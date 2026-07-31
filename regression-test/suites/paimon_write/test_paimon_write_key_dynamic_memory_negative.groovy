@@ -94,11 +94,13 @@ suite("test_paimon_write_key_dynamic_memory_negative", "p0,external,paimon") {
         def baseline = heapUsed()
         def peak = new LinkedHashMap(baseline)
         def writeFailure = new AtomicReference<Throwable>()
+        def activeStatement = new AtomicReference<java.sql.Statement>()
 
         Thread writerThread = Thread.start("paimon-key-dynamic-memory-writer") {
             try (def connection = DriverManager.getConnection(context.config.jdbcUrl,
                     context.config.jdbcUser, context.config.jdbcPassword);
                     def statement = connection.createStatement()) {
+                activeStatement.set(statement)
                 statement.execute("SET exec_mem_limit = ${queryMemoryLimit}")
                 statement.execute("SWITCH ${catalogName}")
                 statement.execute("USE ${dbName}")
@@ -111,6 +113,8 @@ suite("test_paimon_write_key_dynamic_memory_negative", "p0,external,paimon") {
                 """)
             } catch (Throwable t) {
                 writeFailure.set(t)
+            } finally {
+                activeStatement.set(null)
             }
         }
 
@@ -122,12 +126,24 @@ suite("test_paimon_write_key_dynamic_memory_negative", "p0,external,paimon") {
             }
         }
         writerThread.join(10000)
+        if (writerThread.isAlive()) {
+            // Cancel the stress query before failing so a timeout cannot leave its
+            // JDBC writer running after the regression suite has already finished.
+            activeStatement.get()?.cancel()
+            writerThread.join(10000)
+        }
         assertFalse(writerThread.isAlive(), "KEY_DYNAMIC stress insert did not finish within 20 minutes")
 
         def growth = peak.collectEntries { backendId, used ->
             [(backendId): used - baseline[backendId]]
         }
-        String failureMessage = writeFailure.get() == null ? "" : writeFailure.get().toString()
+        def failureMessages = []
+        Throwable failure = writeFailure.get()
+        while (failure != null && !failureMessages.contains(failure.toString())) {
+            failureMessages.add(failure.toString())
+            failure = failure.getCause()
+        }
+        String failureMessage = failureMessages.join(" caused by ")
         logger.info("Paimon KEY_DYNAMIC memory result: rows=${stressRows}, baseline=${baseline}, "
                 + "peak=${peak}, growth=${growth}, failure=${failureMessage}")
 
