@@ -54,8 +54,16 @@ std::string take_error_message(AdbcError* error) {
 } // namespace
 
 AdbcDriverRegistry& AdbcDriverRegistry::instance() {
-    static AdbcDriverRegistry registry;
-    return registry;
+    // Allocated and never freed, on purpose. A plain function-local static is destroyed during
+    // static destruction, and this registry must outlive that: it hands out AdbcDriver pointers
+    // documented to stay valid for the life of the process, and it holds each driver's
+    // manager-side state, which only the driver's release callback frees -- a call this registry
+    // never makes, because dlclosing a driver that owns background threads is a use-after-free.
+    // Destroying the map would therefore drop the last reference to memory that stays live anyway,
+    // which is also exactly what LeakSanitizer reports at exit (its check runs after every static
+    // destructor).
+    static auto* registry = new AdbcDriverRegistry();
+    return *registry;
 }
 
 Status AdbcDriverRegistry::get_or_load(const std::string& driver_path,

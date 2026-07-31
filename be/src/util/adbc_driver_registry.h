@@ -35,6 +35,11 @@ namespace doris {
 /// unloading one is a use-after-free hazard. Handles stay live until the process exits.
 ///
 /// Failures are cached too, so a bad path does not retry the dlopen once per scan range.
+///
+/// **The registry itself is never destroyed either** -- see instance(). A function-local static
+/// would be torn down during static destruction, which would both dangle every AdbcDriver* already
+/// handed out and orphan the driver manager's own per-driver state (it is freed only by the
+/// driver's release callback, which this registry deliberately never calls).
 class AdbcDriverRegistry {
 public:
     AdbcDriverRegistry(const AdbcDriverRegistry&) = delete;
