@@ -43,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Serves {@code SHOW DATABASES} / {@code SHOW TABLES} / {@code DESC} for an ADBC catalog.
@@ -59,12 +60,18 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     private final AdbcClient client;
     private final AdbcSchemaStrategy schemaStrategy;
     private final Map<String, String> properties;
+    private final Supplier<AdbcDialect> dialect;
 
+    /**
+     * @param dialect resolved lazily, because only the {@code executeSchema} fallback needs it and
+     *                resolving it can cost a remote call
+     */
     public AdbcConnectorMetadata(AdbcClient client, AdbcSchemaStrategy schemaStrategy,
-            Map<String, String> properties) {
+            Map<String, String> properties, Supplier<AdbcDialect> dialect) {
         this.client = client;
         this.schemaStrategy = schemaStrategy;
         this.properties = properties;
+        this.dialect = dialect;
     }
 
     // ========= ConnectorSchemaOps =========
@@ -239,12 +246,13 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Asks for the shape of a row without fetching any. The predicate is the most portable way to say
-     * "no rows" in SQL; anything richer would need the dialect layer, which does not exist yet, and this
-     * path is a fallback rather than the norm.
+     * Asks for the shape of a row without fetching any. {@code WHERE 1 = 0} is the most portable way to
+     * say "no rows"; the table name comes from the dialect so this path and a scan address the same table
+     * the same way -- two spellings of one name is exactly how a source ends up working for queries and
+     * failing for {@code DESC}.
      */
     private Schema executeSchema(AdbcConnection connection, AdbcTableHandle handle) {
-        String sql = "SELECT * FROM " + qualifiedName(handle) + " WHERE 1 = 0";
+        String sql = "SELECT * FROM " + dialect.get().qualifiedTableName(handle) + " WHERE 1 = 0";
         try (AdbcStatement statement = connection.createStatement()) {
             statement.setSqlQuery(sql);
             return statement.executeSchema();
@@ -253,20 +261,6 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("executeSchema failed for: " + sql, e);
         }
-    }
-
-    private String qualifiedName(AdbcTableHandle handle) {
-        StringBuilder sb = new StringBuilder();
-        if (!handle.getRemoteDbSchema().isEmpty()) {
-            sb.append(quote(handle.getRemoteDbSchema())).append('.');
-        } else if (!handle.getRemoteCatalog().isEmpty()) {
-            sb.append(quote(handle.getRemoteCatalog())).append('.');
-        }
-        return sb.append(quote(handle.getRemoteTable())).toString();
-    }
-
-    private static String quote(String identifier) {
-        return '"' + identifier.replace("\"", "\"\"") + '"';
     }
 
     /**

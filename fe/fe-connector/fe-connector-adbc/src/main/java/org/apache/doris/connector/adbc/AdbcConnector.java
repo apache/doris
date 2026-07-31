@@ -43,6 +43,7 @@ public class AdbcConnector implements Connector {
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
+    private final AdbcDialectSelector dialectSelector;
 
     private volatile AdbcClient client;
     private volatile boolean closed;
@@ -50,11 +51,14 @@ public class AdbcConnector implements Connector {
     public AdbcConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
         this.context = context;
+        // Reads a property only; the driver is not touched here (see getOrCreateClient).
+        this.dialectSelector = new AdbcDialectSelector(properties);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy, properties);
+        return new AdbcConnectorMetadata(getOrCreateClient(), schemaStrategy, properties,
+                () -> dialectSelector.select(this::getOrCreateClient));
     }
 
     @Override
@@ -76,6 +80,9 @@ public class AdbcConnector implements Connector {
     @Override
     public void preCreateValidation(ConnectorValidationContext validationContext) throws Exception {
         resolveDriverPath();
+        // Before the remote check, because a misspelled dialect is answerable without a source and its
+        // error should not be preceded by a connection failure the user cannot act on.
+        dialectSelector.validateConfiguredName();
         checkRemoteCatalogIsPinned();
     }
 

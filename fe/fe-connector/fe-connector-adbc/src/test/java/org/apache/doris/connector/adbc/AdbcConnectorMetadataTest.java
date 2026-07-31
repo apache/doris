@@ -52,7 +52,8 @@ class AdbcConnectorMetadataTest {
     }
 
     private static AdbcConnectorMetadata metadataOn(AdbcClient client) {
-        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), Map.of());
+        return new AdbcConnectorMetadata(client, new AdbcSchemaStrategy(), Map.of(),
+                AdbcDialectRegistry::defaultDialect);
     }
 
     /**

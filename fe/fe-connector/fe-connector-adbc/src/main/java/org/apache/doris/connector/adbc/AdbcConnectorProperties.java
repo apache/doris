@@ -57,6 +57,16 @@ public final class AdbcConnectorProperties {
     public static final String USER = "user";
     public static final String PASSWORD = "password";
 
+    // -- SQL generation --
+
+    /**
+     * The SQL dialect to generate pushed-down queries in, by {@link AdbcDialect#name()}. Optional: when it
+     * is absent the connector asks the driver for its vendor and falls back to ANSI, which is what an
+     * unrecognized source gets. Set it when the source's vendor string is unhelpful or when its SQL differs
+     * from what the vendor name implies.
+     */
+    public static final String SQL_DIALECT = "sql_dialect";
+
     /**
      * Prefix for options passed straight through to the driver. The prefix is PART OF THE OPTION NAME and
      * is NOT stripped: ADBC's own option names already start with {@code adbc.} (e.g.
