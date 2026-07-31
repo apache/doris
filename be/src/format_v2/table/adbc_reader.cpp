@@ -483,6 +483,20 @@ Status AdbcFileReader::_materialize_record_batch(const arrow::RecordBatch& batch
         return Status::InternalError("ADBC reader is not open");
     }
 
+    if (_col_name_to_file_id.empty()) {
+        // A pushed-down COUNT(*) projects no columns at all: the scan wants rows counted, no values.
+        // Counting here rather than falling into the loop below is not an optimization -- every column
+        // the source returns is unrequested by definition in this state, so the loop's unknown-column
+        // check would reject the first one and fail a query that asked for nothing but a number.
+        // FE sends a one-constant-column statement for this case, so the batch is narrow.
+        //
+        // Only the empty case is special-cased. An unrequested column arriving alongside requested ones
+        // still fails: that means FE and this reader disagree about the projection, and it is the one
+        // signal that the disagreement exists.
+        *rows = cast_set<size_t>(batch.num_rows());
+        return Status::OK();
+    }
+
     std::vector<bool> materialized_columns(file_block->columns(), false);
     for (int arrow_idx = 0; arrow_idx < batch.num_columns(); ++arrow_idx) {
         const std::string& column_name = batch.schema()->field(arrow_idx)->name();

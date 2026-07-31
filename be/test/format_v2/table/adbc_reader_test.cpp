@@ -132,14 +132,18 @@ std::vector<SlotDescriptor*> sqlite_slots(ObjectPool* pool, DescriptorTbl** desc
 
 // large_utf8 is what Go-based drivers emit and what the string serde refuses; feeding it through
 // proves the reader normalizes before materializing.
-std::shared_ptr<arrow::RecordBatch> make_large_string_batch() {
+std::shared_ptr<arrow::RecordBatch> make_named_large_string_batch(const std::string& column_name) {
     arrow::LargeStringBuilder b;
     EXPECT_TRUE(b.Append("doris").ok());
     EXPECT_TRUE(b.AppendNull().ok());
     std::shared_ptr<arrow::Array> arr;
     EXPECT_TRUE(b.Finish(&arr).ok());
-    auto schema = arrow::schema({arrow::field("c_str", arrow::large_utf8())});
+    auto schema = arrow::schema({arrow::field(column_name, arrow::large_utf8())});
     return arrow::RecordBatch::Make(schema, 2, {arr});
+}
+
+std::shared_ptr<arrow::RecordBatch> make_large_string_batch() {
+    return make_named_large_string_batch("c_str");
 }
 
 std::unique_ptr<AdbcFileReader> create_reader(RuntimeProfile* profile, const TFileRangeDesc& range,
@@ -295,6 +299,85 @@ TEST(AdbcReaderTest, NormalizesLargeStringBeforeMaterializing) {
     EXPECT_TRUE(eof);
     ASSERT_TRUE(reader->close().ok());
     EXPECT_EQ(*close_count, 1);
+}
+
+// A pushed-down COUNT(*) projects nothing, so every column the source returns is unrequested by
+// definition. Without the empty-projection branch the unknown-column check below rejects the first
+// one and a query asking for nothing but a number fails.
+TEST(AdbcReaderTest, CountsRowsWhenTheScanProjectsNoColumns) {
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_count_only_test");
+    auto close_count = std::make_shared<int>(0);
+    const std::vector<SlotDescriptor*> no_slots;
+
+    auto reader =
+            create_reader(&profile, fake_adbc_range(), no_slots,
+                          [close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                              *out = std::make_unique<BatchAdbcStream>(
+                                      std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                              make_named_large_string_batch("1")},
+                                      close_count);
+                              return Status::OK();
+                          });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_TRUE(schema.empty());
+
+    auto request = std::make_shared<FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block;
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(rows, 2);
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(block.columns(), 0);
+
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+    EXPECT_TRUE(eof);
+    ASSERT_TRUE(reader->close().ok());
+}
+
+// The other half of the branch above: an unrequested column arriving ALONGSIDE requested ones still
+// fails. That state means FE and this reader disagree about the projection, and this check is the
+// only signal the disagreement exists -- relaxing it to tolerate the count case would remove it.
+TEST(AdbcReaderTest, RejectsAColumnTheScanDidNotRequest) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = string_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_unknown_column_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader =
+            create_reader(&profile, fake_adbc_range(), slots,
+                          [close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                              *out = std::make_unique<BatchAdbcStream>(
+                                      std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                              make_named_large_string_batch("not_requested")},
+                                      close_count);
+                              return Status::OK();
+                          });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("not_requested"), std::string::npos) << status.to_string();
 }
 
 // A range missing a required parameter must be rejected up front, not at connect time where the
