@@ -353,7 +353,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         try {
-            Table dataTable = handle.getSysBaseTable();
+            Table dataTable = handle.getSystemTableSource();
+            if (dataTable == null) {
+                dataTable = handle.getSysBaseTable();
+            }
             if (dataTable == null) {
                 dataTable = catalogOps.getTable(
                         Identifier.create(handle.getDatabaseName(), handle.getTableName()));

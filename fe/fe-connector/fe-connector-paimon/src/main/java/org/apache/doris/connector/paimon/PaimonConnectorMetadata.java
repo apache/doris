@@ -516,6 +516,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 base.getDatabaseName(), base.getTableName(), sys, forceJni);
         handle.setPaimonTable(sysTable);
         handle.setSysBaseTable(sysBase);
+        // Validation must retain the decorated relation generation, while sysBaseTable intentionally
+        // keeps the undecorated FileStoreTable used to rebuild the wrapper for the backend.
+        handle.setSystemTableSource(baseTable);
         return Optional.of(handle);
     }
 
@@ -1507,7 +1510,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (!handle.isSystemTable()) {
             return;
         }
-        Table dataTable = handle.getSysBaseTable();
+        Table dataTable = handle.getSystemTableSource();
+        if (dataTable == null) {
+            dataTable = handle.getSysBaseTable();
+        }
         if (dataTable == null) {
             dataTable = catalogOps.getTable(
                     Identifier.create(handle.getDatabaseName(), handle.getTableName()));
