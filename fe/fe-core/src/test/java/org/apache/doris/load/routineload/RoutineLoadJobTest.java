@@ -118,7 +118,12 @@ public class RoutineLoadJobTest {
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         long txnId = 1L;
 
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "errorLogUrl", "http://127.0.0.1/error_log");
+        Deencapsulation.setField(attachment, "firstErrorMsg", "invalid source row");
+
         Mockito.when(transactionState.getTransactionId()).thenReturn(txnId);
+        Mockito.doReturn(attachment).when(transactionState).getTxnCommitAttachment();
         Mockito.when(routineLoadTaskInfo.getTxnId()).thenReturn(txnId);
 
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
@@ -137,6 +142,8 @@ public class RoutineLoadJobTest {
             Assert.assertEquals(InternalErrorCode.TASKS_ABORT_ERR, routineLoadJob.getPauseReason().getCode());
             Assert.assertTrue(routineLoadJob.getPauseReason().getMsg().contains(txnStatusChangeReasonString));
             Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
+            Assert.assertEquals("http://127.0.0.1/error_log", routineLoadJob.getErrorLogUrls().peek());
+            Assert.assertEquals("invalid source row", routineLoadJob.getFirstErrorMsg());
         }
     }
 

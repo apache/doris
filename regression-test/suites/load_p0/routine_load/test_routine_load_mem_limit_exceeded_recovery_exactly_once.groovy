@@ -107,7 +107,7 @@ suite("test_routine_load_mem_limit_exceeded_recovery_exactly_once", "docker") {
                 logger.info("State: ${routineLoadState}, stats: ${statistic}, reason: ${reason}")
 
                 if (routineLoadState == "PAUSED"
-                        && reason.contains("CREATE_TASKS_ERR")
+                        && reason.contains("errCode = 103")
                         && reason.contains("MEM_LIMIT_EXCEEDED")) {
                     sawPaused = true
                     logger.info("Job paused after MEM_LIMIT_EXCEEDED submission failure: ${reason}")

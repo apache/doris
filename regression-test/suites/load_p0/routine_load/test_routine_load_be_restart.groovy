@@ -75,7 +75,8 @@ suite("test_routine_load_be_restart","nonConcurrent") {
                 RoutineLoadTestUtils.waitForTaskAbort(runSql, job, 60)
                 def pausedJob = sql "show routine load for ${job}"
                 assertEquals("PAUSED", pausedJob[0][8].toString())
-                assertTrue(pausedJob[0][17].toString().contains("TASKS_ABORT_ERR"))
+                assertTrue(pausedJob[0][17].toString().contains("errCode = 104"))
+                assertTrue(pausedJob[0][17].toString().contains("coordinate BE restart"))
             } finally {
                 GetDebugPoint().disableDebugPointForAllFEs(injection_abort_txn)
                 GetDebugPoint().disableDebugPointForAllFEs(injection_load_hang)

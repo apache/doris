@@ -101,7 +101,7 @@ suite("test_routine_load_too_many_tasks_recovery_exactly_once", "docker") {
                 logger.info("State: ${routineLoadState}, stats: ${statistic}, reason: ${reason}")
 
                 if (routineLoadState == "PAUSED"
-                        && reason.contains("CREATE_TASKS_ERR")
+                        && reason.contains("errCode = 103")
                         && reason.contains("TOO_MANY_TASKS")) {
                     sawPaused = true
                     logger.info("Job paused after TOO_MANY_TASKS submission failure: ${reason}")
