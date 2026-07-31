@@ -251,7 +251,7 @@ Status PrimaryKeyModelRowRetriever::_fill_old_delete_signs(
         const Block& old_value_block, const std::map<uint32_t, uint32_t>& read_index,
         size_t num_rows) {
     return _rssid_to_rid.fill_old_delete_signs(old_value_block, read_index, num_rows,
-                                              &_old_delete_signs);
+                                               &_old_delete_signs);
 }
 
 std::string PrimaryKeyModelRowRetriever::_full_encode_keys(
