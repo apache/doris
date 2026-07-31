@@ -61,6 +61,7 @@
 #include "exprs/vcompound_pred.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
@@ -153,6 +154,86 @@ private:
     const int32_t _value;
     const std::string _expr_name = "Int32GreaterThanExpr";
 };
+
+class VariantPathMetadataExpr : public VExpr {
+public:
+    VariantPathMetadataExpr(std::string name, DataTypePtr type,
+                            TExprNodeType::type node_type = TExprNodeType::FUNCTION_CALL)
+            : VExpr(std::move(type), false), _name(std::move(name)) {
+        set_node_type(node_type);
+    }
+
+    const std::string& expr_name() const override { return _name; }
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("VariantPathMetadataExpr is not executable");
+    }
+
+private:
+    std::string _name;
+};
+
+class VariantInt32PathGreaterThanExpr final : public VariantPathMetadataExpr {
+public:
+    VariantInt32PathGreaterThanExpr(int column_id, std::string key, int32_t value)
+            : VariantPathMetadataExpr("gt", std::make_shared<DataTypeUInt8>(),
+                                      TExprNodeType::BINARY_PRED),
+              _column_id(column_id),
+              _key(std::move(key)),
+              _value(value) {}
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        const std::array path {VariantShreddedPathSegment {
+                .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef(_key)}};
+        const auto typed = variants.find_shredded_typed_value(path);
+        if (!typed.has_value()) {
+            return Status::InternalError("Expected the projected Variant typed leaf");
+        }
+        const auto& typed_nullable = assert_cast<const ColumnNullable&>(*typed->column);
+        const auto& values =
+                assert_cast<const ColumnInt32&>(typed_nullable.get_nested_column()).get_data();
+        auto result = ColumnUInt8::create();
+        auto& output = result->get_data();
+        output.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            output[row] = !nullable.is_null_at(input_row) &&
+                          !typed_nullable.is_null_at(input_row) && values[input_row] > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+private:
+    int _column_id;
+    std::string _key;
+    int32_t _value;
+};
+
+VExprContextSPtr create_variant_int32_path_greater_than_conjunct(int column_id, std::string key,
+                                                                 int32_t value) {
+    auto slot = VSlotRef::create_shared(0, column_id, -1,
+                                        make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
+    auto key_literal = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                               Field::create_field<TYPE_STRING>(key));
+    auto element_at = std::make_shared<VariantPathMetadataExpr>(
+            "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    element_at->add_child(slot);
+    element_at->add_child(key_literal);
+    auto cast = std::make_shared<VariantPathMetadataExpr>(
+            "CAST", make_nullable(std::make_shared<DataTypeInt32>()), TExprNodeType::CAST_EXPR);
+    cast->add_child(element_at);
+    auto literal = VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
+                                           Field::create_field<TYPE_INT>(value));
+    auto gt = std::make_shared<VariantInt32PathGreaterThanExpr>(column_id, std::move(key), value);
+    gt->add_child(cast);
+    gt->add_child(literal);
+    return VExprContext::create_shared(std::move(gt));
+}
 
 class Int32DictionaryEqualsExpr final : public VExpr {
 public:
@@ -1759,6 +1840,15 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
     ASSERT_TRUE(match.has_value());
     EXPECT_EQ(match->type->get_primitive_type(), TYPE_INT);
     EXPECT_EQ(match->column->size(), rows);
+    ASSERT_NE(profile.get_counter("VariantDirectLeafRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantDirectLeafRows")->value(), rows);
+    ASSERT_NE(profile.get_counter("VariantReconstructedRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantReconstructedRows")->value(), 0);
+    const std::array missing_path {VariantShreddedPathSegment {
+            .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("missing")}};
+    EXPECT_FALSE(variants.find_shredded_typed_value(missing_path).has_value());
+    ASSERT_NE(profile.get_counter("VariantDirectLeafPathMisses"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantDirectLeafPathMisses")->value(), 1);
     const auto first_value =
             assert_cast<const ColumnInt32&>(
                     assert_cast<const ColumnNullable&>(*match->column).get_nested_column())
@@ -1816,6 +1906,64 @@ TEST_F(NewParquetReaderTest, ReadsFullyShreddedVariantTypedLeafProjection) {
                     assert_cast<const ColumnNullable&>(*gathered_match->column).get_nested_column())
                     .get_data()[0],
             first_value + 2);
+}
+
+TEST_F(NewParquetReaderTest, ShreddedVariantPredicateUsesTypedLeafPageIndexWithRootOutput) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    _file_path = std::string(source_root) +
+                 "/regression-test/data/external_table_p0/iceberg/"
+                 "iceberg_variant_shredded.parquet";
+    ASSERT_TRUE(std::filesystem::exists(_file_path));
+
+    RuntimeProfile profile("variant_page_pruning_with_root_output");
+    auto reader = create_reader(0, -1, &profile);
+    reader->set_batch_size(1024);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(
+            format::LocalColumnIndex::top_level(format::LocalColumnId(schema[0].local_id)));
+    // The root output deliberately retains the complete wrapper; its predicate may still use the
+    // typed leaf's page index without converting the output to a leaf-only Variant projection.
+    request->predicate_columns.push_back(
+            format::LocalColumnIndex::top_level(format::LocalColumnId(schema[1].local_id)));
+    request->local_positions.emplace(format::LocalColumnId(schema[0].local_id),
+                                     format::LocalIndex(0));
+    request->local_positions.emplace(format::LocalColumnId(schema[1].local_id),
+                                     format::LocalIndex(1));
+    request->conjuncts.push_back(create_variant_int32_path_greater_than_conjunct(1, "n", 3000));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t batch_rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &batch_rows, &eof).ok());
+        rows += batch_rows;
+        if (batch_rows > 0) {
+            const auto& nullable =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            auto canonical = IColumn::mutate(nullable.get_nested_column_ptr());
+            assert_cast<ColumnVariantV2&>(*canonical).ensure_encoded();
+        }
+    }
+    EXPECT_EQ(rows, 1095);
+    ASSERT_NE(profile.get_counter("FilteredRowsByPage"), nullptr);
+    EXPECT_GT(profile.get_counter("FilteredRowsByPage")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantLeafProjections"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantLeafProjections")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantDirectLeafRows"), nullptr);
+    EXPECT_GT(profile.get_counter("VariantDirectLeafRows")->value(), 0);
+    ASSERT_NE(profile.get_counter("VariantReconstructedRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("VariantReconstructedRows")->value(), rows);
+    ASSERT_NE(profile.get_counter("VariantReconstructionTime"), nullptr);
+    EXPECT_GT(profile.get_counter("VariantReconstructionTime")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {

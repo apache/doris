@@ -76,6 +76,9 @@ true	5	170	4.17
 1	first	{"deep":{"name":"inside"},"x":11}	{"kind":"open","score":101}	{"enabled":true,"score":1001}
 2	second	\N	null	{"enabled":false,"score":2002}
 
+-- !variant_nested_filter --
+1
+
 -- !variant_nested_expressions --
 1	11	inside	open	\N	true	1002
 2	\N	\N	\N	202	false	2003
@@ -105,6 +108,9 @@ true	5	170	4.17
 3	300	\N	\N	v3
 4	400	\N	\N	v4
 5	500	readded	50	v5
+
+-- !variant_delete_only_merge --
+0
 
 -- !variant_orc_missing_column --
 1	\N

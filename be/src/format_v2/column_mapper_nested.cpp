@@ -513,6 +513,30 @@ void collect_nested_struct_paths(const VExprSPtr& expr, std::vector<NestedStruct
     }
 }
 
+bool nested_struct_path_ends_at_projected_variant(const NestedStructPath& path,
+                                                  const std::vector<ColumnMapping>& mappings) {
+    const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
+        return mapping.global_index == path.root_global_index;
+    });
+    if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value() ||
+        path.selectors.empty()) {
+        return false;
+    }
+    const ColumnMapping* current = &*mapping_it;
+    for (const auto& selector : path.selectors) {
+        const auto child_index = struct_child_index(*current, selector);
+        if (!child_index.has_value()) {
+            return false;
+        }
+        current = resolve_mapped_child(*current, *child_index);
+        if (current == nullptr || !current->file_local_id.has_value()) {
+            return false;
+        }
+    }
+    return current->table_type != nullptr && !current->variant_access_paths.empty() &&
+           remove_nullable(current->table_type)->get_primitive_type() == TYPE_VARIANT;
+}
+
 std::vector<const ColumnMapping*> present_child_mappings_in_file_order(
         const std::vector<ColumnMapping>& child_mappings) {
     std::vector<const ColumnMapping*> result;

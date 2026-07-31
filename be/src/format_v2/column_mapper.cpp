@@ -2005,6 +2005,12 @@ static Status build_nested_struct_filter_projection_map(
         std::vector<NestedStructPath> paths;
         collect_nested_struct_paths(table_filter.conjunct->root(), &paths);
         for (const auto& path : paths) {
+            if (nested_struct_path_ends_at_projected_variant(path, mappings)) {
+                // The mapping-owned Variant projection already contains its typed leaves. Adding
+                // the enclosing STRUCT terminal as a full child would dominate those leaves when
+                // projections merge and silently restore full Variant reconstruction.
+                continue;
+            }
             auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
                 return mapping.global_index == path.root_global_index;
             });

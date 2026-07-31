@@ -65,6 +65,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
     private final IcebergExternalTable targetTable;
     private final Table targetIcebergTable;
     private final DeleteCommandContext deleteContext;
+    private final boolean writesDataFiles;
     private final boolean requireMergeCardinalityCheck;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
@@ -78,11 +79,24 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
                             boolean requireMergeCardinalityCheck) {
-        this(targetTable, targetTable.getIcebergTable(), deleteContext, requireMergeCardinalityCheck);
+        this(targetTable, targetTable.getIcebergTable(), deleteContext, true,
+                requireMergeCardinalityCheck);
+    }
+
+    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+                            boolean writesDataFiles, boolean requireMergeCardinalityCheck) {
+        this(targetTable, targetTable.getIcebergTable(), deleteContext, writesDataFiles,
+                requireMergeCardinalityCheck);
     }
 
     public IcebergMergeSink(IcebergExternalTable targetTable, Table targetIcebergTable,
             DeleteCommandContext deleteContext, boolean requireMergeCardinalityCheck) {
+        this(targetTable, targetIcebergTable, deleteContext, true, requireMergeCardinalityCheck);
+    }
+
+    public IcebergMergeSink(IcebergExternalTable targetTable, Table targetIcebergTable,
+            DeleteCommandContext deleteContext, boolean writesDataFiles,
+            boolean requireMergeCardinalityCheck) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("UPDATE on iceberg view is not supported");
@@ -90,6 +104,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         this.targetTable = targetTable;
         this.targetIcebergTable = targetIcebergTable;
         this.deleteContext = deleteContext;
+        this.writesDataFiles = writesDataFiles;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
 
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
@@ -145,6 +160,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         tSink.setCollectColumnStats(IcebergUtils.shouldCollectColumnStats(icebergTable, schema));
         // UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
         tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
+        tSink.setWritesDataFiles(writesDataFiles);
 
         // partition spec
         if (icebergTable.spec().isPartitioned()) {

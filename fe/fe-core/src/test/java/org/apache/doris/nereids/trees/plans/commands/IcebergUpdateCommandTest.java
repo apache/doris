@@ -117,7 +117,12 @@ public class IcebergUpdateCommandTest {
         org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
         Assertions.assertThrows(AnalysisException.class, () -> new LogicalIcebergMergeSink<>(
                 database, table, icebergTable, ImmutableList.of(variantColumn), ImmutableList.of(),
-                new DeleteCommandContext(), false, java.util.Optional.empty(), java.util.Optional.empty(), child));
+                new DeleteCommandContext(), true, false,
+                java.util.Optional.empty(), java.util.Optional.empty(), child));
+        Assertions.assertDoesNotThrow(() -> new LogicalIcebergMergeSink<>(
+                database, table, icebergTable, ImmutableList.of(variantColumn), ImmutableList.of(),
+                new DeleteCommandContext(), false, true,
+                java.util.Optional.empty(), java.util.Optional.empty(), child));
     }
 
     @Test

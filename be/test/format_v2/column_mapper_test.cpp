@@ -4602,6 +4602,44 @@ TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {
     EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
 }
 
+TEST(ColumnMapperTest, NestedVariantFilterMergeKeepsPhysicalTypedLeaf) {
+    auto table_variant = field_id_col("payload", 2, variant_v2());
+    table_variant.variant_access_paths = {{"typed_col"}};
+    auto table_struct = struct_col("info", 1, {table_variant});
+
+    auto field_wrapper = struct_name_col(
+            "typed_col", {name_col("value", varbinary(), 0), name_col("typed_value", i64(), 1)}, 0);
+    auto typed_value = struct_name_col("typed_value", {std::move(field_wrapper)}, 2);
+    auto file_variant = field_id_col("payload", 2, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1), std::move(typed_value)};
+    auto file_struct = struct_col("info", 1, {std::move(file_variant)}, 0);
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto payload =
+            struct_element(table_slot(0, 0, table_struct.type, "info"), variant_v2(), "payload");
+    auto typed_col = element_at(payload, variant_v2(), "typed_col");
+    auto predicate = binary_predicate(TExprOpcode::GT, cast_expr(typed_col, i32()),
+                                      literal(i32(), Field::create_field<TYPE_INT>(0)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(predicate),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root = request.predicate_columns[0];
+    ASSERT_EQ(root.children.size(), 1);
+    const auto& variant = root.children[0];
+    ASSERT_FALSE(variant.project_all_children);
+    ASSERT_EQ(variant.children.size(), 1);
+    EXPECT_EQ(variant.children[0].local_id(), 2);
+    ASSERT_EQ(variant.children[0].children.size(), 1);
+    ASSERT_EQ(variant.children[0].children[0].children.size(), 1);
+    EXPECT_EQ(variant.children[0].children[0].children[0].local_id(), 1);
+}
+
 TEST(ColumnMapperTest, ArrayAndMapNestedVariantPathsReachPhysicalTypedLeaf) {
     auto make_file_variant = [](std::string name, int32_t field_id, int32_t local_id) {
         auto wrapper = struct_name_col(

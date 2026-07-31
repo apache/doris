@@ -592,8 +592,12 @@ void validate_compatible_column(const IColumn& output, const IColumn& converted)
 class ParquetVariantShreddedState final : public VariantShreddedState {
 public:
     ParquetVariantShreddedState(std::shared_ptr<const ParquetColumnSchema> schema,
-                                ColumnPtr physical, bool complete)
-            : _schema(std::move(schema)), _physical(std::move(physical)), _complete(complete) {
+                                ColumnPtr physical, bool complete,
+                                ParquetColumnReaderProfile profile = {})
+            : _schema(std::move(schema)),
+              _physical(std::move(physical)),
+              _complete(complete),
+              _profile(profile) {
         DORIS_CHECK(_schema != nullptr && static_cast<bool>(_physical));
         const ColumnPtr wrapper = unwrap_nullable(_physical);
         const auto* structure = check_and_get_column<ColumnStruct>(*wrapper);
@@ -626,12 +630,12 @@ public:
         // The projection schema is immutable and reader-scoped, so derived selections share it
         // instead of cloning the whole shredded tree for every filter operation.
         return std::make_shared<ParquetVariantShreddedState>(
-                _schema, _physical->filter(filter, result_size_hint), _complete);
+                _schema, _physical->filter(filter, result_size_hint), _complete, _profile);
     }
 
     std::shared_ptr<VariantShreddedState> select_range(size_t start, size_t length) const override {
         return std::make_shared<ParquetVariantShreddedState>(_schema, _physical->cut(start, length),
-                                                             _complete);
+                                                             _complete, _profile);
     }
 
     std::shared_ptr<VariantShreddedState> select_indices(
@@ -639,7 +643,7 @@ public:
         MutableColumnPtr selected = _physical->clone_empty();
         selected->insert_indices_from(*_physical, indices_begin, indices_end);
         return std::make_shared<ParquetVariantShreddedState>(_schema, std::move(selected),
-                                                             _complete);
+                                                             _complete, _profile);
     }
 
     bool try_append(const VariantShreddedState& source) override {
@@ -659,50 +663,58 @@ public:
 
     std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const override {
-        if (path.empty()) {
+        auto path_miss = [&]() -> std::optional<VariantShreddedTypedValue> {
+            update_counter(_profile.variant_direct_leaf_path_misses, 1);
             return std::nullopt;
+        };
+        if (path.empty()) {
+            return path_miss();
         }
 
         const ParquetColumnSchema* typed_schema = nullptr;
         ColumnPtr typed = struct_child(*_schema, _physical, "typed_value", &typed_schema);
         if (!typed || typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
-            return std::nullopt;
+            return path_miss();
         }
 
         for (size_t position = 0; position < path.size(); ++position) {
             if (path[position].kind != VariantShreddedPathSegment::Kind::OBJECT_KEY) {
-                return std::nullopt;
+                return path_miss();
             }
 
             const std::string_view key(path[position].key.data, path[position].key.size);
             const ParquetColumnSchema* wrapper_schema = nullptr;
             ColumnPtr wrapper = struct_child(*typed_schema, typed, key, &wrapper_schema);
             if (!wrapper) {
-                return std::nullopt;
+                return path_miss();
             }
 
             if (ColumnPtr residual = struct_child(*wrapper_schema, wrapper, "value", nullptr);
                 static_cast<bool>(residual) && has_present_value(residual)) {
                 // A residual value can contribute data to the same logical object. Reconstructing
                 // is required in that case; returning only the typed leaf would drop information.
+                update_counter(_profile.variant_direct_leaf_residual_fallbacks, 1);
                 return std::nullopt;
             }
 
             typed = struct_child(*wrapper_schema, wrapper, "typed_value", &typed_schema);
             if (!typed) {
-                return std::nullopt;
+                return path_miss();
             }
             if (position + 1 == path.size()) {
                 if (typed_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
                     check_and_get_column<ColumnNullable>(*typed) == nullptr ||
                     !supports_direct_typed_variant_state(*typed_schema)) {
+                    update_counter(_profile.variant_direct_leaf_unsupported_fallbacks, 1);
                     return std::nullopt;
                 }
+                update_counter(_profile.variant_direct_leaf_rows,
+                               static_cast<int64_t>(typed->size()));
                 return VariantShreddedTypedValue {.column = std::move(typed),
                                                   .type = remove_nullable(typed_schema->type)};
             }
             if (typed_schema->kind != ParquetColumnSchemaKind::STRUCT) {
-                return std::nullopt;
+                return path_miss();
             }
         }
         return std::nullopt;
@@ -716,21 +728,32 @@ public:
                     "A projected Parquet Variant can only serve its validated shredded leaves");
         }
         if (!_materialized) {
+            SCOPED_TIMER(_profile.variant_reconstruction_time);
             _materialized = encode_variant_column(*_schema, *_physical);
+            update_counter(_profile.variant_reconstructed_rows,
+                           static_cast<int64_t>(_physical->size()));
         }
         return *_materialized;
     }
 
 private:
+    static void update_counter(RuntimeProfile::Counter* counter, int64_t value) {
+        if (counter != nullptr) {
+            COUNTER_UPDATE(counter, value);
+        }
+    }
+
     std::shared_ptr<const ParquetColumnSchema> _schema;
     ColumnPtr _physical;
     bool _complete = true;
+    ParquetColumnReaderProfile _profile;
     mutable std::mutex _materialization_lock;
     mutable ColumnVariantV2::MutablePtr _materialized;
 };
 
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,
-                                      ColumnPtr physical, bool complete) {
+                                      ColumnPtr physical, bool complete,
+                                      const ParquetColumnReaderProfile& profile) {
     DORIS_CHECK(schema != nullptr);
     if (schema->kind != ParquetColumnSchemaKind::VARIANT) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Parquet column {} is not Variant",
@@ -738,8 +761,9 @@ MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema>
     }
 
     const auto* outer_nullable = check_and_get_column<ColumnNullable>(*physical);
-    MutableColumnPtr variants = ColumnVariantV2::create_shredded(
-            std::make_shared<ParquetVariantShreddedState>(std::move(schema), physical, complete));
+    MutableColumnPtr variants =
+            ColumnVariantV2::create_shredded(std::make_shared<ParquetVariantShreddedState>(
+                    std::move(schema), physical, complete, profile));
     if (outer_nullable == nullptr) {
         return variants;
     }
@@ -747,9 +771,11 @@ MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema>
     return ColumnNullable::create(std::move(variants), std::move(nulls));
 }
 
-ColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physical);
+ColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physical,
+                         const ParquetColumnReaderProfile& profile);
 
-ColumnPtr transform_non_nullable(const VariantMaterializationNode& plan, ColumnPtr physical) {
+ColumnPtr transform_non_nullable(const VariantMaterializationNode& plan, ColumnPtr physical,
+                                 const ParquetColumnReaderProfile& profile) {
     const auto& schema = *plan.schema;
     switch (schema.kind) {
     case ParquetColumnSchemaKind::PRIMITIVE:
@@ -763,7 +789,8 @@ ColumnPtr transform_non_nullable(const VariantMaterializationNode& plan, ColumnP
                                                                       : nullptr),
                 std::move(physical),
                 !format::is_partial_projection(plan.variant_projection ? &*plan.variant_projection
-                                                                       : nullptr));
+                                                                       : nullptr),
+                profile);
     case ParquetColumnSchemaKind::STRUCT: {
         const auto& structure = assert_cast<const ColumnStruct&>(*physical);
         if (structure.tuple_size() != plan.children.size()) {
@@ -773,7 +800,8 @@ ColumnPtr transform_non_nullable(const VariantMaterializationNode& plan, ColumnP
         Columns fields;
         fields.reserve(plan.children.size());
         for (size_t i = 0; i < plan.children.size(); ++i) {
-            fields.push_back(transform_node(*plan.children[i], structure.get_column_ptr(i)));
+            fields.push_back(
+                    transform_node(*plan.children[i], structure.get_column_ptr(i), profile));
         }
         return ColumnStruct::create(std::move(fields));
     }
@@ -782,7 +810,7 @@ ColumnPtr transform_non_nullable(const VariantMaterializationNode& plan, ColumnP
         if (plan.children.size() != 1) {
             throw Exception(ErrorCode::CORRUPTION, "Projected Parquet ARRAY plan is invalid");
         }
-        auto values = transform_node(*plan.children[0], array.get_data_ptr());
+        auto values = transform_node(*plan.children[0], array.get_data_ptr(), profile);
         return ColumnArray::create(std::move(values), array.get_offsets_ptr());
     }
     case ParquetColumnSchemaKind::MAP: {
@@ -790,15 +818,16 @@ ColumnPtr transform_non_nullable(const VariantMaterializationNode& plan, ColumnP
         if (plan.children.size() != 2) {
             throw Exception(ErrorCode::CORRUPTION, "Projected Parquet MAP plan is invalid");
         }
-        auto keys = transform_node(*plan.children[0], map.get_keys_ptr());
-        auto values = transform_node(*plan.children[1], map.get_values_ptr());
+        auto keys = transform_node(*plan.children[0], map.get_keys_ptr(), profile);
+        auto values = transform_node(*plan.children[1], map.get_values_ptr(), profile);
         return ColumnMap::create(std::move(keys), std::move(values), map.get_offsets_ptr());
     }
     }
     throw Exception(ErrorCode::INTERNAL_ERROR, "Unknown Parquet schema kind");
 }
 
-ColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physical) {
+ColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physical,
+                         const ParquetColumnReaderProfile& profile) {
     if (plan.schema == nullptr) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "Parquet Variant materialization plan is null");
     }
@@ -811,13 +840,14 @@ ColumnPtr transform_node(const VariantMaterializationNode& plan, ColumnPtr physi
                                   plan.variant_projection ? &*plan.variant_projection : nullptr),
                 std::move(physical),
                 !format::is_partial_projection(plan.variant_projection ? &*plan.variant_projection
-                                                                       : nullptr));
+                                                                       : nullptr),
+                profile);
     }
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*physical)) {
-        auto nested = transform_non_nullable(plan, nullable->get_nested_column_ptr());
+        auto nested = transform_non_nullable(plan, nullable->get_nested_column_ptr(), profile);
         return ColumnNullable::create(std::move(nested), nullable->get_null_map_column_ptr());
     }
-    return transform_non_nullable(plan, std::move(physical));
+    return transform_non_nullable(plan, std::move(physical), profile);
 }
 
 void append_compatible_column(IColumn& output, const IColumn& converted) {
@@ -1041,35 +1071,39 @@ std::shared_ptr<const ParquetColumnSchema> create_variant_state_schema(
 }
 
 Status materialize_variant_rows(const ParquetColumnSchema& schema, const IColumn& physical,
-                                MutableColumnPtr& output) {
-    return materialize_variant_rows(schema, physical.get_ptr(), output);
+                                MutableColumnPtr& output,
+                                const ParquetColumnReaderProfile& profile) {
+    return materialize_variant_rows(schema, physical.get_ptr(), output, profile);
 }
 
 Status materialize_variant_rows(const ParquetColumnSchema& schema, ColumnPtr physical,
-                                MutableColumnPtr& output) {
+                                MutableColumnPtr& output,
+                                const ParquetColumnReaderProfile& profile) {
     if (!output) {
         return Status::InvalidArgument("Parquet Variant output column is null");
     }
     RETURN_IF_CATCH_EXCEPTION({
         auto converted = build_variant_column(create_variant_state_schema(schema),
-                                              std::move(physical), true);
+                                              std::move(physical), true, profile);
         append_materialized_column(output, std::move(converted));
     });
     return Status::OK();
 }
 
 Status materialize_variant_columns(const VariantMaterializationNode& plan, const IColumn& physical,
-                                   MutableColumnPtr& output) {
-    return materialize_variant_columns(plan, physical.get_ptr(), output);
+                                   MutableColumnPtr& output,
+                                   const ParquetColumnReaderProfile& profile) {
+    return materialize_variant_columns(plan, physical.get_ptr(), output, profile);
 }
 
 Status materialize_variant_columns(const VariantMaterializationNode& plan, ColumnPtr physical,
-                                   MutableColumnPtr& output) {
+                                   MutableColumnPtr& output,
+                                   const ParquetColumnReaderProfile& profile) {
     if (!output) {
         return Status::InvalidArgument("Parquet Variant output column is null");
     }
     RETURN_IF_CATCH_EXCEPTION({
-        auto converted = transform_node(plan, std::move(physical));
+        auto converted = transform_node(plan, std::move(physical), profile);
         append_materialized_column(output, std::move(converted));
     });
     return Status::OK();

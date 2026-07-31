@@ -276,6 +276,29 @@ VExprContextSPtr variant_path_float_gt_conjunct(float literal_value) {
     gt->add_child(literal);
     return VExprContext::create_shared(std::move(gt));
 }
+
+VExprContextSPtr variant_path_string_gt_conjunct(std::string literal_value) {
+    auto slot = VSlotRef::create_shared(0, 0, -1,
+                                        make_nullable(std::make_shared<DataTypeVariantV2>()), "v");
+    auto key = VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                       Field::create_field<TYPE_STRING>("col"));
+    auto element_at = std::make_shared<VariantPathTestExpr>(
+            "element_at", make_nullable(std::make_shared<DataTypeVariantV2>()));
+    element_at->add_child(slot);
+    element_at->add_child(key);
+    auto comparison_type = std::make_shared<DataTypeString>();
+    auto cast = std::make_shared<VariantPathTestExpr>("CAST", make_nullable(comparison_type),
+                                                      TExprNodeType::CAST_EXPR);
+    cast->add_child(element_at);
+    auto literal = VLiteral::create_shared(
+            comparison_type, Field::create_field<TYPE_STRING>(std::move(literal_value)));
+    auto gt = std::make_shared<VariantPathTestExpr>("gt", std::make_shared<DataTypeUInt8>(),
+                                                    TExprNodeType::BINARY_PRED);
+    gt->add_child(cast);
+    gt->add_child(literal);
+    return VExprContext::create_shared(std::move(gt));
+}
+
 VExprContextSPtrs bloom_conjuncts(DataTypePtr data_type, std::vector<Field> values) {
     return {VExprContext::create_shared(
             std::make_shared<BloomInExpr>(0, std::move(data_type), std::move(values)))};
@@ -818,8 +841,8 @@ TEST(NativeParquetStatisticsTest, ZonemapPruningIgnoresDisabledSessionSwitch) {
     std::vector<format::parquet::RowRange> selected_ranges;
     std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
-                        metadata, page_indexes, schema, request, 1, &selected_ranges, &skip_plans,
-                        nullptr, nullptr, &state)
+                        metadata, metadata.row_groups[0], page_indexes, schema, request, 1,
+                        &selected_ranges, &skip_plans, nullptr, nullptr, &state)
                         .ok());
     EXPECT_TRUE(selected_ranges.empty());
 }
@@ -1045,9 +1068,14 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
     std::map<int, format::parquet::ParquetPageSkipPlan> skip_plans;
     format::parquet::ParquetPruningStats pruning_stats;
     ASSERT_TRUE(format::parquet::can_use_parquet_page_index(request, nullptr));
+    TQueryOptions query_options;
+    query_options.__set_enable_expr_zonemap_filter(false);
+    RuntimeState generic_zonemap_disabled {query_options, TQueryGlobals()};
+    EXPECT_TRUE(format::parquet::can_use_parquet_page_index(request, &generic_zonemap_disabled));
     ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
                         metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
-                        &selected_ranges, &skip_plans, &pruning_stats)
+                        &selected_ranges, &skip_plans, &pruning_stats, nullptr,
+                        &generic_zonemap_disabled)
                         .ok());
     ASSERT_EQ(selected_ranges.size(), 1);
     EXPECT_EQ(selected_ranges[0].start, 50);
@@ -1074,6 +1102,56 @@ TEST(NativeParquetStatisticsTest, ShreddedVariantTypedValueDrivesPageFiltering) 
     ASSERT_EQ(selected_ranges.size(), 1);
     EXPECT_EQ(selected_ranges[0].start, 0);
     EXPECT_EQ(selected_ranges[0].length, 100);
+
+    // Raw binary and UUID bounds are physical bytes, while the residual Variant-to-STRING cast
+    // compares their rendered values. Those domains differ, so neither footer nor page metadata
+    // may exclude a row solely from the raw byte interval.
+    auto assert_binary_identity_does_not_prune = [&](bool is_uuid) {
+        auto* binary_leaf = schema[0]->children[2]->children[0]->children[1].get();
+        binary_leaf->type = make_nullable(std::make_shared<DataTypeString>());
+        binary_leaf->type_descriptor = {};
+        binary_leaf->type_descriptor.doris_type = binary_leaf->type;
+        binary_leaf->type_descriptor.physical_type =
+                is_uuid ? tparquet::Type::FIXED_LEN_BYTE_ARRAY : tparquet::Type::BYTE_ARRAY;
+        binary_leaf->type_descriptor.fixed_length = is_uuid ? 16 : -1;
+        binary_leaf->type_descriptor.is_string_like = true;
+        binary_leaf->type_descriptor.is_uuid = is_uuid;
+
+        auto& binary_chunk = metadata.row_groups[0].columns[3].meta_data;
+        binary_chunk.__set_type(binary_leaf->type_descriptor.physical_type);
+        binary_chunk.statistics.__set_min_value("a");
+        binary_chunk.statistics.__set_max_value("b");
+        metadata.row_groups[0].columns[2].meta_data.statistics.__set_null_count(100);
+        request.conjuncts = {variant_path_string_gt_conjunct("z")};
+        ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                            metadata, schema, request, nullptr, &selected_row_groups, false,
+                            nullptr, nullptr, nullptr, nullptr, {},
+                            format::parquet::ParquetMetadataProbeMode::FOOTER_ONLY)
+                            .ok());
+        EXPECT_EQ(selected_row_groups, std::vector<int>({0}));
+
+        format::parquet::NativeParquetPageIndex binary_pages;
+        binary_pages.column_index.__set_min_values({"a"});
+        binary_pages.column_index.__set_max_values({"b"});
+        binary_pages.column_index.__set_null_pages({false});
+        binary_pages.column_index.__set_null_counts({0});
+        tparquet::PageLocation binary_location;
+        binary_location.__set_offset(0);
+        binary_location.__set_compressed_page_size(10);
+        binary_location.__set_first_row_index(0);
+        binary_pages.offset_index.__set_page_locations({binary_location});
+        page_indexes.clear();
+        page_indexes.emplace(3, std::move(binary_pages));
+        ASSERT_TRUE(format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, metadata.row_groups[0], page_indexes, schema, request, 100,
+                            &selected_ranges, &skip_plans, nullptr)
+                            .ok());
+        ASSERT_EQ(selected_ranges.size(), 1);
+        EXPECT_EQ(selected_ranges[0].start, 0);
+        EXPECT_EQ(selected_ranges[0].length, 100);
+    };
+    assert_binary_identity_does_not_prune(false);
+    assert_binary_identity_does_not_prune(true);
 
     // Parquet floating min/max omits NaN values. Without an explicit no-NaN proof, [0, NaN]
     // cannot be represented by max=0 and must not prune a Variant comparison that retains NaN.

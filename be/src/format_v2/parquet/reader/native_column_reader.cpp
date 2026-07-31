@@ -431,8 +431,8 @@ Status NativeColumnReader::read_with_filter(int64_t rows, const uint8_t* filter_
         // The shredded state owns this decoded batch. Replace scanner scratch before handing the
         // pointer off so typed path expressions can retain its physical leaves without a copy.
         _variant_physical_column = _native_type->create_column();
-        RETURN_IF_ERROR(
-                materialize_variant_columns(*_variant_plan, std::move(native_column), column));
+        RETURN_IF_ERROR(materialize_variant_columns(*_variant_plan, std::move(native_column),
+                                                    column, _profile));
     } else {
         column = IColumn::mutate(std::move(native_column));
     }

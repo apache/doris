@@ -948,7 +948,21 @@ bool native_metadata_predicate_is_type_safe(const ParquetColumnSchema& column_sc
     DORIS_CHECK(column_schema.type != nullptr);
     // Raw VARBINARY file slots may feed table-side STRING casts. Footer/page metadata is still in
     // the pre-cast domain, so using it for a rewritten table predicate can cause false negatives.
-    return remove_nullable(column_schema.type)->get_primitive_type() != TYPE_VARBINARY;
+    if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_VARBINARY) {
+        return false;
+    }
+    // UUID readers render canonical text, so their physical 16-byte bounds are not STRING bounds.
+    return !column_schema.type_descriptor.is_uuid;
+}
+
+bool variant_metadata_predicate_is_type_safe(const ParquetColumnSchema& column_schema) {
+    if (!native_metadata_predicate_is_type_safe(column_schema)) {
+        return false;
+    }
+    const auto& descriptor = column_schema.type_descriptor;
+    // An ordinary raw-binary STRING slot preserves its bytes, but Variant reconstruction renders
+    // the binary identity before the residual STRING cast and therefore changes the domain.
+    return !descriptor.is_string_like || descriptor.is_string_annotation;
 }
 
 bool check_native_statistics(const tparquet::FileMetaData& metadata,
@@ -1009,7 +1023,7 @@ bool check_shredded_variant_statistics(
         if (!shredding.has_value() || shredding->typed_value->leaf_column_id < 0 ||
             shredding->typed_value->leaf_column_id >= static_cast<int>(row_group.columns.size()) ||
             !fallback_is_all_null(row_group, *shredding->fallback_value) ||
-            !native_metadata_predicate_is_type_safe(*shredding->typed_value) ||
+            !variant_metadata_predicate_is_type_safe(*shredding->typed_value) ||
             !detail::has_supported_type_defined_order(metadata,
                                                       shredding->typed_value->leaf_column_id)) {
             continue;
@@ -1703,7 +1717,7 @@ Status select_row_group_ranges_by_native_page_index(
         const auto shredding = resolve_variant_shredding(file_schema, request, *predicate);
         if (!shredding.has_value() || shredding->typed_value->leaf_column_id < 0 ||
             !fallback_is_all_null(row_group, *shredding->fallback_value) ||
-            !native_metadata_predicate_is_type_safe(*shredding->typed_value) ||
+            !variant_metadata_predicate_is_type_safe(*shredding->typed_value) ||
             !detail::has_supported_type_defined_order(metadata,
                                                       shredding->typed_value->leaf_column_id)) {
             continue;

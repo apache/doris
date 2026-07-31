@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "format_v2/column_data.h"
+#include "format_v2/parquet/parquet_profile.h"
 
 namespace doris::format::parquet {
 
@@ -48,15 +49,19 @@ std::shared_ptr<const ParquetColumnSchema> create_variant_state_schema(
 // SQL NULL is represented by the wrapper's outer null map; a present wrapper with neither value nor
 // typed_value is the Variant null value.
 Status materialize_variant_rows(const ParquetColumnSchema& schema, const IColumn& physical,
-                                MutableColumnPtr& output);
+                                MutableColumnPtr& output,
+                                const ParquetColumnReaderProfile& profile = {});
 Status materialize_variant_rows(const ParquetColumnSchema& schema, ColumnPtr physical,
-                                MutableColumnPtr& output);
+                                MutableColumnPtr& output,
+                                const ParquetColumnReaderProfile& profile = {});
 
 // Recursively replaces projected VARIANT nodes inside STRUCT/LIST/MAP columns while preserving the
 // surrounding column shape, offsets, and null maps. The destination is unchanged on decode errors.
 Status materialize_variant_columns(const VariantMaterializationNode& plan, const IColumn& physical,
-                                   MutableColumnPtr& output);
+                                   MutableColumnPtr& output,
+                                   const ParquetColumnReaderProfile& profile = {});
 Status materialize_variant_columns(const VariantMaterializationNode& plan, ColumnPtr physical,
-                                   MutableColumnPtr& output);
+                                   MutableColumnPtr& output,
+                                   const ParquetColumnReaderProfile& profile = {});
 
 } // namespace doris::format::parquet
