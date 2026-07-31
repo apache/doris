@@ -95,16 +95,41 @@ TEST_F(DNSCacheTest, success_keeps_cache_stable) {
     EXPECT_EQ(1u, cache.size_for_test());
 }
 
-// The eviction config can be disabled by setting threshold <= 0 (legacy behavior).
-// In legacy mode, an unresolvable hostname on first access is still not cached,
-// matching the pre-fix semantics for callers.
+// The eviction config can be disabled by setting threshold <= 0 (legacy behavior):
+// a cached host whose DNS record disappears keeps serving its stale IP forever,
+// exactly as it did before this fix.  Drive many refresh cycles (well past any
+// plausible threshold) and assert the entry is never dropped.
 TEST_F(DNSCacheTest, eviction_disabled_when_threshold_zero) {
     config::dns_cache_max_consecutive_failures = 0;
-    DNSCache cache;
+
+    bool should_fail = false;
+    DNSCache cache(make_resolver(&should_fail));
+
+    // Populate the cache with one successful resolution.
     std::string ip;
-    Status st = cache.get("another-non-existent.invalid", &ip);
-    EXPECT_FALSE(st.ok());
-    EXPECT_EQ(0u, cache.size_for_test());
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+    ASSERT_EQ("1.2.3.4", ip);
+    ASSERT_EQ(1u, cache.size_for_test());
+
+    // DNS now fails permanently.
+    should_fail = true;
+
+    // Far more cycles than the default threshold (30) would need to evict.
+    for (int i = 0; i < 50; ++i) {
+        cache.refresh_for_test();
+        ASSERT_EQ(1u, cache.size_for_test())
+                << "eviction must be disabled when threshold <= 0 (cycle " << i << ")";
+    }
+
+    // No tombstone was written, and callers still get the stale IP.
+    EXPECT_EQ(0u, cache.negative_cache_size_for_test());
+    ip.clear();
+    EXPECT_TRUE(cache.get("fake-host.test", &ip).ok())
+            << "legacy mode must keep serving the cached ip";
+    EXPECT_EQ("1.2.3.4", ip);
+
+    // The failure counter still accumulates; only the eviction action is disabled.
+    EXPECT_GT(cache.failure_count_for_test("fake-host.test"), 0u);
 }
 
 // ── new tests for eviction logic ─────────────────────────────────────────────
