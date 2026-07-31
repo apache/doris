@@ -23,7 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
@@ -175,7 +175,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     private void deleteExistingFilesInFE(String tvfName, Map<String, String> props)
             throws Exception {
-        // Copy props for building StorageProperties (exclude write-specific params)
+        // Copy props for building the storage adapter (exclude write-specific params)
         Map<String, String> fsCopyProps = new HashMap<>(props);
         fsCopyProps.remove("file_path");
         fsCopyProps.remove("format");
@@ -186,14 +186,14 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compression_type");
         fsCopyProps.remove("compress_type");
 
-        StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
+        StorageAdapter storageAdapter = StorageAdapter.of(fsCopyProps);
         // Concrete filesystems only accept their native schemes; normalize legacy compatibility
         // schemes (e.g. cos:// with s3.* properties) before crossing the plugin boundary.
-        String filePath = storageProps.validateAndNormalizeUri(props.get("file_path"));
+        String filePath = storageAdapter.validateAndNormalizeUri(props.get("file_path"));
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
         String parentDir = FileSystemUtil.extractParentDirectory(filePath);
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
-        try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageProps)) {
+        try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageAdapter)) {
             fs.delete(Location.of(parentDir), true);
         } catch (java.io.IOException e) {
             throw new UserException("Failed to delete existing files in " + parentDir + ": " + e.getMessage());

@@ -21,8 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -76,14 +74,15 @@ import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
@@ -237,11 +236,11 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
                 logicalSubQueryAlias().thenApply(this::bindSubqueryAlias)
             ),
-            RuleType.BINDING_ICEBERG_DELETE_SINK_OUTPUT.build(
-                logicalIcebergDeleteSink().thenApply(this::bindIcebergDeleteSink)
+            RuleType.BINDING_EXTERNAL_ROW_LEVEL_DELETE_SINK_OUTPUT.build(
+                logicalExternalRowLevelDeleteSink().thenApply(this::bindIcebergDeleteSink)
             ),
-            RuleType.BINDING_ICEBERG_MERGE_SINK_OUTPUT.build(
-                logicalIcebergMergeSink().thenApply(this::bindIcebergMergeSink)
+            RuleType.BINDING_EXTERNAL_ROW_LEVEL_MERGE_SINK_OUTPUT.build(
+                logicalExternalRowLevelMergeSink().thenApply(this::bindIcebergMergeSink)
             ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().thenApply(this::bindResultSink)
@@ -273,9 +272,9 @@ public class BindExpression implements AnalysisRuleFactory {
         return ctx.root;
     }
 
-    private LogicalIcebergDeleteSink<Plan> bindIcebergDeleteSink(
-            MatchingContext<LogicalIcebergDeleteSink<Plan>> ctx) {
-        LogicalIcebergDeleteSink<Plan> sink = ctx.root;
+    private LogicalExternalRowLevelDeleteSink<Plan> bindIcebergDeleteSink(
+            MatchingContext<LogicalExternalRowLevelDeleteSink<Plan>> ctx) {
+        LogicalExternalRowLevelDeleteSink<Plan> sink = ctx.root;
         if (hasUnboundPlan(sink.child())) {
             return sink;
         }
@@ -288,9 +287,9 @@ public class BindExpression implements AnalysisRuleFactory {
         return sink.withOutputExprs(outputExprs);
     }
 
-    private LogicalIcebergMergeSink<Plan> bindIcebergMergeSink(
-            MatchingContext<LogicalIcebergMergeSink<Plan>> ctx) {
-        LogicalIcebergMergeSink<Plan> sink = ctx.root;
+    private LogicalExternalRowLevelMergeSink<Plan> bindIcebergMergeSink(
+            MatchingContext<LogicalExternalRowLevelMergeSink<Plan>> ctx) {
+        LogicalExternalRowLevelMergeSink<Plan> sink = ctx.root;
         if (hasUnboundPlan(sink.child())) {
             return sink;
         }
@@ -300,9 +299,17 @@ public class BindExpression implements AnalysisRuleFactory {
         List<Column> visibleColumns = sink.getCols().stream()
                 .filter(Column::isVisible)
                 .collect(ImmutableList.toImmutableList());
+        // The connector-reserved passthrough columns (iceberg v3 row-lineage) are the hidden target columns
+        // marked reservedPassthrough. Derive their names from the sink's target schema so the meta-column
+        // check below stays name-based here (this site sees output-expression names, not Column objects) while
+        // fe-core no longer string-matches the iceberg column names.
+        List<String> reservedPassthroughNames = sink.getCols().stream()
+                .filter(Column::isReservedPassthrough)
+                .map(Column::getName)
+                .collect(ImmutableList.toImmutableList());
         int dataExprCount = 0;
         for (NamedExpression expr : outputExprs) {
-            if (!isIcebergMergeMetaColumn(expr.getName())) {
+            if (!isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
                 dataExprCount++;
             }
         }
@@ -317,7 +324,7 @@ public class BindExpression implements AnalysisRuleFactory {
         int columnIndex = 0;
         List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
         for (NamedExpression expr : outputExprs) {
-            if (isIcebergMergeMetaColumn(expr.getName())) {
+            if (isIcebergMergeMetaColumn(expr.getName(), reservedPassthroughNames)) {
                 castExprs.add(expr);
                 continue;
             }
@@ -345,17 +352,20 @@ public class BindExpression implements AnalysisRuleFactory {
             return sink.withOutputExprs(outputExprs);
         }
         LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
-        return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+        return (LogicalExternalRowLevelMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
     }
 
-    private boolean isIcebergMergeMetaColumn(String name) {
-        if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+    private boolean isIcebergMergeMetaColumn(String name, List<String> reservedPassthroughNames) {
+        if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
             return true;
         }
         if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
             return true;
         }
-        return IcebergUtils.isIcebergRowLineageColumn(name);
+        // Connector-reserved passthrough columns (iceberg v3 row-lineage), matched case-insensitively by name
+        // — the names come from the sink's target Columns marked reservedPassthrough, so fe-core no longer
+        // knows the iceberg column names. The reserved set is tiny (0-2), so a linear scan is fine.
+        return reservedPassthroughNames.stream().anyMatch(n -> n.equalsIgnoreCase(name));
     }
 
     private static boolean hasUnboundPlan(Plan plan) {

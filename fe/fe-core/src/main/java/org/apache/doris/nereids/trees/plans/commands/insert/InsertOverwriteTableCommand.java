@@ -26,11 +26,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.insertoverwrite.RemoteInsertOverwriteManager;
@@ -39,9 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -61,7 +58,6 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -140,7 +136,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         // check allow insert overwrite
         if (!allowInsertOverwrite(targetTableIf)) {
-            String errMsg = "insert into overwrite only support OLAP/Remote OLAP and HMS/ICEBERG table."
+            String errMsg = "insert into overwrite only support OLAP/Remote OLAP table and external"
+                    + " tables (HMS/Iceberg, or a plugin-driven connector that supports overwrite)."
                     + " But current table type is " + targetTableIf.getType();
             LOG.error(errMsg);
             throw new AnalysisException(errMsg);
@@ -216,8 +213,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             partitionNames = new ArrayList<>();
         }
 
-        // check branch
-        if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)) {
+        // check branch: only iceberg supports INSERT OVERWRITE into a named branch. An iceberg table is
+        // plugin-driven, so admit it via the connector's supportsWriteBranch() capability — without which
+        // the branch would be silently dropped and the overwrite would land on the table's default ref.
+        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTable)) {
             throw new AnalysisException(
                     "Only support insert overwrite into iceberg table's branch");
         }
@@ -315,10 +314,36 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTable instanceof OlapTable || targetTable instanceof RemoteDorisExternalTable) {
             return true;
         } else {
-            return targetTable instanceof HMSExternalTable
-                    || targetTable instanceof IcebergExternalTable
-                    || targetTable instanceof MaxComputeExternalTable;
+            return targetTable instanceof PluginDrivenExternalTable
+                    && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable);
         }
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table supports INSERT OVERWRITE only if its connector
+     * declares the capability. Connectors that support plain INSERT but not overwrite (e.g. jdbc)
+     * must be rejected here so the command fails loud, rather than reaching the sink and silently
+     * degrading OVERWRITE to a plain append. Mirrors the connector-access pattern in
+     * {@code PhysicalPlanTranslator}.
+     */
+    private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
+        // Per-handle write-op probe (a heterogeneous gateway answers per-table; OVERWRITE happens to be admitted
+        // by both hive and iceberg, but the probe is resolved uniformly with the other write-op admission gates).
+        return table.connectorSupportedWriteOperations().contains(WriteOperation.OVERWRITE);
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table accepts an {@code INSERT OVERWRITE t@branch(name)} only if
+     * its connector declares {@code supportsWriteBranch()}. Connectors with no branch concept must be
+     * rejected here (fail loud) instead of reaching the generic sink, which would silently drop the
+     * branch and overwrite the table's default ref. Mirrors {@code pluginConnectorSupportsInsertOverwrite}.
+     */
+    private static boolean pluginConnectorSupportsWriteBranch(TableIf targetTable) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return false;
+        }
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
@@ -364,39 +389,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             // 2. we save and pass overwrite auto detect by insertCtx
             boolean allowAutoPartition = wholeTable && ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
             insertCtx = new OlapInsertCommandContext(allowAutoPartition, true);
-        } else if (logicalQuery instanceof UnboundHiveTableSink) {
-            UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
-            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
-                    sink.getNameParts(),
-                    sink.getColNames(),
-                    sink.getHints(),
-                    false,
-                    sink.getPartitions(),
-                    false,
-                    TPartialUpdateNewRowPolicy.APPEND,
-                    sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)));
-            insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
-        } else if (logicalQuery instanceof UnboundIcebergTableSink) {
-            UnboundIcebergTableSink<?> sink = (UnboundIcebergTableSink<?>) logicalQuery;
-            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
-                    sink.getNameParts(),
-                    sink.getColNames(),
-                    sink.getHints(),
-                    false,
-                    sink.getPartitions(),
-                    false,
-                    TPartialUpdateNewRowPolicy.APPEND,
-                    sink.getDMLCommandType(),
-                    (LogicalPlan) (sink.child(0)),
-                    sink.getStaticPartitionKeyValues());
-            insertCtx = new IcebergInsertCommandContext();
-            ((IcebergInsertCommandContext) insertCtx).setOverwrite(true);
-            setStaticPartitionToContext(sink, (IcebergInsertCommandContext) insertCtx);
-            branchName.ifPresent(notUsed -> ((IcebergInsertCommandContext) insertCtx).setBranchName(branchName));
-        } else if (logicalQuery instanceof UnboundMaxComputeTableSink) {
-            UnboundMaxComputeTableSink<?> sink = (UnboundMaxComputeTableSink<?>) logicalQuery;
+        } else if (logicalQuery instanceof UnboundConnectorTableSink) {
+            UnboundConnectorTableSink<?> sink = (UnboundConnectorTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
                     sink.getNameParts(), sink.getColNames(), sink.getHints(),
                     false, sink.getPartitions(), false,
@@ -404,8 +398,12 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)),
                     sink.getStaticPartitionKeyValues());
-            MCInsertCommandContext mcCtx = new MCInsertCommandContext();
-            mcCtx.setOverwrite(true);
+            PluginDrivenInsertCommandContext pluginCtx = new PluginDrivenInsertCommandContext();
+            pluginCtx.setOverwrite(true);
+            // Thread the @branch target onto the generic write context (the inner InsertIntoTableCommand
+            // reuses this ctx) so the connector points the overwrite commit at the branch. The guard above
+            // already rejected @branch for connectors without supportsWriteBranch().
+            branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
             if (sink.hasStaticPartition()) {
                 Map<String, String> staticSpec = Maps.newHashMap();
                 for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
@@ -413,9 +411,9 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                         staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
                     }
                 }
-                mcCtx.setStaticPartitionSpec(staticSpec);
+                pluginCtx.setStaticPartitionSpec(staticSpec);
             }
-            insertCtx = mcCtx;
+            insertCtx = pluginCtx;
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }
@@ -437,34 +435,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             boolean allowAutoPartition = ctx.getSessionVariable().isEnableAutoCreateWhenOverwrite();
             insertCtx = new OlapInsertCommandContext(allowAutoPartition,
                     ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId, true);
-        } else if (logicalQuery instanceof UnboundHiveTableSink) {
-            insertCtx = new HiveInsertCommandContext();
-            ((HiveInsertCommandContext) insertCtx).setOverwrite(true);
         } else {
             throw new UserException("Current catalog does not support insert overwrite with auto-detect partition.");
         }
         runInsertCommand(logicalQuery, insertCtx, ctx, executor);
-    }
-
-    /**
-     * Extract static partition information from sink and set to context.
-     */
-    private void setStaticPartitionToContext(UnboundIcebergTableSink<?> sink,
-            IcebergInsertCommandContext insertCtx) {
-        if (sink.hasStaticPartition()) {
-            Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
-            Map<String, String> staticPartitionValues = Maps.newHashMap();
-            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                Expression expr = entry.getValue();
-                if (expr instanceof Literal) {
-                    staticPartitionValues.put(entry.getKey(), ((Literal) expr).getStringValue());
-                } else {
-                    throw new AnalysisException(
-                            String.format("Static partition value must be a literal, but got: %s", expr));
-                }
-            }
-            insertCtx.setStaticPartitionValues(staticPartitionValues);
-        }
     }
 
     @Override

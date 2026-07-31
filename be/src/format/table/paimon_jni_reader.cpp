@@ -42,8 +42,8 @@ constexpr std::string_view PAIMON_JNI_SCANNER_IO_TMP_DIR = "paimon_jni_scanner_i
 
 const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
 const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
-const std::string PaimonJniReader::DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
-const std::string PaimonJniReader::DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+const std::string PaimonJniReader::DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+const std::string PaimonJniReader::DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
 
 PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                  RuntimeState* state, RuntimeProfile* profile,

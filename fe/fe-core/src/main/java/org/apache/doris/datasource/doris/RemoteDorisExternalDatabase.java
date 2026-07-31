@@ -19,7 +19,7 @@ package org.apache.doris.datasource.doris;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
 
 public class RemoteDorisExternalDatabase extends ExternalDatabase<RemoteDorisExternalTable> {
     public RemoteDorisExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {

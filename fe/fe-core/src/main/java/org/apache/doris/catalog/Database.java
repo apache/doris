@@ -1049,6 +1049,26 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return binlogConfig;
     }
 
+    /**
+     * Get the database binlog config snapshot and the effective table binlog config for creating a table.
+     *
+     * <p>The first value is the database binlog config snapshot, and the second value is the effective
+     * table binlog config after applying table properties.
+     */
+    public Pair<BinlogConfig, BinlogConfig> getBinlogConfigsForCreateTable(
+            Map<String, String> tableProperties) {
+        BinlogConfig dbBinlogConfig;
+        readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(binlogConfig);
+        } finally {
+            readUnlock();
+        }
+        BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
+        createTableBinlogConfig.mergeFromProperties(tableProperties);
+        return Pair.of(dbBinlogConfig, createTableBinlogConfig);
+    }
+
     public void checkStorageVault(Map<String, String> properties) throws DdlException {
         Env env = Env.getCurrentEnv();
         if (!Config.isCloudMode() || !((CloudEnv) env).getEnableStorageVault()) {
