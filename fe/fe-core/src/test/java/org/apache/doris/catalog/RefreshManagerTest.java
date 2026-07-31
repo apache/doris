@@ -28,7 +28,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
-import org.apache.doris.datasource.log.InitDatabaseLog;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
@@ -408,7 +407,7 @@ public class RefreshManagerTest {
         private final AtomicInteger buildTableCalls = new AtomicInteger();
 
         PluginDatabase(ExternalCatalog catalog, long id, String name, String remoteName) {
-            super(catalog, id, name, remoteName, InitDatabaseLog.Type.TEST);
+            super(catalog, id, name, remoteName);
         }
 
         @Override

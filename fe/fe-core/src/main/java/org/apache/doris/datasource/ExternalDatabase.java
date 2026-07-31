@@ -33,7 +33,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.log.InitDatabaseLog;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.IdNameIndex;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
