@@ -379,98 +379,102 @@ public class StreamingJobUtils {
         }
 
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
-        String database = getRemoteDbName(sourceType, properties);
-        List<String> tablesNameList = jdbcClient.getTablesNameList(database);
-        if (tablesNameList.isEmpty()) {
-            throw new JobException("No tables found in database " + database);
-        }
-        Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
+        try {
+            String database = getRemoteDbName(sourceType, properties);
+            List<String> tablesNameList = jdbcClient.getTablesNameList(database);
+            if (tablesNameList.isEmpty()) {
+                throw new JobException("No tables found in database " + database);
+            }
+            Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
 
-        List<String> noPrimaryKeyTables = new ArrayList<>();
-        for (String table : tablesNameList) {
-            if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
-                log.info("Skip table {} in database {} as it does not in include_tables {}", table, database,
-                        includeTables);
-                continue;
+            List<String> noPrimaryKeyTables = new ArrayList<>();
+            for (String table : tablesNameList) {
+                if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
+                    log.info("Skip table {} in database {} as it does not in include_tables {}", table, database,
+                            includeTables);
+                    continue;
+                }
+
+                // if set include_tables, exclude_tables is ignored
+                if (includeTablesList.isEmpty()
+                        && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
+                    log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
+                            excludeTables);
+                    continue;
+                }
+
+                List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
+                List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
+                if (primaryKeys.isEmpty()) {
+                    noPrimaryKeyTables.add(table);
+                }
+
+                // Resolve target (Doris) table name; defaults to source table name if not configured
+                String targetTableName = properties.getOrDefault(
+                        DataSourceConfigKeys.TABLE + "." + table + "."
+                                + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
+                        table).trim();
+
+                // Validate and apply exclude_columns for this table
+                Set<String> excludeColumns = parseExcludeColumns(properties, table);
+                if (!excludeColumns.isEmpty()) {
+                    validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
+                    columns = columns.stream()
+                            .filter(col -> !excludeColumns.contains(col.getName()))
+                            .collect(Collectors.toList());
+                }
+
+                // Convert Column to ColumnDefinition
+                List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
+                    DataType dataType = DataType.fromCatalogType(col.getType());
+                    return new ColumnDefinition(col.getName(), dataType, col.isAllowNull(), col.getComment());
+                }).collect(Collectors.toList());
+
+                // Create DistributionDescriptor
+                DistributionDescriptor distribution = new DistributionDescriptor(
+                        true, // isHash
+                        true, // isAutoBucket
+                        FeConstants.default_bucket_num,
+                        primaryKeys
+                );
+
+                // Create CreateTableInfo
+                CreateTableInfo createtblInfo = new CreateTableInfo(
+                        true, // ifNotExists
+                        false, // isExternal
+                        false, // isTemp
+                        InternalCatalog.INTERNAL_CATALOG_NAME, // ctlName
+                        targetDb, // dbName
+                        targetTableName, // tableName
+                        columnDefinitions, // columns
+                        ImmutableList.of(), // indexes
+                        "olap", // engineName
+                        KeysType.UNIQUE_KEYS, // keysType
+                        primaryKeys, // keys
+                        "", // comment
+                        PartitionTableInfo.EMPTY, // partitionTableInfo
+                        distribution, // distribution
+                        ImmutableList.of(), // rollups
+                        new HashMap<>(tableCreateProperties), // properties
+                        ImmutableMap.of(), // extProperties
+                        ImmutableList.of() // clusterKeyColumnNames
+                );
+                CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
+                // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
+                createtblCmds.put(table, createtblCmd);
+            }
+            if (createtblCmds.isEmpty()) {
+                throw new JobException("Can not found match table in database " + database);
             }
 
-            // if set include_tables, exclude_tables is ignored
-            if (includeTablesList.isEmpty()
-                    && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
-                log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
-                        excludeTables);
-                continue;
+            if (!noPrimaryKeyTables.isEmpty()) {
+                throw new JobException("The following tables do not have primary key defined: "
+                        + String.join(", ", noPrimaryKeyTables));
             }
-
-            List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
-            List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
-            if (primaryKeys.isEmpty()) {
-                noPrimaryKeyTables.add(table);
-            }
-
-            // Resolve target (Doris) table name; defaults to source table name if not configured
-            String targetTableName = properties.getOrDefault(
-                    DataSourceConfigKeys.TABLE + "." + table + "."
-                            + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
-                    table).trim();
-
-            // Validate and apply exclude_columns for this table
-            Set<String> excludeColumns = parseExcludeColumns(properties, table);
-            if (!excludeColumns.isEmpty()) {
-                validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
-                columns = columns.stream()
-                        .filter(col -> !excludeColumns.contains(col.getName()))
-                        .collect(Collectors.toList());
-            }
-
-            // Convert Column to ColumnDefinition
-            List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
-                DataType dataType = DataType.fromCatalogType(col.getType());
-                return new ColumnDefinition(col.getName(), dataType, col.isAllowNull(), col.getComment());
-            }).collect(Collectors.toList());
-
-            // Create DistributionDescriptor
-            DistributionDescriptor distribution = new DistributionDescriptor(
-                    true, // isHash
-                    true, // isAutoBucket
-                    FeConstants.default_bucket_num,
-                    primaryKeys
-            );
-
-            // Create CreateTableInfo
-            CreateTableInfo createtblInfo = new CreateTableInfo(
-                    true, // ifNotExists
-                    false, // isExternal
-                    false, // isTemp
-                    InternalCatalog.INTERNAL_CATALOG_NAME, // ctlName
-                    targetDb, // dbName
-                    targetTableName, // tableName
-                    columnDefinitions, // columns
-                    ImmutableList.of(), // indexes
-                    "olap", // engineName
-                    KeysType.UNIQUE_KEYS, // keysType
-                    primaryKeys, // keys
-                    "", // comment
-                    PartitionTableInfo.EMPTY, // partitionTableInfo
-                    distribution, // distribution
-                    ImmutableList.of(), // rollups
-                    new HashMap<>(tableCreateProperties), // properties
-                    ImmutableMap.of(), // extProperties
-                    ImmutableList.of() // clusterKeyColumnNames
-            );
-            CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
-            // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
-            createtblCmds.put(table, createtblCmd);
+            return createtblCmds;
+        } finally {
+            jdbcClient.closeClient();
         }
-        if (createtblCmds.isEmpty()) {
-            throw new JobException("Can not found match table in database " + database);
-        }
-
-        if (!noPrimaryKeyTables.isEmpty()) {
-            throw new JobException("The following tables do not have primary key defined: "
-                    + String.join(", ", noPrimaryKeyTables));
-        }
-        return createtblCmds;
     }
 
     public static List<Column> getColumns(JdbcClient jdbcClient,
